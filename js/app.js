@@ -542,7 +542,10 @@ function calcTotales() {
 
 // Cuenta dropdown search
 window.openCuentaDD = (lid, input) => {
+  // Close any other open dropdowns first
+  document.querySelectorAll('.cuenta-dropdown.open').forEach(d => d.classList.remove('open'))
   filterCuentas(lid, input.value)
+  positionDropdown(lid, input)
   document.getElementById('dd-' + lid).classList.add('open')
   // Close on outside click
   setTimeout(() => {
@@ -556,18 +559,29 @@ window.openCuentaDD = (lid, input) => {
   }, 100)
 }
 
+function positionDropdown(lid, input) {
+  const dd = document.getElementById('dd-' + lid)
+  const rect = input.getBoundingClientRect()
+  dd.style.top = (rect.bottom + 2) + 'px'
+  dd.style.left = rect.left + 'px'
+  dd.style.width = Math.max(rect.width, 340) + 'px'
+}
+
 window.filterCuentas = (lid, query) => {
   const dd = document.getElementById('dd-' + lid)
   const q = (query || '').toLowerCase()
   const filtered = cuentasDetalle.filter(c =>
     c.codigo.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q)
-  ).slice(0, 15)
+  ).slice(0, 30)
   dd.innerHTML = filtered.length ? filtered.map(c => `
     <div class="cuenta-opt" onclick="selectCuenta(${lid},'${c.id}','${c.codigo}','${c.nombre.replace(/'/g,'')}')">
       <span><span class="cc-code">${c.codigo}</span>${c.nombre}</span>
       <span class="cc-tipo">${c.tipo}</span>
     </div>`).join('') : '<div style="padding:12px;color:var(--text3);font-size:12px">No se encontraron cuentas</div>'
   dd.classList.add('open')
+  // Reposition in case content scrolled
+  const input = document.querySelector(`input[data-lid="${lid}"]`)
+  if (input) positionDropdown(lid, input)
 }
 
 window.selectCuenta = (lid, cid, codigo, nombre) => {
@@ -1041,4 +1055,3 @@ async function initCajaBadge() {
     await updateCajaBadge()
   }
 }
-
