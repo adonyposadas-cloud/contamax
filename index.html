@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CONTAMAX · Sistema Contable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading-overlay">
+  <div class="brand">CONTAMAX</div>
+  <div class="spinner"></div>
+  <div class="sub">INICIANDO SISTEMA</div>
+</div>
+
+<!-- LOGIN -->
+<div id="login-screen" class="screen">
+  <div class="login-glow"></div>
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-brand">CONTAMAX</div>
+      <div class="login-sub">Sistema Contable · Tecnimax</div>
+      <div class="login-divider"></div>
+    </div>
+    <div class="field">
+      <label>Correo electrónico</label>
+      <input type="email" id="login-email" placeholder="correo@empresa.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="btn-primary" id="btn-login" onclick="doLogin()">
+      <span id="login-label">Ingresar al sistema</span>
+    </button>
+    <div id="login-error" class="login-error hidden"></div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main-screen" class="screen">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-brand">CONTAMAX</span>
+      <span class="topbar-sep">·</span>
+      <span class="topbar-module" id="topbar-module">Cargando...</span>
+    </div>
+    <div class="topbar-right">
+      <div class="user-pill">
+        <div class="avatar" id="top-avatar">--</div>
+        <span class="user-name" id="top-name">--</span>
+        <span class="role-badge" id="top-role">--</span>
+      </div>
+      <button class="btn-logout" onclick="doLogout()">Salir</button>
+    </div>
+  </div>
+  <div class="layout">
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Principal</div>
+        <div class="nav-item" id="nav-usuarios" onclick="showView('usuarios','Gestión de usuarios')">
+          <span class="nav-dot"></span>Usuarios
+        </div>
+        <div class="nav-item" id="nav-compras" onclick="showView('compras','Registro de compras')">
+          <span class="nav-dot"></span>Registrar compra
+        </div>
+        <div class="nav-item" id="nav-pendientes" onclick="showView('pendientes','Facturas pendientes')">
+          <span class="nav-dot"></span>Facturas pendientes
+          <span class="nav-badge hidden" id="badge-pendientes">0</span>
+        </div>
+        <div class="nav-item hidden" id="nav-caja" onclick="showView('caja','Control de Caja General')">
+          <span class="nav-dot"></span>Caja General
+          <span class="nav-badge hidden" id="badge-caja">0</span>
+        </div>
+      </div>
+      <div class="sidebar-section" id="section-contab">
+        <div class="sidebar-label">Contabilidad</div>
+        <div class="nav-item" id="nav-catalogo" onclick="showView('catalogo','Catálogo de cuentas')">
+          <span class="nav-dot"></span>Catálogo de cuentas
+        </div>
+        <div class="nav-item" id="nav-partidas" onclick="showView('partidas','Partidas contables')">
+          <span class="nav-dot"></span>Partidas
+        </div>
+        <div class="nav-item" id="nav-importar" onclick="showView('importar','Importar reportes')">
+          <span class="nav-dot"></span>Importar reportes
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- USUARIOS -->
+      <div class="view" id="view-usuarios">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Gestión de usuarios</div>
+            <div class="page-sub">Administra accesos y roles del sistema</div>
+          </div>
+          <button class="btn btn-gold" onclick="openModalUsuario()">+ Nuevo usuario</button>
+        </div>
+        <div class="stats-row" id="stats-usuarios">
+          <div class="stat-card"><div class="stat-num" id="stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-activos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Activos</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-roles">4</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Roles</div></div>
+          <div class="stat-card"><div class="stat-num">4</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Centros costo</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Usuarios registrados</span>
+            <button class="btn btn-ghost" onclick="loadUsuarios()" style="padding:6px 12px;font-size:12px">↻ Actualizar</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Usuario</th><th>Rol</th><th>Centro costo</th><th>Estado</th><th>Registrado</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-usuarios">
+              <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- COMPRAS FORM -->
+      <div class="view" id="view-compras">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Registrar compra</div>
+            <div class="page-sub">Ingresa los datos de la factura recibida</div>
+          </div>
+          <button class="btn btn-ghost" onclick="showView('pendientes','Facturas pendientes')">Ver pendientes →</button>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">📄 Datos generales</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="fc-empresa">
+                <option value="">Seleccionar...</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label>Fecha de factura</label>
+              <input type="date" id="fc-fecha">
+            </div>
+            <div class="fld">
+              <label>N° de factura</label>
+              <input type="text" id="fc-numero" placeholder="0001-001-00000001">
+            </div>
+            <div class="fld">
+              <label>CAI (opcional)</label>
+              <input type="text" id="fc-cai" placeholder="CAI-XXXX-XXXX-XXXX-XXXX-XX">
+            </div>
+            <div class="fld col-full">
+              <label>Proveedor / Razón social</label>
+              <input type="text" id="fc-proveedor-nombre" placeholder="Nombre del proveedor">
+            </div>
+            <div class="fld">
+              <label>RTN del proveedor</label>
+              <input type="text" id="fc-rtn" placeholder="0801-0000-000000">
+            </div>
+            <div class="fld">
+              <label>Tipo de gasto</label>
+              <select id="fc-tipo">
+                <option value="repuestos">Repuestos / Materiales</option>
+                <option value="servicios">Servicios</option>
+                <option value="combustible">Combustible</option>
+                <option value="mantenimiento">Mantenimiento de vehículo</option>
+                <option value="admin">Gastos administrativos</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">💰 Montos</div>
+          <div class="form-grid-3">
+            <div class="fld">
+              <label>Subtotal (sin ISV)</label>
+              <input type="number" id="fc-subtotal" placeholder="0.00" step="0.01" oninput="calcISV()">
+            </div>
+            <div class="fld">
+              <label>ISV 15%</label>
+              <input type="number" id="fc-isv" placeholder="0.00" readonly>
+            </div>
+            <div class="fld">
+              <label>Total</label>
+              <input type="number" id="fc-total" placeholder="0.00" readonly style="color:var(--gold);font-weight:500">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">💳 Forma de pago</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Forma de pago</label>
+              <select id="fc-pago" onchange="togglePagoFields()">
+                <option value="contado">Contado (efectivo)</option>
+                <option value="credito">Crédito</option>
+                <option value="tarjeta">Tarjeta de crédito</option>
+              </select>
+            </div>
+            <div class="fld" id="field-banco">
+              <label>Banco / Entidad</label>
+              <input type="text" id="fc-banco" placeholder="Ej: Banco Atlántida">
+            </div>
+            <div class="fld hidden" id="field-cheque">
+              <label>N° de cheque</label>
+              <input type="text" id="fc-cheque" placeholder="000000">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">📎 Foto de factura</div>
+          <div class="upload-zone" id="upload-zone" onclick="document.getElementById('fc-file').click()">
+            <div class="upload-icon">📷</div>
+            <div class="upload-text">Toca para subir foto o escaneo</div>
+            <div class="upload-sub">JPG, PNG o PDF · Máximo 10 MB</div>
+          </div>
+          <input type="file" id="fc-file" accept="image/*,.pdf" class="hidden" onchange="previewFoto(this)">
+          <div class="upload-preview hidden" id="upload-preview">
+            <span style="font-size:22px">🧾</span>
+            <div>
+              <div style="font-size:13px;color:var(--text);font-weight:500" id="preview-name"></div>
+              <div style="font-size:11px;color:var(--text3)" id="preview-size"></div>
+            </div>
+            <span style="margin-left:auto;font-size:12px;color:var(--green);font-weight:500">✓ Lista</span>
+          </div>
+          <div class="fld" style="margin-top:16px">
+            <label>Observaciones</label>
+            <textarea id="fc-obs" placeholder="Descripción del gasto, N° de vehículo si aplica, notas..."></textarea>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-ghost" onclick="resetForm()">Limpiar</button>
+          <button class="btn btn-gold" id="btn-guardar-compra" onclick="guardarCompra()">
+            Guardar y enviar a contabilidad →
+          </button>
+        </div>
+      </div>
+
+      <!-- PENDIENTES -->
+      <div class="view" id="view-pendientes">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Facturas pendientes</div>
+            <div class="page-sub">Registradas por compras · en espera de partida contable</div>
+          </div>
+          <button class="btn btn-gold" onclick="showView('compras','Registrar compras')">+ Nueva factura</button>
+        </div>
+        <div id="lista-pendientes">
+          <div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <!-- CATÁLOGO DE CUENTAS -->
+      <div class="view" id="view-catalogo">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Catálogo de cuentas</div>
+            <div class="page-sub">Plan de cuentas contable · Tecnimax</div>
+          </div>
+          <button class="btn btn-gold" onclick="openModalCuenta()">+ Nueva cuenta</button>
+        </div>
+        <div class="cat-stats" id="cat-stats">
+          <div class="cat-stat"><div class="cat-stat-num" id="cs-total">—</div><div class="cat-stat-label">Total cuentas</div></div>
+          <div class="cat-stat"><div class="cat-stat-num" id="cs-detalle">—</div><div class="cat-stat-label">Cuentas detalle</div></div>
+          <div class="cat-stat"><div class="cat-stat-num" id="cs-grupo">—</div><div class="cat-stat-label">Grupos / Subgrupos</div></div>
+        </div>
+        <div class="cat-search">
+          <input type="text" id="cat-buscar" placeholder="Buscar por código o nombre..." oninput="filtrarCatalogo()">
+        </div>
+        <div class="cat-filters" id="cat-filters">
+          <button class="cat-filter active" onclick="filtrarTipo(this,'todos')">Todos</button>
+          <button class="cat-filter" onclick="filtrarTipo(this,'activo')">Activos</button>
+          <button class="cat-filter" onclick="filtrarTipo(this,'pasivo')">Pasivos</button>
+          <button class="cat-filter" onclick="filtrarTipo(this,'capital')">Capital</button>
+          <button class="cat-filter" onclick="filtrarTipo(this,'ingreso')">Ingresos</button>
+          <button class="cat-filter" onclick="filtrarTipo(this,'gasto')">Gastos</button>
+          <button class="cat-filter" onclick="filtrarTipo(this,'costo')">Costos</button>
+        </div>
+        <div class="tree-wrap">
+          <div class="tree-header">
+            <span>Cuenta</span><span>Tipo</span><span>Naturaleza</span><span>Nivel</span><span></span>
+          </div>
+          <div id="tree-body">
+            <div style="text-align:center;padding:30px"><div class="spinner"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PARTIDAS CONTABLES - LISTADO -->
+      <div class="view" id="view-partidas">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Partidas contables</div>
+            <div class="page-sub">Libro diario · Tecnimax</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="loadPartidas()">↻ Actualizar</button>
+            <button class="btn btn-gold" onclick="nuevaPartida()">+ Nueva partida</button>
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(3,1fr)">
+          <div class="stat-card"><div class="stat-num" id="sp-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total partidas</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-borrador">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Borradores</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-aprobadas">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Aprobadas</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header"><span class="table-title">Libro diario</span></div>
+          <table>
+            <thead><tr><th>N°</th><th>Fecha</th><th>Descripción</th><th>Origen</th><th>Total</th><th>Estado</th></tr></thead>
+            <tbody id="tbody-partidas">
+              <tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- NUEVA PARTIDA - FORMULARIO -->
+      <div class="view" id="view-partida-nueva">
+        <div class="page-header">
+          <div>
+            <div class="page-title" id="pn-title">Nueva partida contable</div>
+            <div class="page-sub">Registra el asiento en el libro diario</div>
+          </div>
+          <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">← Volver al listado</button>
+        </div>
+        <div class="form-card">
+          <div class="form-card-title">Encabezado de la partida</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Fecha</label>
+              <input type="date" id="pn-fecha">
+            </div>
+            <div class="fld">
+              <label>Tipo de origen</label>
+              <select id="pn-origen">
+                <option value="compra">Compra</option>
+                <option value="venta_alpha">Venta (Alpha)</option>
+                <option value="entrega_taxi">Entrega taxi</option>
+                <option value="gasto_autolote">Gasto autolote</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label>Número de documento</label>
+              <input type="text" id="pn-documento" placeholder="Ej: 001-001-00001234">
+            </div>
+            <div class="fld">
+              <label>Descripción</label>
+              <input type="text" id="pn-descripcion" placeholder="Ej: Compra de repuestos a Proveedor X">
+            </div>
+          </div>
+        </div>
+        <div class="form-card" style="overflow-x:auto">
+          <div class="form-card-title" style="justify-content:space-between">
+            <span>Líneas del asiento</span>
+            <div style="display:flex;align-items:center;gap:16px">
+              <span id="pn-balance" style="font-family:var(--mono);font-size:13px;color:var(--green)">Cuadrada: L. 0.00</span>
+              <button class="btn btn-ghost" onclick="addLinea()" style="padding:5px 12px;font-size:12px">+ Línea</button>
+            </div>
+          </div>
+          <table id="tbl-lineas" style="min-width:700px">
+            <thead><tr>
+              <th style="width:300px">Cuenta</th>
+              <th style="width:140px">Centro costo</th>
+              <th style="width:120px">Debe</th>
+              <th style="width:120px">Haber</th>
+              <th style="width:50px;text-align:center">Fiscal</th>
+              <th style="width:36px"></th>
+            </tr></thead>
+            <tbody id="tbody-lineas"></tbody>
+            <tfoot>
+              <tr style="background:var(--bg3)">
+                <td colspan="2" style="text-align:right;padding:12px 18px;font-size:12px;color:var(--text3);font-weight:500">TOTALES</td>
+                <td style="padding:12px 18px;font-family:var(--mono);font-size:13px;color:var(--gold);font-weight:500" id="pn-tot-d">0.00</td>
+                <td style="padding:12px 18px;font-family:var(--mono);font-size:13px;color:var(--gold);font-weight:500" id="pn-tot-c">0.00</td>
+                <td colspan="2" style="padding:12px 18px">
+                  <div id="pn-diff" style="font-family:var(--mono);font-size:13px;font-weight:500;color:var(--green)">L. 0.00</div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="form-actions" style="gap:12px">
+          <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Cancelar</button>
+          <button class="btn btn-ghost" onclick="guardarPartida('borrador')" style="border-color:var(--amber);color:var(--amber)">Guardar borrador</button>
+          <button class="btn btn-gold" onclick="guardarPartida('aprobada')">Aprobar partida ✓</button>
+        </div>
+      </div>
+
+      <!-- CAJA GENERAL -->
+      <div class="view" id="view-caja">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💰 Control de Caja General</div>
+            <div class="page-sub">Aprobación de entregas y movimientos de efectivo</div>
+          </div>
+          <button class="btn btn-ghost" onclick="loadCaja()">↻ Actualizar</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="stat-card">
+            <div class="stat-num" id="cj-pendientes" style="color:var(--amber)">—</div>
+            <div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Pendientes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num" id="cj-aprobadas" style="color:var(--green)">—</div>
+            <div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Aprobadas hoy</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num" id="cj-ingresos" style="color:var(--green)">—</div>
+            <div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Ingresos del día</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-num" id="cj-egresos" style="color:var(--red)">—</div>
+            <div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Egresos del día</div>
+          </div>
+        </div>
+        <div class="caja-tabs">
+          <button class="caja-tab active" onclick="filtroCaja(this,'pendiente_caja')">🔔 Pendientes de aprobación</button>
+          <button class="caja-tab" onclick="filtroCaja(this,'aprobada')">✓ Aprobadas</button>
+          <button class="caja-tab" onclick="filtroCaja(this,'rechazada')">✕ Rechazadas</button>
+          <button class="caja-tab" onclick="filtroCaja(this,'todos')">Todos</button>
+        </div>
+        <div id="lista-caja">
+          <div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <!-- IMPORTAR PLACEHOLDER -->
+      <div class="view" id="view-importar">
+        <div class="page-header">
+          <div class="page-title">Importar reportes</div>
+          <div class="page-sub">Taller Alpha · Google Sheets Taxis · Bancos</div>
+        </div>
+        <div class="empty-state">
+          <div class="empty-icon">📥</div>
+          <div class="empty-text">Módulo en construcción</div>
+          <div class="empty-sub">Importación automática de ventas y entregas diarias</div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /layout -->
+</div><!-- /main-screen -->
+
+<!-- MODAL NUEVO USUARIO -->
+<div class="modal-backdrop" id="modal-usuario">
+  <div class="modal">
+    <div class="modal-title">Nuevo usuario</div>
+    <div class="form-grid" style="gap:14px">
+      <div class="fld">
+        <label>Nombre completo</label>
+        <input type="text" id="nu-nombre" placeholder="Juan Pérez">
+      </div>
+      <div class="fld">
+        <label>Correo electrónico</label>
+        <input type="email" id="nu-email" placeholder="correo@empresa.com">
+      </div>
+      <div class="fld">
+        <label>Contraseña inicial</label>
+        <input type="password" id="nu-pass" placeholder="Mínimo 8 caracteres">
+      </div>
+      <div class="fld">
+        <label>Rol</label>
+        <select id="nu-rol">
+          <option value="super_admin">Super Admin</option>
+          <option value="contador">Contador</option>
+          <option value="aux_contable">Aux. Contable</option>
+          <option value="compras">Compras</option>
+        </select>
+      </div>
+      <div class="fld col-full">
+        <label>Centro de costo asignado</label>
+        <select id="nu-empresa">
+          <option value="">Todos los centros de costo</option>
+        </select>
+      </div>
+    </div>
+    <div id="modal-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-usuario')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-crear-usuario" onclick="crearUsuario()">Crear usuario</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-wrap" id="toasts"></div>
+
+<!-- MODAL NUEVA CUENTA -->
+<div class="modal-backdrop" id="modal-cuenta">
+  <div class="modal" style="width:500px">
+    <div class="modal-title" id="modal-cuenta-title">Nueva cuenta contable</div>
+    <div class="form-grid" style="gap:14px">
+      <div class="fld">
+        <label>Código</label>
+        <input type="text" id="nc-codigo" placeholder="Ej: 1101, 5201">
+      </div>
+      <div class="fld">
+        <label>Nivel</label>
+        <select id="nc-nivel" onchange="onNivelChange()">
+          <option value="1">1 · Grupo</option>
+          <option value="2">2 · Subgrupo</option>
+          <option value="3" selected>3 · Cuenta</option>
+          <option value="4">4 · Subcuenta</option>
+        </select>
+      </div>
+      <div class="fld col-full">
+        <label>Nombre de la cuenta</label>
+        <input type="text" id="nc-nombre" placeholder="Ej: Caja General, Compra de Repuestos">
+      </div>
+      <div class="fld">
+        <label>Tipo</label>
+        <select id="nc-tipo">
+          <option value="activo">Activo</option>
+          <option value="pasivo">Pasivo</option>
+          <option value="capital">Capital</option>
+          <option value="ingreso">Ingreso</option>
+          <option value="gasto">Gasto</option>
+          <option value="costo">Costo</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Naturaleza</label>
+        <select id="nc-naturaleza">
+          <option value="deudora">Deudora</option>
+          <option value="acreedora">Acreedora</option>
+        </select>
+      </div>
+      <div class="fld col-full">
+        <label>Cuenta padre (opcional)</label>
+        <select id="nc-padre">
+          <option value="">Sin cuenta padre (raíz)</option>
+        </select>
+      </div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="nc-detalle" checked style="width:auto;accent-color:var(--gold)">
+        <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">Es cuenta de detalle (recibe movimientos contables)</label>
+      </div>
+    </div>
+    <div id="modal-cuenta-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cuenta')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-cuenta" onclick="guardarCuenta()">Guardar cuenta</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
