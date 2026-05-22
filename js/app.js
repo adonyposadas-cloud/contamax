@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import * as XLSX from 'https://esm.sh/xlsx@0.18.5'
 
 const sb = createClient(
   'https://icghaqhtvutwlkhtotyv.supabase.co',
@@ -40,9 +41,15 @@ async function initSession(user) {
   setupUI()
   showScreen('main-screen')
   await loadEmpresas()
-  const defaultView = profile.rol === 'compras' ? 'compras' : 'usuarios'
-  const defaultLabel = profile.rol === 'compras' ? 'Registrar compras' : 'Gestión de usuarios'
-  showView(defaultView, defaultLabel)
+  // Vista inicial según rol
+  const defaultViews = {
+    super_admin: ['usuarios', 'Gestión de usuarios'],
+    contador: ['partidas', 'Partidas contables'],
+    aux_contable: ['pendientes', 'Facturas pendientes'],
+    compras: ['compras', 'Registrar compras']
+  }
+  const [dv, dl] = defaultViews[profile.rol] || ['compras', 'Registrar compras']
+  showView(dv, dl)
   // Load caja badge for super_admin
   if (profile.rol === 'super_admin') initCajaBadge()
 }
@@ -54,16 +61,28 @@ function setupUI() {
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
   const roleLabels = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras' }
   document.getElementById('top-role').textContent = roleLabels[p.rol] || p.rol
-  // Sidebar: compras solo ve sus vistas
-  if (p.rol === 'compras') {
-    document.getElementById('section-contab').classList.add('hidden')
-    document.getElementById('nav-usuarios').classList.add('hidden')
-    document.getElementById('nav-caja').classList.add('hidden')
+
+  // ── PERMISOS POR ROL ──
+  // Definir qué nav-items ve cada rol
+  const permisos = {
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-importar'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
+    compras:     ['nav-compras', 'nav-pendientes']
   }
-  // Caja General solo visible para super_admin
-  if (p.rol === 'super_admin') {
-    document.getElementById('nav-caja').classList.remove('hidden')
-  }
+  const visibles = permisos[p.rol] || []
+
+  // Ocultar todo primero
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar']
+  todosNav.forEach(id => {
+    const el = document.getElementById(id)
+    if (el) el.classList.toggle('hidden', !visibles.includes(id))
+  })
+
+  // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
+  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar']
+  const tieneContab = contabItems.some(id => visibles.includes(id))
+  document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 }
 
 // ── AUTH ──
@@ -109,8 +128,39 @@ window.showView = (id, label) => {
   if (id === 'compras') initForm()
   if (id === 'catalogo') loadCatalogo()
   if (id === 'partidas') loadPartidas()
-  if (id === 'partida-nueva') initPartidaNueva()
+  if (id === 'partida-nueva' && !editingPartidaId) initPartidaNueva()
   if (id === 'caja') loadCaja()
+  if (id === 'importar') initImport()
+  // Ajustar botones según rol
+  applyRoleRestrictions(id)
+}
+
+function applyRoleRestrictions(viewId) {
+  const rol = currentProfile?.rol
+  if (!rol) return
+  const puedeCrearCuentas = ['super_admin', 'contador'].includes(rol)
+  const puedeCrearPartidas = ['super_admin', 'contador'].includes(rol)
+  const puedeCrearUsuarios = rol === 'super_admin'
+
+  // Botón "+ Nueva cuenta" en catálogo
+  const btnNuevaCuenta = document.querySelector('#view-catalogo .btn-gold')
+  if (btnNuevaCuenta) btnNuevaCuenta.classList.toggle('hidden', !puedeCrearCuentas)
+
+  // Botón "+ Nueva partida" en partidas
+  const btnNuevaPartida = document.querySelector('#view-partidas .btn-gold')
+  if (btnNuevaPartida) btnNuevaPartida.classList.toggle('hidden', !puedeCrearPartidas)
+
+  // Botón "+ Nuevo usuario"
+  const btnNuevoUsuario = document.querySelector('#view-usuarios .btn-gold')
+  if (btnNuevoUsuario) btnNuevoUsuario.classList.toggle('hidden', !puedeCrearUsuarios)
+
+  // Botón "Aprobar partida" en nueva partida — aux_contable no puede aprobar
+  if (viewId === 'partida-nueva' && rol === 'aux_contable') {
+    const btnsPartida = document.querySelectorAll('#view-partida-nueva .form-actions .btn')
+    btnsPartida.forEach(b => {
+      if (b.textContent.includes('Aprobar')) b.classList.add('hidden')
+    })
+  }
 }
 
 // ── EMPRESAS ──
@@ -388,28 +438,68 @@ document.getElementById('login-pass').addEventListener('keydown', e => {
 let partidaLineas = []
 let lineaCounter = 0
 let cuentasDetalle = []
+let editingPartidaId = null
+
+let allPartidas = []
 
 async function loadPartidas() {
   const tbody = document.getElementById('tbody-partidas')
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
   const { data, error } = await sb.from('partidas_contables')
     .select('*, centro_costo:centros_costo(nombre), generador:usuarios!generada_por(nombre)')
-    .order('created_at', { ascending: false }).limit(100)
+    .order('created_at', { ascending: false }).limit(200)
   if (error) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--red)">${error.message}</td></tr>`; return }
-  if (!data?.length) {
+  allPartidas = data || []
+  if (!allPartidas.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay partidas registradas. Crea la primera.</td></tr>'
     document.getElementById('sp-total').textContent = '0'
     document.getElementById('sp-borrador').textContent = '0'
     document.getElementById('sp-aprobadas').textContent = '0'
     return
   }
-  document.getElementById('sp-total').textContent = data.length
-  document.getElementById('sp-borrador').textContent = data.filter(p => p.estado === 'borrador').length
-  document.getElementById('sp-aprobadas').textContent = data.filter(p => p.estado === 'aprobada').length
+  document.getElementById('sp-total').textContent = allPartidas.length
+  document.getElementById('sp-borrador').textContent = allPartidas.filter(p => p.estado === 'borrador').length
+  document.getElementById('sp-aprobadas').textContent = allPartidas.filter(p => p.estado === 'aprobada').length
+  filtrarPartidas()
+}
+window.loadPartidas = loadPartidas
+
+window.filtrarPartidas = () => {
+  const buscar = (document.getElementById('fp-buscar')?.value || '').toLowerCase()
+  const desde = document.getElementById('fp-desde')?.value || ''
+  const hasta = document.getElementById('fp-hasta')?.value || ''
+  const estado = document.getElementById('fp-estado')?.value || ''
+  const origen = document.getElementById('fp-origen')?.value || ''
+
+  let filtered = allPartidas
+  if (buscar) filtered = filtered.filter(p => p.descripcion?.toLowerCase().includes(buscar) || p.numero_documento?.toLowerCase().includes(buscar) || String(p.numero_partida).includes(buscar))
+  if (desde) filtered = filtered.filter(p => p.fecha_partida >= desde)
+  if (hasta) filtered = filtered.filter(p => p.fecha_partida <= hasta)
+  if (estado) filtered = filtered.filter(p => p.estado === estado)
+  if (origen) filtered = filtered.filter(p => p.tipo_origen === origen)
+
+  renderPartidasTable(filtered)
+}
+
+window.limpiarFiltrosPartidas = () => {
+  ['fp-buscar','fp-desde','fp-hasta'].forEach(id => { const el = document.getElementById(id); if(el) el.value = '' })
+  ;['fp-estado','fp-origen'].forEach(id => { const el = document.getElementById(id); if(el) el.value = '' })
+  filtrarPartidas()
+}
+
+function renderPartidasTable(data) {
+  const tbody = document.getElementById('tbody-partidas')
+  const countEl = document.getElementById('fp-count')
+  if (!data?.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay partidas con estos filtros</td></tr>'
+    if (countEl) countEl.textContent = '0 resultados'
+    return
+  }
+  if (countEl) countEl.textContent = data.length === allPartidas.length ? '' : `${data.length} de ${allPartidas.length}`
   const origenLabel = { compra:'Compra', venta_alpha:'Venta Alpha', entrega_taxi:'Taxi', gasto_autolote:'Autolote' }
   const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber' }
   tbody.innerHTML = data.map(p => `
-    <tr>
+    <tr style="cursor:pointer" onclick="editarPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida).toLocaleDateString('es-HN')}</td>
       <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descripcion}</td>
@@ -418,9 +508,12 @@ async function loadPartidas() {
       <td><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${p.estado === 'pendiente_caja' ? '⏳ Pend. caja' : p.estado}</span></td>
     </tr>`).join('')
 }
-window.loadPartidas = loadPartidas
 
 async function initPartidaNueva() {
+  editingPartidaId = null
+  document.getElementById('pn-title').textContent = 'Nueva partida contable'
+  const btnElim = document.getElementById('btn-eliminar-partida')
+  if (btnElim) btnElim.classList.add('hidden')
   document.getElementById('pn-fecha').value = new Date().toISOString().split('T')[0]
   document.getElementById('pn-descripcion').value = ''
   document.getElementById('pn-documento').value = ''
@@ -438,13 +531,89 @@ async function initPartidaNueva() {
 window.initPartidaNueva = initPartidaNueva
 
 window.nuevaPartida = () => {
+  editingPartidaId = null
   showView('partida-nueva', 'Nueva partida')
+}
+
+// ── EDITAR PARTIDA EXISTENTE ──
+window.editarPartida = async (id) => {
+  // Cargar cuentas si no están
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+
+  // Cargar partida
+  const { data: partida, error: pErr } = await sb.from('partidas_contables')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (pErr || !partida) { toast('Error al cargar partida', 'error'); return }
+
+  // Cargar líneas
+  const { data: lineas, error: lErr } = await sb.from('lineas_partida')
+    .select('*')
+    .eq('partida_id', id)
+    .order('id')
+  if (lErr) { toast('Error al cargar líneas', 'error'); return }
+
+  // Navegar al formulario
+  editingPartidaId = id
+  showView('partida-nueva', `Editar partida #${partida.numero_partida || '—'}`)
+
+  // Esperar que cargue
+  await new Promise(r => setTimeout(r, 200))
+
+  // Llenar encabezado
+  document.getElementById('pn-title').textContent = `Editar partida #${partida.numero_partida || '—'}`
+  document.getElementById('pn-fecha').value = partida.fecha_partida
+  document.getElementById('pn-descripcion').value = partida.descripcion || ''
+  document.getElementById('pn-documento').value = partida.numero_documento || ''
+  document.getElementById('pn-origen').value = partida.tipo_origen || 'compra'
+
+  // Cargar líneas en el formulario
+  partidaLineas = []
+  lineaCounter = 0
+  for (const l of lineas) {
+    lineaCounter++
+    partidaLineas.push({
+      id: lineaCounter,
+      cuenta_id: l.cuenta_id || '',
+      cuenta_codigo: l.cuenta_codigo || '',
+      cuenta_nombre: l.cuenta_nombre || '',
+      tipo: l.tipo,
+      monto: parseFloat(l.monto) || 0,
+      centro_costo_id: l.centro_costo_id || '',
+      descripcion: l.descripcion || '',
+      aplica_fiscal: l.aplica_fiscal !== false
+    })
+  }
+
+  renderLineas()
+  calcTotales()
+
+  // Mostrar botón eliminar cuando editamos
+  const btnElim = document.getElementById('btn-eliminar-partida')
+  if (btnElim) btnElim.classList.remove('hidden')
+}
+
+window.eliminarPartida = async () => {
+  if (!editingPartidaId) return
+  if (!confirm('¿Eliminar esta partida y todas sus líneas?\n\nEsta acción no se puede deshacer.')) return
+  const { error: lErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
+  if (lErr) { toast('Error al borrar líneas: ' + lErr.message, 'error'); return }
+  const { error: pErr } = await sb.from('partidas_contables').delete().eq('id', editingPartidaId)
+  if (pErr) { toast('Error al borrar partida: ' + pErr.message, 'error'); return }
+  toast('Partida eliminada', 'success')
+  editingPartidaId = null
+  showView('partidas', 'Partidas contables')
 }
 
 window.addLinea = () => {
   lineaCounter++
   const id = lineaCounter
-  partidaLineas.push({ id, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
+  // Agregar al inicio (arriba) para que el dropdown no quede cortado
+  partidaLineas.unshift({ id, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
   renderLineas()
 }
 
@@ -459,6 +628,24 @@ function renderLineas() {
   tbody.innerHTML = partidaLineas.map(l => {
     const debeVal = l.tipo === 'debito' && l.monto ? l.monto : ''
     const haberVal = l.tipo === 'credito' && l.monto ? l.monto : ''
+    const esCaja = esCuentaCaja(l.cuenta_codigo) && currentProfile?.rol === 'super_admin'
+    // Para cuentas de caja: mostrar botón de conteo + input normal
+    const debeInput = esCaja
+      ? `<div style="display:flex;gap:4px;align-items:center">
+          <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
+            oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+        </div>`
+      : `<input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
+          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+    const haberInput = esCaja
+      ? `<div style="display:flex;gap:4px;align-items:center">
+          <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
+            oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+          <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+        </div>`
+      : `<input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
+          oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
     return `
     <tr class="linea-row">
       <td>
@@ -474,14 +661,8 @@ function renderLineas() {
           ${empresas.map(e => `<option value="${e.id}" ${l.centro_costo_id===e.id?'selected':''}>${e.nombre}</option>`).join('')}
         </select>
       </td>
-      <td>
-        <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">
-      </td>
-      <td>
-        <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
-          oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">
-      </td>
+      <td>${debeInput}</td>
+      <td>${haberInput}</td>
       <td style="text-align:center">
         <input type="checkbox" class="fiscal-check" ${l.aplica_fiscal?'checked':''} onchange="updLinea(${l.id},'aplica_fiscal',this.checked)">
       </td>
@@ -498,6 +679,9 @@ window.setDebe = (id, val) => {
   const v = parseFloat(val) || 0
   l.tipo = 'debito'
   l.monto = v
+  // Limpiar haber de esta línea
+  const row = document.querySelector(`input[data-lid="${id}"]`)?.closest('tr')
+  if (row) { const haberInput = row.querySelectorAll('input[inputmode="decimal"]')[1]; if (haberInput) haberInput.value = '' }
   calcTotales()
 }
 
@@ -507,6 +691,9 @@ window.setHaber = (id, val) => {
   const v = parseFloat(val) || 0
   l.tipo = 'credito'
   l.monto = v
+  // Limpiar debe de esta línea
+  const row = document.querySelector(`input[data-lid="${id}"]`)?.closest('tr')
+  if (row) { const debeInput = row.querySelectorAll('input[inputmode="decimal"]')[0]; if (debeInput) debeInput.value = '' }
   calcTotales()
 }
 
@@ -562,7 +749,19 @@ window.openCuentaDD = (lid, input) => {
 function positionDropdown(lid, input) {
   const dd = document.getElementById('dd-' + lid)
   const rect = input.getBoundingClientRect()
-  dd.style.top = (rect.bottom + 2) + 'px'
+  const ddHeight = 320
+  const spaceBelow = window.innerHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  if (spaceBelow < ddHeight && spaceAbove > spaceBelow) {
+    // Abrir hacia arriba
+    dd.style.bottom = (window.innerHeight - rect.top + 2) + 'px'
+    dd.style.top = 'auto'
+  } else {
+    // Abrir hacia abajo (normal)
+    dd.style.top = (rect.bottom + 2) + 'px'
+    dd.style.bottom = 'auto'
+  }
   dd.style.left = rect.left + 'px'
   dd.style.width = Math.max(rect.width, 340) + 'px'
 }
@@ -587,9 +786,10 @@ window.filterCuentas = (lid, query) => {
 window.selectCuenta = (lid, cid, codigo, nombre) => {
   const l = partidaLineas.find(x => x.id === lid)
   if (l) { l.cuenta_id = cid; l.cuenta_codigo = codigo; l.cuenta_nombre = nombre }
-  const input = document.querySelector(`input[data-lid="${lid}"]`)
-  if (input) input.value = codigo + ' ' + nombre
   document.getElementById('dd-' + lid).classList.remove('open')
+  // Re-render para que aparezca el botón de billetes si es cuenta de caja
+  renderLineas()
+  calcTotales()
 }
 
 window.guardarPartida = async (estado) => {
@@ -616,34 +816,52 @@ window.guardarPartida = async (estado) => {
   }
 
   // ── CONTROL DE CAJA GENERAL ──
-  // Detectar si esta partida toca cuentas de Caja General
   const tocaCaja = partidaAfectaCajaGeneral(lineasValidas)
   const hayEgresoCaja = tieneEgresoCaja(lineasValidas)
   const esSuperAdmin = currentProfile.rol === 'super_admin'
 
-  // Regla: Solo super_admin puede hacer egresos de caja (créditos a caja)
   if (hayEgresoCaja && !esSuperAdmin) {
     toast('Solo el Super Admin puede registrar egresos de Caja General (créditos a caja)', 'error')
     return
   }
 
-  // Regla: Si toca caja y NO es super_admin → estado = pendiente_caja
   let estadoFinal = estado
   if (tocaCaja && !esSuperAdmin && estado === 'aprobada') {
     estadoFinal = 'pendiente_caja'
   }
 
-  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
-    centro_costo_id: null,
-    generada_por: currentProfile.id,
-    tipo_origen, descripcion, numero_documento: documento || null,
-    fecha_partida: fecha, estado: estadoFinal, total: debitos,
-    aprobada_at: estadoFinal === 'aprobada' ? new Date().toISOString() : null,
-    aprobada_por: estadoFinal === 'aprobada' ? currentProfile.id : null
-  }).select('id').single()
-  if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
+  let partidaId = editingPartidaId
+
+  if (editingPartidaId) {
+    // ── ACTUALIZAR partida existente ──
+    const { error: pErr } = await sb.from('partidas_contables').update({
+      tipo_origen, descripcion, numero_documento: documento || null,
+      fecha_partida: fecha, estado: estadoFinal, total: debitos,
+      aprobada_at: estadoFinal === 'aprobada' ? new Date().toISOString() : null,
+      aprobada_por: estadoFinal === 'aprobada' ? currentProfile.id : null
+    }).eq('id', editingPartidaId)
+    if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
+
+    // Borrar líneas viejas y crear nuevas
+    const { error: delErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
+    if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
+  } else {
+    // ── CREAR partida nueva ──
+    const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+      centro_costo_id: null,
+      generada_por: currentProfile.id,
+      tipo_origen, descripcion, numero_documento: documento || null,
+      fecha_partida: fecha, estado: estadoFinal, total: debitos,
+      aprobada_at: estadoFinal === 'aprobada' ? new Date().toISOString() : null,
+      aprobada_por: estadoFinal === 'aprobada' ? currentProfile.id : null
+    }).select('id').single()
+    if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
+    partidaId = partida.id
+  }
+
+  // Insertar líneas
   const lineas = lineasValidas.map(l => ({
-    partida_id: partida.id,
+    partida_id: partidaId,
     cuenta_id: l.cuenta_id,
     cuenta_codigo: l.cuenta_codigo,
     cuenta_nombre: l.cuenta_nombre,
@@ -657,14 +875,40 @@ window.guardarPartida = async (estado) => {
   const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
   if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
 
-  // Mensajes según resultado
-  if (estadoFinal === 'pendiente_caja') {
-    toast('Partida guardada · Pendiente de aprobación por Caja General', 'info')
-  } else if (estadoFinal === 'aprobada') {
-    toast('Partida aprobada y contabilizada ✓', 'success')
-  } else {
-    toast('Borrador guardado', 'success')
+  // Guardar conteo de billetes si existe
+  const lineasConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
+  if (lineasConBilletes.length > 0) {
+    // Borrar conteos anteriores de esta partida
+    await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+    const conteos = lineasConBilletes.map(l => ({
+      partida_id: partidaId,
+      tipo: l.tipo === 'debito' ? 'ingreso' : 'egreso',
+      den_500: l.billetes[500] || 0,
+      den_200: l.billetes[200] || 0,
+      den_100: l.billetes[100] || 0,
+      den_50: l.billetes[50] || 0,
+      den_20: l.billetes[20] || 0,
+      den_10: l.billetes[10] || 0,
+      den_5: l.billetes[5] || 0,
+      den_2: l.billetes[2] || 0,
+      den_1: l.billetes[1] || 0,
+      total_billetes: Object.values(l.billetes).reduce((s, v) => s + v, 0),
+      total_monto: l.monto,
+      registrado_por: currentProfile.id
+    }))
+    await sb.from('conteo_billetes').insert(conteos)
   }
+
+  // Mensajes según resultado
+  const accion = editingPartidaId ? 'actualizada' : 'guardada'
+  if (estadoFinal === 'pendiente_caja') {
+    toast(`Partida ${accion} · Pendiente de aprobación por Caja General`, 'info')
+  } else if (estadoFinal === 'aprobada') {
+    toast(`Partida ${accion} y contabilizada ✓`, 'success')
+  } else {
+    toast(`Borrador ${accion}`, 'success')
+  }
+  editingPartidaId = null
   showView('partidas', 'Partidas contables')
 }
 
@@ -842,11 +1086,12 @@ window.guardarCuenta = async () => {
 
 // Cuentas de caja general: detectamos por código (1101 = Caja, o cuentas que empiecen con 1101)
 // El super_admin define qué cuentas son "Caja General"
-const CAJA_CODIGOS = ['1101', '110101', '110101-001'] // Caja, Caja General, subcuentas
+const CAJA_CODIGOS = ['110101', '110101-001', '110102', '110102-001'] // Solo Caja Chica + Caja General MN (NO chequeras ni bancos)
 
 function esCuentaCaja(codigo) {
   if (!codigo) return false
-  return CAJA_CODIGOS.some(c => codigo === c || codigo.startsWith(c + '-') || codigo.startsWith(c + '0'))
+  // Match exacto o subcuentas directas, pero NO 110103 (chequeras) ni 110104 (bancos)
+  return CAJA_CODIGOS.some(c => codigo === c || codigo.startsWith(c + '-'))
 }
 
 function lineaAfectaCaja(linea) {
@@ -873,7 +1118,8 @@ window.filtroCaja = (btn, filtro) => {
   filtroCajaActual = filtro
   document.querySelectorAll('.caja-tab').forEach(b => b.classList.remove('active'))
   btn.classList.add('active')
-  renderCajaList()
+  const fechaSel = document.getElementById('cj-fecha')?.value || ''
+  renderCajaList(fechaSel)
 }
 
 let cajaPartidas = []
@@ -886,7 +1132,7 @@ async function loadCaja() {
   // Primero obtener las líneas que tocan caja
   const { data: lineasCaja, error: lcErr } = await sb.from('lineas_partida')
     .select('partida_id, tipo, monto, cuenta_codigo, cuenta_nombre')
-    .or(CAJA_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%,cuenta_codigo.like.${c}0%`).join(','))
+    .or(CAJA_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%`).join(','))
 
   if (lcErr) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${lcErr.message}</div></div>`
@@ -921,13 +1167,23 @@ async function loadCaja() {
     const creditos = lineas.filter(l => l.tipo === 'credito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
     return {
       ...p,
-      caja_debitos: debitos,   // dinero que entra
-      caja_creditos: creditos, // dinero que sale
+      caja_debitos: debitos,
+      caja_creditos: creditos,
       caja_tipo: debitos > creditos ? 'ingreso' : 'egreso',
       caja_monto: debitos > creditos ? debitos : creditos,
       caja_lineas: lineas
     }
   })
+
+  // Cargar conteos de billetes
+  const { data: conteos } = await sb.from('conteo_billetes')
+    .select('*')
+    .in('partida_id', partidaIds)
+  if (conteos?.length) {
+    for (const p of cajaPartidas) {
+      p.billetes = conteos.filter(c => c.partida_id === p.id)
+    }
+  }
 
   updateCajaStats()
   renderCajaList()
@@ -936,25 +1192,66 @@ async function loadCaja() {
 window.loadCaja = loadCaja
 
 function updateCajaStats() {
-  const hoy = new Date().toISOString().split('T')[0]
-  const pendientes = cajaPartidas.filter(p => p.estado === 'pendiente_caja')
-  const aprobadasHoy = cajaPartidas.filter(p => p.estado === 'aprobada' && p.aprobada_at?.startsWith(hoy))
-  const ingresosHoy = cajaPartidas.filter(p => p.estado === 'aprobada' && p.fecha_partida === hoy && p.caja_tipo === 'ingreso')
-  const egresosHoy = cajaPartidas.filter(p => p.estado === 'aprobada' && p.fecha_partida === hoy && p.caja_tipo === 'egreso')
+  const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
 
-  document.getElementById('cj-pendientes').textContent = pendientes.length
-  document.getElementById('cj-aprobadas').textContent = aprobadasHoy.length
-  const totalIng = ingresosHoy.reduce((s, p) => s + p.caja_monto, 0)
-  const totalEgr = egresosHoy.reduce((s, p) => s + p.caja_monto, 0)
-  document.getElementById('cj-ingresos').textContent = 'L. ' + totalIng.toLocaleString('es-HN', { minimumFractionDigits: 2 })
-  document.getElementById('cj-egresos').textContent = 'L. ' + totalEgr.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  // Saldo acumulado (todas las aprobadas, sin filtro de fecha)
+  const aprobadas = cajaPartidas.filter(p => p.estado === 'aprobada')
+  const totalIngresosAcum = aprobadas.filter(p => p.caja_tipo === 'ingreso').reduce((s, p) => s + p.caja_monto, 0)
+  const totalEgresosAcum = aprobadas.filter(p => p.caja_tipo === 'egreso').reduce((s, p) => s + p.caja_monto, 0)
+  const saldo = totalIngresosAcum - totalEgresosAcum
+
+  document.getElementById('cj-saldo').textContent = fmt(saldo)
+  document.getElementById('cj-saldo').style.color = saldo >= 0 ? 'var(--green)' : 'var(--red)'
+  document.getElementById('cj-total-ingresos').textContent = fmt(totalIngresosAcum)
+  document.getElementById('cj-total-egresos').textContent = fmt(totalEgresosAcum)
+
+  // Stats filtrados por fecha seleccionada
+  filtrarCajaFecha()
 }
 
-function renderCajaList() {
+window.filtrarCajaFecha = () => {
+  const fechaSel = document.getElementById('cj-fecha')?.value || ''
+  const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  let filtradas = cajaPartidas
+  if (fechaSel) {
+    filtradas = filtradas.filter(p => p.fecha_partida === fechaSel)
+  }
+
+  const pendientes = filtradas.filter(p => p.estado === 'pendiente_caja')
+  const aprobadasFiltro = filtradas.filter(p => p.estado === 'aprobada')
+  const ingresos = aprobadasFiltro.filter(p => p.caja_tipo === 'ingreso')
+  const egresos = aprobadasFiltro.filter(p => p.caja_tipo === 'egreso')
+
+  document.getElementById('cj-pendientes').textContent = pendientes.length
+  document.getElementById('cj-aprobadas').textContent = aprobadasFiltro.length
+  const totalIng = ingresos.reduce((s, p) => s + p.caja_monto, 0)
+  const totalEgr = egresos.reduce((s, p) => s + p.caja_monto, 0)
+  document.getElementById('cj-ingresos').textContent = fmt(totalIng)
+  document.getElementById('cj-egresos').textContent = fmt(totalEgr)
+
+  // Resumen de fecha
+  const resumenEl = document.getElementById('cj-fecha-resumen')
+  if (resumenEl) {
+    if (fechaSel) {
+      resumenEl.textContent = `${filtradas.length} movimiento${filtradas.length !== 1 ? 's' : ''} el ${new Date(fechaSel + 'T12:00:00').toLocaleDateString('es-HN')}`
+    } else {
+      resumenEl.textContent = `${cajaPartidas.length} movimientos en total`
+    }
+  }
+
+  // También filtrar la lista visible
+  renderCajaList(fechaSel)
+}
+
+function renderCajaList(fechaFiltro) {
   const container = document.getElementById('lista-caja')
   let filtered = cajaPartidas
   if (filtroCajaActual !== 'todos') {
     filtered = filtered.filter(p => p.estado === filtroCajaActual)
+  }
+  if (fechaFiltro) {
+    filtered = filtered.filter(p => p.fecha_partida === fechaFiltro)
   }
 
   if (!filtered.length) {
@@ -990,6 +1287,22 @@ function renderCajaList() {
     const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
       ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
 
+    // Detalle de billetes si existe
+    let billetesInfo = ''
+    if (p.billetes?.length) {
+      const denoms = [500,200,100,50,20,10,5,2,1]
+      const detalles = p.billetes.map(b => {
+        const partes = denoms
+          .map(d => ({ d, q: b[`den_${d}`] || 0 }))
+          .filter(x => x.q > 0)
+          .map(x => `${x.q}×L.${x.d}`)
+        return partes.length ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes.join(' + ')}</span>` : ''
+      }).filter(Boolean)
+      if (detalles.length) {
+        billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
+      }
+    }
+
     return `
     <div class="caja-card ${p.estado}">
       <div class="caja-left">
@@ -997,7 +1310,7 @@ function renderCajaList() {
         <div class="caja-info">
           <h4>Partida #${p.numero_partida || '—'} · ${p.descripcion}</h4>
           <p>${fecha} ${hora} · ${p.generador?.nombre || 'Sistema'} · Doc: ${p.numero_documento || '—'}</p>
-          <p style="margin-top:4px">Cuentas: ${p.caja_lineas.map(l => l.cuenta_codigo + ' ' + l.cuenta_nombre).join(', ')}</p>
+          ${billetesInfo}
           ${aprobadoInfo}
         </div>
       </div>
@@ -1027,15 +1340,33 @@ async function updateCajaBadge() {
 }
 
 window.aprobarCaja = async (id) => {
-  if (!confirm('¿Aprobar esta entrega a Caja General?\n\nEl movimiento quedará contabilizado.')) return
-  const { error } = await sb.from('partidas_contables').update({
-    estado: 'aprobada',
-    aprobada_at: new Date().toISOString(),
-    aprobada_por: currentProfile.id
-  }).eq('id', id)
-  if (error) { toast('Error: ' + error.message, 'error'); return }
-  toast('Entrega aprobada y contabilizada ✓', 'success')
-  loadCaja()
+  // Abrir conteo de billetes antes de aprobar
+  const partida = cajaPartidas.find(p => p.id === id)
+  const desc = partida ? partida.descripcion : ''
+  const monto = partida ? partida.caja_monto : 0
+  const tipo = partida?.caja_tipo === 'ingreso' ? 'recibís' : 'entregás'
+
+  openBilletes(
+    `💵 Conteo de billetes · ${partida?.caja_tipo === 'ingreso' ? 'Ingreso' : 'Egreso'}`,
+    `${desc} — Contá los billetes que ${tipo} (esperado: L. ${monto.toLocaleString('es-HN', {minimumFractionDigits:2})})`,
+    async (montoContado, detalle) => {
+      // Verificar si coincide
+      if (Math.abs(montoContado - monto) > 0.01) {
+        const diff = montoContado - monto
+        const ok = confirm(`⚠️ El conteo (L. ${montoContado.toLocaleString('es-HN',{minimumFractionDigits:2})}) no coincide con el monto esperado (L. ${monto.toLocaleString('es-HN',{minimumFractionDigits:2})}).\n\nDiferencia: L. ${diff.toLocaleString('es-HN',{minimumFractionDigits:2})}\n\n¿Aprobar de todas formas?`)
+        if (!ok) return
+      }
+
+      const { error } = await sb.from('partidas_contables').update({
+        estado: 'aprobada',
+        aprobada_at: new Date().toISOString(),
+        aprobada_por: currentProfile.id
+      }).eq('id', id)
+      if (error) { toast('Error: ' + error.message, 'error'); return }
+      toast('Entrega aprobada y contabilizada ✓', 'success')
+      loadCaja()
+    }
+  )
 }
 
 window.rechazarCaja = async (id) => {
@@ -1054,4 +1385,702 @@ async function initCajaBadge() {
   if (currentProfile?.rol === 'super_admin') {
     await updateCajaBadge()
   }
+}
+
+// ══════════════════════════════════════════════
+// ── IMPORTAR VENTAS TALLER ALPHA
+// ══════════════════════════════════════════════
+
+// Mapeo de cuentas
+const IMPORT_CUENTAS = {
+  caja_general:      { codigo: '110102',      nombre: 'CAJA GENERAL' },
+  venta_tecnimax:    { codigo: '410101-001',  nombre: 'VENTA DE BODEGA TECNIMAX' },
+  isv_ventas:        { codigo: '210201-001',  nombre: 'IMPUESTO SOBRE VENTAS' },
+  venta_yonker:      { codigo: '410101-002',  nombre: 'VENTA YONKER TECNIMAX' },
+  venta_tecnimax_int:{ codigo: '410301-001',  nombre: 'VENTA TECNIMAX 2' },
+  venta_yonker_int:  { codigo: '410301-002',  nombre: 'VENTA YONKER TECNIMAX 2' },
+  bono_tecnimax:     { codigo: '410301-003',  nombre: 'BONO POR VENTA TECNIMAX' },
+}
+
+let importFiles = []
+let importData = null
+let importFiscalTab = 'tecnimax'
+
+function initImport() {
+  // Default: fecha de ayer (los reportes siempre son del día anterior)
+  const ayer = new Date()
+  ayer.setDate(ayer.getDate() - 1)
+  document.getElementById('imp-fecha').value = ayer.toISOString().split('T')[0]
+  const fecha = document.getElementById('imp-fecha').value
+  document.getElementById('imp-desc').value = `Ventas Alpha ${fecha}`
+  resetImport()
+  document.getElementById('import-step1').classList.remove('hidden')
+}
+
+window.onImportFiles = (input) => {
+  importFiles = Array.from(input.files || [])
+  const list = document.getElementById('import-file-list')
+  if (!importFiles.length) { list.innerHTML = ''; return }
+  list.innerHTML = importFiles.map(f => `
+    <div class="imp-file-item">
+      <span class="imp-file-icon">📊</span>
+      <span class="imp-file-name">${f.name}</span>
+      <span style="font-size:11px;color:var(--text3)">${(f.size/1024).toFixed(0)} KB</span>
+    </div>`).join('')
+  document.getElementById('import-zone').classList.add('has-file')
+  document.getElementById('btn-procesar-import').disabled = false
+}
+
+function parseAlphaExcel(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+
+  // Identificar empresa — buscar en las primeras filas el valor después de "Empresa:"
+  let empresaRaw = ''
+  for (let r = 0; r < Math.min(10, data.length); r++) {
+    const row = data[r]
+    if (!row) continue
+    for (let c = 0; c < Math.min(10, row.length); c++) {
+      const val = String(row[c] || '').trim()
+      if (val.toLowerCase() === 'empresa:' || val.toLowerCase() === 'empresa') {
+        // El nombre está en la siguiente columna
+        empresaRaw = String(row[c + 1] || '').trim()
+        if (!empresaRaw) {
+          // O quizás en la siguiente fila misma columna
+          empresaRaw = String((data[r + 1] || [])[c] || '').trim()
+        }
+        break
+      }
+    }
+    if (empresaRaw) break
+  }
+
+  // Si aún no encontró, intentar fila 3 columnas 1-5
+  if (!empresaRaw) {
+    for (let c = 0; c < 6; c++) {
+      const v = String((data[3] || [])[c] || '').trim()
+      if (v && v !== 'Empresa:' && v.length > 2 && !v.includes('Fecha')) {
+        empresaRaw = v
+        break
+      }
+    }
+  }
+
+  // Detectar tipo: si el nombre es todo mayúsculas = interno, si tiene mixed case = fiscal
+  let tipo, centro
+  const esUpper = empresaRaw === empresaRaw.toUpperCase() && empresaRaw.length > 0
+  const tieneYonker = empresaRaw.toLowerCase().includes('yonker')
+
+  if (tieneYonker && esUpper) { tipo = 'yonker_interno'; centro = 'Yonker' }
+  else if (tieneYonker && !esUpper) { tipo = 'yonker_fiscal'; centro = 'Yonker' }
+  else if (!tieneYonker && esUpper) { tipo = 'tecnimax_interno'; centro = 'Tecnicentro' }
+  else if (!tieneYonker && !esUpper && empresaRaw) { tipo = 'tecnimax_fiscal'; centro = 'Tecnicentro' }
+  else { tipo = 'desconocido'; centro = empresaRaw || '?' }
+
+  // Buscar dinámicamente la fila de headers y columnas
+  let headerRow = -1
+  let colMap = {}
+  for (let r = 0; r < Math.min(20, data.length); r++) {
+    const row = data[r]
+    if (!row) continue
+    for (let c = 0; c < row.length; c++) {
+      const val = String(row[c] || '').trim().toLowerCase()
+      if (val === 'no. factura interna' || val.includes('factura interna')) {
+        headerRow = r
+        // Mapear todas las columnas por nombre
+        for (let cc = 0; cc < row.length; cc++) {
+          const h = String(row[cc] || '').trim().toLowerCase()
+          if (h.includes('factura electr')) colMap.factura_electronica = cc
+          else if (h.includes('factura interna')) colMap.factura_interna = cc
+          else if (h === 'cliente') colMap.cliente = cc
+          else if (h === 'rtn') colMap.rtn = cc
+          else if (h === 'subtotal') colMap.subtotal = cc
+          else if (h === 'impuestos' && !h.includes('devuelto') && !h.includes('servicio')) colMap.impuestos = cc
+          else if (h === 'total') colMap.total = cc
+          else if (h.includes('total exento')) colMap.total_exento = cc
+          else if (h.includes('total gravado') && !h.includes('15')) colMap.total_gravado = cc
+          else if (h === 'fecha') colMap.fecha = cc
+          else if (h.includes('monto en tarjeta')) colMap.monto_tarjeta = cc
+          else if (h.includes('monto en efectivo')) colMap.monto_efectivo = cc
+          else if (h.includes('monto transacción') || h.includes('monto transaccion')) colMap.monto_transferencia = cc
+        }
+        break
+      }
+    }
+    if (headerRow >= 0) break
+  }
+
+  // Fallback a posiciones fijas si no encontró headers
+  if (headerRow < 0) headerRow = 8
+  if (!colMap.factura_interna && colMap.factura_interna !== 0) colMap = { factura_interna:0, factura_electronica:4, cliente:10, rtn:11, subtotal:18, impuestos:19, total:24, total_exento:25, total_gravado:26, fecha:17, monto_tarjeta:30, monto_efectivo:31, monto_transferencia:33 }
+
+  // Extraer filas de datos (empezar después del header)
+  const facturas = []
+  for (let i = headerRow + 1; i < data.length; i++) {
+    const row = data[i]
+    if (!row) break
+    const firstCell = row[colMap.factura_interna]
+    if (firstCell == null || String(firstCell).trim() === '') break
+    // Verificar que sea un número (factura interna) no un texto de resumen
+    if (isNaN(Number(firstCell))) break
+    facturas.push({
+      factura_interna: firstCell,
+      factura_electronica: String(row[colMap.factura_electronica] || ''),
+      cliente: String(row[colMap.cliente] || ''),
+      rtn: String(row[colMap.rtn] || ''),
+      subtotal: parseFloat(row[colMap.subtotal]) || 0,
+      impuestos: parseFloat(row[colMap.impuestos]) || 0,
+      total: parseFloat(row[colMap.total]) || 0,
+      total_exento: parseFloat(row[colMap.total_exento]) || 0,
+      total_gravado: parseFloat(row[colMap.total_gravado]) || 0,
+      fecha: String(row[colMap.fecha] || ''),
+      monto_tarjeta: parseFloat(row[colMap.monto_tarjeta]) || 0,
+      monto_efectivo: parseFloat(row[colMap.monto_efectivo]) || 0,
+      monto_transferencia: parseFloat(row[colMap.monto_transferencia]) || 0,
+    })
+  }
+
+  const totales = {
+    subtotal: facturas.reduce((s, f) => s + f.subtotal, 0),
+    impuestos: facturas.reduce((s, f) => s + f.impuestos, 0),
+    total: facturas.reduce((s, f) => s + f.total, 0),
+    exento: facturas.reduce((s, f) => s + f.total_exento, 0),
+  }
+
+  return { empresaRaw, tipo, centro, facturas, totales }
+}
+
+function validarCorrelativos(facturas) {
+  const nums = []
+  let prefix = ''
+  for (const f of facturas) {
+    const parts = f.factura_electronica.split('-')
+    if (parts.length >= 4) {
+      nums.push(parseInt(parts[parts.length - 1]))
+      if (!prefix) prefix = parts.slice(0, -1).join('-')
+    }
+  }
+  if (!nums.length) return { ok: true, faltantes: [] }
+  const sorted = [...nums].sort((a, b) => a - b)
+  const expected = []
+  for (let i = sorted[0]; i <= sorted[sorted.length - 1]; i++) expected.push(i)
+  const faltantes = expected.filter(n => !nums.includes(n))
+  return {
+    ok: faltantes.length === 0,
+    faltantes: faltantes.map(n => `${prefix}-${String(n).padStart(8, '0')}`),
+    rango: `${prefix}-${String(sorted[0]).padStart(8, '0')} → ${prefix}-${String(sorted[sorted.length - 1]).padStart(8, '0')}`
+  }
+}
+
+function validarISV(facturas) {
+  const errores = []
+  for (const f of facturas) {
+    if (f.subtotal > 0) {
+      const esperado = Math.round(f.subtotal * 0.15 * 100) / 100
+      const diff = Math.abs(f.impuestos - esperado)
+      if (diff > 0.05) {
+        errores.push({ factura: f.factura_electronica, subtotal: f.subtotal, isv: f.impuestos, esperado, diff })
+      }
+    }
+  }
+  return errores
+}
+
+window.procesarImport = async () => {
+  if (importFiles.length === 0) { toast('Selecciona los archivos Excel', 'error'); return }
+
+  const btn = document.getElementById('btn-procesar-import')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Procesando...'
+
+  try {
+    const reportes = []
+    for (const file of importFiles) {
+      const buf = await file.arrayBuffer()
+      const parsed = parseAlphaExcel(buf)
+      reportes.push(parsed)
+    }
+
+    // Clasificar
+    const tecnimax_fiscal = reportes.find(r => r.tipo === 'tecnimax_fiscal')
+    const tecnimax_interno = reportes.find(r => r.tipo === 'tecnimax_interno')
+    const yonker_fiscal = reportes.find(r => r.tipo === 'yonker_fiscal')
+    const yonker_interno = reportes.find(r => r.tipo === 'yonker_interno')
+
+    // Validaciones
+    const alertas = []
+
+    // Debug: mostrar qué se detectó
+    for (const r of reportes) {
+      alertas.push({ tipo: 'info', msg: `📄 "${r.empresaRaw}" → ${r.tipo} (${r.facturas.length} facturas, centro: ${r.centro})` })
+    }
+
+    // Verificar que se subieron los 4 tipos
+    if (!tecnimax_fiscal) alertas.push({ tipo: 'error', msg: 'Falta reporte: Tecnimax fiscal (Tecnimax en minúscula)' })
+    if (!tecnimax_interno) alertas.push({ tipo: 'error', msg: 'Falta reporte: TECNIMAX interno (TECNIMAX en mayúscula)' })
+    if (!yonker_fiscal) alertas.push({ tipo: 'error', msg: 'Falta reporte: Yonker Tecnimax fiscal (Yonker Tecnimax en minúscula)' })
+    if (!yonker_interno) alertas.push({ tipo: 'error', msg: 'Falta reporte: YONKER TECNIMAX interno (YONKER TECNIMAX en mayúscula)' })
+
+    // Correlativos
+    for (const r of reportes) {
+      if (!r) continue
+      const corr = validarCorrelativos(r.facturas)
+      if (!corr.ok) {
+        alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: Correlativos faltantes: ${corr.faltantes.join(', ')}` })
+      } else {
+        alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: Correlativos completos (${corr.rango})` })
+      }
+    }
+
+    // ISV en Tecnimax (fiscal e interno)
+    for (const r of [tecnimax_fiscal, tecnimax_interno]) {
+      if (!r) continue
+      const errISV = validarISV(r.facturas)
+      if (errISV.length) {
+        for (const e of errISV) {
+          alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw} Fact. ${e.factura}: ISV ${e.isv.toFixed(2)} ≠ esperado ${e.esperado.toFixed(2)} (diff: ${e.diff.toFixed(2)})` })
+        }
+      } else if (r.facturas.length) {
+        alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: ISV cuadra al 15% en todas las facturas` })
+      }
+    }
+
+    // Yonker exentas
+    for (const r of [yonker_fiscal, yonker_interno]) {
+      if (!r) continue
+      if (r.totales.impuestos !== 0) {
+        alertas.push({ tipo: 'error', msg: `⚠️ ${r.empresaRaw}: Tiene impuestos (L. ${r.totales.impuestos.toFixed(2)}) pero debería ser exenta` })
+      } else {
+        alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: Ventas exentas confirmado` })
+      }
+    }
+
+    importData = { tecnimax_fiscal, tecnimax_interno, yonker_fiscal, yonker_interno, alertas }
+
+    // Mostrar resultados
+    renderImportResults()
+
+  } catch (err) {
+    toast('Error al procesar: ' + err.message, 'error')
+  }
+  btn.disabled = false; btn.textContent = 'Procesar reportes →'
+}
+
+function renderImportResults() {
+  const d = importData
+  document.getElementById('import-step1').classList.add('hidden')
+  document.getElementById('import-step2').classList.remove('hidden')
+  document.getElementById('import-step3').classList.remove('hidden')
+  document.getElementById('import-step4').classList.remove('hidden')
+
+  // Alertas
+  const alertasHtml = d.alertas.map(a => `<div class="imp-alert ${a.tipo}"><span>${a.msg}</span></div>`).join('')
+  document.getElementById('import-alertas').innerHTML = alertasHtml
+
+  // Resumen de totales
+  const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const yf = d.yonker_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const granTotal = tf.total + ti.total + yf.total + yi.total
+
+  document.getElementById('import-resumen').innerHTML = `
+    <div class="imp-summary">
+      <div class="imp-sum-card">
+        <div class="imp-sum-title">Tecnimax Fiscal (${d.tecnimax_fiscal?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-row"><span class="label">Subtotal</span><span class="value">${fmt(tf.subtotal)}</span></div>
+        <div class="imp-sum-row"><span class="label">ISV 15%</span><span class="value">${fmt(tf.impuestos)}</span></div>
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(tf.total)}</span></div>
+      </div>
+      <div class="imp-sum-card">
+        <div class="imp-sum-title">TECNIMAX Interno (${d.tecnimax_interno?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-row"><span class="label">Subtotal</span><span class="value">${fmt(ti.subtotal)}</span></div>
+        <div class="imp-sum-row"><span class="label">ISV (Bono)</span><span class="value">${fmt(ti.impuestos)}</span></div>
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(ti.total)}</span></div>
+      </div>
+      <div class="imp-sum-card">
+        <div class="imp-sum-title">Yonker Fiscal (${d.yonker_fiscal?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-row"><span class="label">Total exento</span><span class="value">${fmt(yf.total)}</span></div>
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yf.total)}</span></div>
+      </div>
+      <div class="imp-sum-card">
+        <div class="imp-sum-title">YONKER Interno (${d.yonker_interno?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-row"><span class="label">Total exento</span><span class="value">${fmt(yi.total)}</span></div>
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yi.total)}</span></div>
+      </div>
+    </div>
+    <div style="text-align:center;padding:12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--gold)">
+      <span style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Gran Total del día</span>
+      <div style="font-size:24px;font-family:var(--mono);color:var(--gold);font-weight:500;margin-top:4px">${fmt(granTotal)}</div>
+    </div>`
+
+  // Detalle fiscal
+  renderFiscalDetail()
+
+  // Partida generada
+  renderImportPartida()
+}
+
+window.showFiscalTab = (tab) => {
+  importFiscalTab = tab
+  document.getElementById('tab-fiscal-tecnimax').style.borderColor = tab === 'tecnimax' ? 'var(--gold)' : 'var(--border)'
+  document.getElementById('tab-fiscal-tecnimax').style.color = tab === 'tecnimax' ? 'var(--gold)' : 'var(--text2)'
+  document.getElementById('tab-fiscal-yonker').style.borderColor = tab === 'yonker' ? 'var(--gold)' : 'var(--border)'
+  document.getElementById('tab-fiscal-yonker').style.color = tab === 'yonker' ? 'var(--gold)' : 'var(--text2)'
+  renderFiscalDetail()
+}
+
+function renderFiscalDetail() {
+  const d = importData
+  const facturas = importFiscalTab === 'tecnimax'
+    ? (d.tecnimax_fiscal?.facturas || [])
+    : (d.yonker_fiscal?.facturas || [])
+  const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const tbody = document.getElementById('tbody-fiscal')
+
+  // Obtener números y detectar faltantes para insertar como "Anulada"
+  const facturasConAnuladas = []
+  const nums = []
+  let prefix = ''
+  for (const f of facturas) {
+    const parts = f.factura_electronica.split('-')
+    if (parts.length >= 4) {
+      nums.push(parseInt(parts[parts.length - 1]))
+      if (!prefix) prefix = parts.slice(0, -1).join('-')
+    }
+  }
+
+  if (nums.length > 0) {
+    const sorted = [...nums].sort((a, b) => a - b)
+    for (let n = sorted[0]; n <= sorted[sorted.length - 1]; n++) {
+      const facNum = `${prefix}-${String(n).padStart(8, '0')}`
+      const facReal = facturas.find(f => f.factura_electronica === facNum)
+      if (facReal) {
+        facturasConAnuladas.push({ ...facReal, anulada: false })
+      } else {
+        facturasConAnuladas.push({
+          factura_electronica: facNum,
+          cliente: 'ANULADA',
+          rtn: '',
+          subtotal: 0,
+          impuestos: 0,
+          total: 0,
+          anulada: true
+        })
+      }
+    }
+  }
+
+  // Ordenar de mayor a menor (más reciente primero)
+  facturasConAnuladas.sort((a, b) => {
+    const na = parseInt(a.factura_electronica.split('-').pop())
+    const nb = parseInt(b.factura_electronica.split('-').pop())
+    return nb - na
+  })
+
+  tbody.innerHTML = facturasConAnuladas.map(f => {
+    if (f.anulada) {
+      return `<tr style="background:#ef444408">
+        <td class="mono" style="color:var(--red)">${f.factura_electronica}</td>
+        <td style="color:var(--red);font-weight:500">⊘ ANULADA</td>
+        <td>—</td><td class="mono" style="text-align:right;color:var(--text3)">0.00</td>
+        <td class="mono" style="text-align:right;color:var(--text3)">0.00</td>
+        <td class="mono" style="text-align:right;color:var(--text3)">0.00</td>
+      </tr>`
+    }
+    return `<tr>
+      <td class="mono" style="color:var(--gold)">${f.factura_electronica}</td>
+      <td>${f.cliente}</td>
+      <td class="mono" style="color:var(--text3)">${f.rtn && f.rtn !== 'null' && f.rtn !== 'NaN' ? f.rtn : '—'}</td>
+      <td class="mono" style="text-align:right">${fmt(f.subtotal)}</td>
+      <td class="mono" style="text-align:right">${fmt(f.impuestos)}</td>
+      <td class="mono" style="text-align:right;font-weight:500">${fmt(f.total)}</td>
+    </tr>`
+  }).join('')
+
+  // Add totals row (solo facturas reales, no anuladas)
+  const reales = facturasConAnuladas.filter(f => !f.anulada)
+  const totSub = reales.reduce((s, f) => s + f.subtotal, 0)
+  const totISV = reales.reduce((s, f) => s + f.impuestos, 0)
+  const totTotal = reales.reduce((s, f) => s + f.total, 0)
+  const anuladas = facturasConAnuladas.filter(f => f.anulada).length
+  tbody.innerHTML += `
+    <tr style="background:var(--bg3);font-weight:500">
+      <td colspan="3" style="text-align:right;padding:12px 18px;font-size:12px;color:var(--text3)">TOTALES (${reales.length} facturas${anuladas ? ', ' + anuladas + ' anulada' + (anuladas > 1 ? 's' : '') : ''})</td>
+      <td class="mono" style="text-align:right;color:var(--gold)">${fmt(totSub)}</td>
+      <td class="mono" style="text-align:right;color:var(--gold)">${fmt(totISV)}</td>
+      <td class="mono" style="text-align:right;color:var(--gold)">${fmt(totTotal)}</td>
+    </tr>`
+}
+
+function renderImportPartida() {
+  const d = importData
+  const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const yf = d.yonker_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const granTotal = tf.total + ti.total + yf.total + yi.total
+
+  const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const C = IMPORT_CUENTAS
+
+  const lineas = [
+    // DÉBITO — Caja General
+    { codigo: C.caja_general.codigo, nombre: C.caja_general.nombre, centro: '—', debe: granTotal, haber: 0, fiscal: '—' },
+    // CRÉDITOS FISCALES
+    { codigo: C.venta_tecnimax.codigo, nombre: C.venta_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: tf.subtotal, fiscal: '✓' },
+    { codigo: C.isv_ventas.codigo, nombre: C.isv_ventas.nombre, centro: '—', debe: 0, haber: tf.impuestos, fiscal: '✓' },
+    { codigo: C.venta_yonker.codigo, nombre: C.venta_yonker.nombre, centro: 'Yonker', debe: 0, haber: yf.total, fiscal: '✓' },
+    // CRÉDITOS INTERNOS
+    { codigo: C.venta_tecnimax_int.codigo, nombre: C.venta_tecnimax_int.nombre, centro: 'Tecnicentro', debe: 0, haber: ti.subtotal, fiscal: '—' },
+    { codigo: C.bono_tecnimax.codigo, nombre: C.bono_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: ti.impuestos, fiscal: '—' },
+    { codigo: C.venta_yonker_int.codigo, nombre: C.venta_yonker_int.nombre, centro: 'Yonker', debe: 0, haber: yi.total, fiscal: '—' },
+  ].filter(l => l.debe > 0 || l.haber > 0)
+
+  const tbody = document.getElementById('tbody-import-partida')
+  tbody.innerHTML = lineas.map(l => `
+    <tr>
+      <td><span class="mono" style="color:var(--gold);margin-right:8px">${l.codigo}</span>${l.nombre}</td>
+      <td>${l.centro}</td>
+      <td class="mono" style="text-align:right;color:${l.debe > 0 ? 'var(--text)' : 'var(--text3)'}">${l.debe > 0 ? fmt(l.debe) : ''}</td>
+      <td class="mono" style="text-align:right;color:${l.haber > 0 ? 'var(--text)' : 'var(--text3)'}">${l.haber > 0 ? fmt(l.haber) : ''}</td>
+      <td style="text-align:center;color:${l.fiscal === '✓' ? 'var(--green)' : 'var(--text3)'}">${l.fiscal}</td>
+    </tr>`).join('')
+
+  const totD = lineas.reduce((s, l) => s + l.debe, 0)
+  const totC = lineas.reduce((s, l) => s + l.haber, 0)
+  document.getElementById('imp-tot-d').textContent = fmt(totD)
+  document.getElementById('imp-tot-c').textContent = fmt(totC)
+}
+
+window.resetImport = () => {
+  importData = null
+  importFiles = []
+  document.getElementById('imp-files').value = ''
+  document.getElementById('import-file-list').innerHTML = ''
+  document.getElementById('import-zone').classList.remove('has-file')
+  document.getElementById('btn-procesar-import').disabled = true
+  document.getElementById('import-step1').classList.remove('hidden')
+  document.getElementById('import-step2').classList.add('hidden')
+  document.getElementById('import-step3').classList.add('hidden')
+  document.getElementById('import-step4').classList.add('hidden')
+}
+
+window.guardarImportPartida = async () => {
+  if (!importData) { toast('No hay datos procesados', 'error'); return }
+  const fecha = document.getElementById('imp-fecha').value
+  const descripcion = document.getElementById('imp-desc').value.trim() || `Ventas Alpha ${fecha}`
+  if (!fecha) { toast('Selecciona la fecha de ventas', 'error'); return }
+
+  const d = importData
+  const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const yf = d.yonker_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
+  const C = IMPORT_CUENTAS
+
+  // Buscar IDs de centro de costo
+  const ccTecni = empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker'))
+  const ccYonker = empresas.find(e => e.nombre.toLowerCase().includes('yonker'))
+
+  // Cargar cuentas detalle si no están
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+
+  const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
+
+  // Preparar líneas de CRÉDITO (automáticas de la importación)
+  const creditosRaw = [
+    { cuenta: C.venta_tecnimax, monto: tf.subtotal, cc: ccTecni?.id || '', fiscal: true },
+    { cuenta: C.isv_ventas, monto: tf.impuestos, cc: '', fiscal: true },
+    { cuenta: C.venta_yonker, monto: yf.total, cc: ccYonker?.id || '', fiscal: true },
+    { cuenta: C.venta_tecnimax_int, monto: ti.subtotal, cc: ccTecni?.id || '', fiscal: false },
+    { cuenta: C.bono_tecnimax, monto: ti.impuestos, cc: ccTecni?.id || '', fiscal: false },
+    { cuenta: C.venta_yonker_int, monto: yi.total, cc: ccYonker?.id || '', fiscal: false },
+  ].filter(l => l.monto > 0)
+
+  // Navegar al formulario de nueva partida
+  editingPartidaId = null
+  showView('partida-nueva', 'Nueva partida · Ventas Alpha')
+
+  // Esperar a que el formulario cargue
+  await new Promise(r => setTimeout(r, 300))
+
+  // Llenar encabezado
+  document.getElementById('pn-fecha').value = fecha
+  document.getElementById('pn-descripcion').value = descripcion
+  document.getElementById('pn-origen').value = 'venta_alpha'
+  document.getElementById('pn-documento').value = ''
+
+  // Limpiar líneas actuales y crear las de crédito + líneas vacías para débitos
+  partidaLineas = []
+  lineaCounter = 0
+
+  // Agregar 2 líneas vacías para débitos (el usuario las llena manualmente)
+  lineaCounter++
+  partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
+  lineaCounter++
+  partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
+
+  // Agregar líneas de crédito pre-llenadas
+  for (const cr of creditosRaw) {
+    lineaCounter++
+    const cta = getCuenta(cr.cuenta.codigo)
+    partidaLineas.push({
+      id: lineaCounter,
+      cuenta_id: cta?.id || '',
+      cuenta_codigo: cr.cuenta.codigo,
+      cuenta_nombre: cr.cuenta.nombre,
+      tipo: 'credito',
+      monto: Math.round(cr.monto * 100) / 100,
+      centro_costo_id: cr.cc,
+      descripcion: '',
+      aplica_fiscal: cr.fiscal
+    })
+  }
+
+  renderLineas()
+  calcTotales()
+  toast('Créditos cargados. Completá los débitos con las formas de pago.', 'info')
+}
+// ══════════════════════════════════════════════
+// ── CONTEO DE BILLETES (DENOMINACIONES)
+// ══════════════════════════════════════════════
+
+const DENOMINACIONES = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+let billetesCallback = null
+let billetesConteo = {}
+
+function openBilletes(titulo, subtitulo, callback) {
+  billetesCallback = callback
+  billetesConteo = {}
+  DENOMINACIONES.forEach(d => billetesConteo[d] = 0)
+  document.getElementById('billetes-title').textContent = titulo || '💵 Conteo de billetes'
+  document.getElementById('billetes-sub').textContent = subtitulo || 'Ingresa la cantidad de cada denominación'
+  renderBilletes()
+  document.getElementById('modal-billetes').classList.add('open')
+  // Focus first input after render
+  setTimeout(() => {
+    const first = document.querySelector('#tbody-billetes input')
+    if (first) first.focus()
+  }, 200)
+}
+
+function renderBilletes() {
+  const tbody = document.getElementById('tbody-billetes')
+  tbody.innerHTML = DENOMINACIONES.slice().reverse().map(d => {
+    const qty = billetesConteo[d] || 0
+    const sub = qty * d
+    return `<tr>
+      <td style="padding:8px 12px">
+        <span style="font-family:var(--mono);font-size:15px;color:var(--text);font-weight:500">L. ${d.toLocaleString('es-HN')}</span>
+      </td>
+      <td style="padding:8px 12px;text-align:center">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" value="${qty || ''}" placeholder="0" data-denom="${d}"
+          oninput="updBillete(${d},this.value)" onfocus="this.select()"
+          style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-family:var(--mono);font-size:15px;outline:none">
+      </td>
+      <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px;min-width:120px" id="bill-sub-${d}">
+        ${sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'}
+      </td>
+    </tr>`
+  }).join('')
+  updateBilletesTotal()
+}
+
+window.updBillete = (denom, val) => {
+  billetesConteo[denom] = parseInt(val) || 0
+  const sub = billetesConteo[denom] * denom
+  // Actualizar subtotal de esta fila
+  const subEl = document.getElementById('bill-sub-' + denom)
+  if (subEl) {
+    subEl.innerHTML = sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'
+  }
+  updateBilletesTotal()
+}
+
+function updateBilletesTotal() {
+  let totalQty = 0, totalMonto = 0
+  DENOMINACIONES.forEach(d => {
+    totalQty += billetesConteo[d] || 0
+    totalMonto += (billetesConteo[d] || 0) * d
+  })
+  document.getElementById('bill-total-qty').textContent = totalQty
+  document.getElementById('bill-total-monto').textContent = 'L. ' + totalMonto.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+}
+
+window.cancelBilletes = () => {
+  billetesCallback = null
+  document.getElementById('modal-billetes').classList.remove('open')
+}
+
+window.aplicarBilletes = () => {
+  let totalMonto = 0
+  DENOMINACIONES.forEach(d => totalMonto += (billetesConteo[d] || 0) * d)
+  if (billetesCallback) {
+    billetesCallback(totalMonto, { ...billetesConteo })
+  }
+  document.getElementById('modal-billetes').classList.remove('open')
+  billetesCallback = null
+}
+
+// ── Conectar con celdas Debe/Haber de Caja General ──
+window.openCajaDebe = (lineaId) => {
+  openBilletes('💵 Ingreso a Caja General', 'Contá los billetes que entran a caja', (monto, detalle) => {
+    const l = partidaLineas.find(x => x.id === lineaId)
+    if (l) { l.tipo = 'debito'; l.monto = monto; l.billetes = detalle }
+    renderLineas()
+    calcTotales()
+  })
+}
+
+window.openCajaHaber = (lineaId) => {
+  openBilletes('💵 Egreso de Caja General', 'Contá los billetes que salen de caja', (monto, detalle) => {
+    const l = partidaLineas.find(x => x.id === lineaId)
+    if (l) { l.tipo = 'credito'; l.monto = monto; l.billetes = detalle }
+    renderLineas()
+    calcTotales()
+  })
+}
+
+// ── ARQUEO DE CAJA ──
+window.verArqueo = async () => {
+  // Cargar todos los conteos de billetes
+  const { data: conteos, error } = await sb.from('conteo_billetes').select('*')
+  if (error) { toast('Error al cargar arqueo: ' + error.message, 'error'); return }
+
+  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const tbody = document.getElementById('tbody-arqueo')
+
+  let totIng = 0, totEgr = 0, totCaja = 0, totValor = 0
+
+  tbody.innerHTML = denoms.map(d => {
+    const ingresos = (conteos || []).filter(c => c.tipo === 'ingreso').reduce((s, c) => s + (c[`den_${d}`] || 0), 0)
+    const egresos = (conteos || []).filter(c => c.tipo === 'egreso').reduce((s, c) => s + (c[`den_${d}`] || 0), 0)
+    const enCaja = ingresos - egresos
+    const valor = enCaja * d
+
+    totIng += ingresos
+    totEgr += egresos
+    totCaja += enCaja
+    totValor += valor
+
+    return `<tr>
+      <td style="padding:8px 12px;font-family:var(--mono);font-size:14px;font-weight:500">L. ${d.toLocaleString('es-HN')}</td>
+      <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--green)">${ingresos || '—'}</td>
+      <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--red)">${egresos || '—'}</td>
+      <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-weight:500;color:${enCaja >= 0 ? 'var(--text)' : 'var(--red)'}">${enCaja}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:13px;color:${valor >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${valor.toLocaleString('es-HN', {minimumFractionDigits:2})}</td>
+    </tr>`
+  }).join('')
+
+  document.getElementById('arq-tot-ing').textContent = totIng
+  document.getElementById('arq-tot-egr').textContent = totEgr
+  document.getElementById('arq-tot-caja').textContent = totCaja
+  document.getElementById('arq-tot-valor').textContent = 'L. ' + totValor.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  document.getElementById('modal-arqueo').classList.add('open')
 }

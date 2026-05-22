@@ -262,6 +262,25 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
 .caja-tab:hover{border-color:var(--border2);color:var(--text)}
 .caja-tab.active{background:#f0a50018;border-color:var(--gold);color:var(--gold)}
 
+/* IMPORT ALERTS */
+.imp-alert{padding:12px 16px;border-radius:var(--radius);margin-bottom:8px;font-size:13px;display:flex;align-items:flex-start;gap:10px}
+.imp-alert.warning{background:#f59e0b12;border:0.5px solid #f59e0b30;color:#fbbf24}
+.imp-alert.success{background:#22c55e12;border:0.5px solid #22c55e30;color:#4ade80}
+.imp-alert.error{background:#ef444412;border:0.5px solid #ef444430;color:#f87171}
+.imp-alert.info{background:#3b82f612;border:0.5px solid #3b82f630;color:#60a5fa}
+.imp-summary{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.imp-sum-card{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:16px}
+.imp-sum-title{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:500}
+.imp-sum-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+.imp-sum-row .label{color:var(--text2)}
+.imp-sum-row .value{font-family:var(--mono);color:var(--text);font-weight:500}
+.imp-sum-total{border-top:0.5px solid var(--border);margin-top:6px;padding-top:8px;font-weight:500}
+.imp-sum-total .value{color:var(--gold)}
+.imp-file-item{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg3);border:0.5px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:12px;color:var(--text2)}
+.imp-file-icon{font-size:16px}
+.imp-file-name{flex:1;color:var(--text);font-weight:500}
+.imp-file-type{font-size:10px;padding:2px 8px;border-radius:8px}
+
 /* LOADING OVERLAY */
 #loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:16px}
 #loading-overlay .brand{font-family:var(--mono);font-size:20px;color:var(--gold);letter-spacing:3px}
