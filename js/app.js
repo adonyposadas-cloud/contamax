@@ -65,22 +65,22 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-importar'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
     compras:     ['nav-compras', 'nav-pendientes']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
   })
 
   // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
-  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar']
+  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras']
   const tieneContab = contabItems.some(id => visibles.includes(id))
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 }
@@ -122,6 +122,7 @@ window.showView = (id, label) => {
   const nav = document.getElementById('nav-' + id)
   if (nav) nav.classList.add('active')
   if (id === 'partida-nueva') { const np = document.getElementById('nav-partidas'); if(np) np.classList.add('active') }
+  if (id === 'importar-compras') { const ni = document.getElementById('nav-importar-compras'); if(ni) ni.classList.add('active') }
   document.getElementById('topbar-module').textContent = label
   if (id === 'usuarios') loadUsuarios()
   if (id === 'pendientes') loadPendientes()
@@ -131,6 +132,7 @@ window.showView = (id, label) => {
   if (id === 'partida-nueva' && !editingPartidaId) initPartidaNueva()
   if (id === 'caja') loadCaja()
   if (id === 'importar') initImport()
+  if (id === 'importar-compras') initImportCompras()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -368,29 +370,58 @@ window.guardarCompra = async () => {
 }
 
 // ── PENDIENTES ──
+let pendientesData = []
+
 async function loadPendientes() {
   const container = document.getElementById('lista-pendientes')
   container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>'
   let query = sb.from('facturas_compras')
     .select('*, centro_costo:centros_costo(nombre), proveedor:proveedores(nombre), registrado:usuarios!registrado_por(nombre)')
     .order('created_at', { ascending: false })
-    .limit(50)
+    .limit(200)
   if (currentProfile.rol === 'compras') {
     query = query.eq('registrado_por', currentProfile.id)
   }
   const { data, error } = await query
   if (error) { container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`; return }
-  if (!data?.length) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No hay facturas registradas</div><div class="empty-sub">Las facturas registradas aparecerán aquí</div></div>'
-    return
+  pendientesData = data || []
+  filtrarPendientes()
+}
+
+window.filtrarPendientes = () => {
+  const buscar = (document.getElementById('pend-buscar')?.value || '').toLowerCase().trim()
+  const estadoFiltro = document.getElementById('pend-estado')?.value || 'todos'
+  const container = document.getElementById('lista-pendientes')
+
+  let filtered = pendientesData
+  if (estadoFiltro !== 'todos') {
+    filtered = filtered.filter(f => f.estado === estadoFiltro)
   }
-  const pending = data.filter(f => f.estado === 'pendiente').length
+  if (buscar) {
+    filtered = filtered.filter(f =>
+      (f.numero_factura || '').toLowerCase().includes(buscar) ||
+      (f.proveedor?.nombre || '').toLowerCase().includes(buscar) ||
+      (f.observaciones || '').toLowerCase().includes(buscar) ||
+      (f.centro_costo?.nombre || '').toLowerCase().includes(buscar)
+    )
+  }
+
+  const pending = pendientesData.filter(f => f.estado === 'pendiente').length
   const badge = document.getElementById('badge-pendientes')
   if (pending > 0) { badge.classList.remove('hidden'); badge.textContent = pending }
   else badge.classList.add('hidden')
+
+  if (!filtered.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No hay facturas que coincidan</div><div class="empty-sub">Intenta con otro término de búsqueda</div></div>'
+    return
+  }
+
   const tipoLabel = { repuestos:'Repuestos/Mat.', servicios:'Servicios', combustible:'Combustible', mantenimiento:'Mant. Vehículo', admin:'Administrativo', otro:'Otro' }
-  container.innerHTML = '<div class="pending-list">' + data.map(f => `
-    <div class="pending-item ${f.estado}">
+  container.innerHTML = '<div class="pending-list">' + filtered.map(f => {
+    const esImportada = (f.observaciones || '').includes('[IMP-COMPRA]')
+    const clickable = esImportada && f.estado === 'pendiente'
+    return `
+    <div class="pending-item ${f.estado}" ${clickable ? `onclick="crearPartidaDesdeFactura('${f.id}')" style="cursor:pointer"` : ''}>
       <div class="pi-left">
         <div class="pi-dot ${f.estado}"></div>
         <div>
@@ -402,7 +433,104 @@ async function loadPendientes() {
         <div class="pi-amount">L. ${parseFloat(f.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</div>
         <div class="pi-status ${f.estado}">${f.estado === 'pendiente' ? 'Pendiente partida' : f.estado === 'procesada' ? 'Partida generada' : 'Rechazada'}</div>
       </div>
-    </div>`).join('') + '</div>'
+    </div>`
+  }).join('') + '</div>'
+}
+
+// ── CREAR PARTIDA DESDE FACTURA PENDIENTE (CONTADO IMPORTADAS) ──
+window.crearPartidaDesdeFactura = async (facturaId) => {
+  // Cargar factura
+  const { data: factura, error } = await sb.from('facturas_compras')
+    .select('*')
+    .eq('id', facturaId)
+    .single()
+  if (error || !factura) { toast('Error al cargar factura', 'error'); return }
+
+  // Cargar cuentas detalle
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+  const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
+
+  // Extraer descripción de productos desde observaciones
+  const obs = factura.observaciones || ''
+  const productosDesc = obs.replace('[IMP-COMPRA]', '').replace(factura.proveedor || '', '').replace(/^[\s·]+/, '').trim()
+
+  // Navegar al formulario de nueva partida
+  editingPartidaId = null
+  showView('partida-nueva', 'Nueva partida · Compra contado')
+
+  await new Promise(r => setTimeout(r, 300))
+
+  // Llenar encabezado
+  document.getElementById('pn-fecha').value = factura.fecha_factura
+  document.getElementById('pn-descripcion').value = productosDesc || obs
+  document.getElementById('pn-origen').value = 'compra'
+  document.getElementById('pn-documento').value = factura.numero_factura || ''
+
+  const esFiscal = factura.numero_factura && !factura.numero_factura.startsWith('SF-')
+
+  // Limpiar líneas y crear las de débito pre-llenadas
+  partidaLineas = []
+  lineaCounter = 0
+
+  const ctaInventario = getCuenta('110501-001')
+  const ctaIva = getCuenta('110402-001')
+
+  // Débito: Inventario
+  if (factura.subtotal > 0) {
+    lineaCounter++
+    partidaLineas.push({
+      id: lineaCounter,
+      cuenta_id: ctaInventario?.id || '',
+      cuenta_codigo: '110501-001',
+      cuenta_nombre: 'INVENTARIO PARA LA VENTA BODEGA PRINCIPAL',
+      tipo: 'debito',
+      monto: Math.round(factura.subtotal * 100) / 100,
+      centro_costo_id: factura.centro_costo_id || '',
+      descripcion: productosDesc,
+      aplica_fiscal: esFiscal,
+    })
+  }
+
+  // Débito: IVA
+  if (factura.isv > 0) {
+    lineaCounter++
+    partidaLineas.push({
+      id: lineaCounter,
+      cuenta_id: ctaIva?.id || '',
+      cuenta_codigo: '110402-001',
+      cuenta_nombre: 'IVA S/COMPRAS NACIONALES',
+      tipo: 'debito',
+      monto: Math.round(factura.isv * 100) / 100,
+      centro_costo_id: factura.centro_costo_id || '',
+      descripcion: '',
+      aplica_fiscal: esFiscal,
+    })
+  }
+
+  // Línea vacía para crédito (forma de pago — el usuario la llena)
+  lineaCounter++
+  partidaLineas.push({
+    id: lineaCounter,
+    cuenta_id: '',
+    cuenta_codigo: '',
+    cuenta_nombre: '',
+    tipo: 'credito',
+    monto: 0,
+    centro_costo_id: '',
+    descripcion: '',
+    aplica_fiscal: esFiscal,
+  })
+
+  renderLineas()
+  calcTotales()
+
+  // Guardar referencia para actualizar estado al guardar
+  window._facturaContadoId = facturaId
+
+  toast('Débitos cargados. Completá el crédito con la forma de pago (caja, banco, etc.)', 'info')
 }
 
 // ── HELPERS ──
@@ -532,7 +660,17 @@ window.initPartidaNueva = initPartidaNueva
 
 window.nuevaPartida = () => {
   editingPartidaId = null
+  window._facturaContadoId = null
   showView('partida-nueva', 'Nueva partida')
+}
+
+window.volverDesdePartida = () => {
+  if (window._facturaContadoId) {
+    window._facturaContadoId = null
+    showView('pendientes', 'Facturas pendientes')
+  } else {
+    showView('partidas', 'Partidas contables')
+  }
 }
 
 // ── EDITAR PARTIDA EXISTENTE ──
@@ -909,7 +1047,20 @@ window.guardarPartida = async (estado) => {
     toast(`Borrador ${accion}`, 'success')
   }
   editingPartidaId = null
-  showView('partidas', 'Partidas contables')
+
+  // Si vino de una factura de contado importada, marcarla como procesada
+  let volverAPendientes = false
+  if (window._facturaContadoId) {
+    await sb.from('facturas_compras').update({ estado: 'procesada' }).eq('id', window._facturaContadoId)
+    window._facturaContadoId = null
+    volverAPendientes = true
+  }
+
+  if (volverAPendientes) {
+    showView('pendientes', 'Facturas pendientes')
+  } else {
+    showView('partidas', 'Partidas contables')
+  }
 }
 
 // ── CATÁLOGO DE CUENTAS ──
@@ -2083,4 +2234,639 @@ window.verArqueo = async () => {
   document.getElementById('arq-tot-valor').textContent = 'L. ' + totValor.toLocaleString('es-HN', { minimumFractionDigits: 2 })
 
   document.getElementById('modal-arqueo').classList.add('open')
+}
+
+// ══════════════════════════════════════════════
+// ── IMPORTAR COMPRAS ALPHA (XLS MENSUAL)
+// ══════════════════════════════════════════════
+
+const COMPRAS_CUENTAS = {
+  inventario: { codigo: '110501-001', nombre: 'INVENTARIO PARA LA VENTA BODEGA PRINCIPAL' },
+  iva_compras: { codigo: '110402-001', nombre: 'IVA S/COMPRAS NACIONALES' },
+}
+
+// Mapeo de proveedores del Excel → subcuenta 210101-XXX
+// Usa matching fuzzy: normaliza el nombre, quita puntuación, y busca coincidencia
+const PROVEEDORES_MAP = {
+  'AUTOMUNDO':                  { codigo: '210101-001', nombre: 'AUTOMUNDO' },
+  'REPUESTOS SAN MIGUEL':       { codigo: '210101-002', nombre: 'REPUESTOS SAN MIGUEL' },
+  'JC REPUESTOS':               { codigo: '210101-003', nombre: 'JC REPUESTOS' },
+  'CEMCOL COMERCIAL':           { codigo: '210101-004', nombre: 'CEMCOL COMERCIAL' },
+  'CIA AFILIADAS':              { codigo: '210101-005', nombre: 'Cia. Afiliadas y Relacionadas.' },
+  'REASA':                      { codigo: '210101-006', nombre: 'REASA' },
+  'AUTOEXCEL':                  { codigo: '210101-007', nombre: 'AUTOEXCEL' },
+  'REPACAR':                    { codigo: '210101-008', nombre: 'REPACAR' },
+  'EL ESFUERZO COMERCIAL':      { codigo: '210101-009', nombre: 'EL ESFUERZO COMERCIAL' },
+  'REYSA':                      { codigo: '210101-010', nombre: 'REYSA, S.A DE C.V' },
+  'CORPORACION FLORES':         { codigo: '210101-011', nombre: 'CORPORACION FLORES' },
+  'ALFHA REPUESTOS':            { codigo: '210101-012', nombre: 'ALFHA REPUESTOS' },
+  'GRUPO Q HONDURAS':           { codigo: '210101-013', nombre: 'GRUPO Q HONDURAS' },
+  'ACAVISA':                    { codigo: '210101-014', nombre: 'ACAVISA HONDURAS S.A' },
+  'COMERCIAL PECAS':            { codigo: '210101-016', nombre: 'COMERCIAL PECAS' },
+  'ALLAS':                      { codigo: '210101-017', nombre: 'ALLAS' },
+  'SUPER REPUESTOS':            { codigo: '210101-018', nombre: 'SUPER REPUESTOS' },
+  'CIREMA':                     { codigo: '210101-019', nombre: 'CIREMA' },
+  'MAGNESEL':                   { codigo: '210101-020', nombre: 'MAGNESEL, S DE R. L.' },
+  'PREMIUM AUTO PARTS':         { codigo: '210101-021', nombre: 'PREMIUM AUTO PARTS' },
+  'INVERSIONES J Y R':          { codigo: '210101-022', nombre: 'INVERSIONES J Y R' },
+  'IMPRESA REPUESTOS':          { codigo: '210101-023', nombre: 'IMPRESA REPUESTOS' },
+  'IMPRESSA REPUESTOS':         { codigo: '210101-023', nombre: 'IMPRESA REPUESTOS' },
+  'SOL Y CAR':                  { codigo: '210101-024', nombre: 'SOL Y CAR KASHIMA' },
+  'SOL CAR':                    { codigo: '210101-024', nombre: 'SOL Y CAR KASHIMA' },
+  'LLANTICENTRO FENIX':         { codigo: '210101-025', nombre: 'LLANTICENTRO FENIX' },
+  'SUPERCAR':                   { codigo: '210101-026', nombre: 'SUPERCAR, S.A DE C.V' },
+  'EMPRESA DE SEGURIDAD':       { codigo: '210101-027', nombre: 'EMPRESA DE SEGURIDAD PRIVADA (DAR)' },
+  'OTROS PROVEEDORES':          { codigo: '210101-028', nombre: 'OTROS PROVEEDORES X PAGAR' },
+  'BARJUM':                     { codigo: '210101-029', nombre: 'Barjum' },
+  'BARJUN':                     { codigo: '210101-029', nombre: 'Barjum' },
+}
+
+let icFile = null
+let icData = null // { credito: [...], contado: [...] }
+let icProviderFilter = 'todos'
+
+function normalizeProvName(name) {
+  return (name || '').toUpperCase()
+    .replace(/[.,\-_&]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\.{2,}/g, '')
+}
+
+function matchProveedor(excelName) {
+  const norm = normalizeProvName(excelName)
+  // Exact match first
+  for (const [key, val] of Object.entries(PROVEEDORES_MAP)) {
+    if (norm === key || norm.startsWith(key) || key.startsWith(norm)) return val
+  }
+  // Fuzzy: check if any key is contained in the name or vice versa
+  for (const [key, val] of Object.entries(PROVEEDORES_MAP)) {
+    const normKey = normalizeProvName(key)
+    if (norm.includes(normKey) || normKey.includes(norm)) return val
+  }
+  // Partial word match (at least first 4 chars of first word)
+  const firstWord = norm.split(' ')[0]
+  if (firstWord.length >= 4) {
+    for (const [key, val] of Object.entries(PROVEEDORES_MAP)) {
+      const keyFirst = normalizeProvName(key).split(' ')[0]
+      if (firstWord === keyFirst) return val
+      if (firstWord.length >= 5 && keyFirst.startsWith(firstWord.substring(0, 5))) return val
+    }
+  }
+  return null
+}
+
+function parseComprasSheet(wb, sheetName) {
+  const ws = wb.Sheets[sheetName]
+  if (!ws) return []
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+
+  const facturas = []
+  let i = 0
+  while (i < data.length) {
+    const row = data[i]
+    if (!row) { i++; continue }
+
+    const fecha = String(row[0] || '').trim()
+    // Una fila de factura empieza con fecha dd-mm-yyyy
+    if (!/^\d{2}-\d{2}-\d{4}$/.test(fecha)) { i++; continue }
+
+    const noConsecutivo = String(row[1] || '').trim()
+    const noFactura = String(row[2] || '').trim()
+    const cedJuridica = String(row[4] || '').trim()
+    const proveedor = String(row[5] || '').trim()
+    const items = parseInt(row[6]) || 1
+    const subtotal = parseFloat(row[11]) || 0
+    const descuento = parseFloat(row[12]) || 0
+    const isv = parseFloat(row[13]) || 0
+    const total = parseFloat(row[14]) || 0
+
+    // Saltar fila de totales al final
+    if (proveedor === '' && noFactura === '' && noConsecutivo === '') { i++; continue }
+
+    // Leer filas de detalle de productos
+    const productos = []
+    let j = i + 1
+    // Saltar fila "Cabys" header
+    if (j < data.length && String(data[j]?.[0] || '').trim().toLowerCase() === 'cabys') {
+      j++
+    }
+    // Leer filas de producto (empiezan con NaN/vacío en col 0)
+    while (j < data.length) {
+      const pRow = data[j]
+      if (!pRow) { j++; continue }
+      const pFecha = String(pRow[0] || '').trim()
+      // Si es otra fecha o "Total HNL" => ya no es detalle
+      if (/^\d{2}-\d{2}-\d{4}$/.test(pFecha)) break
+      if (pFecha.toLowerCase().includes('total')) break
+      if (pFecha.toLowerCase() === 'cabys') break
+      // Si la primera col es vacía o NaN, es detalle
+      if (pFecha === '' || pFecha === 'NaN' || pFecha === 'null' || !pFecha) {
+        const codigo = String(pRow[1] || '').trim()
+        const nombre = String(pRow[4] || '').trim()
+        const cantidad = parseFloat(pRow[7]) || 0
+        const costo = parseFloat(pRow[11]) || 0
+        if (nombre || codigo) {
+          productos.push({ codigo, nombre, cantidad, costo })
+        }
+      }
+      j++
+    }
+
+    facturas.push({
+      fecha,
+      no_consecutivo: noConsecutivo,
+      no_factura: noFactura,
+      ced_juridica: cedJuridica,
+      proveedor,
+      items,
+      subtotal: Math.round(subtotal * 100) / 100,
+      descuento: Math.round(descuento * 100) / 100,
+      isv: Math.round(isv * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      productos,
+      // Matching de proveedor
+      cuenta_proveedor: matchProveedor(proveedor),
+      duplicada: false,
+    })
+
+    i = j
+  }
+
+  return facturas
+}
+
+function initImportCompras() {
+  // Default: mes actual
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  document.getElementById('ic-periodo').value = `${yyyy}-${mm}`
+
+  // Poblar centros de costo
+  const sel = document.getElementById('ic-centro')
+  sel.innerHTML = '<option value="">— Seleccionar —</option>'
+  empresas.forEach(e => {
+    sel.innerHTML += `<option value="${e.id}">${e.nombre}</option>`
+  })
+  // Default: Tecnicentro si existe
+  const tecni = empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker'))
+  if (tecni) sel.value = tecni.id
+
+  resetImportCompras()
+  document.getElementById('ic-step1').classList.remove('hidden')
+}
+
+window.onImportComprasFile = (input) => {
+  icFile = input.files?.[0] || null
+  const info = document.getElementById('ic-file-info')
+  if (!icFile) { info.innerHTML = ''; return }
+  info.innerHTML = `
+    <div class="imp-file-item">
+      <span class="imp-file-icon">📦</span>
+      <span class="imp-file-name">${icFile.name}</span>
+      <span style="font-size:11px;color:var(--text3)">${(icFile.size/1024).toFixed(0)} KB</span>
+    </div>`
+  document.getElementById('ic-zone').classList.add('has-file')
+  document.getElementById('btn-procesar-compras').disabled = false
+}
+
+window.resetImportCompras = () => {
+  icData = null
+  icFile = null
+  icProviderFilter = 'todos'
+  const fileInput = document.getElementById('ic-file')
+  if (fileInput) fileInput.value = ''
+  document.getElementById('ic-file-info').innerHTML = ''
+  const zone = document.getElementById('ic-zone')
+  if (zone) zone.classList.remove('has-file')
+  const btn = document.getElementById('btn-procesar-compras')
+  if (btn) btn.disabled = true
+  ;['ic-step1','ic-step2','ic-step3','ic-step4','ic-step5','ic-step6'].forEach(id => {
+    document.getElementById(id)?.classList.add('hidden')
+  })
+  document.getElementById('ic-step1')?.classList.remove('hidden')
+}
+
+window.procesarImportCompras = async () => {
+  if (!icFile) { toast('Selecciona un archivo XLS', 'error'); return }
+  const btn = document.getElementById('btn-procesar-compras')
+  btn.disabled = true
+  btn.textContent = 'Procesando...'
+
+  try {
+    const arrayBuffer = await icFile.arrayBuffer()
+    const wb = XLSX.read(arrayBuffer, { type: 'array' })
+
+    const sheetNames = wb.SheetNames.map(s => s.trim())
+    const creditoSheet = sheetNames.find(s => s.toLowerCase().includes('cr') && s.toLowerCase().includes('dito'))
+      || sheetNames.find(s => s.toLowerCase().includes('credito'))
+      || sheetNames.find(s => s.toLowerCase().includes('crédito'))
+    const contadoSheet = sheetNames.find(s => s.toLowerCase().includes('contado'))
+
+    if (!creditoSheet && !contadoSheet) {
+      toast('No se encontraron hojas "Compras Crédito" ni "Compras Contado" en el archivo', 'error')
+      btn.disabled = false; btn.textContent = 'Procesar reporte →'
+      return
+    }
+
+    const credito = creditoSheet ? parseComprasSheet(wb, creditoSheet) : []
+    const contado = contadoSheet ? parseComprasSheet(wb, contadoSheet) : []
+
+    // Verificar duplicados contra partidas existentes en BD (crédito)
+    const allNumsCredito = credito.map(f => f.no_factura).filter(n => n && n !== 'S/F')
+    if (allNumsCredito.length) {
+      const { data: existentes } = await sb.from('partidas_contables')
+        .select('numero_documento')
+        .in('numero_documento', allNumsCredito)
+      const existSet = new Set((existentes || []).map(e => e.numero_documento))
+      credito.forEach(f => { if (existSet.has(f.no_factura)) f.duplicada = true })
+    }
+
+    // Verificar duplicados contra facturas_compras (contado)
+    const allNumsContado = contado.map(f => f.no_factura).filter(n => n && n !== 'S/F')
+    if (allNumsContado.length) {
+      const { data: existentes2 } = await sb.from('facturas_compras')
+        .select('numero_factura')
+        .in('numero_factura', allNumsContado)
+      const existSet2 = new Set((existentes2 || []).map(e => e.numero_factura))
+      contado.forEach(f => { if (existSet2.has(f.no_factura)) f.duplicada = true })
+    }
+
+    icData = { credito, contado }
+    renderImportComprasResults()
+
+  } catch (err) {
+    toast('Error al procesar: ' + err.message, 'error')
+    console.error(err)
+  }
+
+  btn.disabled = false
+  btn.textContent = 'Procesar reporte →'
+}
+
+function renderImportComprasResults() {
+  const d = icData
+  if (!d) return
+
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  // Alertas
+  const alertas = []
+  const sinMatch = d.credito.filter(f => !f.cuenta_proveedor && !f.duplicada)
+  if (sinMatch.length) {
+    alertas.push({ tipo: 'warn', msg: `${sinMatch.length} factura(s) de crédito sin proveedor mapeado: ${[...new Set(sinMatch.map(f => f.proveedor))].join(', ')}. Se asignarán a OTROS PROVEEDORES X PAGAR (210101-028).` })
+  }
+  const dupsCredito = d.credito.filter(f => f.duplicada)
+  const dupsContado = d.contado.filter(f => f.duplicada)
+  if (dupsCredito.length || dupsContado.length) {
+    alertas.push({ tipo: 'info', msg: `${dupsCredito.length + dupsContado.length} factura(s) ya registrada(s) en el sistema — se omitirán.` })
+  }
+  const sinFactura = [...d.credito, ...d.contado].filter(f => f.no_factura === 'S/F' || !f.no_factura)
+  if (sinFactura.length) {
+    alertas.push({ tipo: 'warn', msg: `${sinFactura.length} factura(s) sin número de factura (S/F).` })
+  }
+
+  document.getElementById('ic-alertas').innerHTML = alertas.map(a => `
+    <div style="padding:10px 14px;border-radius:var(--radius);margin-bottom:8px;font-size:13px;line-height:1.5;
+      background:${a.tipo === 'warn' ? 'rgba(245,158,11,0.1)' : 'rgba(59,130,246,0.1)'};
+      border-left:3px solid ${a.tipo === 'warn' ? 'var(--amber)' : 'var(--blue)'};
+      color:${a.tipo === 'warn' ? 'var(--amber)' : 'var(--blue)'}">
+      ${a.tipo === 'warn' ? '⚠️' : 'ℹ️'} ${a.msg}
+    </div>`).join('')
+
+  // Resumen
+  const credValid = d.credito.filter(f => !f.duplicada)
+  const contValid = d.contado.filter(f => !f.duplicada)
+  const credTot = credValid.reduce((s, f) => s + f.total, 0)
+  const contTot = contValid.reduce((s, f) => s + f.total, 0)
+
+  document.getElementById('ic-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div class="stat-card"><div class="stat-num" style="color:var(--green)">${credValid.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Crédito</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--amber)">${contValid.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Contado</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(credTot)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Total crédito</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(contTot)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Total contado</div></div>
+    </div>`
+
+  // Show steps 2-5
+  document.getElementById('ic-step1').classList.add('hidden')
+  document.getElementById('ic-step2').classList.remove('hidden')
+  document.getElementById('ic-step3').classList.remove('hidden')
+  document.getElementById('ic-step4').classList.remove('hidden')
+  document.getElementById('ic-step5').classList.remove('hidden')
+
+  // Render tables
+  renderCreditoTable()
+  renderContadoTable()
+  renderComprasPreview()
+}
+
+function renderCreditoTable() {
+  const d = icData
+  if (!d) return
+  const facturas = icProviderFilter === 'todos'
+    ? d.credito
+    : d.credito.filter(f => normalizeProvName(f.proveedor).includes(normalizeProvName(icProviderFilter)))
+
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const fallback = { codigo: '210101-028', nombre: 'OTROS PROVEEDORES X PAGAR' }
+
+  // Provider tabs
+  const proveedores = [...new Set(d.credito.map(f => f.proveedor))].sort()
+  document.getElementById('ic-provider-tabs').innerHTML = `
+    <button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;${icProviderFilter === 'todos' ? 'border-color:var(--gold);color:var(--gold)' : ''}" onclick="icFilterProvider('todos')">Todos (${d.credito.length})</button>
+    ${proveedores.map(p => {
+      const count = d.credito.filter(f => f.proveedor === p).length
+      const active = icProviderFilter === p
+      return `<button class="btn btn-ghost" style="padding:5px 10px;font-size:11px;${active ? 'border-color:var(--gold);color:var(--gold)' : ''}" onclick="icFilterProvider('${p.replace(/'/g, "\\'")}')">${p} (${count})</button>`
+    }).join('')}`
+
+  document.getElementById('ic-credito-count').textContent = `${facturas.length} facturas`
+
+  const tbody = document.getElementById('tbody-ic-credito')
+  tbody.innerHTML = facturas.map(f => {
+    const match = f.cuenta_proveedor || fallback
+    const isDup = f.duplicada
+    return `<tr style="${isDup ? 'opacity:0.4;text-decoration:line-through' : ''}">
+      <td style="font-size:12px">${f.fecha}</td>
+      <td style="font-family:var(--mono);font-size:12px">${f.no_factura}</td>
+      <td style="font-size:12px">${f.proveedor}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(f.subtotal)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(f.isv)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:500">${fmt(f.total)}</td>
+      <td style="font-size:11px"><span style="color:var(--gold);margin-right:4px">${match.codigo}</span>${!f.cuenta_proveedor ? '<span style="color:var(--amber)">⚠</span>' : ''}</td>
+      <td style="text-align:center">${isDup ? '<span style="color:var(--red)">✕</span>' : '<span style="color:var(--green)">✓</span>'}</td>
+    </tr>`
+  }).join('')
+
+  const valid = facturas.filter(f => !f.duplicada)
+  document.getElementById('ic-cred-subtotal').textContent = fmt(valid.reduce((s, f) => s + f.subtotal, 0))
+  document.getElementById('ic-cred-isv').textContent = fmt(valid.reduce((s, f) => s + f.isv, 0))
+  document.getElementById('ic-cred-total').textContent = fmt(valid.reduce((s, f) => s + f.total, 0))
+}
+
+window.icFilterProvider = (p) => {
+  icProviderFilter = p
+  renderCreditoTable()
+}
+
+function renderContadoTable() {
+  const d = icData
+  if (!d) return
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  document.getElementById('ic-contado-count').textContent = `${d.contado.length} facturas`
+
+  const tbody = document.getElementById('tbody-ic-contado')
+  tbody.innerHTML = d.contado.map(f => {
+    const isDup = f.duplicada
+    return `<tr style="${isDup ? 'opacity:0.4;text-decoration:line-through' : ''}">
+      <td style="font-size:12px">${f.fecha}</td>
+      <td style="font-family:var(--mono);font-size:12px">${f.no_factura}</td>
+      <td style="font-size:12px">${f.proveedor}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(f.subtotal)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(f.isv)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:500">${fmt(f.total)}</td>
+    </tr>`
+  }).join('')
+
+  const valid = d.contado.filter(f => !f.duplicada)
+  document.getElementById('ic-con-subtotal').textContent = fmt(valid.reduce((s, f) => s + f.subtotal, 0))
+  document.getElementById('ic-con-isv').textContent = fmt(valid.reduce((s, f) => s + f.isv, 0))
+  document.getElementById('ic-con-total').textContent = fmt(valid.reduce((s, f) => s + f.total, 0))
+}
+
+function renderComprasPreview() {
+  const d = icData
+  if (!d) return
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const fallback = { codigo: '210101-028', nombre: 'OTROS PROVEEDORES X PAGAR' }
+
+  const credValid = d.credito.filter(f => !f.duplicada)
+  const contValid = d.contado.filter(f => !f.duplicada)
+  const dupsTotal = d.credito.filter(f => f.duplicada).length + d.contado.filter(f => f.duplicada).length
+
+  document.getElementById('ic-total-credito-partidas').textContent = credValid.length
+  document.getElementById('ic-total-contado-partidas').textContent = contValid.length
+  document.getElementById('ic-total-duplicados').textContent = dupsTotal
+
+  // Preview: agrupar créditos por proveedor para mostrar resumen de partidas
+  const porProveedor = {}
+  credValid.forEach(f => {
+    const match = f.cuenta_proveedor || fallback
+    const key = match.codigo
+    if (!porProveedor[key]) porProveedor[key] = { cuenta: match, facturas: 0, subtotal: 0, isv: 0, total: 0 }
+    porProveedor[key].facturas++
+    porProveedor[key].subtotal += f.subtotal
+    porProveedor[key].isv += f.isv
+    porProveedor[key].total += f.total
+  })
+
+  const resumen = Object.values(porProveedor).sort((a, b) => b.total - a.total)
+  document.getElementById('ic-preview-partidas').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;font-weight:500">Resumen de partidas a generar (crédito)</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Cada factura de crédito genera una partida: Deb Inventario + Deb IVA / Cred Proveedor</div>
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th>Cuenta proveedor</th><th style="text-align:center">Facturas</th>
+          <th style="text-align:right">Subtotal</th><th style="text-align:right">ISV</th><th style="text-align:right">Total</th>
+        </tr></thead>
+        <tbody>${resumen.map(r => `
+          <tr>
+            <td><span class="mono" style="color:var(--gold);margin-right:6px">${r.cuenta.codigo}</span>${r.cuenta.nombre}</td>
+            <td style="text-align:center;font-family:var(--mono)">${r.facturas}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(r.subtotal)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(r.isv)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:500">${fmt(r.total)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--bg3)">
+            <td style="text-align:right;padding:12px 18px;font-size:12px;font-weight:500;color:var(--text3)">TOTAL</td>
+            <td style="text-align:center;font-family:var(--mono);font-weight:500">${credValid.length}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:500;color:var(--gold)">${fmt(resumen.reduce((s, r) => s + r.subtotal, 0))}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:500;color:var(--gold)">${fmt(resumen.reduce((s, r) => s + r.isv, 0))}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:500;color:var(--gold)">${fmt(resumen.reduce((s, r) => s + r.total, 0))}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`
+}
+
+window.guardarImportCompras = async () => {
+  if (!icData) { toast('No hay datos procesados', 'error'); return }
+
+  const periodo = document.getElementById('ic-periodo').value
+  const centroCostoId = document.getElementById('ic-centro').value
+  if (!periodo) { toast('Selecciona el período', 'error'); return }
+  if (!centroCostoId) { toast('Selecciona el centro de costo', 'error'); return }
+
+  const btn = document.getElementById('btn-guardar-compras')
+  btn.disabled = true
+  btn.textContent = 'Guardando...'
+
+  const fallback = { codigo: '210101-028', nombre: 'OTROS PROVEEDORES X PAGAR' }
+
+  // Cargar cuentas detalle si no están
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+  const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
+
+  const credValid = icData.credito.filter(f => !f.duplicada)
+  let creadas = 0
+  let errores = 0
+  const log = []
+
+  for (const factura of credValid) {
+    const match = factura.cuenta_proveedor || fallback
+    const ctaInventario = getCuenta(COMPRAS_CUENTAS.inventario.codigo)
+    const ctaIva = getCuenta(COMPRAS_CUENTAS.iva_compras.codigo)
+    const ctaProveedor = getCuenta(match.codigo)
+
+    // Convertir fecha dd-mm-yyyy a yyyy-mm-dd
+    const partes = factura.fecha.split('-')
+    const fechaISO = `${partes[2]}-${partes[1]}-${partes[0]}`
+
+    const productosDesc = factura.productos.map(p => p.nombre).filter(Boolean).join(', ')
+    const descripcion = `${factura.proveedor} · ${productosDesc || 'Sin detalle'} [IMP-COMPRA]`
+
+    // Crear partida
+    const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
+      centro_costo_id: centroCostoId,
+      generada_por: currentProfile.id,
+      tipo_origen: 'compra',
+      descripcion: descripcion,
+      fecha_partida: fechaISO,
+      numero_documento: factura.no_factura !== 'S/F' ? factura.no_factura : null,
+      estado: 'aprobada',
+      total: Math.round(factura.total * 100) / 100,
+    }).select().single()
+
+    if (errP) {
+      errores++
+      log.push(`<span style="color:var(--red)">✕</span> ${factura.no_factura} · ${factura.proveedor}: ${errP.message}`)
+      continue
+    }
+
+    // Crear líneas: Deb Inventario + Deb IVA + Cred Proveedor
+    const lineas = []
+    const numDoc = factura.no_factura !== 'S/F' ? factura.no_factura : null
+    const esFiscal = numDoc !== null  // S/F no aplica fiscal
+
+    // Débito: Inventario
+    if (factura.subtotal > 0) {
+      lineas.push({
+        partida_id: partida.id,
+        cuenta_id: ctaInventario?.id || null,
+        cuenta_codigo: COMPRAS_CUENTAS.inventario.codigo,
+        cuenta_nombre: COMPRAS_CUENTAS.inventario.nombre,
+        tipo: 'debito',
+        monto: Math.round(factura.subtotal * 100) / 100,
+        centro_costo_id: centroCostoId,
+        descripcion: productosDesc.substring(0, 250),
+        numero_documento: numDoc,
+        aplica_fiscal: esFiscal,
+      })
+    }
+
+    // Débito: IVA
+    if (factura.isv > 0) {
+      lineas.push({
+        partida_id: partida.id,
+        cuenta_id: ctaIva?.id || null,
+        cuenta_codigo: COMPRAS_CUENTAS.iva_compras.codigo,
+        cuenta_nombre: COMPRAS_CUENTAS.iva_compras.nombre,
+        tipo: 'debito',
+        monto: Math.round(factura.isv * 100) / 100,
+        centro_costo_id: centroCostoId,
+        descripcion: productosDesc.substring(0, 250),
+        numero_documento: numDoc,
+        aplica_fiscal: esFiscal,
+      })
+    }
+
+    // Crédito: Proveedor — SIN centro de costo (pasivo corporativo)
+    lineas.push({
+      partida_id: partida.id,
+      cuenta_id: ctaProveedor?.id || null,
+      cuenta_codigo: match.codigo,
+      cuenta_nombre: match.nombre,
+      tipo: 'credito',
+      monto: Math.round(factura.total * 100) / 100,
+      centro_costo_id: null,
+      descripcion: productosDesc.substring(0, 250),
+      numero_documento: numDoc,
+      aplica_fiscal: esFiscal,
+    })
+
+    const { error: errL } = await sb.from('lineas_partida').insert(lineas)
+    if (errL) {
+      errores++
+      log.push(`<span style="color:var(--red)">✕</span> ${factura.no_factura} líneas: ${errL.message}`)
+      // Eliminar partida huérfana
+      await sb.from('partidas_contables').delete().eq('id', partida.id)
+      continue
+    }
+
+    creadas++
+    log.push(`<span style="color:var(--green)">✓</span> <span class="mono" style="color:var(--gold)">${factura.no_factura}</span> · ${factura.proveedor} · L. ${factura.total.toLocaleString('es-HN', {minimumFractionDigits:2})} → <span class="mono">${match.codigo}</span>`)
+  }
+
+  // ── CONTADO: registrar en facturas_compras como pendientes ──
+  const contValid = icData.contado.filter(f => !f.duplicada)
+  let contCreadas = 0
+  let contErrores = 0
+
+  for (const factura of contValid) {
+    const partes = factura.fecha.split('-')
+    const fechaISO = `${partes[2]}-${partes[1]}-${partes[0]}`
+
+    const payload = {
+      centro_costo_id: centroCostoId,
+      registrado_por: currentProfile.id,
+      numero_factura: factura.no_factura !== 'S/F' ? factura.no_factura : `SF-${factura.no_consecutivo}`,
+      fecha_factura: fechaISO,
+      tipo_gasto: 'repuestos',
+      forma_pago: 'contado',
+      subtotal: Math.round(factura.subtotal * 100) / 100,
+      isv: Math.round(factura.isv * 100) / 100,
+      total: Math.round(factura.total * 100) / 100,
+      observaciones: `[IMP-COMPRA] ${factura.proveedor} · ${factura.productos.map(p => p.nombre).filter(Boolean).join(', ').substring(0, 200)}`,
+      estado: 'pendiente',
+    }
+
+    const { error: errFC } = await sb.from('facturas_compras').insert(payload)
+    if (errFC) {
+      contErrores++
+      log.push(`<span style="color:var(--red)">✕</span> [CONTADO] ${factura.no_factura} · ${factura.proveedor}: ${errFC.message}`)
+    } else {
+      contCreadas++
+      log.push(`<span style="color:var(--amber)">◉</span> [CONTADO] <span class="mono" style="color:var(--gold)">${factura.no_factura}</span> · ${factura.proveedor} · L. ${factura.total.toLocaleString('es-HN', {minimumFractionDigits:2})} → Pendiente`)
+    }
+  }
+
+  // Mostrar resultado
+  document.getElementById('ic-step2').classList.add('hidden')
+  document.getElementById('ic-step3').classList.add('hidden')
+  document.getElementById('ic-step4').classList.add('hidden')
+  document.getElementById('ic-step5').classList.add('hidden')
+  document.getElementById('ic-step6').classList.remove('hidden')
+
+  document.getElementById('ic-log').innerHTML = `
+    <div style="margin-bottom:16px;padding:14px;border-radius:var(--radius);background:var(--bg3)">
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${creadas} partida(s) de crédito creadas correctamente</div>
+      ${errores ? `<div style="color:var(--red)">${errores} error(es) en partidas</div>` : ''}
+      <div style="color:var(--amber);margin-top:6px">${contCreadas} factura(s) de contado registradas como pendientes</div>
+      ${contErrores ? `<div style="color:var(--red)">${contErrores} error(es) en contado</div>` : ''}
+    </div>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:500">Detalle</div>
+    <div style="max-height:300px;overflow-y:auto;font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>`
+
+  btn.disabled = false
+  btn.textContent = 'Guardar partidas de crédito →'
+  toast(`${creadas} partidas crédito + ${contCreadas} facturas contado registradas`, 'ok')
 }
