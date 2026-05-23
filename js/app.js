@@ -54,6 +54,7 @@ async function initSession(user) {
   showView(dv, dl)
   // Load caja badge for super_admin
   if (profile.rol === 'super_admin') initCajaBadge()
+  initAprobacionesBadge()
 }
 
 function setupUI() {
@@ -67,15 +68,15 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
     compras:     ['nav-compras', 'nav-pendientes']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -137,6 +138,7 @@ window.showView = (id, label) => {
   if (id === 'importar') initImport()
   if (id === 'importar-compras') initImportCompras()
   if (id === 'importar-costos') initImportCostos()
+  if (id === 'aprobaciones') loadAprobaciones()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -684,7 +686,8 @@ function renderPartidasTable(data) {
   }
   if (countEl) countEl.textContent = data.length === allPartidas.length ? '' : `${data.length} de ${allPartidas.length}`
   const getOrigenLabel = (id) => { const t = tiposOrigen.find(x => x.id === id); return t ? t.nombre : id }
-  const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber' }
+  const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber', pendiente_anulacion:'badge-red', anulada:'badge-red' }
+  const estadoLabel = { pendiente_caja:'⏳ Pend. caja', pendiente_anulacion:'⚠ Pend. anulación', anulada:'✕ Anulada' }
   tbody.innerHTML = data.map(p => `
     <tr style="cursor:pointer" onclick="editarPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
@@ -692,7 +695,7 @@ function renderPartidasTable(data) {
       <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descripcion}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${getOrigenLabel(p.tipo_origen)}</span></td>
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
-      <td><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${p.estado === 'pendiente_caja' ? '⏳ Pend. caja' : p.estado}</span></td>
+      <td><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span></td>
     </tr>`).join('')
 }
 
@@ -789,21 +792,53 @@ window.editarPartida = async (id) => {
   renderLineas()
   calcTotales()
 
-  // Mostrar botón eliminar cuando editamos
+  // Mostrar botón eliminar/anular cuando editamos
   const btnElim = document.getElementById('btn-eliminar-partida')
-  if (btnElim) btnElim.classList.remove('hidden')
+  if (btnElim) {
+    btnElim.classList.remove('hidden')
+    if (currentProfile?.rol === 'aux_contable') {
+      btnElim.textContent = 'Solicitar anulación'
+    } else {
+      btnElim.textContent = 'Eliminar partida'
+    }
+  }
+
+  // Auxiliar contable: cambiar texto del botón aprobar
+  const btnAprobar = document.getElementById('btn-aprobar-partida')
+  if (btnAprobar && currentProfile?.rol === 'aux_contable') {
+    btnAprobar.textContent = 'Enviar a revisión'
+  } else if (btnAprobar) {
+    btnAprobar.textContent = 'Aprobar partida ✓'
+  }
 }
 
 window.eliminarPartida = async () => {
   if (!editingPartidaId) return
-  if (!confirm('¿Eliminar esta partida y todas sus líneas?\n\nEsta acción no se puede deshacer.')) return
-  const { error: lErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
-  if (lErr) { toast('Error al borrar líneas: ' + lErr.message, 'error'); return }
-  const { error: pErr } = await sb.from('partidas_contables').delete().eq('id', editingPartidaId)
-  if (pErr) { toast('Error al borrar partida: ' + pErr.message, 'error'); return }
-  toast('Partida eliminada', 'success')
-  editingPartidaId = null
-  showView('partidas', 'Partidas contables')
+  const rol = currentProfile?.rol
+
+  if (rol === 'aux_contable') {
+    // Auxiliar no puede eliminar — solo solicitar anulación
+    if (!confirm('¿Solicitar anulación de esta partida?\n\nUn superior deberá aprobar la anulación.')) return
+    const { error } = await sb.from('partidas_contables').update({
+      estado: 'pendiente_anulacion',
+      modificada_por: currentProfile.id,
+      modificada_at: new Date().toISOString(),
+    }).eq('id', editingPartidaId)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast('Anulación solicitada · Pendiente de aprobación', 'info')
+    editingPartidaId = null
+    showView('partidas', 'Partidas contables')
+  } else {
+    // Super admin / contador pueden eliminar directamente
+    if (!confirm('¿Eliminar esta partida y todas sus líneas?\n\nEsta acción no se puede deshacer.')) return
+    const { error: lErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
+    if (lErr) { toast('Error al borrar líneas: ' + lErr.message, 'error'); return }
+    const { error: pErr } = await sb.from('partidas_contables').delete().eq('id', editingPartidaId)
+    if (pErr) { toast('Error al borrar partida: ' + pErr.message, 'error'); return }
+    toast('Partida eliminada', 'success')
+    editingPartidaId = null
+    showView('partidas', 'Partidas contables')
+  }
 }
 
 window.addLinea = () => {
@@ -1027,16 +1062,28 @@ window.guardarPartida = async (estado) => {
     estadoFinal = 'pendiente_caja'
   }
 
+  // Auxiliar contable: no puede aprobar directamente, queda como borrador
+  const esAuxContable = currentProfile.rol === 'aux_contable'
+  if (esAuxContable && estado === 'aprobada') {
+    estadoFinal = 'borrador'
+  }
+
   let partidaId = editingPartidaId
 
   if (editingPartidaId) {
     // ── ACTUALIZAR partida existente ──
-    const { error: pErr } = await sb.from('partidas_contables').update({
+    const updateData = {
       tipo_origen, descripcion, numero_documento: documento || null,
       fecha_partida: fecha, estado: estadoFinal, total: debitos,
       aprobada_at: estadoFinal === 'aprobada' ? new Date().toISOString() : null,
       aprobada_por: estadoFinal === 'aprobada' ? currentProfile.id : null
-    }).eq('id', editingPartidaId)
+    }
+    // Si auxiliar modifica, registrar quién y cuándo
+    if (esAuxContable) {
+      updateData.modificada_por = currentProfile.id
+      updateData.modificada_at = new Date().toISOString()
+    }
+    const { error: pErr } = await sb.from('partidas_contables').update(updateData).eq('id', editingPartidaId)
     if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
 
     // Borrar líneas viejas y crear nuevas
@@ -1108,6 +1155,8 @@ window.guardarPartida = async (estado) => {
     toast(`Partida ${accion} · Pendiente de aprobación por Caja General`, 'info')
   } else if (estadoFinal === 'aprobada') {
     toast(`Partida ${accion} y contabilizada ✓`, 'success')
+  } else if (esAuxContable && estado === 'aprobada') {
+    toast(`Partida ${accion} · Enviada a revisión por un superior`, 'info')
   } else {
     toast(`Borrador ${accion}`, 'success')
   }
@@ -1665,6 +1714,136 @@ window.rechazarCaja = async (id) => {
 async function initCajaBadge() {
   if (currentProfile?.rol === 'super_admin') {
     await updateCajaBadge()
+  }
+}
+
+// ══════════════════════════════════════════════
+// ── PENDIENTES DE APROBACIÓN
+// ══════════════════════════════════════════════
+
+async function loadAprobaciones() {
+  const container = document.getElementById('lista-aprobaciones')
+  container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>'
+
+  // Buscar partidas en borrador (modificadas por auxiliar) y pendientes de anulación
+  const { data, error } = await sb.from('partidas_contables')
+    .select('*, modificador:usuarios!modificada_por(nombre), generador:usuarios!generada_por(nombre)')
+    .in('estado', ['borrador', 'pendiente_anulacion'])
+    .order('modificada_at', { ascending: false, nullsFirst: false })
+
+  if (error) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`
+    return
+  }
+
+  // Actualizar badge
+  const badge = document.getElementById('badge-aprobaciones')
+  if (data?.length > 0) { badge.classList.remove('hidden'); badge.textContent = data.length }
+  else badge.classList.add('hidden')
+
+  if (!data?.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">No hay partidas pendientes de aprobación</div><div class="empty-sub">Todo está al día</div></div>'
+    return
+  }
+
+  const fmt = (v) => parseFloat(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  container.innerHTML = `
+    <div style="margin-bottom:12px;display:flex;gap:10px">
+      <div class="stat-card" style="flex:1"><div class="stat-num" style="color:var(--amber)">${data.filter(p => p.estado === 'borrador').length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Modificadas</div></div>
+      <div class="stat-card" style="flex:1"><div class="stat-num" style="color:var(--red)">${data.filter(p => p.estado === 'pendiente_anulacion').length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Pend. anulación</div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>N°</th><th>Fecha</th><th>Descripción</th><th>Total</th>
+          <th>Modificado por</th><th>Fecha modif.</th><th>Estado</th><th style="width:180px">Acciones</th>
+        </tr></thead>
+        <tbody>${data.map(p => {
+          const esAnulacion = p.estado === 'pendiente_anulacion'
+          const modificador = p.modificador?.nombre || p.generador?.nombre || '—'
+          const fechaMod = p.modificada_at ? new Date(p.modificada_at).toLocaleDateString('es-HN') + ' ' + new Date(p.modificada_at).toLocaleTimeString('es-HN', {hour:'2-digit',minute:'2-digit'}) : '—'
+          return `<tr>
+            <td class="mono" style="color:var(--gold);cursor:pointer" onclick="editarPartida('${p.id}')">${p.numero_partida || '—'}</td>
+            <td class="mono" style="font-size:12px">${new Date(p.fecha_partida).toLocaleDateString('es-HN')}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.descripcion}</td>
+            <td class="mono" style="font-weight:500">L. ${fmt(p.total)}</td>
+            <td style="font-size:12px;color:var(--amber)">${modificador}</td>
+            <td style="font-size:11px;color:var(--text3)">${fechaMod}</td>
+            <td><span class="badge ${esAnulacion ? 'badge-red' : 'badge-amber'}">${esAnulacion ? '⚠ Anulación' : 'Modificada'}</span></td>
+            <td style="display:flex;gap:6px">
+              <button class="btn btn-ghost" onclick="aprobarPartidaPendiente('${p.id}')" style="padding:4px 10px;font-size:11px;color:var(--green);border-color:var(--green)">${esAnulacion ? '✓ Anular' : '✓ Aprobar'}</button>
+              <button class="btn btn-ghost" onclick="rechazarPartidaPendiente('${p.id}')" style="padding:4px 10px;font-size:11px;color:var(--red);border-color:var(--red)">✕ Rechazar</button>
+            </td>
+          </tr>`
+        }).join('')}
+        </tbody>
+      </table>
+    </div>`
+}
+
+window.aprobarPartidaPendiente = async (id) => {
+  // Cargar partida para saber si es anulación o modificación
+  const { data: partida } = await sb.from('partidas_contables').select('estado').eq('id', id).single()
+  if (!partida) { toast('Partida no encontrada', 'error'); return }
+
+  if (partida.estado === 'pendiente_anulacion') {
+    if (!confirm('¿Aprobar la anulación de esta partida?\n\nLa partida quedará como anulada.')) return
+    const { error } = await sb.from('partidas_contables').update({
+      estado: 'anulada',
+      aprobada_por: currentProfile.id,
+      aprobada_at: new Date().toISOString(),
+    }).eq('id', id)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast('Partida anulada ✓', 'success')
+  } else {
+    if (!confirm('¿Aprobar esta partida modificada?')) return
+    const { error } = await sb.from('partidas_contables').update({
+      estado: 'aprobada',
+      aprobada_por: currentProfile.id,
+      aprobada_at: new Date().toISOString(),
+    }).eq('id', id)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast('Partida aprobada ✓', 'success')
+  }
+  loadAprobaciones()
+}
+
+window.rechazarPartidaPendiente = async (id) => {
+  const motivo = prompt('Motivo del rechazo (opcional):')
+  if (motivo === null) return
+
+  const { data: partida } = await sb.from('partidas_contables').select('estado').eq('id', id).single()
+
+  if (partida?.estado === 'pendiente_anulacion') {
+    // Rechazar anulación = volver a aprobada
+    const { error } = await sb.from('partidas_contables').update({
+      estado: 'aprobada',
+      modificada_por: null,
+      modificada_at: null,
+    }).eq('id', id)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast('Anulación rechazada · Partida restaurada como aprobada', 'info')
+  } else {
+    // Rechazar modificación = marcar como rechazada
+    const { error } = await sb.from('partidas_contables').update({
+      estado: 'rechazada',
+    }).eq('id', id)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast('Modificación rechazada', 'info')
+  }
+  loadAprobaciones()
+}
+
+// Cargar badge de aprobaciones al iniciar
+async function initAprobacionesBadge() {
+  if (['super_admin', 'contador'].includes(currentProfile?.rol)) {
+    const { count } = await sb.from('partidas_contables')
+      .select('id', { count: 'exact', head: true })
+      .in('estado', ['borrador', 'pendiente_anulacion'])
+    const badge = document.getElementById('badge-aprobaciones')
+    if (count > 0) { badge.classList.remove('hidden'); badge.textContent = count }
+    else badge.classList.add('hidden')
   }
 }
 

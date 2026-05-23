@@ -76,6 +76,10 @@
           <span class="nav-dot"></span>Caja General
           <span class="nav-badge hidden" id="badge-caja">0</span>
         </div>
+        <div class="nav-item hidden" id="nav-aprobaciones" onclick="showView('aprobaciones','Pendientes de aprobación')">
+          <span class="nav-dot"></span>Aprobaciones
+          <span class="nav-badge hidden" id="badge-aprobaciones">0</span>
+        </div>
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label">Contabilidad</div>
@@ -341,6 +345,8 @@
             <option value="borrador">Borrador</option>
             <option value="aprobada">Aprobada</option>
             <option value="pendiente_caja">Pend. caja</option>
+            <option value="pendiente_anulacion">Pend. anulación</option>
+            <option value="anulada">Anulada</option>
             <option value="rechazada">Rechazada</option>
           </select>
           <select id="fp-origen" onchange="filtrarPartidas()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:12px;outline:none">
@@ -426,7 +432,7 @@
           <div style="flex:1"></div>
           <button class="btn btn-ghost" onclick="editingPartidaId=null;volverDesdePartida()">Cancelar</button>
           <button class="btn btn-ghost" onclick="guardarPartida('borrador')" style="border-color:var(--amber);color:var(--amber)">Guardar borrador</button>
-          <button class="btn btn-gold" onclick="guardarPartida('aprobada')">Aprobar partida ✓</button>
+          <button class="btn btn-gold" id="btn-aprobar-partida" onclick="guardarPartida('aprobada')">Aprobar partida ✓</button>
         </div>
       </div>
 
@@ -714,6 +720,19 @@
             <button class="btn btn-gold" onclick="resetImportCompras()">Nueva importación</button>
             <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Ver partidas →</button>
           </div>
+        </div>
+      </div>
+
+      <!-- PENDIENTES DE APROBACIÓN -->
+      <div class="view" id="view-aprobaciones">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Pendientes de aprobación</div>
+            <div class="page-sub">Partidas modificadas o con solicitud de anulación por auxiliares</div>
+          </div>
+        </div>
+        <div id="lista-aprobaciones">
+          <div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>
         </div>
       </div>
 
