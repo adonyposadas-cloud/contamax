@@ -10,6 +10,7 @@ const sb = createClient(
 let currentUser = null
 let currentProfile = null
 let empresas = []
+let tiposOrigen = []
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
@@ -41,6 +42,7 @@ async function initSession(user) {
   setupUI()
   showScreen('main-screen')
   await loadEmpresas()
+  await loadTiposOrigen()
   // Vista inicial según rol
   const defaultViews = {
     super_admin: ['usuarios', 'Gestión de usuarios'],
@@ -65,22 +67,22 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
     compras:     ['nav-compras', 'nav-pendientes']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
   })
 
   // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
-  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras']
+  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos']
   const tieneContab = contabItems.some(id => visibles.includes(id))
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 }
@@ -123,6 +125,7 @@ window.showView = (id, label) => {
   if (nav) nav.classList.add('active')
   if (id === 'partida-nueva') { const np = document.getElementById('nav-partidas'); if(np) np.classList.add('active') }
   if (id === 'importar-compras') { const ni = document.getElementById('nav-importar-compras'); if(ni) ni.classList.add('active') }
+  if (id === 'importar-costos') { const ni = document.getElementById('nav-importar-costos'); if(ni) ni.classList.add('active') }
   document.getElementById('topbar-module').textContent = label
   if (id === 'usuarios') loadUsuarios()
   if (id === 'pendientes') loadPendientes()
@@ -133,6 +136,7 @@ window.showView = (id, label) => {
   if (id === 'caja') loadCaja()
   if (id === 'importar') initImport()
   if (id === 'importar-compras') initImportCompras()
+  if (id === 'importar-costos') initImportCostos()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -188,6 +192,22 @@ async function loadEmpresas() {
   if (currentProfile?.centro_costo_id) {
     const sel = document.getElementById('fc-empresa')
     if (sel) sel.value = currentProfile.centro_costo_id
+  }
+}
+
+// ── TIPOS DE ORIGEN ──
+async function loadTiposOrigen() {
+  const { data } = await sb.from('tipos_origen').select('*').eq('activo', true).order('orden')
+  tiposOrigen = data || []
+  // Poblar select del formulario de partida
+  const pnOrigen = document.getElementById('pn-origen')
+  if (pnOrigen) {
+    pnOrigen.innerHTML = tiposOrigen.map(t => `<option value="${t.id}">${t.nombre}</option>`).join('')
+  }
+  // Poblar select del filtro de partidas
+  const fpOrigen = document.getElementById('fp-origen')
+  if (fpOrigen) {
+    fpOrigen.innerHTML = '<option value="">Todo origen</option>' + tiposOrigen.map(t => `<option value="${t.id}">${t.nombre}</option>`).join('')
   }
 }
 
@@ -378,7 +398,7 @@ async function loadPendientes() {
   let query = sb.from('facturas_compras')
     .select('*, centro_costo:centros_costo(nombre), proveedor:proveedores(nombre), registrado:usuarios!registrado_por(nombre)')
     .order('created_at', { ascending: false })
-    .limit(200)
+    .limit(500)
   if (currentProfile.rol === 'compras') {
     query = query.eq('registrado_por', currentProfile.id)
   }
@@ -394,7 +414,9 @@ window.filtrarPendientes = () => {
   const container = document.getElementById('lista-pendientes')
 
   let filtered = pendientesData
-  if (estadoFiltro !== 'todos') {
+  if (estadoFiltro === 'pend_documento') {
+    filtered = filtered.filter(f => f.estado === 'procesada' && f.recibida === false && f.forma_pago === 'credito')
+  } else if (estadoFiltro !== 'todos') {
     filtered = filtered.filter(f => f.estado === estadoFiltro)
   }
   if (buscar) {
@@ -406,9 +428,11 @@ window.filtrarPendientes = () => {
     )
   }
 
-  const pending = pendientesData.filter(f => f.estado === 'pendiente').length
+  const pendPartida = pendientesData.filter(f => f.estado === 'pendiente').length
+  const pendDocumento = pendientesData.filter(f => f.estado === 'procesada' && f.recibida === false && f.forma_pago === 'credito').length
+  const totalPend = pendPartida + pendDocumento
   const badge = document.getElementById('badge-pendientes')
-  if (pending > 0) { badge.classList.remove('hidden'); badge.textContent = pending }
+  if (totalPend > 0) { badge.classList.remove('hidden'); badge.textContent = totalPend }
   else badge.classList.add('hidden')
 
   if (!filtered.length) {
@@ -419,22 +443,57 @@ window.filtrarPendientes = () => {
   const tipoLabel = { repuestos:'Repuestos/Mat.', servicios:'Servicios', combustible:'Combustible', mantenimiento:'Mant. Vehículo', admin:'Administrativo', otro:'Otro' }
   container.innerHTML = '<div class="pending-list">' + filtered.map(f => {
     const esImportada = (f.observaciones || '').includes('[IMP-COMPRA]')
-    const clickable = esImportada && f.estado === 'pendiente'
+    const clickablePartida = esImportada && f.estado === 'pendiente'
+    const pendienteDoc = f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]')
+
+    // Determinar estado visual
+    let statusLabel, statusClass
+    if (f.estado === 'pendiente') { statusLabel = 'Pendiente partida'; statusClass = 'pendiente' }
+    else if (pendienteDoc) { statusLabel = 'Pend. documento'; statusClass = 'pendiente' }
+    else if (f.estado === 'procesada' && f.recibida) { statusLabel = 'Recibida ✓'; statusClass = 'procesada' }
+    else if (f.estado === 'procesada') { statusLabel = 'Procesada'; statusClass = 'procesada' }
+    else { statusLabel = f.estado; statusClass = f.estado }
+
+    // Extraer proveedor de observaciones para las importadas sin proveedor
+    let provNombre = f.proveedor?.nombre || ''
+    if (!provNombre && esImportada) {
+      const obs = f.observaciones || ''
+      const m = obs.match(/\[IMP-COMPRA\]\s*(.+?)\s*·/)
+      if (m) provNombre = m[1]
+    }
+
     return `
-    <div class="pending-item ${f.estado}" ${clickable ? `onclick="crearPartidaDesdeFactura('${f.id}')" style="cursor:pointer"` : ''}>
+    <div class="pending-item ${statusClass}" ${clickablePartida ? `onclick="crearPartidaDesdeFactura('${f.id}')" style="cursor:pointer"` : ''}>
       <div class="pi-left">
-        <div class="pi-dot ${f.estado}"></div>
+        <div class="pi-dot ${statusClass}"></div>
         <div>
-          <div class="pi-info">${f.proveedor?.nombre || 'Sin proveedor'} · Fact. ${f.numero_factura} · ${f.centro_costo?.nombre || ''}</div>
+          <div class="pi-info">${provNombre || 'Sin proveedor'} · Fact. ${f.numero_factura} · ${f.centro_costo?.nombre || ''}</div>
           <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}</div>
         </div>
       </div>
-      <div class="pi-right">
-        <div class="pi-amount">L. ${parseFloat(f.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</div>
-        <div class="pi-status ${f.estado}">${f.estado === 'pendiente' ? 'Pendiente partida' : f.estado === 'procesada' ? 'Partida generada' : 'Rechazada'}</div>
+      <div class="pi-right" style="display:flex;align-items:center;gap:12px">
+        ${pendienteDoc ? `<button class="btn btn-ghost" onclick="event.stopPropagation();marcarRecibida('${f.id}')" style="padding:5px 12px;font-size:11px;color:var(--green);border-color:var(--green)">✓ Recibida</button>` : ''}
+        <div>
+          <div class="pi-amount">L. ${parseFloat(f.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</div>
+          <div class="pi-status ${statusClass}">${statusLabel}</div>
+        </div>
       </div>
     </div>`
   }).join('') + '</div>'
+}
+
+window.marcarRecibida = async (facturaId) => {
+  const { error } = await sb.from('facturas_compras').update({
+    recibida: true,
+    recibida_por: currentProfile.id,
+    recibida_at: new Date().toISOString(),
+  }).eq('id', facturaId)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast('Documento marcado como recibido ✓', 'success')
+  // Actualizar datos locales y refiltrar
+  const f = pendientesData.find(x => x.id === facturaId)
+  if (f) { f.recibida = true; f.recibida_por = currentProfile.id }
+  filtrarPendientes()
 }
 
 // ── CREAR PARTIDA DESDE FACTURA PENDIENTE (CONTADO IMPORTADAS) ──
@@ -624,14 +683,14 @@ function renderPartidasTable(data) {
     return
   }
   if (countEl) countEl.textContent = data.length === allPartidas.length ? '' : `${data.length} de ${allPartidas.length}`
-  const origenLabel = { compra:'Compra', venta_alpha:'Venta Alpha', entrega_taxi:'Taxi', gasto_autolote:'Autolote' }
+  const getOrigenLabel = (id) => { const t = tiposOrigen.find(x => x.id === id); return t ? t.nombre : id }
   const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber' }
   tbody.innerHTML = data.map(p => `
     <tr style="cursor:pointer" onclick="editarPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida).toLocaleDateString('es-HN')}</td>
       <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descripcion}</td>
-      <td><span class="badge badge-blue" style="font-size:10px">${origenLabel[p.tipo_origen]||p.tipo_origen}</span></td>
+      <td><span class="badge badge-blue" style="font-size:10px">${getOrigenLabel(p.tipo_origen)}</span></td>
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
       <td><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${p.estado === 'pendiente_caja' ? '⏳ Pend. caja' : p.estado}</span></td>
     </tr>`).join('')
@@ -1037,6 +1096,12 @@ window.guardarPartida = async (estado) => {
     await sb.from('conteo_billetes').insert(conteos)
   }
 
+  // ── SINCRONIZAR LIBRO DE COMPRAS ──
+  // Solo para partidas de tipo 'compra'
+  if (tipo_origen === 'compra' && documento) {
+    await syncLibroCompras(partidaId, fecha, documento, lineasValidas, descripcion)
+  }
+
   // Mensajes según resultado
   const accion = editingPartidaId ? 'actualizada' : 'guardada'
   if (estadoFinal === 'pendiente_caja') {
@@ -1047,6 +1112,71 @@ window.guardarPartida = async (estado) => {
     toast(`Borrador ${accion}`, 'success')
   }
   editingPartidaId = null
+
+  // ── Insertar en LIBRO DE VENTAS (solo ventas fiscales) ──
+  if (window._importVentasData) {
+    const vd = window._importVentasData
+    const registros = []
+
+    // Tecnimax fiscal
+    if (vd.tecnimax_fiscal?.facturas?.length) {
+      for (const f of vd.tecnimax_fiscal.facturas) {
+        registros.push({
+          centro_costo_id: vd.ccTecniId,
+          fecha: vd.fecha,
+          factura_interna: String(f.factura_interna || ''),
+          factura_electronica: f.factura_electronica || '',
+          cliente: f.cliente || '',
+          rtn_cliente: f.rtn || '',
+          subtotal: Math.round(f.subtotal * 100) / 100,
+          total_gravado: Math.round(f.total_gravado * 100) / 100,
+          total_exento: Math.round(f.total_exento * 100) / 100,
+          isv: Math.round(f.impuestos * 100) / 100,
+          total: Math.round(f.total * 100) / 100,
+          monto_efectivo: Math.round(f.monto_efectivo * 100) / 100,
+          monto_tarjeta: Math.round(f.monto_tarjeta * 100) / 100,
+          monto_transferencia: Math.round(f.monto_transferencia * 100) / 100,
+          incluir_fiscal: true,
+          numero_documento: documento || null,
+          origen: 'import_alpha',
+          partida_id: partidaId,
+        })
+      }
+    }
+
+    // Yonker fiscal
+    if (vd.yonker_fiscal?.facturas?.length) {
+      for (const f of vd.yonker_fiscal.facturas) {
+        registros.push({
+          centro_costo_id: vd.ccYonkerId,
+          fecha: vd.fecha,
+          factura_interna: String(f.factura_interna || ''),
+          factura_electronica: f.factura_electronica || '',
+          cliente: f.cliente || '',
+          rtn_cliente: f.rtn || '',
+          subtotal: Math.round(f.subtotal * 100) / 100,
+          total_gravado: Math.round(f.total_gravado * 100) / 100,
+          total_exento: Math.round(f.total_exento * 100) / 100,
+          isv: Math.round(f.impuestos * 100) / 100,
+          total: Math.round(f.total * 100) / 100,
+          monto_efectivo: Math.round(f.monto_efectivo * 100) / 100,
+          monto_tarjeta: Math.round(f.monto_tarjeta * 100) / 100,
+          monto_transferencia: Math.round(f.monto_transferencia * 100) / 100,
+          incluir_fiscal: true,
+          numero_documento: documento || null,
+          origen: 'import_alpha',
+          partida_id: partidaId,
+        })
+      }
+    }
+
+    if (registros.length) {
+      const { error: lvErr } = await sb.from('libro_ventas').insert(registros)
+      if (lvErr) console.error('Error libro_ventas:', lvErr.message)
+      else console.log(`📗 ${registros.length} registros insertados en libro_ventas`)
+    }
+    window._importVentasData = null
+  }
 
   // Si vino de una factura de contado importada, marcarla como procesada
   let volverAPendientes = false
@@ -1535,6 +1665,68 @@ window.rechazarCaja = async (id) => {
 async function initCajaBadge() {
   if (currentProfile?.rol === 'super_admin') {
     await updateCajaBadge()
+  }
+}
+
+// ══════════════════════════════════════════════
+// ── SINCRONIZACIÓN LIBRO DE COMPRAS / VENTAS
+// ══════════════════════════════════════════════
+
+async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, descripcion) {
+  // Buscar si ya existe en libro_compras por numero_documento
+  const { data: existente } = await sb.from('libro_compras')
+    .select('id, incluir_fiscal')
+    .eq('numero_documento', numDocumento)
+    .maybeSingle()
+
+  // Determinar si alguna línea tiene aplica_fiscal = true
+  const algunaFiscal = lineasValidas.some(l => l.aplica_fiscal)
+
+  // Extraer datos de las líneas para el registro
+  const lineaInventario = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110501'))
+  const lineaIva = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110402'))
+  const lineaProveedor = lineasValidas.find(l => l.cuenta_codigo?.startsWith('210101'))
+  const lineaCaja = lineasValidas.find(l => l.cuenta_codigo?.startsWith('1101'))
+
+  const subtotal = lineaInventario?.monto || 0
+  const isv = lineaIva?.monto || 0
+  const total = lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0) || (subtotal + isv)
+  const provNombre = lineaProveedor?.cuenta_nombre || lineaProveedor?.descripcion || ''
+  const cuentaProv = lineaProveedor?.cuenta_codigo || ''
+  const formaPago = lineaProveedor ? 'credito' : (lineaCaja ? 'contado' : 'otro')
+  const centroCostoId = lineaInventario?.centro_costo_id || lineasValidas[0]?.centro_costo_id || null
+
+  if (existente) {
+    // Ya existe → actualizar incluir_fiscal según el check
+    await sb.from('libro_compras').update({
+      incluir_fiscal: algunaFiscal,
+      subtotal: Math.round(subtotal * 100) / 100,
+      isv: Math.round(isv * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      proveedor: provNombre,
+      cuenta_proveedor: cuentaProv,
+      productos: descripcion,
+      forma_pago: formaPago,
+    }).eq('id', existente.id)
+  } else if (algunaFiscal) {
+    // No existe y tiene fiscal → insertar
+    await sb.from('libro_compras').insert({
+      centro_costo_id: centroCostoId,
+      fecha,
+      numero_factura: numDocumento,
+      numero_documento: numDocumento,
+      proveedor: provNombre,
+      rtn_proveedor: '',
+      cuenta_proveedor: cuentaProv,
+      subtotal: Math.round(subtotal * 100) / 100,
+      isv: Math.round(isv * 100) / 100,
+      total: Math.round(total * 100) / 100,
+      forma_pago: formaPago,
+      productos: descripcion,
+      incluir_fiscal: true,
+      origen: 'manual',
+      partida_id: partidaId,
+    })
   }
 }
 
@@ -2095,6 +2287,16 @@ window.guardarImportPartida = async () => {
 
   renderLineas()
   calcTotales()
+
+  // Guardar datos fiscales para insertar en libro_ventas al guardar la partida
+  window._importVentasData = {
+    tecnimax_fiscal: d.tecnimax_fiscal,
+    yonker_fiscal: d.yonker_fiscal,
+    fecha,
+    ccTecniId: ccTecni?.id || null,
+    ccYonkerId: ccYonker?.id || null,
+  }
+
   toast('Créditos cargados. Completá los débitos con las formas de pago.', 'info')
 }
 // ══════════════════════════════════════════════
@@ -2814,6 +3016,43 @@ window.guardarImportCompras = async () => {
 
     creadas++
     log.push(`<span style="color:var(--green)">✓</span> <span class="mono" style="color:var(--gold)">${factura.no_factura}</span> · ${factura.proveedor} · L. ${factura.total.toLocaleString('es-HN', {minimumFractionDigits:2})} → <span class="mono">${match.codigo}</span>`)
+
+    // Insertar en libro_compras (solo facturas con número = fiscales)
+    if (esFiscal) {
+      await sb.from('libro_compras').insert({
+        centro_costo_id: centroCostoId,
+        fecha: fechaISO,
+        numero_factura: factura.no_factura,
+        numero_documento: factura.no_factura,
+        proveedor: factura.proveedor,
+        rtn_proveedor: factura.ced_juridica || '',
+        cuenta_proveedor: match.codigo,
+        subtotal: Math.round(factura.subtotal * 100) / 100,
+        isv: Math.round(factura.isv * 100) / 100,
+        total: Math.round(factura.total * 100) / 100,
+        forma_pago: 'credito',
+        productos: productosDesc.substring(0, 250),
+        incluir_fiscal: true,
+        origen: 'import_alpha',
+        partida_id: partida.id,
+      })
+    }
+
+    // Registrar en facturas_compras como contabilizada (pendiente de recibir documento)
+    await sb.from('facturas_compras').insert({
+      centro_costo_id: centroCostoId,
+      registrado_por: currentProfile.id,
+      numero_factura: factura.no_factura !== 'S/F' ? factura.no_factura : `SF-${factura.no_consecutivo}`,
+      fecha_factura: fechaISO,
+      tipo_gasto: 'repuestos',
+      forma_pago: 'credito',
+      subtotal: Math.round(factura.subtotal * 100) / 100,
+      isv: Math.round(factura.isv * 100) / 100,
+      total: Math.round(factura.total * 100) / 100,
+      observaciones: `[IMP-COMPRA] ${factura.proveedor} · ${productosDesc.substring(0, 200)}`,
+      estado: 'procesada',
+      recibida: false,
+    })
   }
 
   // ── CONTADO: registrar en facturas_compras como pendientes ──
@@ -2869,4 +3108,441 @@ window.guardarImportCompras = async () => {
   btn.disabled = false
   btn.textContent = 'Guardar partidas de crédito →'
   toast(`${creadas} partidas crédito + ${contCreadas} facturas contado registradas`, 'ok')
+}
+
+// ══════════════════════════════════════════════
+// ── IMPORTAR COSTOS DE VENTA (UTILIDAD ALPHA)
+// ══════════════════════════════════════════════
+
+const COSTOS_CUENTAS = {
+  costo_venta: { codigo: '510101-001', nombre: 'COSTO DE ADQUISICION DE MERCADERIA TECNIMAX' },
+  inventario:  { codigo: '110501-001', nombre: 'INVENTARIO PARA LA VENTA BODEGA PRINCIPAL' },
+}
+
+let icuFiles = []
+let icuData = null // array of parsed reports
+
+function parseEuroNumber(val) {
+  if (val == null || val === '' || val === 'NaN' || val === 'nan') return 0
+  if (typeof val === 'number') return val
+  // Format: "44.555,34" → 44555.34
+  let s = String(val).trim()
+  s = s.replace(/\./g, '')   // remove thousand separators
+  s = s.replace(',', '.')    // decimal comma → point
+  s = s.replace(/[^0-9.\-]/g, '') // remove any other chars
+  return parseFloat(s) || 0
+}
+
+function parseUtilidadExcel(arrayBuffer, fileName) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array', raw: true })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true })
+
+  // Detect report type from filename
+  // XPlantel/Taxis = taxis, todo lo demás = tecnimax
+  let tipo = 'tecnimax'
+  let label = 'Tecnimax'
+  const fnLower = fileName.toLowerCase()
+  if (fnLower.includes('xplantel') || fnLower.includes('taxis')) {
+    tipo = 'xplantel_taxis'; label = 'XPlantel Taxis'
+  }
+
+  // Also try detecting by case of data rows (MAYUSCULAS = interno concept from ventas)
+  // But for costos, the filename convention is more reliable
+
+  // Parse facturas
+  const facturas = []
+  let i = 1 // skip header row
+  while (i < data.length) {
+    const row = data[i]
+    if (!row) { i++; continue }
+
+    const firstCell = String(row[0] || '').trim()
+
+    // Summary rows at the end
+    if (firstCell === 'Ventas:' || firstCell === 'Costo Total:' || firstCell === 'Margen:' || firstCell === '% Margen:') break
+
+    // Skip empty/subtotal rows
+    if (!firstCell || firstCell === 'NaN' || firstCell === 'nan' || firstCell === 'Número') { i++; continue }
+
+    // Must be a factura number
+    const numFactura = firstCell.replace('.0', '')
+    if (!/^\d+$/.test(numFactura)) { i++; continue }
+
+    const fecha = String(row[1] || '').trim()
+    const cliente = String(row[2] || '').trim()
+
+    // Collect all product lines for this factura
+    const productos = []
+    let j = i
+    const currentNum = numFactura
+    while (j < data.length) {
+      const r = data[j]
+      if (!r) { j++; continue }
+      const rNum = String(r[0] || '').trim().replace('.0', '')
+
+      // If it's the same factura number or empty (continuation)
+      if (rNum === currentNum) {
+        productos.push({
+          nombre: String(r[3] || '').trim(),
+          marca: String(r[4] || '').trim(),
+          categoria: String(r[5] || '').trim(),
+          cantidad: parseEuroNumber(r[6]),
+          costo_unitario: parseEuroNumber(r[7]),
+          costo_total: parseEuroNumber(r[8]),
+          venta_total: parseEuroNumber(r[9]),
+          descuento: parseEuroNumber(r[10]),
+        })
+        j++
+      } else if (rNum === '' || rNum === 'NaN' || rNum === 'nan') {
+        // Subtotal row or empty — check if it has totals in col 8
+        const costoSub = parseEuroNumber(r[8])
+        const ventaSub = parseEuroNumber(r[9])
+        if (costoSub > 0 || ventaSub > 0) {
+          // This is the subtotal row — skip it
+        }
+        j++
+        // If next row is also empty/NaN, we've reached the end of this factura
+        const next = data[j]
+        if (!next || String(next[0] || '').trim() === '' || String(next[0] || '').trim() === 'NaN') {
+          j++
+          break
+        }
+        if (/^\d+$/.test(String(next[0] || '').trim().replace('.0', ''))) {
+          break // next factura
+        }
+      } else {
+        break // different factura
+      }
+    }
+
+    const costoTotal = productos.reduce((s, p) => s + p.costo_total, 0)
+    const ventaTotal = productos.reduce((s, p) => s + p.venta_total, 0)
+
+    facturas.push({
+      numero: numFactura,
+      fecha,
+      cliente,
+      productos,
+      costo_total: Math.round(costoTotal * 100) / 100,
+      venta_total: Math.round(ventaTotal * 100) / 100,
+    })
+
+    i = j
+  }
+
+  // Get summary from last rows
+  let resumenVentas = 0, resumenCosto = 0, resumenMargen = 0
+  for (let r = data.length - 10; r < data.length; r++) {
+    if (!data[r]) continue
+    const label = String(data[r][0] || '').trim()
+    const val = parseEuroNumber(data[r][1])
+    if (label === 'Ventas:') resumenVentas = val
+    if (label === 'Costo Total:') resumenCosto = val
+    if (label === 'Margen:') resumenMargen = val
+  }
+
+  return {
+    tipo,
+    label,
+    fileName,
+    facturas,
+    totales: {
+      ventas: resumenVentas || facturas.reduce((s, f) => s + f.venta_total, 0),
+      costo: resumenCosto || facturas.reduce((s, f) => s + f.costo_total, 0),
+      margen: resumenMargen,
+      numFacturas: facturas.length,
+    }
+  }
+}
+
+function initImportCostos() {
+  const ayer = new Date()
+  ayer.setDate(ayer.getDate() - 1)
+  document.getElementById('icu-fecha').value = ayer.toISOString().split('T')[0]
+
+  const sel = document.getElementById('icu-centro')
+  sel.innerHTML = '<option value="">— Seleccionar —</option>'
+  empresas.forEach(e => {
+    sel.innerHTML += `<option value="${e.id}">${e.nombre}</option>`
+  })
+  const tecni = empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker'))
+  if (tecni) sel.value = tecni.id
+
+  resetImportCostos()
+  document.getElementById('icu-step1').classList.remove('hidden')
+}
+
+window.onImportCostosFiles = (input) => {
+  icuFiles = Array.from(input.files || [])
+  const list = document.getElementById('icu-file-list')
+  if (!icuFiles.length) { list.innerHTML = ''; return }
+  list.innerHTML = icuFiles.map(f => `
+    <div class="imp-file-item">
+      <span class="imp-file-icon">📊</span>
+      <span class="imp-file-name">${f.name}</span>
+      <span style="font-size:11px;color:var(--text3)">${(f.size/1024).toFixed(0)} KB</span>
+    </div>`).join('')
+  document.getElementById('icu-zone').classList.add('has-file')
+  document.getElementById('btn-procesar-costos').disabled = false
+}
+
+window.resetImportCostos = () => {
+  icuData = null
+  icuFiles = []
+  const fileInput = document.getElementById('icu-files')
+  if (fileInput) fileInput.value = ''
+  document.getElementById('icu-file-list').innerHTML = ''
+  const zone = document.getElementById('icu-zone')
+  if (zone) zone.classList.remove('has-file')
+  const btn = document.getElementById('btn-procesar-costos')
+  if (btn) btn.disabled = true
+  ;['icu-step1','icu-step2','icu-step3'].forEach(id => {
+    document.getElementById(id)?.classList.add('hidden')
+  })
+  document.getElementById('icu-step1')?.classList.remove('hidden')
+}
+
+window.procesarImportCostos = async () => {
+  if (!icuFiles.length) { toast('Selecciona los reportes', 'error'); return }
+
+  const btn = document.getElementById('btn-procesar-costos')
+  btn.disabled = true
+  btn.textContent = 'Procesando...'
+
+  try {
+    const reportes = []
+    for (const file of icuFiles) {
+      const arrayBuffer = await file.arrayBuffer()
+      const parsed = parseUtilidadExcel(arrayBuffer, file.name)
+      reportes.push(parsed)
+    }
+
+    icuData = reportes
+    renderImportCostosResults()
+
+  } catch (err) {
+    toast('Error al procesar: ' + err.message, 'error')
+    console.error(err)
+  }
+
+  btn.disabled = false
+  btn.textContent = 'Procesar reportes →'
+}
+
+function renderImportCostosResults() {
+  if (!icuData) return
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  // Agrupar: Tecnimax (fiscal+interno sumados) y XPlantel Taxis
+  const grupos = {}
+  icuData.forEach(r => {
+    const key = r.tipo === 'xplantel_taxis' ? 'XPlantel Taxis' : 'Tecnimax'
+    if (!grupos[key]) grupos[key] = { label: key, ventas: 0, costo: 0, margen: 0, facturas: 0, archivos: [] }
+    grupos[key].ventas += r.totales.ventas
+    grupos[key].costo += r.totales.costo
+    grupos[key].margen += r.totales.margen
+    grupos[key].facturas += r.totales.numFacturas
+    grupos[key].archivos.push(r.fileName)
+  })
+  const gruposArr = Object.values(grupos)
+
+  const totalCosto = gruposArr.reduce((s, g) => s + g.costo, 0)
+  const totalVentas = gruposArr.reduce((s, g) => s + g.ventas, 0)
+  const totalFacturas = gruposArr.reduce((s, g) => s + g.facturas, 0)
+
+  document.getElementById('icu-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div class="stat-card"><div class="stat-num">${icuData.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Archivos</div></div>
+      <div class="stat-card"><div class="stat-num">${totalFacturas}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Facturas</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalVentas)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Ventas total</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalCosto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Costo total</div></div>
+    </div>`
+
+  document.getElementById('icu-detalle').innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">Detalle por archivo</div>
+    <div class="table-wrap" style="margin-bottom:16px">
+      <table>
+        <thead><tr>
+          <th>Archivo</th><th>Grupo</th><th style="text-align:center">Facturas</th>
+          <th style="text-align:right">Ventas</th><th style="text-align:right">Costo</th>
+        </tr></thead>
+        <tbody>${icuData.map(r => `
+          <tr>
+            <td style="font-size:11px">${r.fileName}</td>
+            <td><span class="badge badge-blue" style="font-size:10px">${r.tipo === 'xplantel_taxis' ? 'Taxis' : 'Tecnimax'}</span></td>
+            <td style="text-align:center;font-family:var(--mono)">${r.totales.numFacturas}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(r.totales.ventas)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(r.totales.costo)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;font-weight:500">Partidas a generar (${gruposArr.length})</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Partida</th><th style="text-align:center">Facturas</th>
+          <th style="text-align:right">Ventas</th><th style="text-align:right">Costo</th>
+          <th style="text-align:right">Margen</th>
+        </tr></thead>
+        <tbody>${gruposArr.map(g => `
+          <tr>
+            <td style="font-weight:500">${g.label}</td>
+            <td style="text-align:center;font-family:var(--mono)">${g.facturas}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(g.ventas)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:500;color:var(--red)">${fmt(g.costo)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--green)">${fmt(g.ventas - g.costo)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px;padding:12px;border-radius:var(--radius);background:rgba(59,130,246,0.08);border-left:3px solid var(--blue);font-size:13px;color:var(--blue);line-height:1.5">
+      ℹ️ Tecnimax fiscal + interno se suman en una sola partida.<br>
+      Débito: <span class="mono">510101-001</span> COSTO DE ADQUISICION · Crédito: <span class="mono">110501-001</span> INVENTARIO
+    </div>`
+
+  document.getElementById('icu-step1').classList.add('hidden')
+  document.getElementById('icu-step2').classList.remove('hidden')
+}
+
+window.guardarImportCostos = async () => {
+  if (!icuData?.length) { toast('No hay datos procesados', 'error'); return }
+
+  const fecha = document.getElementById('icu-fecha').value
+  const centroCostoId = document.getElementById('icu-centro').value
+  if (!fecha) { toast('Selecciona la fecha', 'error'); return }
+  if (!centroCostoId) { toast('Selecciona el centro de costo', 'error'); return }
+
+  const btn = document.getElementById('btn-guardar-costos')
+  btn.disabled = true
+  btn.textContent = 'Guardando...'
+
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+  const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
+  const ctaCosto = getCuenta(COSTOS_CUENTAS.costo_venta.codigo)
+  const ctaInventario = getCuenta(COSTOS_CUENTAS.inventario.codigo)
+
+  // Calcular rango del mes
+  const [anio, mes] = fecha.split('-')
+  const mesInicio = `${anio}-${mes}-01`
+  const mesFin = `${anio}-${mes}-31`
+
+  // Agrupar reportes: Tecnimax (fiscal+interno) y XPlantel Taxis
+  const grupos = {}
+  icuData.forEach(r => {
+    const key = r.tipo === 'xplantel_taxis' ? 'XPlantel Taxis' : 'Tecnimax'
+    if (!grupos[key]) grupos[key] = { label: key, costo: 0, ventas: 0, facturas: 0 }
+    grupos[key].costo += r.totales.costo
+    grupos[key].ventas += r.totales.ventas
+    grupos[key].facturas += r.totales.numFacturas
+  })
+
+  let creadas = 0
+  let actualizadas = 0
+  let errores = 0
+  const log = []
+
+  for (const [key, grupo] of Object.entries(grupos)) {
+    if (grupo.costo <= 0) {
+      log.push(`<span style="color:var(--text3)">⊘</span> ${grupo.label}: Costo = 0, omitido`)
+      continue
+    }
+
+    const costoTotal = Math.round(grupo.costo * 100) / 100
+    const descLinea = `${grupo.label} · ${grupo.facturas} facturas`
+
+    // Buscar partida existente del mes
+    const searchPattern = `Costo de venta · ${grupo.label} %[IMP-COSTO]`
+    const { data: existentes } = await sb.from('partidas_contables')
+      .select('id')
+      .like('descripcion', searchPattern)
+      .gte('fecha_partida', mesInicio)
+      .lte('fecha_partida', mesFin)
+      .limit(1)
+
+    const partidaExistente = existentes?.[0]
+    const descripcion = `Costo de venta · ${grupo.label} · ${fecha} [IMP-COSTO]`
+
+    const lineas = [
+      {
+        cuenta_id: ctaCosto?.id || null,
+        cuenta_codigo: COSTOS_CUENTAS.costo_venta.codigo,
+        cuenta_nombre: COSTOS_CUENTAS.costo_venta.nombre,
+        tipo: 'debito',
+        monto: costoTotal,
+        centro_costo_id: centroCostoId,
+        descripcion: descLinea,
+        numero_documento: null,
+        aplica_fiscal: false,
+      },
+      {
+        cuenta_id: ctaInventario?.id || null,
+        cuenta_codigo: COSTOS_CUENTAS.inventario.codigo,
+        cuenta_nombre: COSTOS_CUENTAS.inventario.nombre,
+        tipo: 'credito',
+        monto: costoTotal,
+        centro_costo_id: centroCostoId,
+        descripcion: descLinea,
+        numero_documento: null,
+        aplica_fiscal: false,
+      }
+    ]
+
+    if (partidaExistente) {
+      // ── ACTUALIZAR ──
+      const partidaId = partidaExistente.id
+      const { error: errU } = await sb.from('partidas_contables').update({
+        total: costoTotal, descripcion, fecha_partida: fecha,
+      }).eq('id', partidaId)
+
+      if (errU) { errores++; log.push(`<span style="color:var(--red)">✕</span> ${grupo.label}: ${errU.message}`); continue }
+
+      await sb.from('lineas_partida').delete().eq('partida_id', partidaId)
+      const { error: errL } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partidaId })))
+      if (errL) { errores++; log.push(`<span style="color:var(--red)">✕</span> ${grupo.label} líneas: ${errL.message}`); continue }
+
+      actualizadas++
+      log.push(`<span style="color:var(--blue)">↻</span> ${grupo.label} · ACTUALIZADA · L. ${costoTotal.toLocaleString('es-HN', {minimumFractionDigits:2})} · ${grupo.facturas} facturas`)
+
+    } else {
+      // ── CREAR ──
+      const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
+        centro_costo_id: centroCostoId, generada_por: currentProfile.id,
+        tipo_origen: 'compra', descripcion, fecha_partida: fecha,
+        numero_documento: null, estado: 'aprobada', total: costoTotal,
+      }).select().single()
+
+      if (errP) { errores++; log.push(`<span style="color:var(--red)">✕</span> ${grupo.label}: ${errP.message}`); continue }
+
+      const { error: errL } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id })))
+      if (errL) {
+        errores++; log.push(`<span style="color:var(--red)">✕</span> ${grupo.label} líneas: ${errL.message}`)
+        await sb.from('partidas_contables').delete().eq('id', partida.id)
+        continue
+      }
+
+      creadas++
+      log.push(`<span style="color:var(--green)">✓</span> ${grupo.label} · NUEVA · L. ${costoTotal.toLocaleString('es-HN', {minimumFractionDigits:2})} · ${grupo.facturas} facturas`)
+    }
+  }
+
+  // Mostrar resultado
+  document.getElementById('icu-step2').classList.add('hidden')
+  document.getElementById('icu-step3').classList.remove('hidden')
+
+  document.getElementById('icu-log').innerHTML = `
+    <div style="margin-bottom:16px;padding:14px;border-radius:var(--radius);background:var(--bg3)">
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${creadas} creada(s) · ${actualizadas} actualizada(s)</div>
+      ${errores ? `<div style="color:var(--red)">${errores} error(es)</div>` : ''}
+    </div>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:500">Detalle</div>
+    <div style="max-height:300px;overflow-y:auto;font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>`
+
+  btn.disabled = false
+  btn.textContent = 'Generar partidas de costo →'
+  toast(`${creadas} creadas · ${actualizadas} actualizadas`, 'ok')
 }

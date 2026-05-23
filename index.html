@@ -91,6 +91,9 @@
         <div class="nav-item" id="nav-importar-compras" onclick="showView('importar-compras','Importar compras Alpha')">
           <span class="nav-dot"></span>Importar compras
         </div>
+        <div class="nav-item" id="nav-importar-costos" onclick="showView('importar-costos','Importar costos Alpha')">
+          <span class="nav-dot"></span>Importar costos
+        </div>
       </div>
     </div>
 
@@ -263,10 +266,11 @@
         </div>
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
           <input type="text" id="pend-buscar" placeholder="Buscar por factura, proveedor u observaciones..." oninput="filtrarPendientes()" style="flex:1;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
-          <select id="pend-estado" onchange="filtrarPendientes()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:160px">
+          <select id="pend-estado" onchange="filtrarPendientes()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:200px">
             <option value="todos">Todo estado</option>
-            <option value="pendiente" selected>Pendientes</option>
-            <option value="procesada">Procesadas</option>
+            <option value="pendiente" selected>Pendiente partida</option>
+            <option value="pend_documento">Pendiente documento</option>
+            <option value="procesada">Procesadas / Recibidas</option>
           </select>
         </div>
         <div id="lista-pendientes">
@@ -341,10 +345,6 @@
           </select>
           <select id="fp-origen" onchange="filtrarPartidas()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:12px;outline:none">
             <option value="">Todo origen</option>
-            <option value="compra">Compra</option>
-            <option value="venta_alpha">Venta Alpha</option>
-            <option value="entrega_taxi">Taxi</option>
-            <option value="gasto_autolote">Autolote</option>
           </select>
           <button class="btn btn-ghost" onclick="limpiarFiltrosPartidas()" style="padding:7px 12px;font-size:11px">✕ Limpiar</button>
         </div>
@@ -378,10 +378,7 @@
             <div class="fld">
               <label>Tipo de origen</label>
               <select id="pn-origen">
-                <option value="compra">Compra</option>
-                <option value="venta_alpha">Venta (Alpha)</option>
-                <option value="entrega_taxi">Entrega taxi</option>
-                <option value="gasto_autolote">Gasto autolote</option>
+                <option value="">Cargando...</option>
               </select>
             </div>
             <div class="fld">
@@ -715,6 +712,70 @@
           <div id="ic-log" style="font-size:13px;line-height:1.8"></div>
           <div class="form-actions" style="margin-top:18px">
             <button class="btn btn-gold" onclick="resetImportCompras()">Nueva importación</button>
+            <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Ver partidas →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMPORTAR COSTOS ALPHA -->
+      <div class="view" id="view-importar-costos">
+        <div class="page-header">
+          <div>
+            <div class="page-title">📊 Importar costos · Taller Alpha</div>
+            <div class="page-sub">Sube los reportes de utilidad (Tecnimax fiscal, interno y XPlantel Taxis)</div>
+          </div>
+        </div>
+
+        <!-- PASO 1: Subir archivos -->
+        <div class="form-card" id="icu-step1">
+          <div class="form-card-title">Paso 1 · Subir reportes de utilidad</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Fecha del reporte</label>
+              <input type="date" id="icu-fecha">
+            </div>
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="icu-centro">
+                <option value="">— Seleccionar —</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:18px">
+            <label style="font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500;display:block;margin-bottom:8px">Reportes de utilidad (.xlsx)</label>
+            <div class="upload-zone" id="icu-zone" onclick="document.getElementById('icu-files').click()" style="padding:20px">
+              <div class="upload-icon">📊</div>
+              <div class="upload-text">Selecciona los 3 reportes de utilidad</div>
+              <div class="upload-sub">Tecnimax fiscal + Tecnimax interno + XPlantel Taxis</div>
+            </div>
+            <input type="file" id="icu-files" accept=".xlsx,.xls" class="hidden" multiple onchange="onImportCostosFiles(this)">
+            <div id="icu-file-list" style="margin-top:10px"></div>
+          </div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-gold" id="btn-procesar-costos" onclick="procesarImportCostos()" disabled>Procesar reportes →</button>
+          </div>
+        </div>
+
+        <!-- PASO 2: Resumen -->
+        <div class="form-card hidden" id="icu-step2">
+          <div class="form-card-title" style="justify-content:space-between">
+            <span>Paso 2 · Resultado del análisis</span>
+            <button class="btn btn-ghost" onclick="resetImportCostos()" style="padding:5px 12px;font-size:12px">← Volver</button>
+          </div>
+          <div id="icu-resumen"></div>
+          <div id="icu-detalle" style="margin-top:16px"></div>
+          <div class="form-actions" style="margin-top:18px;gap:12px">
+            <button class="btn btn-ghost" onclick="resetImportCostos()">Cancelar</button>
+            <button class="btn btn-gold" id="btn-guardar-costos" onclick="guardarImportCostos()">Generar partidas de costo →</button>
+          </div>
+        </div>
+
+        <!-- PASO 3: Log -->
+        <div class="form-card hidden" id="icu-step3">
+          <div class="form-card-title" style="color:var(--green)">✓ Importación completada</div>
+          <div id="icu-log" style="font-size:13px;line-height:1.8"></div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-gold" onclick="resetImportCostos()">Nueva importación</button>
             <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Ver partidas →</button>
           </div>
         </div>
