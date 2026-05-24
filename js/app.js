@@ -719,6 +719,7 @@ async function initPartidaNueva() {
   }
   // Start with 2 empty lines
   addLinea(); addLinea()
+  calcTotales()
 }
 window.initPartidaNueva = initPartidaNueva
 
@@ -776,9 +777,15 @@ window.editarPartida = async (id) => {
   // Cargar líneas en el formulario
   partidaLineas = []
   lineaCounter = 0
+
+  // Cargar conteos de billetes existentes para esta partida
+  const { data: conteosExist } = await sb.from('conteo_billetes')
+    .select('*')
+    .eq('partida_id', id)
+
   for (const l of lineas) {
     lineaCounter++
-    partidaLineas.push({
+    const lineaObj = {
       id: lineaCounter,
       cuenta_id: l.cuenta_id || '',
       cuenta_codigo: l.cuenta_codigo || '',
@@ -787,8 +794,28 @@ window.editarPartida = async (id) => {
       monto: parseFloat(l.monto) || 0,
       centro_costo_id: l.centro_costo_id || '',
       descripcion: l.descripcion || '',
-      aplica_fiscal: l.aplica_fiscal !== false
-    })
+      aplica_fiscal: l.aplica_fiscal !== false,
+      _fromDB: true // Marca que esta línea ya existía en la BD
+    }
+    // Si es cuenta de caja y hay conteo guardado, restaurar billetes
+    if (esCuentaCaja(l.cuenta_codigo) && conteosExist?.length) {
+      const tipoEsperado = l.tipo === 'debito' ? 'ingreso' : 'egreso'
+      const conteo = conteosExist.find(c => c.tipo === tipoEsperado)
+      if (conteo) {
+        lineaObj.billetes = {
+          500: conteo.den_500 || 0,
+          200: conteo.den_200 || 0,
+          100: conteo.den_100 || 0,
+          50: conteo.den_50 || 0,
+          20: conteo.den_20 || 0,
+          10: conteo.den_10 || 0,
+          5: conteo.den_5 || 0,
+          2: conteo.den_2 || 0,
+          1: conteo.den_1 || 0
+        }
+      }
+    }
+    partidaLineas.push(lineaObj)
   }
 
   renderLineas()
@@ -798,10 +825,11 @@ window.editarPartida = async (id) => {
   const btnElim = document.getElementById('btn-eliminar-partida')
   if (btnElim) {
     btnElim.classList.remove('hidden')
-    if (currentProfile?.rol === 'aux_contable') {
+    const tocaCaja = partidaLineas.some(l => esCuentaCaja(l.cuenta_codigo) && l.monto > 0)
+    if (currentProfile?.rol === 'aux_contable' || (tocaCaja && currentProfile?.rol !== 'super_admin')) {
       btnElim.textContent = 'Solicitar anulación'
     } else {
-      btnElim.textContent = 'Eliminar partida'
+      btnElim.textContent = 'Anular partida'
     }
   }
 
@@ -817,8 +845,34 @@ window.editarPartida = async (id) => {
 window.eliminarPartida = async () => {
   if (!editingPartidaId) return
   const rol = currentProfile?.rol
+  const esSuperAdmin = rol === 'super_admin'
 
-  if (rol === 'aux_contable') {
+  // Verificar si la partida tiene líneas de caja
+  const tocaCaja = partidaLineas.some(l => esCuentaCaja(l.cuenta_codigo) && l.monto > 0)
+
+  if (tocaCaja) {
+    // ── Partidas con Caja General: NUNCA eliminar, solo anular ──
+    if (esSuperAdmin) {
+      if (!confirm('Esta partida afecta Caja General.\n\n¿Anular esta partida?\nEl correlativo se mantendrá con estado "anulada".')) return
+      const { error } = await sb.from('partidas_contables').update({
+        estado: 'anulada',
+        modificada_por: currentProfile.id,
+        modificada_at: new Date().toISOString(),
+      }).eq('id', editingPartidaId)
+      if (error) { toast('Error: ' + error.message, 'error'); return }
+      toast('Partida anulada ✓ (correlativo preservado)', 'success')
+    } else {
+      // Otros roles: solicitar anulación al super_admin
+      if (!confirm('Esta partida afecta Caja General.\n\n¿Solicitar anulación?\nUn Super Admin deberá aprobar la anulación.')) return
+      const { error } = await sb.from('partidas_contables').update({
+        estado: 'pendiente_anulacion',
+        modificada_por: currentProfile.id,
+        modificada_at: new Date().toISOString(),
+      }).eq('id', editingPartidaId)
+      if (error) { toast('Error: ' + error.message, 'error'); return }
+      toast('Anulación solicitada · Pendiente de aprobación por Super Admin', 'info')
+    }
+  } else if (rol === 'aux_contable') {
     // Auxiliar no puede eliminar — solo solicitar anulación
     if (!confirm('¿Solicitar anulación de esta partida?\n\nUn superior deberá aprobar la anulación.')) return
     const { error } = await sb.from('partidas_contables').update({
@@ -828,19 +882,20 @@ window.eliminarPartida = async () => {
     }).eq('id', editingPartidaId)
     if (error) { toast('Error: ' + error.message, 'error'); return }
     toast('Anulación solicitada · Pendiente de aprobación', 'info')
-    editingPartidaId = null
-    showView('partidas', 'Partidas contables')
   } else {
-    // Super admin / contador pueden eliminar directamente
-    if (!confirm('¿Eliminar esta partida y todas sus líneas?\n\nEsta acción no se puede deshacer.')) return
-    const { error: lErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
-    if (lErr) { toast('Error al borrar líneas: ' + lErr.message, 'error'); return }
-    const { error: pErr } = await sb.from('partidas_contables').delete().eq('id', editingPartidaId)
-    if (pErr) { toast('Error al borrar partida: ' + pErr.message, 'error'); return }
-    toast('Partida eliminada', 'success')
-    editingPartidaId = null
-    showView('partidas', 'Partidas contables')
+    // Super admin / contador: partidas SIN caja pueden anular o eliminar
+    const accion = confirm('¿Qué deseas hacer con esta partida?\n\n• Aceptar = ANULAR (preserva correlativo)\n• Cancelar para volver')
+    if (!accion) return
+    const { error } = await sb.from('partidas_contables').update({
+      estado: 'anulada',
+      modificada_por: currentProfile.id,
+      modificada_at: new Date().toISOString(),
+    }).eq('id', editingPartidaId)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    toast('Partida anulada ✓', 'success')
   }
+  editingPartidaId = null
+  showView('partidas', 'Partidas contables')
 }
 
 window.addLinea = () => {
@@ -852,6 +907,12 @@ window.addLinea = () => {
 }
 
 window.removeLinea = (id) => {
+  const l = partidaLineas.find(x => x.id === id)
+  // No permitir eliminar línea de caja a usuarios no super_admin
+  if (l && esCuentaCaja(l.cuenta_codigo) && currentProfile?.rol !== 'super_admin') {
+    toast('Solo Super Admin puede eliminar líneas de Caja General', 'error')
+    return
+  }
   partidaLineas = partidaLineas.filter(l => l.id !== id)
   renderLineas()
   calcTotales()
@@ -859,38 +920,73 @@ window.removeLinea = (id) => {
 
 function renderLineas() {
   const tbody = document.getElementById('tbody-lineas')
+  const esSuperAdmin = currentProfile?.rol === 'super_admin'
   tbody.innerHTML = partidaLineas.map(l => {
     const debeVal = l.tipo === 'debito' && l.monto ? l.monto : ''
     const haberVal = l.tipo === 'credito' && l.monto ? l.monto : ''
-    const esCaja = esCuentaCaja(l.cuenta_codigo) && currentProfile?.rol === 'super_admin'
-    // Para cuentas de caja: mostrar botón de conteo + input normal
-    const debeInput = esCaja
-      ? `<div style="display:flex;gap:4px;align-items:center">
+    const esCaja = esCuentaCaja(l.cuenta_codigo)
+
+    // ── Política de Caja General ──
+    // Super Admin: control total (botones 💵 en debe y haber, puede editar todo)
+    // Otros roles: pueden AGREGAR nuevas líneas de caja (solo ingreso/débito con conteo)
+    //              NO pueden modificar líneas de caja que ya existían en la BD (_fromDB)
+    const cajaReadonly = esCaja && !esSuperAdmin && l._fromDB
+
+    let debeInput, haberInput
+
+    if (esCaja && esSuperAdmin) {
+      // Super Admin: botones 💵 en ambos lados
+      debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
-      : `<input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
-    const haberInput = esCaja
-      ? `<div style="display:flex;gap:4px;align-items:center">
+      haberInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
             oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
-      : `<input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
+    } else if (esCaja && cajaReadonly) {
+      // Otros roles editando partida existente con caja: solo lectura
+      debeInput = `<input type="text" value="${debeVal}" placeholder="0.00" disabled
+          style="text-align:right;font-family:var(--mono);opacity:0.6;cursor:not-allowed">`
+      haberInput = `<input type="text" value="${haberVal}" placeholder="0.00" disabled
+          style="text-align:right;font-family:var(--mono);opacity:0.6;cursor:not-allowed">`
+    } else if (esCaja && !esSuperAdmin) {
+      // Otros roles en partida nueva con caja: solo ingreso (débito) con botón 💵, haber bloqueado
+      debeInput = `<div style="display:flex;gap:4px;align-items:center">
+          <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
+            oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+        </div>`
+      haberInput = `<input type="text" value="" placeholder="—" disabled
+          style="text-align:right;font-family:var(--mono);opacity:0.4;cursor:not-allowed"
+          title="Solo Super Admin puede registrar egresos de caja">`
+    } else {
+      // Cuentas normales (no caja)
+      debeInput = `<input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
+          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+      haberInput = `<input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
           oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+    }
+
+    // No permitir eliminar línea de caja a usuarios no super_admin en edición
+    const deleteBtn = (cajaReadonly)
+      ? `<span style="opacity:0.3;font-size:13px" title="No se puede eliminar línea de caja">🔒</span>`
+      : `<button class="linea-del" onclick="removeLinea(${l.id})">✕</button>`
+
     return `
-    <tr class="linea-row">
+    <tr class="linea-row"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
       <td>
         <div class="cuenta-wrap">
           <input type="text" value="${l.cuenta_codigo ? l.cuenta_codigo+' '+l.cuenta_nombre : ''}" placeholder="Buscar cuenta..."
-            onfocus="openCuentaDD(${l.id},this)" oninput="filterCuentas(${l.id},this.value)" data-lid="${l.id}" autocomplete="off">
+            onfocus="openCuentaDD(${l.id},this)" oninput="filterCuentas(${l.id},this.value)" data-lid="${l.id}" autocomplete="off"
+            ${cajaReadonly ? 'disabled style="opacity:0.6;cursor:not-allowed"' : ''}>
           <div class="cuenta-dropdown" id="dd-${l.id}"></div>
         </div>
       </td>
       <td>
-        <select onchange="updLinea(${l.id},'centro_costo_id',this.value)">
+        <select onchange="updLinea(${l.id},'centro_costo_id',this.value)" ${cajaReadonly ? 'disabled style="opacity:0.6"' : ''}>
           <option value="">—</option>
           ${empresas.map(e => `<option value="${e.id}" ${l.centro_costo_id===e.id?'selected':''}>${e.nombre}</option>`).join('')}
         </select>
@@ -898,10 +994,10 @@ function renderLineas() {
       <td>${debeInput}</td>
       <td>${haberInput}</td>
       <td style="text-align:center">
-        <input type="checkbox" class="fiscal-check" ${l.aplica_fiscal?'checked':''} onchange="updLinea(${l.id},'aplica_fiscal',this.checked)">
+        <input type="checkbox" class="fiscal-check" ${l.aplica_fiscal?'checked':''} onchange="updLinea(${l.id},'aplica_fiscal',this.checked)" ${cajaReadonly ? 'disabled' : ''}>
       </td>
       <td style="text-align:center">
-        <button class="linea-del" onclick="removeLinea(${l.id})">✕</button>
+        ${deleteBtn}
       </td>
     </tr>`
   }).join('')
@@ -913,6 +1009,8 @@ window.setDebe = (id, val) => {
   const v = parseFloat(val) || 0
   l.tipo = 'debito'
   l.monto = v
+  // Si es cuenta de caja y se editó directo (sin botón 💵), limpiar billetes
+  if (esCuentaCaja(l.cuenta_codigo)) { delete l.billetes }
   // Limpiar haber de esta línea
   const row = document.querySelector(`input[data-lid="${id}"]`)?.closest('tr')
   if (row) { const haberInput = row.querySelectorAll('input[inputmode="decimal"]')[1]; if (haberInput) haberInput.value = '' }
@@ -922,9 +1020,17 @@ window.setDebe = (id, val) => {
 window.setHaber = (id, val) => {
   const l = partidaLineas.find(x => x.id === id)
   if (!l) return
+  // Bloquear egreso de caja para no super_admin
+  if (esCuentaCaja(l.cuenta_codigo) && currentProfile?.rol !== 'super_admin') {
+    toast('Solo Super Admin puede registrar egresos de Caja General', 'error')
+    renderLineas()
+    return
+  }
   const v = parseFloat(val) || 0
   l.tipo = 'credito'
   l.monto = v
+  // Si es cuenta de caja y se editó directo (sin botón 💵), limpiar billetes
+  if (esCuentaCaja(l.cuenta_codigo)) { delete l.billetes }
   // Limpiar debe de esta línea
   const row = document.querySelector(`input[data-lid="${id}"]`)?.closest('tr')
   if (row) { const debeInput = row.querySelectorAll('input[inputmode="decimal"]')[0]; if (debeInput) debeInput.value = '' }
@@ -1061,7 +1167,15 @@ window.guardarPartida = async (estado) => {
 
   let estadoFinal = estado
   if (tocaCaja && estado === 'aprobada') {
-    estadoFinal = 'pendiente_caja'
+    // Super Admin con conteo de billetes hecho → aprobada directamente
+    // Super Admin sin conteo → pendiente_caja (se obliga a aprobar con conteo)
+    // Otros roles → pendiente_caja siempre
+    const lineasCajaConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
+    if (esSuperAdmin && lineasCajaConBilletes.length > 0) {
+      estadoFinal = 'aprobada' // Super Admin ya contó billetes, se aprueba directo
+    } else {
+      estadoFinal = 'pendiente_caja'
+    }
   }
 
   // Auxiliar contable: no puede aprobar directamente, queda como borrador
@@ -1125,7 +1239,8 @@ window.guardarPartida = async (estado) => {
   const lineasConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
   if (lineasConBilletes.length > 0) {
     // Borrar conteos anteriores de esta partida
-    await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+    const { error: delErr } = await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+    if (delErr) console.warn('[CONTEO] Error borrando conteos anteriores:', delErr)
     const conteos = lineasConBilletes.map(l => ({
       partida_id: partidaId,
       tipo: l.tipo === 'debito' ? 'ingreso' : 'egreso',
@@ -1138,11 +1253,18 @@ window.guardarPartida = async (estado) => {
       den_5: l.billetes[5] || 0,
       den_2: l.billetes[2] || 0,
       den_1: l.billetes[1] || 0,
-      total_billetes: Object.values(l.billetes).reduce((s, v) => s + v, 0),
+      total_billetes: DENOMINACIONES.reduce((s, d) => s + (l.billetes[d] || 0), 0),
       total_monto: l.monto,
       registrado_por: currentProfile.id
     }))
-    await sb.from('conteo_billetes').insert(conteos)
+    console.log('[CONTEO] Insertando conteos desde partida:', JSON.stringify(conteos))
+    const { data: conteoData, error: conteoErr } = await sb.from('conteo_billetes').insert(conteos).select()
+    if (conteoErr) {
+      console.error('[CONTEO] Error al guardar conteo:', conteoErr)
+      toast('⚠️ Error guardando conteo de billetes: ' + conteoErr.message, 'error')
+    } else {
+      console.log('[CONTEO] Conteos guardados OK:', conteoData)
+    }
   }
 
   // ── SINCRONIZAR LIBRO DE COMPRAS ──
@@ -1154,7 +1276,10 @@ window.guardarPartida = async (estado) => {
   // Mensajes según resultado
   const accion = editingPartidaId ? 'actualizada' : 'guardada'
   if (estadoFinal === 'pendiente_caja') {
-    toast(`Partida ${accion} · Pendiente de aprobación por Caja General`, 'info')
+    const msgExtra = esSuperAdmin ? ' (falta conteo de billetes)' : ''
+    toast(`Partida ${accion} · Pendiente de aprobación por Caja General${msgExtra}`, 'info')
+  } else if (estadoFinal === 'aprobada' && tocaCaja) {
+    toast(`Partida ${accion} y aprobada con conteo de billetes ✓`, 'success')
   } else if (estadoFinal === 'aprobada') {
     toast(`Partida ${accion} y contabilizada ✓`, 'success')
   } else if (esAuxContable && estado === 'aprobada') {
@@ -1678,6 +1803,21 @@ window.aprobarCaja = async (id) => {
   const monto = partida ? partida.caja_monto : 0
   const tipo = partida?.caja_tipo === 'ingreso' ? 'recibís' : 'entregás'
 
+  // Cargar conteo existente si lo hay
+  let existingBilletes = null
+  const { data: conteoExist } = await sb.from('conteo_billetes')
+    .select('*')
+    .eq('partida_id', id)
+    .limit(1)
+  if (conteoExist?.length) {
+    const c = conteoExist[0]
+    existingBilletes = {
+      500: c.den_500 || 0, 200: c.den_200 || 0, 100: c.den_100 || 0,
+      50: c.den_50 || 0, 20: c.den_20 || 0, 10: c.den_10 || 0,
+      5: c.den_5 || 0, 2: c.den_2 || 0, 1: c.den_1 || 0
+    }
+  }
+
   openBilletes(
     `💵 Conteo de billetes · ${partida?.caja_tipo === 'ingreso' ? 'Ingreso' : 'Egreso'}`,
     `${desc} — Contá los billetes que ${tipo} (esperado: L. ${monto.toLocaleString('es-HN', {minimumFractionDigits:2})})`,
@@ -1689,6 +1829,35 @@ window.aprobarCaja = async (id) => {
         if (!ok) return
       }
 
+      // Guardar conteo de billetes (borrar anterior si existe)
+      const tipoConteo = partida?.caja_tipo === 'ingreso' ? 'ingreso' : 'egreso'
+      await sb.from('conteo_billetes').delete().eq('partida_id', id)
+      const conteoBilletes = {
+        partida_id: id,
+        tipo: tipoConteo,
+        den_500: detalle[500] || 0,
+        den_200: detalle[200] || 0,
+        den_100: detalle[100] || 0,
+        den_50: detalle[50] || 0,
+        den_20: detalle[20] || 0,
+        den_10: detalle[10] || 0,
+        den_5: detalle[5] || 0,
+        den_2: detalle[2] || 0,
+        den_1: detalle[1] || 0,
+        total_billetes: DENOMINACIONES.reduce((s, d) => s + (detalle[d] || 0), 0),
+        total_monto: montoContado,
+        registrado_por: currentProfile.id,
+      }
+      console.log('[CONTEO] Insertando conteo de billetes:', JSON.stringify(conteoBilletes))
+      const { data: conteoData, error: conteoErr } = await sb.from('conteo_billetes').insert(conteoBilletes).select()
+      if (conteoErr) {
+        console.error('[CONTEO] Error al guardar conteo:', conteoErr)
+        toast('⚠️ Error guardando conteo de billetes: ' + conteoErr.message, 'error')
+        return // No aprobar si el conteo no se pudo guardar
+      }
+      console.log('[CONTEO] Conteo guardado OK:', conteoData)
+
+      // Aprobar la partida
       const { error } = await sb.from('partidas_contables').update({
         estado: 'aprobada',
         aprobada_at: new Date().toISOString(),
@@ -1697,7 +1866,8 @@ window.aprobarCaja = async (id) => {
       if (error) { toast('Error: ' + error.message, 'error'); return }
       toast('Entrega aprobada y contabilizada ✓', 'success')
       loadCaja()
-    }
+    },
+    existingBilletes
   )
 }
 
@@ -2488,10 +2658,10 @@ const DENOMINACIONES = [1, 2, 5, 10, 20, 50, 100, 200, 500]
 let billetesCallback = null
 let billetesConteo = {}
 
-function openBilletes(titulo, subtitulo, callback) {
+function openBilletes(titulo, subtitulo, callback, initialValues) {
   billetesCallback = callback
   billetesConteo = {}
-  DENOMINACIONES.forEach(d => billetesConteo[d] = 0)
+  DENOMINACIONES.forEach(d => billetesConteo[d] = (initialValues && initialValues[d]) || 0)
   document.getElementById('billetes-title').textContent = titulo || '💵 Conteo de billetes'
   document.getElementById('billetes-sub').textContent = subtitulo || 'Ingresa la cantidad de cada denominación'
   renderBilletes()
@@ -2563,21 +2733,23 @@ window.aplicarBilletes = () => {
 
 // ── Conectar con celdas Debe/Haber de Caja General ──
 window.openCajaDebe = (lineaId) => {
+  const l = partidaLineas.find(x => x.id === lineaId)
+  const existing = l?.billetes || null
   openBilletes('💵 Ingreso a Caja General', 'Contá los billetes que entran a caja', (monto, detalle) => {
-    const l = partidaLineas.find(x => x.id === lineaId)
     if (l) { l.tipo = 'debito'; l.monto = monto; l.billetes = detalle }
     renderLineas()
     calcTotales()
-  })
+  }, existing)
 }
 
 window.openCajaHaber = (lineaId) => {
+  const l = partidaLineas.find(x => x.id === lineaId)
+  const existing = l?.billetes || null
   openBilletes('💵 Egreso de Caja General', 'Contá los billetes que salen de caja', (monto, detalle) => {
-    const l = partidaLineas.find(x => x.id === lineaId)
     if (l) { l.tipo = 'credito'; l.monto = monto; l.billetes = detalle }
     renderLineas()
     calcTotales()
-  })
+  }, existing)
 }
 
 // ── ARQUEO DE CAJA ──
@@ -4209,6 +4381,7 @@ window.generarPartidasTaxis = async () => {
     const lineas = []
     for (const [codigo, data] of Object.entries(porCuenta)) {
       const ctaDB = getCuenta(codigo)
+      // Cuentas de caja y bancos (activos) no llevan centro de costo
       lineas.push({
         partida_id: partida.id,
         cuenta_id: ctaDB?.id || null,
@@ -4216,14 +4389,14 @@ window.generarPartidasTaxis = async () => {
         cuenta_nombre: data.cuenta.nombre,
         tipo: 'debito',
         monto: Math.round(data.total * 100) / 100,
-        centro_costo_id: centroCostoId,
+        centro_costo_id: null,
         descripcion: `${data.count} entregas`,
         numero_documento: null,
         aplica_fiscal: false,
       })
     }
 
-    // Línea de crédito: Ingresos por renta
+    // Línea de crédito: Ingresos por renta (esta sí lleva centro de costo)
     const ctaIngreso = getCuenta(TAXI_CUENTAS.ingreso.codigo)
     lineas.push({
       partida_id: partida.id,
