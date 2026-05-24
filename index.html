@@ -98,6 +98,9 @@
         <div class="nav-item" id="nav-importar-costos" onclick="showView('importar-costos','Importar costos Alpha')">
           <span class="nav-dot"></span>Importar costos
         </div>
+        <div class="nav-item" id="nav-importar-taxis" onclick="showView('importar-taxis','Importar entregas Taxis')">
+          <span class="nav-dot"></span>Importar taxis
+        </div>
       </div>
     </div>
 
@@ -796,6 +799,63 @@
           <div class="form-actions" style="margin-top:18px">
             <button class="btn btn-gold" onclick="resetImportCostos()">Nueva importación</button>
             <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Ver partidas →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- IMPORTAR ENTREGAS TAXIS -->
+      <div class="view" id="view-importar-taxis">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🚕 Importar entregas · Taxis</div>
+            <div class="page-sub">Sube el CSV de entregas y Km diarios desde Google Sheets</div>
+          </div>
+        </div>
+
+        <div class="form-card" id="itx-step1">
+          <div class="form-card-title">Subir archivos</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+              <label style="font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500;display:block;margin-bottom:8px">Entregas (Hoja 1) · CSV o XLSX</label>
+              <div class="upload-zone" onclick="document.getElementById('itx-entregas').click()" style="padding:16px">
+                <div class="upload-icon">🚕</div>
+                <div class="upload-text">Entregas de taxis</div>
+              </div>
+              <input type="file" id="itx-entregas" accept=".csv,.xlsx,.xls" class="hidden" onchange="onTaxiFile(this,'entregas')">
+              <div id="itx-entregas-info" style="margin-top:8px"></div>
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500;display:block;margin-bottom:8px">Km Diarios · CSV o XLSX (opcional)</label>
+              <div class="upload-zone" onclick="document.getElementById('itx-km').click()" style="padding:16px">
+                <div class="upload-icon">📏</div>
+                <div class="upload-text">Km recorridos</div>
+              </div>
+              <input type="file" id="itx-km" accept=".csv,.xlsx,.xls" class="hidden" onchange="onTaxiFile(this,'km')">
+              <div id="itx-km-info" style="margin-top:8px"></div>
+            </div>
+          </div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-gold" id="btn-procesar-taxis" onclick="procesarImportTaxis()" disabled>Procesar →</button>
+          </div>
+        </div>
+
+        <div class="form-card hidden" id="itx-step2">
+          <div class="form-card-title" style="justify-content:space-between">
+            <span>Resultado</span>
+            <button class="btn btn-ghost" onclick="resetImportTaxis()" style="padding:5px 12px;font-size:12px">← Volver</button>
+          </div>
+          <div id="itx-resumen"></div>
+          <div class="form-actions" style="margin-top:18px;gap:12px">
+            <button class="btn btn-ghost" onclick="resetImportTaxis()">Cancelar</button>
+            <button class="btn btn-gold" id="btn-guardar-taxis" onclick="guardarImportTaxis()">Guardar entregas →</button>
+          </div>
+        </div>
+
+        <div class="form-card hidden" id="itx-step3">
+          <div class="form-card-title" style="color:var(--green)">✓ Importación completada</div>
+          <div id="itx-log"></div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-gold" onclick="resetImportTaxis()">Nueva importación</button>
           </div>
         </div>
       </div>

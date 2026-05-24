@@ -68,22 +68,22 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
     compras:     ['nav-compras', 'nav-pendientes']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
   })
 
   // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
-  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos']
+  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis']
   const tieneContab = contabItems.some(id => visibles.includes(id))
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 }
@@ -138,6 +138,7 @@ window.showView = (id, label) => {
   if (id === 'importar') initImport()
   if (id === 'importar-compras') initImportCompras()
   if (id === 'importar-costos') initImportCostos()
+  if (id === 'importar-taxis') resetImportTaxis()
   if (id === 'aprobaciones') loadAprobaciones()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
@@ -3724,4 +3725,279 @@ window.guardarImportCostos = async () => {
   btn.disabled = false
   btn.textContent = 'Generar partidas de costo →'
   toast(`${creadas} creadas · ${actualizadas} actualizadas`, 'ok')
+}
+
+// ══════════════════════════════════════════════
+// ── IMPORTAR ENTREGAS TAXIS
+// ══════════════════════════════════════════════
+
+let itxEntregasFile = null
+let itxKmFile = null
+let itxData = null // { entregas: [], km: [] }
+
+function parseCSVorXLSX(arrayBuffer, fileName) {
+  const ext = fileName.toLowerCase().split('.').pop()
+  if (ext === 'csv') {
+    const text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
+    const wb = XLSX.read(text, { type: 'string' })
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+  } else {
+    const wb = XLSX.read(arrayBuffer, { type: 'array' })
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+  }
+}
+
+function parseMontoTaxi(val) {
+  if (val == null || val === '') return 0
+  if (typeof val === 'number') return val
+  let s = String(val).trim().replace(/\s/g, '')
+  if (s.includes(',') && !s.includes('.')) {
+    s = s.replace(',', '.')
+  }
+  return parseFloat(s) || 0
+}
+
+function parseFechaTaxi(val) {
+  if (!val) return null
+  // If it's a number (Excel serial date)
+  if (typeof val === 'number' || /^\d{4,5}(\.\d+)?$/.test(String(val).trim())) {
+    const serial = parseFloat(val)
+    if (serial > 40000 && serial < 60000) {
+      // Excel epoch: 1899-12-30
+      const ms = (serial - 25569) * 86400 * 1000
+      const d = new Date(ms)
+      return d.toISOString().split('T')[0]
+    }
+  }
+  // If it's already a date string
+  const s = String(val).trim().substring(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  return s || null
+}
+
+function extractDesglose(json) {
+  if (!json) return {}
+  try {
+    const d = typeof json === 'string' ? JSON.parse(json) : json
+    return {
+      tarifa_dia: d.tarifaDia || 0,
+      saldo_deudor: d.saldoDeudor || 0,
+    }
+  } catch { return {} }
+}
+
+window.onTaxiFile = (input, tipo) => {
+  const file = input.files?.[0]
+  if (tipo === 'entregas') {
+    itxEntregasFile = file
+    document.getElementById('itx-entregas-info').innerHTML = file
+      ? `<div class="imp-file-item"><span class="imp-file-icon">🚕</span><span class="imp-file-name">${file.name}</span><span style="font-size:11px;color:var(--text3)">${(file.size/1024).toFixed(0)} KB</span></div>` : ''
+  } else {
+    itxKmFile = file
+    document.getElementById('itx-km-info').innerHTML = file
+      ? `<div class="imp-file-item"><span class="imp-file-icon">📏</span><span class="imp-file-name">${file.name}</span><span style="font-size:11px;color:var(--text3)">${(file.size/1024).toFixed(0)} KB</span></div>` : ''
+  }
+  document.getElementById('btn-procesar-taxis').disabled = !itxEntregasFile
+}
+
+window.resetImportTaxis = () => {
+  itxEntregasFile = null
+  itxKmFile = null
+  itxData = null
+  ;['itx-entregas','itx-km'].forEach(id => { const el = document.getElementById(id); if(el) el.value = '' })
+  ;['itx-entregas-info','itx-km-info'].forEach(id => { const el = document.getElementById(id); if(el) el.innerHTML = '' })
+  const btn = document.getElementById('btn-procesar-taxis')
+  if (btn) btn.disabled = true
+  ;['itx-step1','itx-step2','itx-step3'].forEach(id => document.getElementById(id)?.classList.add('hidden'))
+  document.getElementById('itx-step1')?.classList.remove('hidden')
+}
+
+window.procesarImportTaxis = async () => {
+  if (!itxEntregasFile) { toast('Selecciona el archivo de entregas', 'error'); return }
+  const btn = document.getElementById('btn-procesar-taxis')
+  btn.disabled = true; btn.textContent = 'Procesando...'
+
+  try {
+    // Parse entregas
+    const entregasAB = await itxEntregasFile.arrayBuffer()
+    const entregasRaw = parseCSVorXLSX(entregasAB, itxEntregasFile.name)
+
+    const entregas = entregasRaw.map(r => {
+      const desg = extractDesglose(r['Desglose'] || r['desglose'])
+      return {
+        id: String(r['ID'] || '').trim(),
+        unidad: String(r['Unidad'] || '').trim(),
+        nombre_conductor: String(r['Nombre'] || '').trim(),
+        identidad: String(r['Identidad'] || '').trim(),
+        telefono: String(r['Telefono'] || r['Teléfono'] || '').trim(),
+        monto: parseMontoTaxi(r['Monto']),
+        banco: String(r['Banco'] || '').trim(),
+        fecha_deposito: parseFechaTaxi(r['Fecha Depósito'] || r['Fecha Deposito']),
+        fecha_envio: parseFechaTaxi(r['Fecha Envío'] || r['Fecha Envio']),
+        hora_envio: String(r['Hora Envío'] || r['Hora Envio'] || '').trim(),
+        estado: String(r['Estado'] || 'Programado').trim(),
+        imagen_url: String(r['Imagen'] || '').trim() || null,
+        tarifa_dia: desg.tarifa_dia || parseMontoTaxi(r['Tarifa']),
+        monto_esperado: parseMontoTaxi(r['Monto Esperado']),
+        saldo_deudor: desg.saldo_deudor || 0,
+        motivo: String(r['Motivo'] || '').trim() || null,
+        programado_por: String(r['Programado Por'] || '').trim() || null,
+        adelanto: parseMontoTaxi(r['ADELANTO'] || r['Adelanto']),
+        desglose: r['Desglose'] || r['desglose'] || null,
+      }
+    }).filter(e => e.id && e.unidad)
+
+    // Parse km if provided
+    let km = []
+    if (itxKmFile) {
+      const kmAB = await itxKmFile.arrayBuffer()
+      const kmRaw = parseCSVorXLSX(kmAB, itxKmFile.name)
+      km = kmRaw.map(r => ({
+        fecha: parseFechaTaxi(r['Fecha']),
+        unidad: String(r['Unidad'] || '').trim(),
+        km_recorridos: parseFloat(r['KmRecorridos'] || r['Km'] || 0) || 0,
+      })).filter(k => k.fecha && k.unidad)
+    }
+
+    // Check for existing IDs to report duplicates
+    const ids = entregas.map(e => e.id).filter(Boolean)
+    const { data: existentes } = await sb.from('entregas_taxis')
+      .select('id')
+      .in('id', ids.slice(0, 500))
+    const existSet = new Set((existentes || []).map(e => e.id))
+    const nuevas = entregas.filter(e => !existSet.has(e.id))
+    const duplicadas = entregas.filter(e => existSet.has(e.id))
+
+    itxData = { entregas, km, nuevas, duplicadas }
+    renderImportTaxisResults()
+  } catch (err) {
+    toast('Error: ' + err.message, 'error')
+    console.error(err)
+  }
+  btn.disabled = false; btn.textContent = 'Procesar →'
+}
+
+function renderImportTaxisResults() {
+  if (!itxData) return
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const d = itxData
+
+  // Resumen por banco
+  const porBanco = {}
+  d.nuevas.forEach(e => {
+    if (!porBanco[e.banco]) porBanco[e.banco] = { count: 0, total: 0 }
+    porBanco[e.banco].count++
+    porBanco[e.banco].total += e.monto
+  })
+
+  const totalMonto = d.nuevas.reduce((s, e) => s + e.monto, 0)
+  const unidades = new Set(d.nuevas.map(e => e.unidad))
+
+  document.getElementById('itx-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="stat-card"><div class="stat-num" style="color:var(--green)">${d.nuevas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Nuevas</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--text3)">${d.duplicadas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Ya existen</div></div>
+      <div class="stat-card"><div class="stat-num">${unidades.size}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Unidades</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Total</div></div>
+    </div>
+    ${d.km.length ? `<div style="padding:10px 14px;border-radius:var(--radius);margin-bottom:16px;background:rgba(59,130,246,0.08);border-left:3px solid var(--blue);font-size:13px;color:var(--blue)">📏 ${d.km.length} registros de Km diarios a importar</div>` : ''}
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+      <table>
+        <thead><tr><th>Banco</th><th style="text-align:center">Entregas</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${Object.entries(porBanco).sort((a,b) => b[1].total - a[1].total).map(([banco, v]) => `
+          <tr>
+            <td>${banco}</td>
+            <td style="text-align:center;font-family:var(--mono)">${v.count}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${fmt(v.total)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr style="background:var(--bg3)">
+          <td style="text-align:right;font-weight:500;color:var(--text3)">TOTAL</td>
+          <td style="text-align:center;font-family:var(--mono);font-weight:500">${d.nuevas.length}</td>
+          <td style="text-align:right;font-family:var(--mono);font-weight:500;color:var(--gold)">L. ${fmt(totalMonto)}</td>
+        </tr></tfoot>
+      </table>
+    </div>`
+
+  document.getElementById('itx-step1').classList.add('hidden')
+  document.getElementById('itx-step2').classList.remove('hidden')
+}
+
+window.guardarImportTaxis = async () => {
+  if (!itxData?.nuevas?.length && !itxData?.km?.length) { toast('No hay datos nuevos', 'error'); return }
+  const btn = document.getElementById('btn-guardar-taxis')
+  btn.disabled = true; btn.textContent = 'Guardando...'
+
+  let entregasOk = 0, entregasErr = 0, kmOk = 0, kmErr = 0
+  const log = []
+
+  // Insert entregas in batches of 50
+  const nuevas = itxData.nuevas
+  for (let i = 0; i < nuevas.length; i += 50) {
+    const batch = nuevas.slice(i, i + 50).map(e => ({
+      id: e.id,
+      unidad: e.unidad,
+      nombre_conductor: e.nombre_conductor,
+      identidad: e.identidad,
+      telefono: e.telefono,
+      monto: e.monto,
+      banco: e.banco,
+      fecha_deposito: e.fecha_deposito || null,
+      fecha_envio: e.fecha_envio || null,
+      hora_envio: e.hora_envio,
+      estado: e.estado,
+      imagen_url: e.imagen_url,
+      tarifa_dia: e.tarifa_dia,
+      monto_esperado: e.monto_esperado,
+      saldo_deudor: e.saldo_deudor,
+      motivo: e.motivo,
+      programado_por: e.programado_por,
+      adelanto: e.adelanto || null,
+      desglose: e.desglose ? (typeof e.desglose === 'string' ? e.desglose : JSON.stringify(e.desglose)) : null,
+    }))
+
+    const { error } = await sb.from('entregas_taxis').insert(batch)
+    if (error) {
+      entregasErr += batch.length
+      log.push(`<span style="color:var(--red)">✕</span> Lote ${Math.floor(i/50)+1}: ${error.message}`)
+    } else {
+      entregasOk += batch.length
+    }
+  }
+
+  // Insert km in batches of 100
+  if (itxData.km.length) {
+    for (let i = 0; i < itxData.km.length; i += 100) {
+      const batch = itxData.km.slice(i, i + 100).map(k => ({
+        fecha: k.fecha,
+        unidad: k.unidad,
+        km_recorridos: k.km_recorridos,
+      }))
+
+      const { error } = await sb.from('km_diarios_taxis').upsert(batch, { onConflict: 'fecha,unidad' })
+      if (error) {
+        kmErr += batch.length
+        log.push(`<span style="color:var(--red)">✕</span> Km lote ${Math.floor(i/100)+1}: ${error.message}`)
+      } else {
+        kmOk += batch.length
+      }
+    }
+  }
+
+  // Show results
+  document.getElementById('itx-step2').classList.add('hidden')
+  document.getElementById('itx-step3').classList.remove('hidden')
+
+  document.getElementById('itx-log').innerHTML = `
+    <div style="margin-bottom:16px;padding:14px;border-radius:var(--radius);background:var(--bg3)">
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${entregasOk} entregas importadas</div>
+      ${entregasErr ? `<div style="color:var(--red)">${entregasErr} errores en entregas</div>` : ''}
+      ${kmOk ? `<div style="color:var(--blue);margin-top:4px">${kmOk} registros de Km importados</div>` : ''}
+      ${kmErr ? `<div style="color:var(--red)">${kmErr} errores en Km</div>` : ''}
+      <div style="color:var(--text3);margin-top:4px">${itxData.duplicadas.length} duplicados omitidos</div>
+    </div>
+    ${log.length ? `<div style="font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>` : ''}`
+
+  btn.disabled = false; btn.textContent = 'Guardar entregas →'
+  toast(`${entregasOk} entregas + ${kmOk} km importados`, 'ok')
 }
