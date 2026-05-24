@@ -68,22 +68,22 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
     compras:     ['nav-compras', 'nav-pendientes']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
   })
 
   // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
-  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis']
+  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis']
   const tieneContab = contabItems.some(id => visibles.includes(id))
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 }
@@ -139,6 +139,7 @@ window.showView = (id, label) => {
   if (id === 'importar-compras') initImportCompras()
   if (id === 'importar-costos') initImportCostos()
   if (id === 'importar-taxis') resetImportTaxis()
+  if (id === 'partidas-taxis') initPartidasTaxis()
   if (id === 'aprobaciones') loadAprobaciones()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
@@ -1059,7 +1060,7 @@ window.guardarPartida = async (estado) => {
   }
 
   let estadoFinal = estado
-  if (tocaCaja && !esSuperAdmin && estado === 'aprobada') {
+  if (tocaCaja && estado === 'aprobada') {
     estadoFinal = 'pendiente_caja'
   }
 
@@ -3739,11 +3740,11 @@ function parseCSVorXLSX(arrayBuffer, fileName) {
   const ext = fileName.toLowerCase().split('.').pop()
   if (ext === 'csv') {
     const text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
-    const wb = XLSX.read(text, { type: 'string' })
-    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+    const wb = XLSX.read(text, { type: 'string', raw: true, cellDates: false })
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true })
   } else {
-    const wb = XLSX.read(arrayBuffer, { type: 'array' })
-    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]])
+    const wb = XLSX.read(arrayBuffer, { type: 'array', raw: true, cellDates: false })
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true })
   }
 }
 
@@ -3759,20 +3760,24 @@ function parseMontoTaxi(val) {
 
 function parseFechaTaxi(val) {
   if (!val) return null
+  const s = String(val).trim()
+  // If it's already yyyy-mm-dd, return directly
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10)
   // If it's a number (Excel serial date)
-  if (typeof val === 'number' || /^\d{4,5}(\.\d+)?$/.test(String(val).trim())) {
-    const serial = parseFloat(val)
+  if (/^\d{4,5}(\.\d+)?$/.test(s)) {
+    const serial = Math.floor(parseFloat(s))
     if (serial > 40000 && serial < 60000) {
-      // Excel epoch: 1899-12-30
-      const ms = (serial - 25569) * 86400 * 1000
-      const d = new Date(ms)
-      return d.toISOString().split('T')[0]
+      // Excel epoch: day 1 = 1900-01-01, but Excel thinks 1900 is leap year
+      // serial 1 = 1900-01-01, so serial N = 1899-12-31 + N days
+      const base = new Date(1899, 11, 30) // Dec 30, 1899 (local time)
+      base.setDate(base.getDate() + serial)
+      const yyyy = base.getFullYear()
+      const mm = String(base.getMonth() + 1).padStart(2, '0')
+      const dd = String(base.getDate()).padStart(2, '0')
+      return `${yyyy}-${mm}-${dd}`
     }
   }
-  // If it's already a date string
-  const s = String(val).trim().substring(0, 10)
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  return s || null
+  return s.substring(0, 10) || null
 }
 
 function extractDesglose(json) {
@@ -3859,12 +3864,16 @@ window.procesarImportTaxis = async () => {
       })).filter(k => k.fecha && k.unidad)
     }
 
-    // Check for existing IDs to report duplicates
+    // Check for existing IDs in batches
     const ids = entregas.map(e => e.id).filter(Boolean)
-    const { data: existentes } = await sb.from('entregas_taxis')
-      .select('id')
-      .in('id', ids.slice(0, 500))
-    const existSet = new Set((existentes || []).map(e => e.id))
+    const existSet = new Set()
+    for (let i = 0; i < ids.length; i += 500) {
+      const batch = ids.slice(i, i + 500)
+      const { data: existentes } = await sb.from('entregas_taxis')
+        .select('id')
+        .in('id', batch)
+      ;(existentes || []).forEach(e => existSet.add(e.id))
+    }
     const nuevas = entregas.filter(e => !existSet.has(e.id))
     const duplicadas = entregas.filter(e => existSet.has(e.id))
 
@@ -3882,22 +3891,22 @@ function renderImportTaxisResults() {
   const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const d = itxData
 
-  // Resumen por banco
+  // Resumen por banco (todas las entregas)
   const porBanco = {}
-  d.nuevas.forEach(e => {
+  d.entregas.forEach(e => {
     if (!porBanco[e.banco]) porBanco[e.banco] = { count: 0, total: 0 }
     porBanco[e.banco].count++
     porBanco[e.banco].total += e.monto
   })
 
-  const totalMonto = d.nuevas.reduce((s, e) => s + e.monto, 0)
-  const unidades = new Set(d.nuevas.map(e => e.unidad))
+  const totalMonto = d.entregas.reduce((s, e) => s + e.monto, 0)
+  const unidades = new Set(d.entregas.map(e => e.unidad))
 
   document.getElementById('itx-resumen').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+      <div class="stat-card"><div class="stat-num">${d.entregas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Total entregas</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--green)">${d.nuevas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Nuevas</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--text3)">${d.duplicadas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Ya existen</div></div>
-      <div class="stat-card"><div class="stat-num">${unidades.size}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Unidades</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--amber)">${d.duplicadas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>A actualizar</div></div>
       <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Total</div></div>
     </div>
     ${d.km.length ? `<div style="padding:10px 14px;border-radius:var(--radius);margin-bottom:16px;background:rgba(59,130,246,0.08);border-left:3px solid var(--blue);font-size:13px;color:var(--blue)">📏 ${d.km.length} registros de Km diarios a importar</div>` : ''}
@@ -3913,7 +3922,7 @@ function renderImportTaxisResults() {
         </tbody>
         <tfoot><tr style="background:var(--bg3)">
           <td style="text-align:right;font-weight:500;color:var(--text3)">TOTAL</td>
-          <td style="text-align:center;font-family:var(--mono);font-weight:500">${d.nuevas.length}</td>
+          <td style="text-align:center;font-family:var(--mono);font-weight:500">${d.entregas.length}</td>
           <td style="text-align:right;font-family:var(--mono);font-weight:500;color:var(--gold)">L. ${fmt(totalMonto)}</td>
         </tr></tfoot>
       </table>
@@ -3924,17 +3933,17 @@ function renderImportTaxisResults() {
 }
 
 window.guardarImportTaxis = async () => {
-  if (!itxData?.nuevas?.length && !itxData?.km?.length) { toast('No hay datos nuevos', 'error'); return }
+  if (!itxData?.entregas?.length && !itxData?.km?.length) { toast('No hay datos', 'error'); return }
   const btn = document.getElementById('btn-guardar-taxis')
   btn.disabled = true; btn.textContent = 'Guardando...'
 
   let entregasOk = 0, entregasErr = 0, kmOk = 0, kmErr = 0
   const log = []
 
-  // Insert entregas in batches of 50
-  const nuevas = itxData.nuevas
-  for (let i = 0; i < nuevas.length; i += 50) {
-    const batch = nuevas.slice(i, i + 50).map(e => ({
+  // Upsert ALL entregas in batches of 50 (insert or update)
+  const todas = itxData.entregas
+  for (let i = 0; i < todas.length; i += 50) {
+    const batch = todas.slice(i, i + 50).map(e => ({
       id: e.id,
       unidad: e.unidad,
       nombre_conductor: e.nombre_conductor,
@@ -3956,7 +3965,7 @@ window.guardarImportTaxis = async () => {
       desglose: e.desglose ? (typeof e.desglose === 'string' ? e.desglose : JSON.stringify(e.desglose)) : null,
     }))
 
-    const { error } = await sb.from('entregas_taxis').insert(batch)
+    const { error } = await sb.from('entregas_taxis').upsert(batch, { onConflict: 'id' })
     if (error) {
       entregasErr += batch.length
       log.push(`<span style="color:var(--red)">✕</span> Lote ${Math.floor(i/50)+1}: ${error.message}`)
@@ -3990,14 +3999,271 @@ window.guardarImportTaxis = async () => {
 
   document.getElementById('itx-log').innerHTML = `
     <div style="margin-bottom:16px;padding:14px;border-radius:var(--radius);background:var(--bg3)">
-      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${entregasOk} entregas importadas</div>
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${entregasOk} entregas procesadas (${itxData.nuevas.length} nuevas · ${itxData.duplicadas.length} actualizadas)</div>
       ${entregasErr ? `<div style="color:var(--red)">${entregasErr} errores en entregas</div>` : ''}
-      ${kmOk ? `<div style="color:var(--blue);margin-top:4px">${kmOk} registros de Km importados</div>` : ''}
+      ${kmOk ? `<div style="color:var(--blue);margin-top:4px">${kmOk} registros de Km importados/actualizados</div>` : ''}
       ${kmErr ? `<div style="color:var(--red)">${kmErr} errores en Km</div>` : ''}
-      <div style="color:var(--text3);margin-top:4px">${itxData.duplicadas.length} duplicados omitidos</div>
     </div>
     ${log.length ? `<div style="font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>` : ''}`
 
   btn.disabled = false; btn.textContent = 'Guardar entregas →'
   toast(`${entregasOk} entregas + ${kmOk} km importados`, 'ok')
+}
+
+// ══════════════════════════════════════════════
+// ── PARTIDAS DE TAXIS (desde entregas importadas)
+// ══════════════════════════════════════════════
+
+const TAXI_CUENTAS = {
+  bac:       { codigo: '110104-021', nombre: 'BAC ADONY AHORRO 758812601' },
+  bac2:      { codigo: '110104-007', nombre: 'BAC ADONY AHORRO 72XXXXX' },
+  ficohsa:   { codigo: '110104-013', nombre: 'FICOHSA ADONY AHORRO' },
+  caja:      { codigo: '110102-001', nombre: 'CAJA GENERAL MN' },
+  ingreso:   { codigo: '410101-003', nombre: 'Ingresos por renta Taxis' },
+}
+
+function bancoToCuenta(banco) {
+  const b = (banco || '').toLowerCase().trim()
+  if (b === 'bac') return TAXI_CUENTAS.bac
+  if (b === 'bac 2' || b === 'bac2') return TAXI_CUENTAS.bac2
+  if (b.includes('ficohsa')) return TAXI_CUENTAS.ficohsa
+  // Caja Tecnimax, Caja Yonker, Caja Taxis → todas a Caja General
+  if (b.includes('caja')) return TAXI_CUENTAS.caja
+  return TAXI_CUENTAS.caja // default
+}
+
+let ptxData = null
+
+function initPartidasTaxis() {
+  const now = new Date()
+  const primerDia = new Date(now.getFullYear(), now.getMonth(), 1)
+  document.getElementById('ptx-desde').value = primerDia.toISOString().split('T')[0]
+  document.getElementById('ptx-hasta').value = now.toISOString().split('T')[0]
+
+  const sel = document.getElementById('ptx-centro')
+  sel.innerHTML = '<option value="">— Seleccionar —</option>'
+  empresas.forEach(e => {
+    sel.innerHTML += `<option value="${e.id}">${e.nombre}</option>`
+  })
+  const taxis = empresas.find(e => e.nombre.toLowerCase().includes('taxi'))
+  if (taxis) sel.value = taxis.id
+
+  document.getElementById('ptx-resultado')?.classList.add('hidden')
+  document.getElementById('ptx-log-card')?.classList.add('hidden')
+}
+
+window.consultarEntregasTaxis = async () => {
+  const desde = document.getElementById('ptx-desde').value
+  const hasta = document.getElementById('ptx-hasta').value
+  if (!desde || !hasta) { toast('Selecciona el rango de fechas', 'error'); return }
+
+  const { data, error } = await sb.from('entregas_taxis')
+    .select('*')
+    .gte('fecha_deposito', desde)
+    .lte('fecha_deposito', hasta)
+    .order('fecha_deposito')
+
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  if (!data?.length) { toast('No hay entregas en ese rango', 'info'); return }
+
+  // Agrupar por fecha
+  const porFecha = {}
+  data.forEach(e => {
+    const f = e.fecha_deposito
+    if (!porFecha[f]) porFecha[f] = { fecha: f, entregas: [], porBanco: {} }
+    porFecha[f].entregas.push(e)
+    const banco = e.banco || 'Sin banco'
+    if (!porFecha[f].porBanco[banco]) porFecha[f].porBanco[banco] = { count: 0, total: 0 }
+    porFecha[f].porBanco[banco].count++
+    porFecha[f].porBanco[banco].total += parseFloat(e.monto) || 0
+  })
+
+  // Verificar cuáles ya tienen partida (buscar por descripción)
+  const fechas = Object.keys(porFecha)
+  const { data: existentes } = await sb.from('partidas_contables')
+    .select('fecha_partida, descripcion')
+    .like('descripcion', '%[IMP-TAXI]%')
+    .in('fecha_partida', fechas)
+
+  const fechasConPartida = new Set((existentes || []).map(e => e.fecha_partida))
+  Object.values(porFecha).forEach(d => {
+    d.tienePartida = fechasConPartida.has(d.fecha)
+  })
+
+  ptxData = Object.values(porFecha).sort((a, b) => a.fecha.localeCompare(b.fecha))
+
+  renderPartidasTaxis()
+}
+
+function renderPartidasTaxis() {
+  if (!ptxData) return
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  const totalEntregas = ptxData.reduce((s, d) => s + d.entregas.length, 0)
+  const totalMonto = ptxData.reduce((s, d) => s + d.entregas.reduce((ss, e) => ss + (parseFloat(e.monto) || 0), 0), 0)
+  const diasNuevos = ptxData.filter(d => !d.tienePartida).length
+  const diasExistentes = ptxData.filter(d => d.tienePartida).length
+
+  document.getElementById('ptx-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div class="stat-card"><div class="stat-num">${ptxData.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Días</div></div>
+      <div class="stat-card"><div class="stat-num">${totalEntregas}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Entregas</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Total</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green)">${diasNuevos}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Partidas nuevas</div></div>
+    </div>`
+
+  document.getElementById('ptx-detalle').innerHTML = `
+    <div class="table-wrap" style="max-height:400px;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th>Fecha</th><th style="text-align:center">Entregas</th>
+          <th style="text-align:right">BAC</th><th style="text-align:right">Ficohsa</th>
+          <th style="text-align:right">Cajas</th><th style="text-align:right">Total</th>
+          <th>Estado</th>
+        </tr></thead>
+        <tbody>${ptxData.map(d => {
+          const bac = (d.porBanco['BAC']?.total || 0) + (d.porBanco['BAC 2']?.total || 0)
+          const ficohsa = d.porBanco['Ficohsa']?.total || 0
+          const cajas = (d.porBanco['Caja Tecnimax']?.total || 0) + (d.porBanco['Caja Yonker']?.total || 0) + (d.porBanco['Caja Taxis']?.total || 0)
+          const total = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+          return `<tr style="${d.tienePartida ? 'opacity:0.5' : ''}">
+            <td class="mono" style="font-size:12px">${d.fecha}</td>
+            <td style="text-align:center;font-family:var(--mono)">${d.entregas.length}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(bac)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(ficohsa)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(cajas)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:500">${fmt(total)}</td>
+            <td>${d.tienePartida ? '<span class="badge badge-green">✓ Creada</span>' : '<span class="badge badge-amber">Pendiente</span>'}</td>
+          </tr>`
+        }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${diasExistentes ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)">Las fechas ya contabilizadas se omitirán.</div>` : ''}`
+
+  document.getElementById('ptx-resultado').classList.remove('hidden')
+  document.getElementById('ptx-log-card').classList.add('hidden')
+}
+
+window.generarPartidasTaxis = async () => {
+  const centroCostoId = document.getElementById('ptx-centro').value
+  if (!centroCostoId) { toast('Selecciona el centro de costo', 'error'); return }
+  if (!ptxData) return
+
+  const diasNuevos = ptxData.filter(d => !d.tienePartida)
+  if (!diasNuevos.length) { toast('No hay días nuevos para contabilizar', 'info'); return }
+
+  const btn = document.getElementById('btn-generar-ptx')
+  btn.disabled = true; btn.textContent = 'Generando...'
+
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+  const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
+
+  let creadas = 0, errores = 0
+  const log = []
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  for (const dia of diasNuevos) {
+    const total = dia.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+    if (total <= 0) continue
+
+    // Agrupar por cuenta contable
+    const porCuenta = {}
+    dia.entregas.forEach(e => {
+      const cuenta = bancoToCuenta(e.banco)
+      const key = cuenta.codigo
+      if (!porCuenta[key]) porCuenta[key] = { cuenta, total: 0, count: 0 }
+      porCuenta[key].total += parseFloat(e.monto) || 0
+      porCuenta[key].count++
+    })
+
+    const descripcion = `Entregas taxis · ${dia.fecha} · ${dia.entregas.length} unidades · L. ${fmt(total)} [IMP-TAXI]`
+
+    // Si alguna entrega va a caja, la partida queda pendiente_caja para conteo de billetes
+    const tocaCajaGeneral = Object.keys(porCuenta).some(c => c.startsWith('1101') && !c.startsWith('11010'))
+      || Object.keys(porCuenta).some(c => c === '110102-001')
+    const estadoPartida = tocaCajaGeneral ? 'pendiente_caja' : 'aprobada'
+
+    // Crear partida
+    const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
+      centro_costo_id: centroCostoId,
+      generada_por: currentProfile.id,
+      tipo_origen: 'entrega_taxi',
+      descripcion,
+      fecha_partida: dia.fecha,
+      numero_documento: null,
+      estado: estadoPartida,
+      total: Math.round(total * 100) / 100,
+    }).select().single()
+
+    if (errP) {
+      errores++
+      log.push(`<span style="color:var(--red)">✕</span> ${dia.fecha}: ${errP.message}`)
+      continue
+    }
+
+    // Crear líneas de débito por cada banco/cuenta
+    const lineas = []
+    for (const [codigo, data] of Object.entries(porCuenta)) {
+      const ctaDB = getCuenta(codigo)
+      lineas.push({
+        partida_id: partida.id,
+        cuenta_id: ctaDB?.id || null,
+        cuenta_codigo: codigo,
+        cuenta_nombre: data.cuenta.nombre,
+        tipo: 'debito',
+        monto: Math.round(data.total * 100) / 100,
+        centro_costo_id: centroCostoId,
+        descripcion: `${data.count} entregas`,
+        numero_documento: null,
+        aplica_fiscal: false,
+      })
+    }
+
+    // Línea de crédito: Ingresos por renta
+    const ctaIngreso = getCuenta(TAXI_CUENTAS.ingreso.codigo)
+    lineas.push({
+      partida_id: partida.id,
+      cuenta_id: ctaIngreso?.id || null,
+      cuenta_codigo: TAXI_CUENTAS.ingreso.codigo,
+      cuenta_nombre: TAXI_CUENTAS.ingreso.nombre,
+      tipo: 'credito',
+      monto: Math.round(total * 100) / 100,
+      centro_costo_id: centroCostoId,
+      descripcion: `${dia.entregas.length} unidades`,
+      numero_documento: null,
+      aplica_fiscal: false,
+    })
+
+    const { error: errL } = await sb.from('lineas_partida').insert(lineas)
+    if (errL) {
+      errores++
+      log.push(`<span style="color:var(--red)">✕</span> ${dia.fecha} líneas: ${errL.message}`)
+      await sb.from('partidas_contables').delete().eq('id', partida.id)
+      continue
+    }
+
+    creadas++
+    const detalleBancos = Object.entries(porCuenta).map(([c, d]) => `${d.cuenta.nombre}: L.${fmt(d.total)}`).join(' · ')
+    log.push(`<span style="color:var(--green)">✓</span> ${dia.fecha} · L. ${fmt(total)} · ${dia.entregas.length} entregas · ${detalleBancos}`)
+  }
+
+  document.getElementById('ptx-resultado').classList.add('hidden')
+  document.getElementById('ptx-log-card').classList.remove('hidden')
+  document.getElementById('ptx-log').innerHTML = `
+    <div style="margin-bottom:16px;padding:14px;border-radius:var(--radius);background:var(--bg3)">
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${creadas} partida(s) creadas</div>
+      ${errores ? `<div style="color:var(--red)">${errores} error(es)</div>` : ''}
+    </div>
+    <div style="max-height:400px;overflow-y:auto;font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>
+    <div class="form-actions" style="margin-top:18px">
+      <button class="btn btn-gold" onclick="initPartidasTaxis();document.getElementById('ptx-log-card').classList.add('hidden')">Consultar de nuevo</button>
+      <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Ver partidas →</button>
+    </div>`
+
+  btn.disabled = false; btn.textContent = 'Generar partidas →'
+  toast(`${creadas} partidas de taxis creadas`, 'ok')
 }

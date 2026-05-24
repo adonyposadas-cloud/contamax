@@ -101,6 +101,9 @@
         <div class="nav-item" id="nav-importar-taxis" onclick="showView('importar-taxis','Importar entregas Taxis')">
           <span class="nav-dot"></span>Importar taxis
         </div>
+        <div class="nav-item" id="nav-partidas-taxis" onclick="showView('partidas-taxis','Partidas de Taxis')">
+          <span class="nav-dot"></span>Partidas taxis
+        </div>
       </div>
     </div>
 
@@ -800,6 +803,54 @@
             <button class="btn btn-gold" onclick="resetImportCostos()">Nueva importación</button>
             <button class="btn btn-ghost" onclick="showView('partidas','Partidas contables')">Ver partidas →</button>
           </div>
+        </div>
+      </div>
+
+      <!-- PARTIDAS DE TAXIS -->
+      <div class="view" id="view-partidas-taxis">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🚕 Partidas de Taxis</div>
+            <div class="page-sub">Genera partidas diarias desde las entregas importadas</div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">Seleccionar período</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Fecha inicio</label>
+              <input type="date" id="ptx-desde">
+            </div>
+            <div class="fld">
+              <label>Fecha fin</label>
+              <input type="date" id="ptx-hasta">
+            </div>
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="ptx-centro">
+                <option value="">— Seleccionar —</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-gold" onclick="consultarEntregasTaxis()">Consultar →</button>
+          </div>
+        </div>
+
+        <div class="form-card hidden" id="ptx-resultado">
+          <div class="form-card-title">Resumen por día</div>
+          <div id="ptx-resumen"></div>
+          <div id="ptx-detalle" style="margin-top:16px"></div>
+          <div class="form-actions" style="margin-top:18px;gap:12px">
+            <button class="btn btn-ghost" onclick="document.getElementById('ptx-resultado').classList.add('hidden')">← Volver</button>
+            <button class="btn btn-gold" id="btn-generar-ptx" onclick="generarPartidasTaxis()">Generar partidas →</button>
+          </div>
+        </div>
+
+        <div class="form-card hidden" id="ptx-log-card">
+          <div class="form-card-title" style="color:var(--green)">✓ Partidas generadas</div>
+          <div id="ptx-log"></div>
         </div>
       </div>
 
