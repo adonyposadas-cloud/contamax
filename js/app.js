@@ -1,16 +1,22 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5'
+window.XLSX = XLSX
 
 const sb = createClient(
   'https://icghaqhtvutwlkhtotyv.supabase.co',
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljZ2hhcWh0dnV0d2xraHRvdHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzOTE3MzksImV4cCI6MjA5NDk2NzczOX0.2_sioWiJuNVwDaSggnczbzCVu8IorzBsrgbwNXXz39E'
 )
+window._sb = sb
 
 // ── STATE ──
 let currentUser = null
 let currentProfile = null
 let empresas = []
 let tiposOrigen = []
+
+// ── Exposición global para módulos externos (reportes.js, etc.) ──
+window._empresas = () => empresas
+window._currentProfile = () => currentProfile
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
@@ -43,6 +49,10 @@ async function initSession(user) {
   showScreen('main-screen')
   await loadEmpresas()
   await loadTiposOrigen()
+  // Cargar catálogo de cuentas para reportes y búsquedas
+  const { data: catData } = await sb.from('catalogo_cuentas').select('*').order('codigo')
+  allCuentas = catData || []
+  window.catalogoCuentas = allCuentas
   // Vista inicial según rol
   const defaultViews = {
     super_admin: ['usuarios', 'Gestión de usuarios'],
@@ -68,24 +78,36 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
   })
 
   // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
-  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis']
+  const contabItems = ['nav-catalogo', 'nav-partidas']
   const tieneContab = contabItems.some(id => visibles.includes(id))
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
+
+  // Ocultar sección Importaciones si no tiene ningún módulo
+  const importItems = ['nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis']
+  const tieneImport = importItems.some(id => visibles.includes(id))
+  const sectionImport = document.getElementById('section-importar')
+  if (sectionImport) sectionImport.classList.toggle('hidden', !tieneImport)
+
+  // Ocultar sección Reportes si no tiene ningún módulo de reportes
+  const reporteItems = ['nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
+  const tieneReportes = reporteItems.some(id => visibles.includes(id))
+  const sectionReportes = document.getElementById('section-reportes')
+  if (sectionReportes) sectionReportes.classList.toggle('hidden', !tieneReportes)
 }
 
 // ── AUTH ──
@@ -141,6 +163,9 @@ window.showView = (id, label) => {
   if (id === 'importar-taxis') resetImportTaxis()
   if (id === 'partidas-taxis') initPartidasTaxis()
   if (id === 'aprobaciones') loadAprobaciones()
+  if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
+  if (id === 'balance-comp' && window.initBalance) window.initBalance()
+  if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -1381,6 +1406,7 @@ async function loadCatalogo() {
   const { data, error } = await sb.from('catalogo_cuentas').select('*').order('codigo')
   if (error) { body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--red)">${error.message}</div>`; return }
   allCuentas = data || []
+  window.catalogoCuentas = allCuentas
   document.getElementById('cs-total').textContent = allCuentas.length
   document.getElementById('cs-detalle').textContent = allCuentas.filter(c => c.es_detalle).length
   document.getElementById('cs-grupo').textContent = allCuentas.filter(c => !c.es_detalle).length
@@ -3911,13 +3937,88 @@ let itxData = null // { entregas: [], km: [] }
 function parseCSVorXLSX(arrayBuffer, fileName) {
   const ext = fileName.toLowerCase().split('.').pop()
   if (ext === 'csv') {
-    const text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
+    let text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
+
+    // Pre-process: Google Sheets wraps entire rows in quotes when a field
+    // contains commas (e.g. JSON Desglose). Fix by removing the wrapping quotes
+    // and replacing the Desglose JSON quotes with a safe placeholder.
+    text = preprocessTaxiCSV(text)
+
     const wb = XLSX.read(text, { type: 'string', raw: true, cellDates: false })
-    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true })
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true, defval: '' })
   } else {
     const wb = XLSX.read(arrayBuffer, { type: 'array', raw: true, cellDates: false })
     return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true })
   }
+}
+
+function preprocessTaxiCSV(text) {
+  // Split into lines properly (handling quoted multiline fields)
+  const rawLines = text.split(/\r?\n/)
+  const header = rawLines[0]
+  const processed = [header]
+
+  for (let i = 1; i < rawLines.length; i++) {
+    let line = rawLines[i]
+    if (!line.trim()) continue
+
+    // Detect if the entire row is wrapped in a leading quote due to
+    // Google Sheets quoting a row that contains a JSON Desglose field.
+    // Pattern: line starts with " but the ID field (first field) should NOT be quoted.
+    // Actual IDs look like: mpia6evsnm8y (alphanumeric, no commas)
+    if (line.startsWith('"') && /^"[a-z0-9]/.test(line)) {
+      // Accumulate continuation lines if the row spans multiple lines
+      // (the closing quote for the whole row hasn't been found)
+      let quoteCount = (line.match(/"/g) || []).length
+      while (quoteCount % 2 !== 0 && i + 1 < rawLines.length) {
+        i++
+        line += '\n' + rawLines[i]
+        quoteCount = (line.match(/"/g) || []).length
+      }
+
+      // Remove the outer wrapping quotes
+      if (line.startsWith('"')) line = line.substring(1)
+      if (line.endsWith('"')) line = line.substring(0, line.length - 1)
+      // The remaining line may end with ", (trailing comma after Desglose close)
+      if (line.endsWith('",')) line = line.substring(0, line.length - 1)
+
+      // Now find and neutralize the Desglose JSON field.
+      // The Desglose is typically the second-to-last or last field and contains {""key"":val}
+      // Replace the Desglose JSON with a safe version (no commas)
+      line = line.replace(/"\{""[^}]*\}"/g, (match) => {
+        // Replace commas inside the JSON with a placeholder
+        return match.replace(/,/g, '§')
+      })
+
+      // Also handle the case where the Desglose has nested arrays with commas
+      // Look for the pattern: "{...}" that spans a large section
+      const desgloseStart = line.indexOf('"{')
+      if (desgloseStart > -1) {
+        const beforeDesglose = line.substring(0, desgloseStart)
+        let rest = line.substring(desgloseStart)
+        // Find the closing }"
+        let depth = 0
+        let endIdx = -1
+        for (let j = 1; j < rest.length; j++) {
+          if (rest[j] === '{') depth++
+          else if (rest[j] === '}') {
+            depth--
+            if (depth < 0) { endIdx = j + 1; break }
+          }
+        }
+        if (endIdx > -1) {
+          const desglose = rest.substring(0, endIdx + 1)
+          const afterDesglose = rest.substring(endIdx + 1)
+          const safeDesglose = desglose.replace(/,/g, '§')
+          line = beforeDesglose + safeDesglose + afterDesglose
+        }
+      }
+    }
+
+    processed.push(line)
+  }
+
+  return processed.join('\n')
 }
 
 function parseMontoTaxi(val) {
@@ -4002,7 +4103,7 @@ window.procesarImportTaxis = async () => {
     const entregas = entregasRaw.map(r => {
       const desg = extractDesglose(r['Desglose'] || r['desglose'])
       return {
-        id: String(r['ID'] || '').trim(),
+        id: String(r['ID'] || '').trim().replace(/^"+|"+$/g, ''),
         unidad: String(r['Unidad'] || '').trim(),
         nombre_conductor: String(r['Nombre'] || '').trim(),
         identidad: String(r['Identidad'] || '').trim(),
@@ -4020,7 +4121,11 @@ window.procesarImportTaxis = async () => {
         motivo: String(r['Motivo'] || '').trim() || null,
         programado_por: String(r['Programado Por'] || '').trim() || null,
         adelanto: parseMontoTaxi(r['ADELANTO'] || r['Adelanto']),
-        desglose: r['Desglose'] || r['desglose'] || null,
+        desglose: (() => {
+          let d = r['Desglose'] || r['desglose'] || null
+          if (d && typeof d === 'string') d = d.replace(/§/g, ',').replace(/""/g, '"')
+          return d
+        })(),
       }
     }).filter(e => e.id && e.unidad)
 
@@ -4107,12 +4212,62 @@ function renderImportTaxisResults() {
 window.guardarImportTaxis = async () => {
   if (!itxData?.entregas?.length && !itxData?.km?.length) { toast('No hay datos', 'error'); return }
   const btn = document.getElementById('btn-guardar-taxis')
-  btn.disabled = true; btn.textContent = 'Guardando...'
+  btn.disabled = true; btn.textContent = 'Verificando...'
 
   let entregasOk = 0, entregasErr = 0, kmOk = 0, kmErr = 0
   const log = []
 
-  // Upsert ALL entregas in batches of 50 (insert or update)
+  // ── 1. Detectar fechas únicas del CSV ──
+  const fechasEntregas = new Set()
+  itxData.entregas.forEach(e => {
+    if (e.fecha_deposito) fechasEntregas.add(e.fecha_deposito)
+  })
+  const fechasArr = [...fechasEntregas].sort()
+
+  // ── 2. Verificar si hay partidas generadas para esas fechas ──
+  let partidasAfectadas = []
+  if (fechasArr.length) {
+    const { data: partidas } = await sb.from('partidas_contables')
+      .select('id, fecha_partida, descripcion, estado')
+      .like('descripcion', '%[IMP-TAXI]%')
+      .in('fecha_partida', fechasArr)
+    partidasAfectadas = partidas || []
+  }
+
+  // ── 3. Si hay partidas, advertir al usuario ──
+  if (partidasAfectadas.length > 0) {
+    const fechasConPartida = [...new Set(partidasAfectadas.map(p => p.fecha_partida))].sort()
+    const detallePartidas = partidasAfectadas.map(p => `  #${p.id} · ${p.fecha_partida} · ${p.estado}`).join('\n')
+    const confirmar = confirm(
+      `⚠️ Se encontraron ${partidasAfectadas.length} partida(s) de taxis ya generadas para las fechas que estás cargando:\n\n${detallePartidas}\n\n` +
+      `Al continuar:\n` +
+      `• Se borrarán las entregas de estas fechas y se recargarán del CSV\n` +
+      `• Las partidas afectadas pasarán a "borrador" para revisión\n\n` +
+      `¿Continuar?`
+    )
+    if (!confirmar) {
+      btn.disabled = false; btn.textContent = 'Guardar entregas →'
+      return
+    }
+  }
+
+  btn.textContent = 'Procesando entregas...'
+
+  // ── 4. Borrar entregas existentes de las fechas del CSV ──
+  if (fechasArr.length) {
+    for (const fecha of fechasArr) {
+      const { error: delErr } = await sb.from('entregas_taxis')
+        .delete()
+        .eq('fecha_deposito', fecha)
+      if (delErr) {
+        log.push(`<span style="color:var(--red)">✕</span> Error borrando entregas de ${fecha}: ${delErr.message}`)
+      } else {
+        log.push(`<span style="color:var(--blue)">↻</span> ${fecha}: entregas anteriores eliminadas`)
+      }
+    }
+  }
+
+  // ── 5. Insertar todas las entregas del CSV (insert, ya no upsert) ──
   const todas = itxData.entregas
   for (let i = 0; i < todas.length; i += 50) {
     const batch = todas.slice(i, i + 50).map(e => ({
@@ -4146,8 +4301,30 @@ window.guardarImportTaxis = async () => {
     }
   }
 
-  // Insert km in batches of 100
+  // ── 6. Marcar partidas afectadas como borrador para revisión ──
+  if (partidasAfectadas.length > 0) {
+    for (const p of partidasAfectadas) {
+      const { error: updErr } = await sb.from('partidas_contables').update({
+        estado: 'borrador',
+        modificada_por: currentProfile.id,
+        modificada_at: new Date().toISOString(),
+        motivo_modificacion: 'Entregas recargadas desde CSV — revisar y regenerar partida',
+      }).eq('id', p.id)
+      if (updErr) {
+        log.push(`<span style="color:var(--red)">✕</span> Error actualizando partida #${p.id}: ${updErr.message}`)
+      } else {
+        log.push(`<span style="color:var(--amber)">⚠</span> Partida #${p.id} (${p.fecha_partida}) → borrador (requiere revisión)`)
+      }
+    }
+  }
+
+  // ── 7. Km diarios: borrar por fechas del CSV y recargar ──
   if (itxData.km.length) {
+    const fechasKm = new Set(itxData.km.map(k => k.fecha).filter(Boolean))
+    for (const fecha of fechasKm) {
+      await sb.from('km_diarios_taxis').delete().eq('fecha', fecha)
+    }
+
     for (let i = 0; i < itxData.km.length; i += 100) {
       const batch = itxData.km.slice(i, i + 100).map(k => ({
         fecha: k.fecha,
@@ -4165,18 +4342,25 @@ window.guardarImportTaxis = async () => {
     }
   }
 
+  // ── 8. Recalcular nuevas vs actualizadas para el resumen ──
+  const nuevasCount = itxData.nuevas.length
+  const actualizadasCount = itxData.duplicadas.length
+  const borradasExtra = itxData.duplicadas.length > 0 ? ' (entregas anteriores reemplazadas)' : ''
+
   // Show results
   document.getElementById('itx-step2').classList.add('hidden')
   document.getElementById('itx-step3').classList.remove('hidden')
 
   document.getElementById('itx-log').innerHTML = `
     <div style="margin-bottom:16px;padding:14px;border-radius:var(--radius);background:var(--bg3)">
-      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${entregasOk} entregas procesadas (${itxData.nuevas.length} nuevas · ${itxData.duplicadas.length} actualizadas)</div>
+      <div style="font-size:16px;font-weight:500;margin-bottom:8px">${entregasOk} entregas cargadas${borradasExtra}</div>
+      <div style="font-size:13px;color:var(--text3)">Fechas procesadas: ${fechasArr.join(', ')}</div>
       ${entregasErr ? `<div style="color:var(--red)">${entregasErr} errores en entregas</div>` : ''}
-      ${kmOk ? `<div style="color:var(--blue);margin-top:4px">${kmOk} registros de Km importados/actualizados</div>` : ''}
+      ${kmOk ? `<div style="color:var(--blue);margin-top:4px">${kmOk} registros de Km importados</div>` : ''}
       ${kmErr ? `<div style="color:var(--red)">${kmErr} errores en Km</div>` : ''}
+      ${partidasAfectadas.length ? `<div style="color:var(--amber);margin-top:4px">⚠ ${partidasAfectadas.length} partida(s) enviadas a revisión</div>` : ''}
     </div>
-    ${log.length ? `<div style="font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>` : ''}`
+    ${log.length ? `<div style="font-size:12px;line-height:2;font-family:var(--mono);max-height:300px;overflow-y:auto">${log.join('<br>')}</div>` : ''}`
 
   btn.disabled = false; btn.textContent = 'Guardar entregas →'
   toast(`${entregasOk} entregas + ${kmOk} km importados`, 'ok')

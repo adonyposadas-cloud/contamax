@@ -82,27 +82,54 @@
         </div>
       </div>
       <div class="sidebar-section" id="section-contab">
-        <div class="sidebar-label">Contabilidad</div>
-        <div class="nav-item" id="nav-catalogo" onclick="showView('catalogo','Catálogo de cuentas')">
-          <span class="nav-dot"></span>Catálogo de cuentas
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
+          Contabilidad <span class="toggle-arrow" id="arrow-contab-items">▾</span>
         </div>
-        <div class="nav-item" id="nav-partidas" onclick="showView('partidas','Partidas contables')">
-          <span class="nav-dot"></span>Partidas
+        <div class="sidebar-group" id="contab-items">
+          <div class="nav-item" id="nav-catalogo" onclick="showView('catalogo','Catálogo de cuentas')">
+            <span class="nav-dot"></span>Catálogo de cuentas
+          </div>
+          <div class="nav-item" id="nav-partidas" onclick="showView('partidas','Partidas contables')">
+            <span class="nav-dot"></span>Partidas
+          </div>
         </div>
-        <div class="nav-item" id="nav-importar" onclick="showView('importar','Importar reportes')">
-          <span class="nav-dot"></span>Importar ventas
+      </div>
+      <div class="sidebar-section" id="section-importar">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('import-items')">
+          Importaciones <span class="toggle-arrow" id="arrow-import-items">▾</span>
         </div>
-        <div class="nav-item" id="nav-importar-compras" onclick="showView('importar-compras','Importar compras Alpha')">
-          <span class="nav-dot"></span>Importar compras
+        <div class="sidebar-group" id="import-items">
+          <div class="nav-item" id="nav-importar" onclick="showView('importar','Importar reportes')">
+            <span class="nav-dot"></span>Ventas Alpha
+          </div>
+          <div class="nav-item" id="nav-importar-compras" onclick="showView('importar-compras','Importar compras Alpha')">
+            <span class="nav-dot"></span>Compras Alpha
+          </div>
+          <div class="nav-item" id="nav-importar-costos" onclick="showView('importar-costos','Importar costos Alpha')">
+            <span class="nav-dot"></span>Costos Alpha
+          </div>
+          <div class="nav-item" id="nav-importar-taxis" onclick="showView('importar-taxis','Importar entregas Taxis')">
+            <span class="nav-dot"></span>Entregas Taxis
+          </div>
+          <div class="nav-item" id="nav-partidas-taxis" onclick="showView('partidas-taxis','Partidas de Taxis')">
+            <span class="nav-dot"></span>Partidas Taxis
+          </div>
         </div>
-        <div class="nav-item" id="nav-importar-costos" onclick="showView('importar-costos','Importar costos Alpha')">
-          <span class="nav-dot"></span>Importar costos
+      </div>
+      <div class="sidebar-section" id="section-reportes">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('report-items')">
+          Reportes <span class="toggle-arrow" id="arrow-report-items">▾</span>
         </div>
-        <div class="nav-item" id="nav-importar-taxis" onclick="showView('importar-taxis','Importar entregas Taxis')">
-          <span class="nav-dot"></span>Importar taxis
-        </div>
-        <div class="nav-item" id="nav-partidas-taxis" onclick="showView('partidas-taxis','Partidas de Taxis')">
-          <span class="nav-dot"></span>Partidas taxis
+        <div class="sidebar-group" id="report-items">
+          <div class="nav-item" id="nav-auxiliar" onclick="showView('auxiliar','Auxiliar de cuentas')">
+            <span class="nav-dot"></span>Auxiliar de cuentas
+          </div>
+          <div class="nav-item" id="nav-balance-comp" onclick="showView('balance-comp','Balance de comprobación')">
+            <span class="nav-dot"></span>Balance comprobación
+          </div>
+          <div class="nav-item" id="nav-estado-resultados" onclick="showView('estado-resultados','Estado de resultados')">
+            <span class="nav-dot"></span>Estado de resultados
+          </div>
         </div>
       </div>
     </div>
@@ -911,9 +938,173 @@
         </div>
       </div>
 
+      <div class="view" id="view-auxiliar">
+        <div class="page-header">
+          <div>
+            <div class="page-title">📋 Auxiliar de cuentas</div>
+            <div class="page-sub">Detalle de movimientos por cuenta contable</div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:20px">
+          <div class="form-card-title">Filtros del reporte</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld"><label>Fecha inicio</label><input type="date" id="aux-fecha-ini"></div>
+            <div class="fld"><label>Fecha fin</label><input type="date" id="aux-fecha-fin"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld">
+              <label>Cuenta contable</label>
+              <div style="position:relative">
+                <input type="text" id="aux-cuenta-input" placeholder="Buscar por código o nombre..." autocomplete="off" onfocus="openAuxCuentaDD()" oninput="filterAuxCuentas(this.value)">
+                <div id="aux-cuenta-dd" class="cuenta-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:250px;overflow-y:auto;z-index:100"></div>
+              </div>
+              <input type="hidden" id="aux-cuenta-id">
+            </div>
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="aux-centro">
+                <option value="">Todos</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld">
+              <label>Libro</label>
+              <select id="aux-libro">
+                <option value="todos">Todos los movimientos</option>
+                <option value="fiscal">Solo fiscal (aplica_fiscal = true)</option>
+                <option value="interno">Solo interno (aplica_fiscal = false)</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label>Estado partida</label>
+              <select id="aux-estado">
+                <option value="aprobada">Solo aprobadas</option>
+                <option value="todos">Todos los estados</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-gold" id="btn-auxiliar" onclick="generarAuxiliar()">Consultar →</button>
+            <button class="btn btn-ghost" id="btn-auxiliar-xlsx" onclick="exportarAuxiliarXLSX()" style="display:none">📥 Exportar Excel</button>
+          </div>
+        </div>
+        <div id="aux-resultado" class="hidden">
+          <div id="aux-resumen" style="margin-bottom:16px"></div>
+          <div id="aux-tabla" class="table-wrap" style="max-height:600px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- BALANCE DE COMPROBACIÓN -->
+      <div class="view" id="view-balance-comp">
+        <div class="page-header">
+          <div>
+            <div class="page-title">⚖️ Balance de comprobación</div>
+            <div class="page-sub">Saldos deudores y acreedores por cuenta</div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:20px">
+          <div class="form-card-title">Período del reporte</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld"><label>Fecha inicio</label><input type="date" id="bc-fecha-ini"></div>
+            <div class="fld"><label>Fecha fin</label><input type="date" id="bc-fecha-fin"></div>
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="bc-centro">
+                <option value="">Todos</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld">
+              <label>Libro</label>
+              <select id="bc-libro">
+                <option value="todos">Todos los movimientos</option>
+                <option value="fiscal">Solo fiscal</option>
+                <option value="interno">Solo interno</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label>Mostrar</label>
+              <select id="bc-mostrar">
+                <option value="con-movimiento">Solo cuentas con movimiento</option>
+                <option value="todas">Todas las cuentas</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-gold" id="btn-balance" onclick="generarBalance()">Consultar →</button>
+            <button class="btn btn-ghost" id="btn-balance-xlsx" onclick="exportarBalanceXLSX()" style="display:none">📥 Exportar Excel</button>
+          </div>
+        </div>
+        <div id="bc-resultado" class="hidden">
+          <div id="bc-resumen" style="margin-bottom:16px"></div>
+          <div id="bc-tabla" class="table-wrap" style="max-height:600px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- ESTADO DE RESULTADOS -->
+      <div class="view" id="view-estado-resultados">
+        <div class="page-header">
+          <div>
+            <div class="page-title">📊 Estado de resultados</div>
+            <div class="page-sub">Ingresos, costos, gastos y utilidad del período</div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:20px">
+          <div class="form-card-title">Período del reporte</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld"><label>Fecha inicio</label><input type="date" id="er-fecha-ini"></div>
+            <div class="fld"><label>Fecha fin</label><input type="date" id="er-fecha-fin"></div>
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="er-centro">
+                <option value="">Todos (consolidado)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px">
+            <div class="fld">
+              <label>Libro</label>
+              <select id="er-libro">
+                <option value="todos">Todos los movimientos</option>
+                <option value="fiscal">Solo fiscal</option>
+                <option value="interno">Solo interno</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-gold" id="btn-er" onclick="generarEstadoResultados()">Consultar →</button>
+            <button class="btn btn-ghost" id="btn-er-xlsx" onclick="exportarERXLSX()" style="display:none">📥 Exportar Excel</button>
+          </div>
+        </div>
+        <div id="er-resultado" class="hidden">
+          <div id="er-resumen" style="margin-bottom:16px"></div>
+          <div id="er-tabla" class="table-wrap" style="max-height:600px;overflow-y:auto"></div>
+        </div>
+      </div>
+
     </div><!-- /content -->
   </div><!-- /layout -->
 </div><!-- /main-screen -->
+
+<style>
+  .sidebar-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+  .sidebar-toggle:hover { color: var(--gold); }
+  .toggle-arrow { font-size: 10px; transition: transform 0.2s; }
+  .toggle-arrow.collapsed { transform: rotate(-90deg); }
+  .sidebar-group { overflow: hidden; transition: max-height 0.25s ease; max-height: 500px; }
+  .sidebar-group.collapsed { max-height: 0; }
+</style>
+<script>
+  window.toggleSidebarSection = (groupId) => {
+    const group = document.getElementById(groupId)
+    const arrow = document.getElementById('arrow-' + groupId)
+    if (!group) return
+    group.classList.toggle('collapsed')
+    if (arrow) arrow.classList.toggle('collapsed')
+  }
+</script>
 
 <!-- MODAL NUEVO USUARIO -->
 <div class="modal-backdrop" id="modal-usuario">
@@ -1079,6 +1270,15 @@
   </div>
 </div>
 
+      <!-- AUXILIAR DE CUENTAS -->
+    const group = document.getElementById(groupId)
+    const arrow = document.getElementById('arrow-' + groupId)
+    if (!group) return
+    group.classList.toggle('collapsed')
+    if (arrow) arrow.classList.toggle('collapsed')
+  }
+</script>
 <script type="module" src="js/app.js"></script>
+<script type="module" src="js/reportes.js"></script>
 </body>
 </html>
