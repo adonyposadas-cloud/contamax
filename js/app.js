@@ -606,9 +606,24 @@ window.acBuscar = async (input, tipo) => {
 }
 
 window.acSelect = (el, valor) => {
-  const input = el.closest('.ac-wrap').querySelector('input')
+  const wrap = el.closest('.ac-wrap')
+  const input = wrap.querySelector('input')
   input.value = valor
   el.closest('.ac-list').classList.add('hidden')
+  // If it's a new value (from "+ Agregar"), save it
+  if (el.classList.contains('ac-new')) {
+    // Detect tipo from input id
+    const id = input.id
+    let tipo = null
+    if (id.includes('proveedor')) tipo = 'proveedor'
+    else if (id.includes('quien-pidio')) tipo = 'quien_pidio'
+    else if (id.includes('tipo-gasto')) tipo = 'tipo_gasto'
+    else if (id.includes('entregado')) tipo = 'entregado_a'
+    if (tipo) {
+      acGuardar(tipo, valor)
+      toast(`"${valor}" agregado ✓`, 'success')
+    }
+  }
 }
 
 window.acCerrar = (input) => {
