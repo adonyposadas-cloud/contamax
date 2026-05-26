@@ -79,7 +79,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
@@ -87,7 +87,7 @@ function setupUI() {
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -166,6 +166,7 @@ window.showView = (id, label) => {
   if (id === 'aprobaciones') loadAprobaciones()
   if (id === 'vehiculos') loadVehiculos()
   if (id === 'unidades-taxis') loadUnidadesTaxis()
+  if (id === 'financiamiento') loadFinanciamiento()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
@@ -1034,6 +1035,7 @@ window.eliminarPartida = async () => {
         modificada_at: new Date().toISOString(),
       }).eq('id', editingPartidaId)
       if (error) { toast('Error: ' + error.message, 'error'); return }
+      await limpiarDatosImportacion(editingPartidaId)
       toast('Partida anulada ✓ (correlativo preservado)', 'success')
     } else {
       // Otros roles: solicitar anulación al super_admin
@@ -1066,10 +1068,27 @@ window.eliminarPartida = async () => {
       modificada_at: new Date().toISOString(),
     }).eq('id', editingPartidaId)
     if (error) { toast('Error: ' + error.message, 'error'); return }
+    await limpiarDatosImportacion(editingPartidaId)
     toast('Partida anulada ✓', 'success')
   }
   editingPartidaId = null
   showView('partidas', 'Partidas contables')
+}
+
+// ── LIMPIEZA DE DATOS DE IMPORTACIÓN AL ANULAR ──
+// Cuando se anula una partida generada por importación, se borran los datos
+// vinculados en las tablas de detalle para evitar duplicados en reportes.
+async function limpiarDatosImportacion(partidaId) {
+  if (!partidaId) return
+  // Facturas taxis (detalle por unidad)
+  await sb.from('facturas_taxis').delete().eq('partida_id', partidaId)
+  // Facturas taxis resumen (MANO DE OBRA, FACTURAS DE TAXIS, etc.)
+  await sb.from('facturas_taxis_resumen').delete().eq('partida_id', partidaId)
+  // Entregas taxis (si aplica)
+  await sb.from('entregas_taxis').update({ partida_id: null }).eq('partida_id', partidaId)
+  // Conteo billetes (si aplica)
+  await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+  console.log(`[LIMPIEZA] Datos de importación limpiados para partida ${partidaId}`)
 }
 
 window.toggleAllFiscal = (checked) => {
@@ -1335,6 +1354,54 @@ window.guardarPartida = async (estado) => {
   const creditos = lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0)
   if (estado === 'aprobada' && Math.abs(debitos - creditos) >= 0.01) {
     toast('La partida debe cuadrar para aprobarla (débitos = créditos)', 'error'); return
+  }
+
+  // ── VALIDACIÓN DE UNIDADES (VIN, TAXI, VIP) EN DESCRIPCIÓN ──
+  if (estado === 'aprobada') {
+    const textosBuscar = [descripcion, ...lineasValidas.map(l => l.descripcion || '')]
+    const refsEncontradas = []
+
+    for (const txt of textosBuscar) {
+      if (!txt) continue
+      // Buscar patrones: VIN XXXX, VIN_XXXX, T_XXXX, TAXI XXXX, VIP_XXXX, VIP XXXX
+      const matches = txt.matchAll(/(?:VIN[_\s](\d+))|(?:T[_\s](\d+))|(?:TAXI[_\s](\d+))|(?:VIP[_\s](\d+))/gi)
+      for (const m of matches) {
+        const num = parseInt(m[1] || m[2] || m[3] || m[4])
+        const tipo = m[1] ? 'VIN' : (m[2] || m[3]) ? 'TAXI' : 'VIP'
+        if (num && !refsEncontradas.some(r => r.num === num && r.tipo === tipo)) {
+          refsEncontradas.push({ tipo, num })
+        }
+      }
+    }
+
+    if (refsEncontradas.length > 0) {
+      const errores = []
+      for (const ref of refsEncontradas) {
+        if (ref.tipo === 'VIN') {
+          // Buscar por últimos 4 dígitos en vehiculos_vin
+          const regStr = ref.num.toString().padStart(4, '0')
+          const { data: vinData } = await sb.from('vehiculos_vin')
+            .select('vin, propietario')
+            .eq('activo', true)
+            .ilike('vin', `%${regStr}`)
+            .limit(1)
+          if (!vinData?.length) errores.push(`VIN ${ref.num} no existe en la tabla de vehículos`)
+        } else {
+          // TAXI o VIP: buscar en unidades_taxis
+          const { data: unidadData } = await sb.from('unidades_taxis')
+            .select('registro, propietario')
+            .eq('registro', ref.num)
+            .eq('activo', true)
+            .limit(1)
+          if (!unidadData?.length) errores.push(`${ref.tipo} ${ref.num} no existe en la tabla de unidades`)
+        }
+      }
+
+      if (errores.length > 0) {
+        toast(`⚠️ ${errores.join(' · ')} — Partida guardada como borrador`, 'error')
+        estado = 'borrador'
+      }
+    }
   }
 
   // ── CONTROL DE CAJA GENERAL ──
@@ -2158,6 +2225,7 @@ window.aprobarPartidaPendiente = async (id) => {
       aprobada_at: new Date().toISOString(),
     }).eq('id', id)
     if (error) { toast('Error: ' + error.message, 'error'); return }
+    if (!error) await limpiarDatosImportacion(id)
     toast('Partida anulada ✓', 'success')
   } else {
     if (!confirm('¿Aprobar esta partida modificada?')) return
@@ -5274,7 +5342,7 @@ function renderVehiculosTable() {
     const last4 = v.vin.slice(-4)
     const fecha = v.fecha_compra ? new Date(v.fecha_compra + 'T12:00:00').toLocaleDateString('es-HN') : '—'
     return `
-    <tr>
+    <tr style="cursor:pointer" onclick="verDetalleVin('${v.id}')">
       <td style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold);letter-spacing:1px">${last4}</td>
       <td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${v.vin}</td>
       <td><span class="badge badge-blue">${v.propietario}</span></td>
@@ -5283,7 +5351,7 @@ function renderVehiculosTable() {
       <td style="font-family:var(--mono)">${v.anio || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:500">$${fmtD(v.costo_copart)}</td>
       <td style="font-size:12px;color:var(--text3)">${fecha}</td>
-      <td style="text-align:center">
+      <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSuperAdmin ? `
           <button onclick="editarVehiculo('${v.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
           <button onclick="eliminarVehiculo('${v.id}','${v.vin}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Eliminar">🗑️</button>
@@ -5465,6 +5533,111 @@ window.seleccionarVinResult = (propietario, vin) => {
   closeModal('modal-buscar-vin')
 }
 
+// ── DETALLE DE VEHÍCULO VIN (inversión total) ──
+
+window.verDetalleVin = async (vinId) => {
+  const v = allVehiculos.find(x => x.id === vinId)
+  if (!v) return
+  const last4 = v.vin.slice(-4)
+
+  document.getElementById('modal-dv-title').textContent = `🚗 Detalle VIN ${last4} · ${v.marca} ${v.modelo} ${v.anio || ''}`
+  document.getElementById('dv-info').innerHTML = `
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;display:flex;gap:20px;flex-wrap:wrap">
+      <div><span style="color:var(--text3);font-size:11px">VIN completo</span><div style="font-family:var(--mono);font-size:12px;letter-spacing:1px">${v.vin}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Propietario</span><div><span class="badge badge-blue">${v.propietario}</span></div></div>
+      <div><span style="color:var(--text3);font-size:11px">Vehículo</span><div>${v.marca} ${v.modelo} ${v.anio || ''}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Costo Copart</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div></div>
+    </div>`
+  document.getElementById('dv-resumen').innerHTML = ''
+  document.getElementById('dv-contenido').innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>'
+  document.getElementById('modal-detalle-vin').classList.add('open')
+
+  const fmtL = (val) => (val || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // 1. Buscar en facturas_taxis donde tipo_unidad='VIN' y registro coincide con últimos 4
+  const regNum = parseInt(last4)
+  const { data: facturas } = await sb.from('facturas_taxis')
+    .select('fecha, descripcion, monto, es_mano_obra')
+    .eq('tipo_unidad', 'VIN')
+    .eq('registro', regNum)
+    .order('fecha')
+
+  // 2. Buscar en lineas_partida donde la descripción menciona el VIN (últimos 4 dígitos o VIN completo)
+  // Solo partidas aprobadas
+  const { data: lineasVin } = await sb.from('lineas_partida')
+    .select('monto, descripcion, tipo, partida:partidas_contables(fecha_partida, estado, descripcion)')
+    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%`)
+
+  // Filtrar solo partidas aprobadas y débitos (gastos)
+  const gastosPartidas = (lineasVin || []).filter(l =>
+    l.partida?.estado === 'aprobada' && l.tipo === 'debito'
+  ).map(l => ({
+    fecha: l.partida.fecha_partida,
+    descripcion: l.descripcion || l.partida.descripcion,
+    monto: parseFloat(l.monto) || 0,
+    fuente: 'partida'
+  }))
+
+  // 3. Combinar facturas importadas + gastos de partidas manuales (evitar duplicados)
+  const gastosFacturas = (facturas || []).map(f => ({
+    fecha: f.fecha,
+    descripcion: f.descripcion,
+    monto: parseFloat(f.monto) || 0,
+    es_mano_obra: f.es_mano_obra,
+    fuente: 'factura'
+  }))
+
+  // Deduplicar: si un gasto de partida tiene la misma fecha y monto similar a una factura, es duplicado
+  const todosGastos = [...gastosFacturas]
+  gastosPartidas.forEach(gp => {
+    const isDup = gastosFacturas.some(gf =>
+      gf.fecha === gp.fecha && Math.abs(gf.monto - gp.monto) < 0.02
+    )
+    if (!isDup) todosGastos.push(gp)
+  })
+
+  // Ordenar por fecha
+  todosGastos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
+
+  const totalGastos = todosGastos.reduce((s, g) => s + g.monto, 0)
+  const totalMO = todosGastos.filter(g => g.es_mano_obra).reduce((s, g) => s + g.monto, 0)
+  const totalRepuestos = totalGastos - totalMO
+  const costoCopartLps = (v.costo_copart || 0) * 25  // Aproximación, ajustar TC si necesario
+  const inversionTotal = totalGastos + costoCopartLps
+
+  // Resumen
+  document.getElementById('dv-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div class="stat-card"><div class="stat-num" style="color:var(--gold);font-size:16px">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div><div class="stat-label">Costo Copart</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:16px">L. ${fmtL(totalGastos)}</div><div class="stat-label">Gastos adicionales</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--amber);font-size:16px">L. ${fmtL(totalMO)}</div><div class="stat-label">Mano de obra</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--blue);font-size:16px">${todosGastos.length}</div><div class="stat-label">Movimientos</div></div>
+    </div>`
+
+  // Tabla de gastos
+  document.getElementById('dv-contenido').innerHTML = todosGastos.length ? `
+    <div class="table-wrap">
+      <div class="table-header"><span class="table-title">Historial de gastos</span></div>
+      <table>
+        <thead><tr><th>Fecha</th><th>Descripción</th><th>Tipo</th><th>Fuente</th><th style="text-align:right">Monto</th></tr></thead>
+        <tbody>${todosGastos.map(g => `
+          <tr>
+            <td style="font-family:var(--mono);font-size:12px">${g.fecha || '—'}</td>
+            <td style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.descripcion}">${g.descripcion}</td>
+            <td>${g.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
+            <td style="font-size:11px;color:var(--text3)">${g.fuente === 'factura' ? '📋 Importación' : '📝 Partida'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(g.monto)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--bg3)"><td colspan="4" style="text-align:right">Repuestos/materiales</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalRepuestos)}</td></tr>
+          <tr style="background:var(--bg3)"><td colspan="4" style="text-align:right">Mano de obra</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalMO)}</td></tr>
+          <tr style="background:var(--bg3);font-weight:600"><td colspan="4" style="text-align:right;color:var(--red)">Total gastos adicionales</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totalGastos)}</td></tr>
+        </tfoot>
+      </table>
+    </div>` : '<div style="text-align:center;padding:30px;color:var(--text3)">No se encontraron gastos registrados para este VIN</div>'
+}
+
 // ══════════════════════════════════════════════
 // ── MÓDULO UNIDADES TAXIS
 // ══════════════════════════════════════════════
@@ -5538,7 +5711,7 @@ function renderUnidadesTable() {
   const esSA = currentProfile?.rol === 'super_admin'
 
   tbody.innerHTML = filteredUnidades.map(u => `
-    <tr>
+    <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro})">
       <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px">${u.registro}</td>
       <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : 'badge-amber'}">${u.modalidad}</span></td>
       <td>${u.propietario !== 'TAXIS' ? `<span class="badge badge-green">${u.propietario}</span>` : '<span style="color:var(--text3)">TAXIS</span>'}</td>
@@ -5546,7 +5719,7 @@ function renderUnidadesTable() {
       <td>${u.financiado ? '<span class="badge badge-red" style="font-size:10px">FINANCIADO</span>' : '<span style="color:var(--text3);font-size:11px">—</span>'}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:13px">${u.financiado && u.saldo_prestamo ? 'L. ' + fmtD(u.saldo_prestamo) : '<span style="color:var(--text3)">—</span>'}</td>
       <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${u.placa || '—'}</td>
-      <td style="text-align:center">
+      <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSA ? `
           <button onclick="editarUnidad('${u.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
           <button onclick="desactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Desactivar">🚫</button>
@@ -5666,6 +5839,124 @@ window.desactivarUnidad = async (id, registro) => {
   if (error) { toast('Error: ' + error.message, 'error'); return }
   toast(`Unidad #${registro} desactivada ✓`, 'success')
   loadUnidadesTaxis()
+}
+
+// ── DETALLE DE UNIDAD (entregas vs facturas) ──
+
+let detalleRegistro = null
+
+window.verDetalleUnidad = (registro) => {
+  detalleRegistro = registro
+  const u = allUnidades.find(x => x.registro === registro)
+  document.getElementById('modal-du-title').textContent = `🚕 Detalle unidad #${registro}${u ? ' · ' + u.modalidad + (u.propietario !== 'TAXIS' ? ' · ' + u.propietario : '') : ''}`
+  // Default: mes actual
+  const hoy = new Date()
+  document.getElementById('du-desde').value = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
+  document.getElementById('du-hasta').value = hoy.toISOString().split('T')[0]
+  document.getElementById('du-resumen').innerHTML = ''
+  document.getElementById('du-contenido').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Selecciona un rango de fechas y consulta</div>'
+  document.getElementById('modal-detalle-unidad').classList.add('open')
+  // Auto-consultar
+  cargarDetalleUnidad()
+}
+
+window.cargarDetalleUnidad = async () => {
+  if (!detalleRegistro) return
+  const desde = document.getElementById('du-desde').value
+  const hasta = document.getElementById('du-hasta').value
+  if (!desde || !hasta) return
+
+  const contenido = document.getElementById('du-contenido')
+  contenido.innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>'
+
+  const fmtL = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // 1. Cargar entregas
+  const { data: entregas } = await sb.from('entregas_taxis')
+    .select('fecha_deposito, monto, banco')
+    .eq('unidad', detalleRegistro)
+    .gte('fecha_deposito', desde)
+    .lte('fecha_deposito', hasta)
+    .order('fecha_deposito')
+
+  // 2. Cargar facturas (gastos)
+  const { data: facturas } = await sb.from('facturas_taxis')
+    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
+    .eq('registro', detalleRegistro)
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha')
+
+  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const totalFacturas = (facturas || []).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalMO = (facturas || []).filter(f => f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalRepuestos = totalFacturas - totalMO
+  const neto = totalEntregas - totalFacturas
+
+  // Resumen
+  document.getElementById('du-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:16px">L. ${fmtL(totalEntregas)}</div><div class="stat-label">Entregas</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:16px">L. ${fmtL(totalFacturas)}</div><div class="stat-label">Facturas (gasto)</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--amber);font-size:16px">L. ${fmtL(totalMO)}</div><div class="stat-label">Mano de obra</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:${neto >= 0 ? 'var(--green)' : 'var(--red)'};font-size:16px">L. ${fmtL(neto)}</div><div class="stat-label">${neto >= 0 ? 'Utilidad' : 'Pérdida'}</div></div>
+    </div>`
+
+  // Tabs de entregas y facturas
+  let html = `
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-ghost" onclick="toggleDetalleTab('entregas')" id="du-tab-entregas" style="border-color:var(--green);color:var(--green);font-size:12px;padding:6px 14px">📥 Entregas (${(entregas || []).length})</button>
+      <button class="btn btn-ghost" onclick="toggleDetalleTab('facturas')" id="du-tab-facturas" style="font-size:12px;padding:6px 14px">🔧 Facturas (${(facturas || []).length})</button>
+    </div>
+    <div id="du-panel-entregas">
+      <table style="width:100%">
+        <thead><tr><th>Fecha</th><th>Banco</th><th style="text-align:right">Monto</th></tr></thead>
+        <tbody>${(entregas || []).length ? (entregas || []).map(e => `
+          <tr>
+            <td style="font-family:var(--mono);font-size:12px">${e.fecha_deposito}</td>
+            <td style="font-size:12px;color:var(--text3)">${e.banco || '—'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(e.monto)}</td>
+          </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;padding:20px;color:var(--text3)">No hay entregas en este período</td></tr>'}
+        </tbody>
+        <tfoot><tr style="background:var(--bg3);font-weight:600"><td colspan="2" style="text-align:right">Total entregas</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(totalEntregas)}</td></tr></tfoot>
+      </table>
+    </div>
+    <div id="du-panel-facturas" style="display:none">
+      <table style="width:100%">
+        <thead><tr><th>Fecha</th><th>Descripción</th><th>Tipo</th><th style="text-align:right">Monto</th></tr></thead>
+        <tbody>${(facturas || []).length ? (facturas || []).map(f => `
+          <tr>
+            <td style="font-family:var(--mono);font-size:12px">${f.fecha}</td>
+            <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${f.descripcion}">${f.descripcion}</td>
+            <td>${f.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(f.monto)}</td>
+          </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">No hay facturas en este período</td></tr>'}
+        </tbody>
+        <tfoot>
+          <tr style="background:var(--bg3)"><td colspan="3" style="text-align:right">Repuestos</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalRepuestos)}</td></tr>
+          <tr style="background:var(--bg3)"><td colspan="3" style="text-align:right">Mano de obra</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalMO)}</td></tr>
+          <tr style="background:var(--bg3);font-weight:600"><td colspan="3" style="text-align:right">Total facturas</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totalFacturas)}</td></tr>
+        </tfoot>
+      </table>
+    </div>`
+
+  contenido.innerHTML = html
+}
+
+window.toggleDetalleTab = (tab) => {
+  const panelE = document.getElementById('du-panel-entregas')
+  const panelF = document.getElementById('du-panel-facturas')
+  const tabE = document.getElementById('du-tab-entregas')
+  const tabF = document.getElementById('du-tab-facturas')
+  if (tab === 'entregas') {
+    panelE.style.display = ''; panelF.style.display = 'none'
+    tabE.style.borderColor = 'var(--green)'; tabE.style.color = 'var(--green)'
+    tabF.style.borderColor = ''; tabF.style.color = ''
+  } else {
+    panelE.style.display = 'none'; panelF.style.display = ''
+    tabF.style.borderColor = 'var(--red)'; tabF.style.color = 'var(--red)'
+    tabE.style.borderColor = ''; tabE.style.color = ''
+  }
 }
 
 

@@ -86,6 +86,9 @@
         <div class="nav-item hidden" id="nav-unidades-taxis" onclick="showView('unidades-taxis','Unidades de Taxis')">
           <span class="nav-dot"></span>Unidades Taxis
         </div>
+        <div class="nav-item hidden" id="nav-financiamiento" onclick="showView('financiamiento','Financiamiento Taxis')">
+          <span class="nav-dot"></span>Financiamiento
+        </div>
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
@@ -1257,6 +1260,47 @@
         </div>
       </div>
 
+      <!-- FINANCIAMIENTO -->
+      <div class="view" id="view-financiamiento">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💰 Financiamiento de Taxis</div>
+            <div class="page-sub">Control de préstamos, recibos y saldos de motoristas</div>
+          </div>
+          <button class="btn btn-gold" id="btn-nuevo-prestamo" onclick="openModalNuevoPrestamo()">+ Nuevo préstamo</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="fin-buscar" placeholder="Buscar por código, motorista..." oninput="filtrarPrestamos()" style="flex:1;min-width:220px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+          <select id="fin-filtro-cat" onchange="filtrarPrestamos()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:180px">
+            <option value="">Todas las categorías</option>
+          </select>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="stat-card"><div class="stat-num" id="fin-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Préstamos</div></div>
+          <div class="stat-card"><div class="stat-num" id="fin-stat-saldo" style="font-size:18px">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Saldo total</div></div>
+          <div class="stat-card"><div class="stat-num" id="fin-stat-cats">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Categorías</div></div>
+          <div class="stat-card"><div class="stat-num" id="fin-stat-morosos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Morosos (+30d)</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Préstamos activos</span>
+            <button class="btn btn-ghost" onclick="loadFinanciamiento()" style="padding:6px 12px;font-size:12px">↻ Actualizar</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Código</th><th>Motorista</th><th>Categoría</th>
+                <th style="text-align:right">Saldo</th><th style="text-align:center">Recibos</th>
+                <th>Último pago</th><th style="text-align:center">Días</th><th style="width:70px;text-align:center">Acc.</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-financiamiento">
+              <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- VEHÍCULOS VIN -->
       <div class="view" id="view-vehiculos">
         <div class="page-header">
@@ -1394,6 +1438,25 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-usuario')">Cancelar</button>
       <button class="btn btn-gold" id="btn-crear-usuario" onclick="crearUsuario()">Crear usuario</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE UNIDAD TAXI (entregas vs facturas) -->
+<div class="modal-backdrop" id="modal-detalle-unidad">
+  <div class="modal" style="width:800px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title" id="modal-du-title">🚕 Detalle unidad #0000</div>
+    <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+      <input type="date" id="du-desde" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+      <input type="date" id="du-hasta" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+      <button class="btn btn-gold" onclick="cargarDetalleUnidad()" style="padding:6px 14px;font-size:12px">Consultar</button>
+    </div>
+    <div id="du-resumen" style="margin-bottom:16px"></div>
+    <div id="du-contenido">
+      <div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Selecciona un rango de fechas y consulta</div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-detalle-unidad')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -1630,6 +1693,151 @@
   </div>
 </div>
 
+<!-- MODAL DETALLE PRÉSTAMO -->
+<div class="modal-backdrop" id="modal-detalle-prestamo">
+  <div class="modal" style="width:800px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title" id="modal-detalle-prestamo-title">🧾 Detalle préstamo</div>
+    <div id="dp-info"></div>
+    <div id="dp-contenido"><div style="text-align:center;padding:20px"><div class="spinner"></div></div></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-detalle-prestamo')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL GENERAR RECIBO -->
+<div class="modal-backdrop" id="modal-recibo">
+  <div class="modal" style="width:560px">
+    <div class="modal-title" id="modal-recibo-title">🧾 Generar recibo</div>
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><span style="color:var(--text3);font-size:11px">Código</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)" id="rec-codigo">—</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Motorista</span><div id="rec-motorista">—</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Saldo actual</span><div style="font-family:var(--mono);font-weight:600;color:var(--red)" id="rec-saldo">—</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Tasa mensual</span><div style="font-family:var(--mono)" id="rec-tasa">—</div></div>
+      <div style="grid-column:span 2"><span style="color:var(--text3);font-size:11px">Intereses calculados (saldo × tasa)</span><div style="font-family:var(--mono);color:var(--amber)" id="rec-intereses-calc">—</div></div>
+    </div>
+    <div class="form-grid" style="gap:12px">
+      <div class="fld">
+        <label>Fecha del recibo</label>
+        <input type="date" id="rec-fecha">
+      </div>
+      <div class="fld">
+        <label>Abono a capital</label>
+        <input type="number" id="rec-capital" placeholder="0.00" step="0.01" oninput="calcRecibo()">
+      </div>
+      <div class="fld">
+        <label>Intereses</label>
+        <input type="number" id="rec-intereses" placeholder="0.00" step="0.01" oninput="calcRecibo()">
+      </div>
+      <div class="fld">
+        <label>Cuota GPS</label>
+        <input type="number" id="rec-gps" placeholder="0.00" step="0.01" oninput="calcRecibo()">
+      </div>
+      <div class="fld">
+        <label id="rec-label-seguro">Cuota seguro</label>
+        <input type="number" id="rec-seguro" placeholder="0.00" step="0.01" oninput="calcRecibo()">
+      </div>
+      <div class="fld">
+        <label>Cuota administración</label>
+        <input type="number" id="rec-admin" placeholder="0.00" step="0.01" oninput="calcRecibo()">
+      </div>
+      <div class="fld col-full" style="background:var(--bg3);border-radius:var(--radius);padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><span style="color:var(--text3);font-size:11px">Total recibo</span><div style="font-family:var(--mono);font-weight:700;font-size:20px;color:var(--gold)" id="rec-total">L. 0.00</div></div>
+        <div><span style="color:var(--text3);font-size:11px">Nuevo saldo</span><div style="font-family:var(--mono);font-weight:700;font-size:20px" id="rec-nuevo-saldo">L. 0.00</div></div>
+      </div>
+      <div class="fld col-full">
+        <label>Notas</label>
+        <input type="text" id="rec-notas" placeholder="Observaciones...">
+      </div>
+    </div>
+    <div id="modal-recibo-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-recibo')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-recibo" onclick="guardarRecibo()">Guardar recibo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR/NUEVO PRÉSTAMO -->
+<div class="modal-backdrop" id="modal-edit-prestamo">
+  <div class="modal" style="width:560px">
+    <div class="modal-title" id="modal-edit-prestamo-title">🆕 Nuevo préstamo</div>
+    <div class="form-grid" style="gap:12px">
+      <div class="fld">
+        <label>Código (registro)</label>
+        <input type="text" id="ep-codigo" placeholder="Ej: 5143">
+      </div>
+      <div class="fld">
+        <label>Motorista</label>
+        <input type="text" id="ep-motorista" placeholder="Nombre completo">
+      </div>
+      <div class="fld">
+        <label>Categoría</label>
+        <select id="ep-categoria">
+          <option value="TAXIS">TAXIS</option>
+          <option value="VIP 1214 Y 2817">VIP</option>
+          <option value="BUSES">BUSES</option>
+          <option value="AUTOLOTE">AUTOLOTE</option>
+          <option value="ADONY">ADONY</option>
+          <option value="ARNOL">ARNOL</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Monto del préstamo</label>
+        <input type="number" id="ep-monto" placeholder="200000" step="0.01">
+      </div>
+      <div class="fld">
+        <label>Saldo actual</label>
+        <input type="number" id="ep-saldo" placeholder="200000" step="0.01">
+      </div>
+      <div class="fld">
+        <label>Tasa interés mensual (%)</label>
+        <input type="number" id="ep-tasa" placeholder="3" step="0.01" value="3">
+      </div>
+      <div class="fld">
+        <label>Cuotas pactadas</label>
+        <input type="number" id="ep-cuotas" placeholder="24" value="24">
+      </div>
+      <div class="fld">
+        <label>Cuota GPS</label>
+        <input type="number" id="ep-gps" placeholder="0.00" step="0.01">
+      </div>
+      <div class="fld">
+        <label>Cuota seguro</label>
+        <input type="number" id="ep-seguro" placeholder="0.00" step="0.01">
+      </div>
+      <div class="fld">
+        <label>Cuota administración</label>
+        <input type="number" id="ep-admin" placeholder="0.00" step="0.01">
+      </div>
+      <div class="fld col-full">
+        <label>Notas</label>
+        <input type="text" id="ep-notas" placeholder="Observaciones...">
+      </div>
+    </div>
+    <div id="modal-edit-prestamo-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-edit-prestamo')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-prestamo" onclick="guardarPrestamo()">Crear préstamo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALLE VIN (inversión total) -->
+<div class="modal-backdrop" id="modal-detalle-vin">
+  <div class="modal" style="width:800px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title" id="modal-dv-title">🚗 Detalle VIN 0000</div>
+    <div id="dv-info" style="margin-bottom:16px"></div>
+    <div id="dv-resumen" style="margin-bottom:16px"></div>
+    <div id="dv-contenido">
+      <div style="text-align:center;padding:20px"><div class="spinner"></div></div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-detalle-vin')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL NUEVO/EDITAR VEHÍCULO VIN -->
 <div class="modal-backdrop" id="modal-vin">
   <div class="modal" style="width:560px">
@@ -1765,5 +1973,6 @@
 </script>
 <script type="module" src="js/app.js"></script>
 <script type="module" src="js/reportes.js"></script>
+<script src="js/financiamiento.js"></script>
 </body>
 </html>
