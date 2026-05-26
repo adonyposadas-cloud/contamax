@@ -79,15 +79,15 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-auxiliar', 'nav-balance-comp'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -173,6 +173,7 @@ window.showView = (id, label) => {
   if (id === 'partidas') loadPartidas()
   if (id === 'partida-nueva' && !editingPartidaId) initPartidaNueva()
   if (id === 'caja') loadCaja()
+  if (id === 'caja-chica') window.loadCajaChica?.()
   if (id === 'importar') initImport()
   if (id === 'importar-compras') initImportCompras()
   if (id === 'importar-costos') initImportCostos()
@@ -223,14 +224,6 @@ function applyRoleRestrictions(viewId) {
   // Botón "+ Nueva unidad" taxis — solo super_admin
   const btnNuevaUnidad = document.getElementById('btn-nueva-unidad')
   if (btnNuevaUnidad) btnNuevaUnidad.classList.toggle('hidden', !puedeCrearUsuarios)
-
-  // Botón "Aprobar partida" en nueva partida — aux_contable no puede aprobar
-  if (viewId === 'partida-nueva' && rol === 'aux_contable') {
-    const btnsPartida = document.querySelectorAll('#view-partida-nueva .form-actions .btn')
-    btnsPartida.forEach(b => {
-      if (b.textContent.includes('Aprobar')) b.classList.add('hidden')
-    })
-  }
 
   // Botón "+ Nueva factura" en pendientes — solo compras y super_admin
   const btnNuevaFactPend = document.getElementById('btn-nueva-factura-pend')
@@ -1425,11 +1418,9 @@ window.editarPartida = async (id) => {
     }
   }
 
-  // Auxiliar contable: cambiar texto del botón aprobar
+  // Botón aprobar partida
   const btnAprobar = document.getElementById('btn-aprobar-partida')
-  if (btnAprobar && currentProfile?.rol === 'aux_contable') {
-    btnAprobar.textContent = 'Enviar a revisión'
-  } else if (btnAprobar) {
+  if (btnAprobar) {
     btnAprobar.textContent = 'Aprobar partida ✓'
   }
 }
@@ -1825,9 +1816,19 @@ window.guardarPartida = async (estado) => {
   const tocaCaja = partidaAfectaCajaGeneral(lineasValidas)
   const hayEgresoCaja = tieneEgresoCaja(lineasValidas)
   const esSuperAdmin = currentProfile.rol === 'super_admin'
+  const esAuxContable = currentProfile.rol === 'aux_contable'
 
-  if (hayEgresoCaja && !esSuperAdmin) {
+  // Egreso de Caja General: solo super_admin
+  const hayEgresoCajaGeneral = lineasValidas.some(l => lineaAfectaCaja(l) && l.tipo === 'credito' && l.monto > 0 && l.cuenta_codigo !== CUENTA_CAJA_CHICA)
+  if (hayEgresoCajaGeneral && !esSuperAdmin) {
     toast('Solo el Super Admin puede registrar egresos de Caja General (créditos a caja)', 'error')
+    return
+  }
+
+  // Egreso de Caja Chica: solo aux_contable o super_admin
+  const hayEgresoCajaChica = lineasValidas.some(l => l.cuenta_codigo === CUENTA_CAJA_CHICA && l.tipo === 'credito' && l.monto > 0)
+  if (hayEgresoCajaChica && !esAuxContable && !esSuperAdmin) {
+    toast('Solo Aux. Contable o Super Admin pueden registrar egresos de Caja Chica', 'error')
     return
   }
 
@@ -1842,12 +1843,6 @@ window.guardarPartida = async (estado) => {
     } else {
       estadoFinal = 'pendiente_caja'
     }
-  }
-
-  // Auxiliar contable: no puede aprobar directamente, queda como borrador
-  const esAuxContable = currentProfile.rol === 'aux_contable'
-  if (esAuxContable && estado === 'aprobada') {
-    estadoFinal = 'borrador'
   }
 
   let partidaId = editingPartidaId
@@ -6786,3 +6781,151 @@ window.importarFacturasTaxis = async () => {
   document.getElementById('ift-file').value = ''
   document.getElementById('ift-preview').classList.add('hidden')
 }
+
+// ══════════════════════════════════════════════
+// ═══  CAJA CHICA  ═══
+// ══════════════════════════════════════════════
+
+const CUENTA_CAJA_CHICA = '110101-001'
+
+window.loadCajaChica = async () => {
+  // Populate month filter
+  const selMes = document.getElementById('cc-filtro-mes')
+  if (selMes && selMes.options.length === 0) {
+    const now = new Date()
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const label = d.toLocaleDateString('es-HN', { month: 'long', year: 'numeric' })
+      selMes.innerHTML += `<option value="${val}" ${i === 0 ? 'selected' : ''}>${label}</option>`
+    }
+  }
+
+  const mesVal = selMes?.value || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  const [anio, mes] = mesVal.split('-').map(Number)
+  const desde = `${anio}-${String(mes).padStart(2, '0')}-01`
+  const hasta = `${anio}-${String(mes + 1 > 12 ? 1 : mes + 1).padStart(2, '0')}-01`
+
+  // Get all partidas that touch caja chica this month
+  const { data: lineas, error } = await sb.from('lineas_partida')
+    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado)')
+    .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+    .gte('partida.fecha_partida', desde)
+    .lt('partida.fecha_partida', hasta)
+    .order('partida(fecha_partida)', { ascending: true })
+
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+
+  const movimientos = (lineas || []).filter(l => l.partida)
+
+  // Calculate stats
+  let saldo = 0
+  let ingresos = 0
+  let egresos = 0
+  let pendientes = 0
+
+  // Get running balance from all time
+  const { data: allLineas } = await sb.from('lineas_partida')
+    .select('tipo, monto, partida:partidas_contables(estado, fecha_partida)')
+    .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+    .in('partida.estado', ['aprobada'])
+
+  ;(allLineas || []).filter(l => l.partida).forEach(l => {
+    if (l.tipo === 'debito') saldo += parseFloat(l.monto) || 0
+    else saldo -= parseFloat(l.monto) || 0
+  })
+
+  movimientos.forEach(l => {
+    if (l.partida.estado === 'aprobada') {
+      if (l.tipo === 'debito') ingresos += parseFloat(l.monto) || 0
+      else egresos += parseFloat(l.monto) || 0
+    }
+    if (l.partida.estado === 'pendiente_caja' || l.partida.estado === 'borrador') pendientes++
+  })
+
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  document.getElementById('cc-stat-saldo').textContent = 'L. ' + fmt(saldo)
+  document.getElementById('cc-stat-ingresos').textContent = 'L. ' + fmt(ingresos)
+  document.getElementById('cc-stat-egresos').textContent = 'L. ' + fmt(egresos)
+  document.getElementById('cc-stat-pendientes').textContent = pendientes
+
+  // Render table
+  const tbody = document.getElementById('tbody-caja-chica')
+  if (!movimientos.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos este mes</td></tr>'
+    return
+  }
+
+  let saldoRunning = 0
+  // Recalculate running balance up to start of month
+  ;(allLineas || []).filter(l => l.partida && l.partida.fecha_partida < desde).forEach(l => {
+    if (l.tipo === 'debito') saldoRunning += parseFloat(l.monto) || 0
+    else saldoRunning -= parseFloat(l.monto) || 0
+  })
+
+  const esAuxContable = currentProfile?.rol === 'aux_contable'
+  const esSuperAdmin = currentProfile?.rol === 'super_admin'
+
+  tbody.innerHTML = movimientos.map((l, i) => {
+    const p = l.partida
+    const ingreso = l.tipo === 'debito' ? parseFloat(l.monto) : 0
+    const egreso = l.tipo === 'credito' ? parseFloat(l.monto) : 0
+    if (p.estado === 'aprobada') {
+      saldoRunning += ingreso - egreso
+    }
+    const estadoBadge = {
+      'aprobada': '<span class="badge badge-on">Aprobada</span>',
+      'borrador': '<span class="badge badge-amber">Borrador</span>',
+      'pendiente_caja': '<span class="badge badge-amber">Pendiente</span>',
+    }
+    const puedeAprobar = esAuxContable || esSuperAdmin
+    return `<tr>
+      <td>${p.numero_partida || i + 1}</td>
+      <td>${p.fecha_partida}</td>
+      <td style="max-width:250px">${p.descripcion || '—'}</td>
+      <td style="text-align:right;color:var(--green)">${ingreso > 0 ? 'L. ' + fmt(ingreso) : '—'}</td>
+      <td style="text-align:right;color:var(--red)">${egreso > 0 ? 'L. ' + fmt(egreso) : '—'}</td>
+      <td style="text-align:right;font-weight:500">L. ${fmt(saldoRunning)}</td>
+      <td>${estadoBadge[p.estado] || p.estado}</td>
+      <td>
+        ${(p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ?
+          `<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="aprobarMovCajaChica('${p.id}')">✅</button>` : ''}
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="editPartida('${p.id}')">👁️</button>
+      </td>
+    </tr>`
+  }).join('')
+}
+
+// Crear nueva partida con caja chica
+window.nuevaPartidaCajaChica = () => {
+  nuevaPartida()
+  // Pre-fill first line with caja chica account after a small delay
+  setTimeout(() => {
+    toast('Usa la cuenta 110101-001 (Caja Chica) para registrar ingresos o egresos', 'info')
+  }, 500)
+}
+
+// Aprobar movimiento de caja chica
+window.aprobarMovCajaChica = async (partidaId) => {
+  const rol = currentProfile?.rol
+  // Only aux_contable (owner of caja chica) and super_admin can approve
+  if (rol !== 'aux_contable' && rol !== 'super_admin' && rol !== 'contador') {
+    toast('Solo Aux. Contable o Super Admin pueden aprobar movimientos de caja chica', 'error')
+    return
+  }
+
+  if (!confirm('¿Aprobar este movimiento de Caja Chica?')) return
+
+  const { error } = await sb.from('partidas_contables').update({
+    estado: 'aprobada',
+    aprobada_at: new Date().toISOString(),
+    aprobada_por: currentProfile?.id
+  }).eq('id', partidaId)
+
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast('Movimiento aprobado ✓', 'success')
+  loadCajaChica()
+}
+
+// Check if a line is caja chica account
+window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA

@@ -93,6 +93,10 @@
           <span class="nav-dot"></span>Caja General
           <span class="nav-badge hidden" id="badge-caja">0</span>
         </div>
+        <div class="nav-item hidden" id="nav-caja-chica" onclick="showView('caja-chica','Caja Chica')">
+          <span class="nav-dot"></span>Caja Chica
+          <span class="nav-badge hidden" id="badge-caja-chica">0</span>
+        </div>
         <div class="nav-item hidden" id="nav-aprobaciones" onclick="showView('aprobaciones','Pendientes de aprobación')">
           <span class="nav-dot"></span>Aprobaciones
           <span class="nav-badge hidden" id="badge-aprobaciones">0</span>
@@ -1348,6 +1352,45 @@
               </tr>
             </thead>
             <tbody id="tbody-prestamos-emp"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══════════════ CAJA CHICA ═══════════════ -->
+      <div class="view" id="view-caja-chica">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🗃️ Caja Chica</div>
+            <div class="page-sub">Control de caja chica · Cuenta 110101-001</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="loadCajaChica()">↻ Actualizar</button>
+            <button class="btn btn-gold" onclick="nuevaPartidaCajaChica()">+ Movimiento</button>
+          </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-card"><div class="stat-num" id="cc-stat-saldo">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Saldo actual</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-ingresos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Ingresos mes</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-egresos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Egresos mes</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-pendientes">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Pendientes</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Movimientos de Caja Chica</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="cc-filtro-mes" onchange="loadCajaChica()" style="padding:4px 8px;font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px">
+              </select>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>N°</th><th>Fecha</th><th>Descripción</th><th>Ingreso</th><th>Egreso</th><th>Saldo</th><th>Estado</th><th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-caja-chica">
+              <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">Cargando...</td></tr>
+            </tbody>
           </table>
         </div>
       </div>
