@@ -6787,145 +6787,151 @@ window.importarFacturasTaxis = async () => {
 // ══════════════════════════════════════════════
 
 const CUENTA_CAJA_CHICA = '110101-001'
+let filtroCCActual = 'pendiente_caja'
+let allCCPartidas = []
 
 window.loadCajaChica = async () => {
-  // Populate month filter
-  const selMes = document.getElementById('cc-filtro-mes')
-  if (selMes && selMes.options.length === 0) {
-    const now = new Date()
-    for (let i = 0; i < 6; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const label = d.toLocaleDateString('es-HN', { month: 'long', year: 'numeric' })
-      selMes.innerHTML += `<option value="${val}" ${i === 0 ? 'selected' : ''}>${label}</option>`
-    }
-  }
+  const fechaFiltro = document.getElementById('cc-fecha')?.value || null
 
-  const mesVal = selMes?.value || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
-  const [anio, mes] = mesVal.split('-').map(Number)
-  const desde = `${anio}-${String(mes).padStart(2, '0')}-01`
-  const hasta = `${anio}-${String(mes + 1 > 12 ? 1 : mes + 1).padStart(2, '0')}-01`
-
-  // Get all partidas that touch caja chica this month
+  // Get all partidas that touch caja chica
   const { data: lineas, error } = await sb.from('lineas_partida')
-    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado)')
+    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado, numero_documento)')
     .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
-    .gte('partida.fecha_partida', desde)
-    .lt('partida.fecha_partida', hasta)
-    .order('partida(fecha_partida)', { ascending: true })
 
   if (error) { toast('Error: ' + error.message, 'error'); return }
 
-  const movimientos = (lineas || []).filter(l => l.partida)
+  const movs = (lineas || []).filter(l => l.partida)
 
-  // Calculate stats
-  let saldo = 0
-  let ingresos = 0
-  let egresos = 0
-  let pendientes = 0
-
-  // Get running balance from all time
-  const { data: allLineas } = await sb.from('lineas_partida')
-    .select('tipo, monto, partida:partidas_contables(estado, fecha_partida)')
-    .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
-    .in('partida.estado', ['aprobada'])
-
-  ;(allLineas || []).filter(l => l.partida).forEach(l => {
-    if (l.tipo === 'debito') saldo += parseFloat(l.monto) || 0
-    else saldo -= parseFloat(l.monto) || 0
-  })
-
-  movimientos.forEach(l => {
-    if (l.partida.estado === 'aprobada') {
-      if (l.tipo === 'debito') ingresos += parseFloat(l.monto) || 0
-      else egresos += parseFloat(l.monto) || 0
-    }
-    if (l.partida.estado === 'pendiente_caja' || l.partida.estado === 'borrador') pendientes++
+  // Saldo total (solo aprobadas)
+  let saldoTotal = 0, ingresosTotal = 0, egresosTotal = 0
+  movs.filter(l => l.partida.estado === 'aprobada').forEach(l => {
+    const m = parseFloat(l.monto) || 0
+    if (l.tipo === 'debito') { saldoTotal += m; ingresosTotal += m }
+    else { saldoTotal -= m; egresosTotal += m }
   })
 
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  document.getElementById('cc-stat-saldo').textContent = 'L. ' + fmt(saldo)
-  document.getElementById('cc-stat-ingresos').textContent = 'L. ' + fmt(ingresos)
-  document.getElementById('cc-stat-egresos').textContent = 'L. ' + fmt(egresos)
-  document.getElementById('cc-stat-pendientes').textContent = pendientes
+  document.getElementById('cc-saldo').textContent = 'L. ' + fmt(saldoTotal)
+  document.getElementById('cc-total-ingresos').textContent = 'L. ' + fmt(ingresosTotal)
+  document.getElementById('cc-total-egresos').textContent = 'L. ' + fmt(egresosTotal)
 
-  // Render table
-  const tbody = document.getElementById('tbody-caja-chica')
-  if (!movimientos.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos este mes</td></tr>'
+  // Filter by date if set
+  let filtered = movs
+  if (fechaFiltro) {
+    filtered = movs.filter(l => l.partida.fecha_partida === fechaFiltro)
+    const ingF = filtered.filter(l => l.partida.estado === 'aprobada' && l.tipo === 'debito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
+    const egrF = filtered.filter(l => l.partida.estado === 'aprobada' && l.tipo === 'credito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
+    document.getElementById('cc-fecha-resumen').textContent = `Ingresos: L.${fmt(ingF)} | Egresos: L.${fmt(egrF)}`
+  } else {
+    document.getElementById('cc-fecha-resumen').textContent = ''
+  }
+
+  // Stats
+  const pendientes = filtered.filter(l => l.partida.estado === 'pendiente_caja' || l.partida.estado === 'borrador').length
+  const aprobadas = filtered.filter(l => l.partida.estado === 'aprobada').length
+  const ingrF = filtered.filter(l => l.partida.estado === 'aprobada' && l.tipo === 'debito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
+  const egrF = filtered.filter(l => l.partida.estado === 'aprobada' && l.tipo === 'credito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
+
+  document.getElementById('cc-stat-pendientes').textContent = pendientes
+  document.getElementById('cc-stat-aprobadas').textContent = aprobadas
+  document.getElementById('cc-stat-ingresos').textContent = 'L. ' + fmt(ingrF)
+  document.getElementById('cc-stat-egresos').textContent = 'L. ' + fmt(egrF)
+
+  allCCPartidas = filtered
+  renderCajaChicaList()
+}
+
+window.filtrarCajaChicaFecha = () => loadCajaChica()
+
+window.filtroCajaChica = (btn, filtro) => {
+  document.querySelectorAll('#view-caja-chica .caja-tab').forEach(t => t.classList.remove('active'))
+  btn.classList.add('active')
+  filtroCCActual = filtro
+  renderCajaChicaList()
+}
+
+function renderCajaChicaList() {
+  const container = document.getElementById('lista-caja-chica')
+  let data = allCCPartidas
+  if (filtroCCActual !== 'todos') {
+    if (filtroCCActual === 'pendiente_caja') {
+      data = data.filter(l => l.partida.estado === 'pendiente_caja' || l.partida.estado === 'borrador')
+    } else {
+      data = data.filter(l => l.partida.estado === filtroCCActual)
+    }
+  }
+
+  if (!data.length) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</div>'
     return
   }
 
-  let saldoRunning = 0
-  // Recalculate running balance up to start of month
-  ;(allLineas || []).filter(l => l.partida && l.partida.fecha_partida < desde).forEach(l => {
-    if (l.tipo === 'debito') saldoRunning += parseFloat(l.monto) || 0
-    else saldoRunning -= parseFloat(l.monto) || 0
-  })
-
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const esAuxContable = currentProfile?.rol === 'aux_contable'
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
+  const puedeAprobar = esAuxContable || esSuperAdmin
 
-  tbody.innerHTML = movimientos.map((l, i) => {
+  container.innerHTML = data.map(l => {
     const p = l.partida
-    const ingreso = l.tipo === 'debito' ? parseFloat(l.monto) : 0
-    const egreso = l.tipo === 'credito' ? parseFloat(l.monto) : 0
-    if (p.estado === 'aprobada') {
-      saldoRunning += ingreso - egreso
-    }
+    const monto = parseFloat(l.monto) || 0
+    const esIngreso = l.tipo === 'debito'
     const estadoBadge = {
       'aprobada': '<span class="badge badge-on">Aprobada</span>',
       'borrador': '<span class="badge badge-amber">Borrador</span>',
       'pendiente_caja': '<span class="badge badge-amber">Pendiente</span>',
+      'anulada': '<span class="badge badge-red">Anulada</span>',
     }
-    const puedeAprobar = esAuxContable || esSuperAdmin
-    return `<tr>
-      <td>${p.numero_partida || i + 1}</td>
-      <td>${p.fecha_partida}</td>
-      <td style="max-width:250px">${p.descripcion || '—'}</td>
-      <td style="text-align:right;color:var(--green)">${ingreso > 0 ? 'L. ' + fmt(ingreso) : '—'}</td>
-      <td style="text-align:right;color:var(--red)">${egreso > 0 ? 'L. ' + fmt(egreso) : '—'}</td>
-      <td style="text-align:right;font-weight:500">L. ${fmt(saldoRunning)}</td>
-      <td>${estadoBadge[p.estado] || p.estado}</td>
-      <td>
+    return `<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:500;font-size:13px">${p.descripcion || 'Sin descripción'}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">
+          ${p.fecha_partida} · Partida #${p.numero_partida || '—'} ${p.numero_documento ? '· Doc: ' + p.numero_documento : ''}
+        </div>
+      </div>
+      <div style="text-align:right;min-width:120px">
+        <div style="font-size:16px;font-family:var(--mono);font-weight:600;color:${esIngreso ? 'var(--green)' : 'var(--red)'}">
+          ${esIngreso ? '+' : '-'} L. ${fmt(monto)}
+        </div>
+        <div style="font-size:11px;color:var(--text3)">${esIngreso ? 'Ingreso' : 'Egreso'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${estadoBadge[p.estado] || p.estado}
         ${(p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ?
-          `<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="aprobarMovCajaChica('${p.id}')">✅</button>` : ''}
-        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="editPartida('${p.id}')">👁️</button>
-      </td>
-    </tr>`
+          `<button class="btn btn-ghost" style="padding:6px 12px;font-size:11px;color:var(--green)" onclick="aprobarMovCajaChica('${p.id}')">✅ Aprobar</button>` : ''}
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="editPartida('${p.id}')">👁️</button>
+      </div>
+    </div>`
   }).join('')
-}
-
-// Crear nueva partida con caja chica
-window.nuevaPartidaCajaChica = () => {
-  nuevaPartida()
-  // Pre-fill first line with caja chica account after a small delay
-  setTimeout(() => {
-    toast('Usa la cuenta 110101-001 (Caja Chica) para registrar ingresos o egresos', 'info')
-  }, 500)
 }
 
 // Aprobar movimiento de caja chica
 window.aprobarMovCajaChica = async (partidaId) => {
   const rol = currentProfile?.rol
-  // Only aux_contable (owner of caja chica) and super_admin can approve
   if (rol !== 'aux_contable' && rol !== 'super_admin' && rol !== 'contador') {
     toast('Solo Aux. Contable o Super Admin pueden aprobar movimientos de caja chica', 'error')
     return
   }
-
   if (!confirm('¿Aprobar este movimiento de Caja Chica?')) return
-
   const { error } = await sb.from('partidas_contables').update({
     estado: 'aprobada',
     aprobada_at: new Date().toISOString(),
     aprobada_por: currentProfile?.id
   }).eq('id', partidaId)
-
   if (error) { toast('Error: ' + error.message, 'error'); return }
   toast('Movimiento aprobado ✓', 'success')
   loadCajaChica()
 }
 
-// Check if a line is caja chica account
+// Arqueo de caja chica — reutiliza el modal de arqueo de caja general pero filtra por cuenta chica
+window.verArqueoCajaChica = () => {
+  // Reuse the caja general arqueo modal
+  verArqueo()
+  toast('Mostrando arqueo general — filtrá por la cuenta 110101-001 para ver solo Caja Chica', 'info')
+}
+
+// Cambio de denominaciones — reutiliza el modal de caja general
+window.cambioDenomsCajaChica = () => {
+  openModalCambioDenoms()
+}
+
 window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA

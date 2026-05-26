@@ -1361,37 +1361,50 @@
         <div class="page-header">
           <div>
             <div class="page-title">🗃️ Caja Chica</div>
-            <div class="page-sub">Control de caja chica · Cuenta 110101-001</div>
+            <div class="page-sub">Control de caja chica · Cuenta 110101-001 · Responsable: Aux. Contable</div>
           </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost" onclick="loadCajaChica()">↻ Actualizar</button>
-            <button class="btn btn-gold" onclick="nuevaPartidaCajaChica()">+ Movimiento</button>
+          <button class="btn btn-ghost" onclick="loadCajaChica()">↻ Actualizar</button>
+        </div>
+        <!-- SALDO EFECTIVO -->
+        <div style="background:var(--bg2);border:1px solid var(--gold);border-radius:var(--radius-lg);padding:20px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">💵 Efectivo Caja Chica</div>
+            <div style="font-size:28px;font-family:var(--mono);font-weight:500;margin-top:4px" id="cc-saldo">—</div>
           </div>
+          <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+            <div style="text-align:center">
+              <div style="font-size:18px;font-family:var(--mono);color:var(--green)" id="cc-total-ingresos">—</div>
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Total ingresos</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:18px;font-family:var(--mono);color:var(--red)" id="cc-total-egresos">—</div>
+              <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Total egresos</div>
+            </div>
+            <button class="btn btn-ghost" onclick="verArqueoCajaChica()" style="padding:8px 14px;font-size:12px">📊 Ver arqueo</button>
+            <button class="btn btn-ghost" onclick="cambioDenomsCajaChica()" style="padding:8px 14px;font-size:12px;border-color:var(--amber);color:var(--amber)">🔄 Cambio</button>
+          </div>
+        </div>
+        <!-- FILTROS Y STATS -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text3)">Filtrar:</span>
+          <input type="date" id="cc-fecha" onchange="filtrarCajaChicaFecha()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font);font-size:12px;outline:none">
+          <button class="btn btn-ghost" onclick="document.getElementById('cc-fecha').value='';filtrarCajaChicaFecha()" style="padding:6px 10px;font-size:11px">Todas</button>
+          <div style="margin-left:auto;font-size:12px;color:var(--text3)" id="cc-fecha-resumen"></div>
         </div>
         <div class="stat-row">
-          <div class="stat-card"><div class="stat-num" id="cc-stat-saldo">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Saldo actual</div></div>
-          <div class="stat-card"><div class="stat-num" id="cc-stat-ingresos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Ingresos mes</div></div>
-          <div class="stat-card"><div class="stat-num" id="cc-stat-egresos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Egresos mes</div></div>
-          <div class="stat-card"><div class="stat-num" id="cc-stat-pendientes">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Pendientes</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-pendientes" style="color:var(--amber)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Pendientes</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-aprobadas" style="color:var(--green)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Aprobadas</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-ingresos" style="color:var(--green)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Ingresos</div></div>
+          <div class="stat-card"><div class="stat-num" id="cc-stat-egresos" style="color:var(--red)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Egresos</div></div>
         </div>
-        <div class="table-wrap">
-          <div class="table-header">
-            <span class="table-title">Movimientos de Caja Chica</span>
-            <div style="display:flex;gap:8px;align-items:center">
-              <select id="cc-filtro-mes" onchange="loadCajaChica()" style="padding:4px 8px;font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:4px">
-              </select>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>N°</th><th>Fecha</th><th>Descripción</th><th>Ingreso</th><th>Egreso</th><th>Saldo</th><th>Estado</th><th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="tbody-caja-chica">
-              <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">Cargando...</td></tr>
-            </tbody>
-          </table>
+        <!-- TABS -->
+        <div class="caja-tabs">
+          <button class="caja-tab active" onclick="filtroCajaChica(this,'pendiente_caja')">🔔 Pendientes</button>
+          <button class="caja-tab" onclick="filtroCajaChica(this,'aprobada')">✓ Aprobadas</button>
+          <button class="caja-tab" onclick="filtroCajaChica(this,'todos')">Todos</button>
+        </div>
+        <div id="lista-caja-chica">
+          <div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>
         </div>
       </div>
 
