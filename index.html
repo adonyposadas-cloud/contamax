@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CONTAMAX · Sistema Contable</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#d4a843">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CONTAMAX">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css">
@@ -2346,5 +2352,10 @@
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js"></script>
 <script defer src="js/rrhh.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {})
+}
+</script>
 </body>
 </html>
