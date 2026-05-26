@@ -64,6 +64,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .sidebar{width:210px;background:var(--bg2);border-right:0.5px solid var(--border);padding:20px 0;flex-shrink:0;overflow-y:auto}
 .sidebar-section{padding:0 14px;margin-bottom:10px}
 .sidebar-label{font-size:10px;color:var(--text3);letter-spacing:1.8px;text-transform:uppercase;padding:0 8px;margin-bottom:8px;font-weight:500}
+.sidebar-label.sidebar-toggle{color:var(--gold);cursor:pointer}
 .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;color:var(--text2);font-size:13px;transition:all .15s;margin-bottom:2px;user-select:none}
 .nav-item:hover{background:var(--bg3);color:var(--text)}
 .nav-item.active{background:var(--bg4);color:var(--gold);border-left:2px solid var(--gold);padding-left:8px}
