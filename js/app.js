@@ -17,6 +17,7 @@ let tiposOrigen = []
 // ── Exposición global para módulos externos (reportes.js, etc.) ──
 window._empresas = () => empresas
 window._currentProfile = () => currentProfile
+window._allCentros = () => allCentros
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
@@ -78,15 +79,15 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-catalogo', 'nav-partidas', 'nav-auxiliar', 'nav-balance-comp'],
-    compras:     ['nav-compras', 'nav-pendientes']
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-auxiliar', 'nav-balance-comp'],
+    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -98,7 +99,7 @@ function setupUI() {
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 
   // Ocultar sección Importaciones si no tiene ningún módulo
-  const importItems = ['nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-taxis', 'nav-partidas-taxis']
+  const importItems = ['nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis']
   const tieneImport = importItems.some(id => visibles.includes(id))
   const sectionImport = document.getElementById('section-importar')
   if (sectionImport) sectionImport.classList.toggle('hidden', !tieneImport)
@@ -150,7 +151,7 @@ window.showView = (id, label) => {
   if (id === 'importar-compras') { const ni = document.getElementById('nav-importar-compras'); if(ni) ni.classList.add('active') }
   if (id === 'importar-costos') { const ni = document.getElementById('nav-importar-costos'); if(ni) ni.classList.add('active') }
   document.getElementById('topbar-module').textContent = label
-  if (id === 'usuarios') loadUsuarios()
+  if (id === 'usuarios') { loadUsuarios(); loadCentrosCosto() }
   if (id === 'pendientes') loadPendientes()
   if (id === 'compras') initForm()
   if (id === 'catalogo') loadCatalogo()
@@ -163,6 +164,8 @@ window.showView = (id, label) => {
   if (id === 'importar-taxis') resetImportTaxis()
   if (id === 'partidas-taxis') initPartidasTaxis()
   if (id === 'aprobaciones') loadAprobaciones()
+  if (id === 'vehiculos') loadVehiculos()
+  if (id === 'unidades-taxis') loadUnidadesTaxis()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
@@ -189,6 +192,18 @@ function applyRoleRestrictions(viewId) {
   const btnNuevoUsuario = document.querySelector('#view-usuarios .btn-gold')
   if (btnNuevoUsuario) btnNuevoUsuario.classList.toggle('hidden', !puedeCrearUsuarios)
 
+  // Botón "+ Nuevo vehículo" — solo super_admin
+  const btnNuevoVin = document.getElementById('btn-nuevo-vin')
+  if (btnNuevoVin) btnNuevoVin.classList.toggle('hidden', !puedeCrearUsuarios)
+
+  // Botón "+ Nuevo centro" — solo super_admin
+  const btnNuevoCentro = document.getElementById('btn-nuevo-centro')
+  if (btnNuevoCentro) btnNuevoCentro.classList.toggle('hidden', !puedeCrearUsuarios)
+
+  // Botón "+ Nueva unidad" taxis — solo super_admin
+  const btnNuevaUnidad = document.getElementById('btn-nueva-unidad')
+  if (btnNuevaUnidad) btnNuevaUnidad.classList.toggle('hidden', !puedeCrearUsuarios)
+
   // Botón "Aprobar partida" en nueva partida — aux_contable no puede aprobar
   if (viewId === 'partida-nueva' && rol === 'aux_contable') {
     const btnsPartida = document.querySelectorAll('#view-partida-nueva .form-actions .btn')
@@ -199,9 +214,16 @@ function applyRoleRestrictions(viewId) {
 }
 
 // ── EMPRESAS ──
+let todosLosCentros = []
+window._todosLosCentros = () => todosLosCentros
+
 async function loadEmpresas() {
-  const { data } = await sb.from('centros_costo').select('*').eq('activa', true).eq('es_corporativo', false).order('nombre')
-  empresas = data || []
+  // Cargar TODOS los centros (para saber cuáles son privados en reportes)
+  const { data: allCC } = await sb.from('centros_costo').select('*').order('nombre')
+  todosLosCentros = allCC || []
+
+  // Empresas operativas activas (para selects)
+  empresas = todosLosCentros.filter(c => c.activa && !c.es_corporativo)
   // Poblar selects
   const selects = ['fc-empresa', 'nu-empresa']
   selects.forEach(sid => {
@@ -312,6 +334,132 @@ window.crearUsuario = async () => {
   toast(`Usuario ${nombre} creado correctamente`, 'success')
   loadUsuarios()
   ['nu-nombre','nu-email','nu-pass'].forEach(id => document.getElementById(id).value = '')
+}
+
+// ── CENTROS DE COSTO (CRUD) ──
+let allCentros = []
+let editingCentroId = null
+
+async function loadCentrosCosto() {
+  const tbody = document.getElementById('tbody-centros')
+  if (!tbody) return
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+
+  const { data, error } = await sb.from('centros_costo').select('*').order('nombre')
+  if (error) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`
+    return
+  }
+
+  allCentros = data || []
+
+  // Actualizar stat dinámico
+  const elCentros = document.getElementById('stat-centros')
+  if (elCentros) elCentros.textContent = allCentros.filter(c => c.activa).length
+
+  if (!allCentros.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay centros registrados</td></tr>'
+    return
+  }
+
+  tbody.innerHTML = allCentros.map(c => `
+    <tr style="${!c.activa ? 'opacity:0.5' : ''}">
+      <td style="font-family:var(--mono);color:var(--gold);font-weight:500">${c.codigo || '—'}</td>
+      <td style="font-weight:500">${c.nombre}${c.privado ? ' <span style="color:var(--red);font-size:11px" title="Centro privado — reportes solo Super Admin">🔒</span>' : ''}</td>
+      <td>${c.es_corporativo ? '<span class="badge badge-amber">Corporativo</span>' : '<span class="badge badge-blue">Operativo</span>'}</td>
+      <td><span class="badge ${c.activa ? 'badge-on' : 'badge-off'}">${c.activa ? 'Activo' : 'Inactivo'}</span></td>
+      <td class="mono" style="color:var(--text3);font-size:12px">${c.created_at ? new Date(c.created_at).toLocaleDateString('es-HN') : '—'}</td>
+      <td style="text-align:center">
+        <button onclick="editarCentro('${c.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
+        <button onclick="toggleCentro('${c.id}',${c.activa},'${c.nombre.replace(/'/g, "\\'")}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="${c.activa ? 'Desactivar' : 'Activar'}">${c.activa ? '🚫' : '✅'}</button>
+      </td>
+    </tr>`).join('')
+}
+window.loadCentrosCosto = loadCentrosCosto
+
+window.openModalCentro = () => {
+  editingCentroId = null
+  document.getElementById('modal-centro-title').textContent = '🏢 Nuevo centro de costo'
+  document.getElementById('btn-guardar-centro').textContent = 'Crear centro'
+  document.getElementById('ncc-codigo').value = ''
+  document.getElementById('ncc-nombre').value = ''
+  document.getElementById('ncc-corporativo').checked = false
+  document.getElementById('ncc-privado').checked = false
+  document.getElementById('ncc-codigo').disabled = false
+  document.getElementById('modal-centro-error').classList.add('hidden')
+  document.getElementById('modal-centro').classList.add('open')
+}
+
+window.editarCentro = (id) => {
+  const c = allCentros.find(x => x.id === id)
+  if (!c) return
+  editingCentroId = id
+  document.getElementById('modal-centro-title').textContent = '✏️ Editar centro de costo'
+  document.getElementById('btn-guardar-centro').textContent = 'Actualizar centro'
+  document.getElementById('ncc-codigo').value = c.codigo || ''
+  document.getElementById('ncc-nombre').value = c.nombre
+  document.getElementById('ncc-corporativo').checked = c.es_corporativo || false
+  document.getElementById('ncc-privado').checked = c.privado || false
+  document.getElementById('ncc-codigo').disabled = false
+  document.getElementById('modal-centro-error').classList.add('hidden')
+  document.getElementById('modal-centro').classList.add('open')
+}
+
+window.guardarCentro = async () => {
+  const codigo = document.getElementById('ncc-codigo').value.trim().toUpperCase()
+  const nombre = document.getElementById('ncc-nombre').value.trim()
+  const esCorporativo = document.getElementById('ncc-corporativo').checked
+  const esPrivado = document.getElementById('ncc-privado').checked
+  const err = document.getElementById('modal-centro-error')
+
+  if (!nombre) { showError(err, 'El nombre es obligatorio'); return }
+
+  const btn = document.getElementById('btn-guardar-centro')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
+
+  const payload = {
+    codigo: codigo || null,
+    nombre,
+    es_corporativo: esCorporativo,
+    privado: esPrivado,
+    activa: true
+  }
+
+  let error
+  if (editingCentroId) {
+    const { error: e } = await sb.from('centros_costo').update(payload).eq('id', editingCentroId)
+    error = e
+  } else {
+    const { error: e } = await sb.from('centros_costo').insert(payload)
+    error = e
+  }
+
+  btn.disabled = false
+  btn.textContent = editingCentroId ? 'Actualizar centro' : 'Crear centro'
+
+  if (error) {
+    showError(err, error.message)
+    return
+  }
+
+  closeModal('modal-centro')
+  toast(editingCentroId ? 'Centro actualizado ✓' : 'Centro de costo creado ✓', 'success')
+  editingCentroId = null
+  loadCentrosCosto()
+  // Recargar empresas para que los selects se actualicen en toda la app
+  await loadEmpresas()
+}
+
+window.toggleCentro = async (id, activa, nombre) => {
+  const accion = activa ? 'desactivar' : 'activar'
+  if (!confirm(`¿${activa ? 'Desactivar' : 'Activar'} el centro "${nombre}"?\n\n${activa ? 'Ya no aparecerá en los selects de operación.' : 'Volverá a aparecer en los selects.'}`)) return
+
+  const { error } = await sb.from('centros_costo').update({ activa: !activa }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+
+  toast(`Centro ${accion}do ✓`, 'success')
+  loadCentrosCosto()
+  await loadEmpresas()
 }
 
 // ── COMPRAS FORM ──
@@ -836,7 +984,8 @@ window.editarPartida = async (id) => {
           10: conteo.den_10 || 0,
           5: conteo.den_5 || 0,
           2: conteo.den_2 || 0,
-          1: conteo.den_1 || 0
+          1: conteo.den_1 || 0,
+          _cheques: parseFloat(conteo.den_cheques) || 0
         }
       }
     }
@@ -1278,6 +1427,7 @@ window.guardarPartida = async (estado) => {
       den_5: l.billetes[5] || 0,
       den_2: l.billetes[2] || 0,
       den_1: l.billetes[1] || 0,
+      den_cheques: l.billetes._cheques || 0,
       total_billetes: DENOMINACIONES.reduce((s, d) => s + (l.billetes[d] || 0), 0),
       total_monto: l.monto,
       registrado_por: currentProfile.id
@@ -1626,6 +1776,7 @@ async function loadCaja() {
     cajaPartidas = []
     updateCajaStats()
     renderCajaList()
+    loadCajaExtras()
     return
   }
 
@@ -1671,6 +1822,7 @@ async function loadCaja() {
   updateCajaStats()
   renderCajaList()
   updateCajaBadge()
+  loadCajaExtras()
 }
 window.loadCaja = loadCaja
 
@@ -1840,7 +1992,8 @@ window.aprobarCaja = async (id) => {
     existingBilletes = {
       500: c.den_500 || 0, 200: c.den_200 || 0, 100: c.den_100 || 0,
       50: c.den_50 || 0, 20: c.den_20 || 0, 10: c.den_10 || 0,
-      5: c.den_5 || 0, 2: c.den_2 || 0, 1: c.den_1 || 0
+      5: c.den_5 || 0, 2: c.den_2 || 0, 1: c.den_1 || 0,
+      _cheques: parseFloat(c.den_cheques) || 0
     }
   }
 
@@ -1870,6 +2023,7 @@ window.aprobarCaja = async (id) => {
         den_5: detalle[5] || 0,
         den_2: detalle[2] || 0,
         den_1: detalle[1] || 0,
+        den_cheques: detalle._cheques || 0,
         total_billetes: DENOMINACIONES.reduce((s, d) => s + (detalle[d] || 0), 0),
         total_monto: montoContado,
         registrado_por: currentProfile.id,
@@ -2683,16 +2837,17 @@ window.guardarImportPartida = async () => {
 const DENOMINACIONES = [1, 2, 5, 10, 20, 50, 100, 200, 500]
 let billetesCallback = null
 let billetesConteo = {}
+let billetesChequeMonto = 0  // Valor total de cheques
 
 function openBilletes(titulo, subtitulo, callback, initialValues) {
   billetesCallback = callback
   billetesConteo = {}
   DENOMINACIONES.forEach(d => billetesConteo[d] = (initialValues && initialValues[d]) || 0)
+  billetesChequeMonto = (initialValues && initialValues._cheques) || 0
   document.getElementById('billetes-title').textContent = titulo || '💵 Conteo de billetes'
   document.getElementById('billetes-sub').textContent = subtitulo || 'Ingresa la cantidad de cada denominación'
   renderBilletes()
   document.getElementById('modal-billetes').classList.add('open')
-  // Focus first input after render
   setTimeout(() => {
     const first = document.querySelector('#tbody-billetes input')
     if (first) first.focus()
@@ -2701,7 +2856,7 @@ function openBilletes(titulo, subtitulo, callback, initialValues) {
 
 function renderBilletes() {
   const tbody = document.getElementById('tbody-billetes')
-  tbody.innerHTML = DENOMINACIONES.slice().reverse().map(d => {
+  let rows = DENOMINACIONES.slice().reverse().map(d => {
     const qty = billetesConteo[d] || 0
     const sub = qty * d
     return `<tr>
@@ -2718,16 +2873,44 @@ function renderBilletes() {
       </td>
     </tr>`
   }).join('')
+
+  // Fila de cheques
+  const cheqVal = billetesChequeMonto || 0
+  rows += `<tr style="border-top:2px solid var(--border)">
+    <td style="padding:8px 12px">
+      <span style="font-size:14px;color:var(--amber);font-weight:500">📄 Cheques</span>
+    </td>
+    <td style="padding:8px 12px;text-align:center" colspan="1">
+      <input type="text" inputmode="decimal" value="${cheqVal || ''}" placeholder="0.00"
+        oninput="updBilletesCheque(this.value)" onfocus="this.select()"
+        style="width:100px;text-align:center;background:rgba(245,158,11,0.05);border:0.5px solid var(--amber);border-radius:6px;padding:8px;color:var(--amber);font-family:var(--mono);font-size:15px;outline:none">
+    </td>
+    <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px" id="bill-sub-cheques">
+      ${cheqVal > 0 ? '<span style="color:var(--amber)">L. ' + cheqVal.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'}
+    </td>
+  </tr>`
+
+  tbody.innerHTML = rows
   updateBilletesTotal()
 }
 
 window.updBillete = (denom, val) => {
   billetesConteo[denom] = parseInt(val) || 0
   const sub = billetesConteo[denom] * denom
-  // Actualizar subtotal de esta fila
   const subEl = document.getElementById('bill-sub-' + denom)
   if (subEl) {
     subEl.innerHTML = sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'
+  }
+  updateBilletesTotal()
+}
+
+window.updBilletesCheque = (val) => {
+  billetesChequeMonto = parseFloat(val) || 0
+  const subEl = document.getElementById('bill-sub-cheques')
+  if (subEl) {
+    subEl.innerHTML = billetesChequeMonto > 0
+      ? '<span style="color:var(--amber)">L. ' + billetesChequeMonto.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>'
+      : '<span style="color:var(--text3)">—</span>'
   }
   updateBilletesTotal()
 }
@@ -2738,6 +2921,8 @@ function updateBilletesTotal() {
     totalQty += billetesConteo[d] || 0
     totalMonto += (billetesConteo[d] || 0) * d
   })
+  totalMonto += billetesChequeMonto || 0
+  if (billetesChequeMonto > 0) totalQty += 1 // Count cheques as 1 item
   document.getElementById('bill-total-qty').textContent = totalQty
   document.getElementById('bill-total-monto').textContent = 'L. ' + totalMonto.toLocaleString('es-HN', { minimumFractionDigits: 2 })
 }
@@ -2750,8 +2935,10 @@ window.cancelBilletes = () => {
 window.aplicarBilletes = () => {
   let totalMonto = 0
   DENOMINACIONES.forEach(d => totalMonto += (billetesConteo[d] || 0) * d)
+  totalMonto += billetesChequeMonto || 0
   if (billetesCallback) {
-    billetesCallback(totalMonto, { ...billetesConteo })
+    const detalle = { ...billetesConteo, _cheques: billetesChequeMonto || 0 }
+    billetesCallback(totalMonto, detalle)
   }
   document.getElementById('modal-billetes').classList.remove('open')
   billetesCallback = null
@@ -2809,6 +2996,33 @@ window.verArqueo = async () => {
     </tr>`
   }).join('')
 
+  // Fila de cheques en el arqueo
+  const cheqIng = (conteos || []).filter(c => c.tipo === 'ingreso').reduce((s, c) => s + (parseFloat(c.den_cheques) || 0), 0)
+  const cheqEgr = (conteos || []).filter(c => c.tipo === 'egreso').reduce((s, c) => s + (parseFloat(c.den_cheques) || 0), 0)
+  const cheqEnCaja = cheqIng - cheqEgr
+  totValor += cheqEnCaja
+
+  tbody.innerHTML += `<tr style="border-top:2px solid var(--border)">
+    <td style="padding:8px 12px;font-size:14px;font-weight:500;color:var(--amber)">📄 Cheques</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--green)">${cheqIng > 0 ? 'L. ' + cheqIng.toLocaleString('es-HN',{minimumFractionDigits:2}) : '—'}</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--red)">${cheqEgr > 0 ? 'L. ' + cheqEgr.toLocaleString('es-HN',{minimumFractionDigits:2}) : '—'}</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-weight:500;color:${cheqEnCaja >= 0 ? 'var(--amber)' : 'var(--red)'}">L. ${cheqEnCaja.toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
+    <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:13px;color:var(--amber)">L. ${cheqEnCaja.toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
+  </tr>`
+
+  // Fila de dólares en el arqueo
+  const usdSaldo = tcPromedio.saldo_usd || 0
+  const usdTc = tcPromedio.tc_promedio || 25
+  const usdValorLps = Math.round(usdSaldo * usdTc * 100) / 100
+  totValor += usdValorLps
+
+  tbody.innerHTML += `<tr>
+    <td style="padding:8px 12px;font-size:14px;font-weight:500;color:var(--blue)">💲 Dólares</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--blue);font-weight:500" colspan="2">$ ${usdSaldo.toLocaleString('en-US',{minimumFractionDigits:2})} × TC ${usdTc.toFixed(4)}</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-weight:500;color:var(--blue)">$ ${usdSaldo.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+    <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:13px;color:var(--blue)">L. ${usdValorLps.toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
+  </tr>`
+
   document.getElementById('arq-tot-ing').textContent = totIng
   document.getElementById('arq-tot-egr').textContent = totEgr
   document.getElementById('arq-tot-caja').textContent = totCaja
@@ -2816,6 +3030,347 @@ window.verArqueo = async () => {
 
   document.getElementById('modal-arqueo').classList.add('open')
 }
+
+// ══════════════════════════════════════════════
+// ── CAJA GENERAL — USD Y CHEQUES
+// ══════════════════════════════════════════════
+
+let cajaUsdMoves = []
+let cajaChequesMoves = []
+let tcPromedio = { saldo_usd: 0, saldo_lps: 0, tc_promedio: 25.00 }
+
+async function loadCajaExtras() {
+  // Cargar movimientos USD
+  const { data: usd } = await sb.from('caja_usd').select('*').order('created_at', { ascending: false })
+  cajaUsdMoves = usd || []
+
+  // Cargar TC promedio
+  const { data: tcData } = await sb.from('caja_tc_promedio').select('*').limit(1).single()
+  if (tcData) tcPromedio = tcData
+
+  // Cheques: calcular desde conteo_billetes (den_cheques)
+  const { data: allConteos } = await sb.from('conteo_billetes').select('tipo, den_cheques')
+  let chequesIng = 0, chequesEgr = 0
+  ;(allConteos || []).forEach(c => {
+    const val = parseFloat(c.den_cheques) || 0
+    if (c.tipo === 'ingreso') chequesIng += val
+    else chequesEgr += val
+  })
+  const saldoCheques = chequesIng - chequesEgr
+
+  updateCajaExtrasUI(saldoCheques)
+}
+
+function updateCajaExtrasUI(saldoCheques) {
+  const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fmtL2 = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // USD
+  const saldoUsd = tcPromedio.saldo_usd || 0
+  const equivLps = saldoUsd * (tcPromedio.tc_promedio || 25)
+  const elUsdSaldo = document.getElementById('cj-usd-saldo')
+  const elUsdEquiv = document.getElementById('cj-usd-equiv-lps')
+  const elTcProm = document.getElementById('cj-tc-promedio')
+  if (elUsdSaldo) elUsdSaldo.textContent = `$ ${fmtD(saldoUsd)}`
+  if (elUsdEquiv) elUsdEquiv.textContent = `L. ${fmtL2(equivLps)}`
+  if (elTcProm) elTcProm.textContent = (tcPromedio.tc_promedio || 25).toFixed(4)
+
+  // Cheques
+  const elChqSaldo = document.getElementById('cj-cheques-saldo')
+  if (elChqSaldo) elChqSaldo.textContent = `L. ${fmtL2(saldoCheques || 0)}`
+}
+
+// ── USD: Cambio bidireccional ──
+
+let cambioUsdConteo = {}
+
+window.onCambioDirChange = () => {
+  const dir = document.getElementById('cxusd-dir').value
+  const labelUsd = document.getElementById('cxusd-label-usd')
+  const labelLps = document.getElementById('cxusd-label-lps')
+  if (dir === 'usd_entra') {
+    labelUsd.textContent = 'Dólares que entran'
+    labelLps.textContent = 'Billetes Lps que salen de caja'
+  } else {
+    labelUsd.textContent = 'Dólares que salen'
+    labelLps.textContent = 'Billetes Lps que entran a caja'
+  }
+}
+
+window.openModalCambioUSD = () => {
+  cambioUsdConteo = {}
+  DENOMINACIONES.forEach(d => cambioUsdConteo[d] = 0)
+  document.getElementById('cxusd-dir').value = 'usd_entra'
+  document.getElementById('cxusd-monto').value = ''
+  document.getElementById('cxusd-disp').textContent = `$ ${(tcPromedio.saldo_usd || 0).toFixed(2)}`
+  document.getElementById('cxusd-desc').value = ''
+  document.getElementById('modal-cxusd-error').classList.add('hidden')
+  onCambioDirChange()
+  renderCambioUsdTable()
+  calcCambioUsdTC()
+  document.getElementById('modal-cambio-usd').classList.add('open')
+}
+
+function renderCambioUsdTable() {
+  const tbody = document.getElementById('tbody-cambio-usd')
+  tbody.innerHTML = DENOMINACIONES.slice().reverse().map(d => {
+    const qty = cambioUsdConteo[d] || 0
+    const sub = qty * d
+    return `<tr>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:14px;font-weight:500">L. ${d.toLocaleString('es-HN')}</td>
+      <td style="padding:6px 10px;text-align:center">
+        <input type="text" inputmode="numeric" value="${qty || ''}" placeholder="0"
+          oninput="updCambioUsd(${d},this.value)" onfocus="this.select()"
+          style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:6px;color:var(--text);font-family:var(--mono);font-size:14px;outline:none">
+      </td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:13px;color:${sub > 0 ? 'var(--gold)' : 'var(--text3)'}">
+        ${sub > 0 ? 'L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) : '—'}
+      </td>
+    </tr>`
+  }).join('')
+}
+
+window.updCambioUsd = (denom, val) => {
+  cambioUsdConteo[denom] = parseInt(val) || 0
+  const rows = document.querySelectorAll('#tbl-cambio-usd tbody tr')
+  const denoms = DENOMINACIONES.slice().reverse()
+  rows.forEach((row, i) => {
+    const d = denoms[i]
+    const qty = cambioUsdConteo[d] || 0
+    const sub = qty * d
+    const tdSub = row.querySelector('td:last-child')
+    if (tdSub) tdSub.innerHTML = sub > 0
+      ? `<span style="color:var(--gold)">L. ${sub.toLocaleString('es-HN', {minimumFractionDigits:2})}</span>`
+      : '<span style="color:var(--text3)">—</span>'
+  })
+  calcCambioUsdTC()
+}
+
+window.calcCambioUsdTC = () => {
+  let totalLps = 0, totalQty = 0
+  DENOMINACIONES.forEach(d => {
+    totalLps += (cambioUsdConteo[d] || 0) * d
+    totalQty += cambioUsdConteo[d] || 0
+  })
+  const montoUsd = parseFloat(document.getElementById('cxusd-monto')?.value) || 0
+  const tc = montoUsd > 0 ? totalLps / montoUsd : 0
+
+  document.getElementById('cxusd-tot-qty').textContent = totalQty
+  document.getElementById('cxusd-tot-lps').textContent = 'L. ' + totalLps.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  document.getElementById('cxusd-tc').textContent = tc > 0 ? tc.toFixed(4) : '—'
+  document.getElementById('cxusd-equiv').textContent = 'L. ' + totalLps.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+}
+
+window.ejecutarCambioUSD = async () => {
+  const dir = document.getElementById('cxusd-dir').value
+  const montoUsd = parseFloat(document.getElementById('cxusd-monto').value) || 0
+  const desc = document.getElementById('cxusd-desc').value.trim()
+  const err = document.getElementById('modal-cxusd-error')
+
+  if (montoUsd <= 0) { showError(err, 'Ingresa el monto USD'); return }
+
+  // Validar: si salen dólares, debe haber suficiente
+  if (dir === 'usd_sale' && montoUsd > (tcPromedio.saldo_usd || 0)) {
+    showError(err, `Solo hay $ ${(tcPromedio.saldo_usd || 0).toFixed(2)} en caja`)
+    return
+  }
+
+  let totalLps = 0
+  DENOMINACIONES.forEach(d => totalLps += (cambioUsdConteo[d] || 0) * d)
+  if (totalLps <= 0) { showError(err, 'Contá los billetes del cambio'); return }
+
+  const tc = totalLps / montoUsd
+  const dirLabel = dir === 'usd_entra' ? 'Entran USD / Salen LPS' : 'Salen USD / Entran LPS'
+
+  if (!confirm(`¿Confirmar cambio?\n\n${dirLabel}\n$ ${montoUsd.toFixed(2)} USD ↔ L. ${totalLps.toLocaleString('es-HN',{minimumFractionDigits:2})}\nTC resultante: ${tc.toFixed(4)}`)) return
+
+  // Determinar tipos para USD y billetes
+  const tipoUsd = dir === 'usd_entra' ? 'ingreso' : 'egreso'
+  const tipoBilletes = dir === 'usd_entra' ? 'egreso' : 'ingreso'  // opuesto: si entran USD, salen LPS
+
+  // 1. Registrar movimiento USD
+  await sb.from('caja_usd').insert({
+    tipo: tipoUsd,
+    monto_usd: montoUsd,
+    tipo_cambio: Math.round(tc * 10000) / 10000,
+    monto_lps: totalLps,
+    descripcion: desc || `Cambio $ ${montoUsd.toFixed(2)}`,
+    registrado_por: currentProfile.id
+  })
+
+  // 2. Registrar movimiento de billetes
+  await sb.from('conteo_billetes').insert({
+    partida_id: null,
+    tipo: tipoBilletes,
+    den_500: cambioUsdConteo[500] || 0, den_200: cambioUsdConteo[200] || 0, den_100: cambioUsdConteo[100] || 0,
+    den_50: cambioUsdConteo[50] || 0, den_20: cambioUsdConteo[20] || 0, den_10: cambioUsdConteo[10] || 0,
+    den_5: cambioUsdConteo[5] || 0, den_2: cambioUsdConteo[2] || 0, den_1: cambioUsdConteo[1] || 0,
+    den_cheques: 0,
+    total_billetes: DENOMINACIONES.reduce((s, d) => s + (cambioUsdConteo[d] || 0), 0),
+    total_monto: totalLps,
+    registrado_por: currentProfile.id
+  })
+
+  // 3. Actualizar TC promedio ponderado
+  let newSaldoUsd, newSaldoLps, newTc
+  if (dir === 'usd_entra') {
+    // Entran USD: sumar y recalcular promedio
+    newSaldoUsd = (tcPromedio.saldo_usd || 0) + montoUsd
+    newSaldoLps = (tcPromedio.saldo_lps || 0) + totalLps
+    newTc = newSaldoUsd > 0 ? Math.round((newSaldoLps / newSaldoUsd) * 10000) / 10000 : tc
+  } else {
+    // Salen USD: restar al TC promedio actual
+    const tcActual = tcPromedio.tc_promedio || 25
+    const lpsQueRebaja = montoUsd * tcActual
+    newSaldoUsd = (tcPromedio.saldo_usd || 0) - montoUsd
+    newSaldoLps = (tcPromedio.saldo_lps || 0) - lpsQueRebaja
+    if (newSaldoUsd < 0.01) { newSaldoUsd = 0; newSaldoLps = 0 }
+    newTc = newSaldoUsd > 0.01 ? Math.round((newSaldoLps / newSaldoUsd) * 10000) / 10000 : tcActual
+  }
+
+  await sb.from('caja_tc_promedio').update({
+    saldo_usd: Math.round(newSaldoUsd * 100) / 100,
+    saldo_lps: Math.round(newSaldoLps * 100) / 100,
+    tc_promedio: newTc,
+    updated_at: new Date().toISOString()
+  }).eq('id', tcPromedio.id)
+
+  closeModal('modal-cambio-usd')
+  toast(`Cambio: $ ${montoUsd.toFixed(2)} ↔ L. ${totalLps.toLocaleString('es-HN',{minimumFractionDigits:2})} · TC: ${tc.toFixed(4)}`, 'success')
+  loadCajaExtras()
+  loadCaja()
+}
+
+// ── CHEQUES: Saldo desde partidas contables ──
+// Los cheques se manejan por partidas contra cuentas de chequeras (110103)
+// El saldo se calcula automáticamente en loadCajaExtras
+
+// ── CAMBIO DE DENOMINACIONES LPS ──
+
+let cambioDenomIn = {}
+let cambioDenomOut = {}
+
+window.openModalCambioDenoms = () => {
+  cambioDenomIn = {}
+  cambioDenomOut = {}
+  DENOMINACIONES.forEach(d => { cambioDenomIn[d] = 0; cambioDenomOut[d] = 0 })
+  document.getElementById('modal-cxd-error').classList.add('hidden')
+  renderCambioDenoms()
+  document.getElementById('modal-cambio-denoms').classList.add('open')
+}
+
+function renderCambioDenoms() {
+  const tbody = document.getElementById('tbody-cambio-denoms')
+  tbody.innerHTML = DENOMINACIONES.slice().reverse().map(d => {
+    const inQty = cambioDenomIn[d] || 0
+    const outQty = cambioDenomOut[d] || 0
+    const neto = (inQty - outQty) * d
+    return `<tr data-denom="${d}">
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:14px;font-weight:500">L. ${d.toLocaleString('es-HN')}</td>
+      <td style="padding:6px 10px;text-align:center">
+        <input type="text" inputmode="numeric" value="${inQty || ''}" placeholder="0"
+          oninput="updCambioDenom('in',${d},this.value)" onfocus="this.select()"
+          style="width:70px;text-align:center;background:rgba(16,185,129,0.05);border:0.5px solid var(--green);border-radius:6px;padding:6px;color:var(--green);font-family:var(--mono);font-size:14px;outline:none">
+      </td>
+      <td style="padding:6px 10px;text-align:center">
+        <input type="text" inputmode="numeric" value="${outQty || ''}" placeholder="0"
+          oninput="updCambioDenom('out',${d},this.value)" onfocus="this.select()"
+          style="width:70px;text-align:center;background:rgba(239,68,68,0.05);border:0.5px solid var(--red);border-radius:6px;padding:6px;color:var(--red);font-family:var(--mono);font-size:14px;outline:none">
+      </td>
+      <td class="neto-cell" style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:13px;color:${neto > 0 ? 'var(--green)' : neto < 0 ? 'var(--red)' : 'var(--text3)'}">
+        ${neto !== 0 ? (neto > 0 ? '+' : '') + 'L. ' + neto.toLocaleString('es-HN',{minimumFractionDigits:2}) : '—'}
+      </td>
+    </tr>`
+  }).join('')
+  calcCambioDenomTotals()
+}
+
+window.updCambioDenom = (side, denom, val) => {
+  if (side === 'in') cambioDenomIn[denom] = parseInt(val) || 0
+  else cambioDenomOut[denom] = parseInt(val) || 0
+  // Only update the neto cell for this row, NOT re-render the whole table
+  const row = document.querySelector(`#tbody-cambio-denoms tr[data-denom="${denom}"]`)
+  if (row) {
+    const neto = ((cambioDenomIn[denom] || 0) - (cambioDenomOut[denom] || 0)) * denom
+    const netoCell = row.querySelector('.neto-cell')
+    if (netoCell) {
+      netoCell.style.color = neto > 0 ? 'var(--green)' : neto < 0 ? 'var(--red)' : 'var(--text3)'
+      netoCell.textContent = neto !== 0 ? (neto > 0 ? '+' : '') + 'L. ' + neto.toLocaleString('es-HN',{minimumFractionDigits:2}) : '—'
+    }
+  }
+  calcCambioDenomTotals()
+}
+
+function calcCambioDenomTotals() {
+  let totIn = 0, totOut = 0
+  DENOMINACIONES.forEach(d => {
+    totIn += (cambioDenomIn[d] || 0) * d
+    totOut += (cambioDenomOut[d] || 0) * d
+  })
+  const diff = totIn - totOut
+  document.getElementById('cxd-tot-in').textContent = 'L. ' + totIn.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  document.getElementById('cxd-tot-out').textContent = 'L. ' + totOut.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const diffEl = document.getElementById('cxd-diff')
+  if (Math.abs(diff) < 0.01) {
+    diffEl.textContent = 'Cuadrado ✓'
+    diffEl.style.color = 'var(--green)'
+  } else {
+    diffEl.textContent = `Diferencia: L. ${diff.toLocaleString('es-HN', { minimumFractionDigits: 2 })}`
+    diffEl.style.color = 'var(--red)'
+  }
+}
+
+window.ejecutarCambioDenoms = async () => {
+  const err = document.getElementById('modal-cxd-error')
+  let totIn = 0, totOut = 0
+  DENOMINACIONES.forEach(d => {
+    totIn += (cambioDenomIn[d] || 0) * d
+    totOut += (cambioDenomOut[d] || 0) * d
+  })
+
+  if (totIn <= 0 && totOut <= 0) { showError(err, 'Ingresa cantidades de entrada y salida'); return }
+  if (Math.abs(totIn - totOut) > 0.01) { showError(err, `Entrada (L. ${totIn.toFixed(2)}) y salida (L. ${totOut.toFixed(2)}) deben ser iguales`); return }
+
+  // Registrar ingreso de denominaciones
+  const hasIn = DENOMINACIONES.some(d => cambioDenomIn[d] > 0)
+  const hasOut = DENOMINACIONES.some(d => cambioDenomOut[d] > 0)
+
+  if (hasIn) {
+    await sb.from('conteo_billetes').insert({
+      partida_id: null,
+      tipo: 'ingreso',
+      den_500: cambioDenomIn[500] || 0, den_200: cambioDenomIn[200] || 0, den_100: cambioDenomIn[100] || 0,
+      den_50: cambioDenomIn[50] || 0, den_20: cambioDenomIn[20] || 0, den_10: cambioDenomIn[10] || 0,
+      den_5: cambioDenomIn[5] || 0, den_2: cambioDenomIn[2] || 0, den_1: cambioDenomIn[1] || 0,
+      den_cheques: 0,
+      total_billetes: DENOMINACIONES.reduce((s, d) => s + (cambioDenomIn[d] || 0), 0),
+      total_monto: totIn,
+      registrado_por: currentProfile.id
+    })
+  }
+
+  if (hasOut) {
+    await sb.from('conteo_billetes').insert({
+      partida_id: null,
+      tipo: 'egreso',
+      den_500: cambioDenomOut[500] || 0, den_200: cambioDenomOut[200] || 0, den_100: cambioDenomOut[100] || 0,
+      den_50: cambioDenomOut[50] || 0, den_20: cambioDenomOut[20] || 0, den_10: cambioDenomOut[10] || 0,
+      den_5: cambioDenomOut[5] || 0, den_2: cambioDenomOut[2] || 0, den_1: cambioDenomOut[1] || 0,
+      den_cheques: 0,
+      total_billetes: DENOMINACIONES.reduce((s, d) => s + (cambioDenomOut[d] || 0), 0),
+      total_monto: totOut,
+      registrado_por: currentProfile.id
+    })
+  }
+
+  closeModal('modal-cambio-denoms')
+  toast(`Cambio de denominaciones aplicado · L. ${totIn.toLocaleString('es-HN',{minimumFractionDigits:2})} ✓`, 'success')
+  loadCaja()
+}
+
+// ── CHEQUES: Saldo desde partidas contables ──
+// Los cheques se manejan por partidas contra cuentas de chequeras (110103)
+// El saldo se calcula automáticamente en loadCajaExtras
 
 // ══════════════════════════════════════════════
 // ── IMPORTAR COMPRAS ALPHA (XLS MENSUAL)
@@ -4623,4 +5178,877 @@ window.generarPartidasTaxis = async () => {
 
   btn.disabled = false; btn.textContent = 'Generar partidas →'
   toast(`${creadas} partidas de taxis creadas`, 'ok')
+}
+
+
+// ══════════════════════════════════════════════
+// ── MÓDULO VEHÍCULOS VIN
+// ══════════════════════════════════════════════
+
+let allVehiculos = []
+let filteredVehiculos = []
+let editingVinId = null
+
+async function loadVehiculos() {
+  const tbody = document.getElementById('tbody-vehiculos')
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+
+  const { data, error } = await sb.from('vehiculos_vin')
+    .select('*')
+    .eq('activo', true)
+    .order('propietario')
+    .order('vin')
+
+  if (error) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`
+    return
+  }
+
+  allVehiculos = data || []
+
+  const propSelect = document.getElementById('vin-filtro-prop')
+  if (propSelect) {
+    const props = [...new Set(allVehiculos.map(v => v.propietario))].sort()
+    propSelect.innerHTML = '<option value="">Todos los propietarios</option>' +
+      props.map(p => `<option value="${p}">${p}</option>`).join('')
+  }
+
+  const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const props = new Set(allVehiculos.map(v => v.propietario))
+  const totalCosto = allVehiculos.reduce((s, v) => s + (parseFloat(v.costo_copart) || 0), 0)
+
+  const elTotal = document.getElementById('vin-stat-total')
+  const elProps = document.getElementById('vin-stat-props')
+  const elCosto = document.getElementById('vin-stat-costo')
+  if (elTotal) elTotal.textContent = allVehiculos.length
+  if (elProps) elProps.textContent = props.size
+  if (elCosto) elCosto.textContent = `$${fmtD(totalCosto)}`
+
+  filtrarVehiculos()
+}
+window.loadVehiculos = loadVehiculos
+
+window.filtrarVehiculos = () => {
+  const term = (document.getElementById('vin-buscar')?.value || '').toLowerCase().trim()
+  const propFilter = document.getElementById('vin-filtro-prop')?.value || ''
+
+  filteredVehiculos = allVehiculos.filter(v => {
+    if (propFilter && v.propietario !== propFilter) return false
+    if (term) {
+      const searchable = `${v.vin} ${v.propietario} ${v.marca} ${v.modelo} ${v.anio} ${v.notas || ''}`.toLowerCase()
+      return searchable.includes(term)
+    }
+    return true
+  })
+
+  const elFiltrados = document.getElementById('vin-stat-filtrados')
+  if (elFiltrados) elFiltrados.textContent = filteredVehiculos.length
+
+  renderVehiculosTable()
+}
+
+function renderVehiculosTable() {
+  const tbody = document.getElementById('tbody-vehiculos')
+  if (!tbody) return
+
+  if (!filteredVehiculos.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron vehículos</td></tr>'
+    return
+  }
+
+  const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const esSuperAdmin = currentProfile?.rol === 'super_admin'
+
+  tbody.innerHTML = filteredVehiculos.map(v => {
+    const last4 = v.vin.slice(-4)
+    const fecha = v.fecha_compra ? new Date(v.fecha_compra + 'T12:00:00').toLocaleDateString('es-HN') : '—'
+    return `
+    <tr>
+      <td style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold);letter-spacing:1px">${last4}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${v.vin}</td>
+      <td><span class="badge badge-blue">${v.propietario}</span></td>
+      <td>${v.marca}</td>
+      <td>${v.modelo}</td>
+      <td style="font-family:var(--mono)">${v.anio || '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:500">$${fmtD(v.costo_copart)}</td>
+      <td style="font-size:12px;color:var(--text3)">${fecha}</td>
+      <td style="text-align:center">
+        ${esSuperAdmin ? `
+          <button onclick="editarVehiculo('${v.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
+          <button onclick="eliminarVehiculo('${v.id}','${v.vin}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Eliminar">🗑️</button>
+        ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
+      </td>
+    </tr>`
+  }).join('')
+}
+
+window.openModalVin = () => {
+  editingVinId = null
+  document.getElementById('modal-vin-title').textContent = '🚗 Nuevo vehículo'
+  document.getElementById('btn-guardar-vin').textContent = 'Guardar vehículo'
+  ;['nv-vin','nv-propietario','nv-marca','nv-modelo','nv-anio','nv-costo','nv-fecha','nv-notas'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = ''
+  })
+  document.getElementById('nv-vin').disabled = false
+  document.getElementById('modal-vin-error').classList.add('hidden')
+  document.getElementById('modal-vin').classList.add('open')
+}
+
+window.editarVehiculo = (id) => {
+  const v = allVehiculos.find(x => x.id === id)
+  if (!v) return
+  editingVinId = id
+  document.getElementById('modal-vin-title').textContent = '✏️ Editar vehículo'
+  document.getElementById('btn-guardar-vin').textContent = 'Actualizar vehículo'
+  document.getElementById('nv-vin').value = v.vin
+  document.getElementById('nv-vin').disabled = true
+  document.getElementById('nv-propietario').value = v.propietario
+  document.getElementById('nv-marca').value = v.marca
+  document.getElementById('nv-modelo').value = v.modelo
+  document.getElementById('nv-anio').value = v.anio || ''
+  document.getElementById('nv-costo').value = v.costo_copart || ''
+  document.getElementById('nv-fecha').value = v.fecha_compra || ''
+  document.getElementById('nv-notas').value = v.notas || ''
+  document.getElementById('modal-vin-error').classList.add('hidden')
+  document.getElementById('modal-vin').classList.add('open')
+}
+
+window.guardarVehiculo = async () => {
+  const vin = document.getElementById('nv-vin').value.trim().toUpperCase()
+  const propietario = document.getElementById('nv-propietario').value.trim().toUpperCase()
+  const marca = document.getElementById('nv-marca').value.trim().toUpperCase()
+  const modelo = document.getElementById('nv-modelo').value.trim().toUpperCase()
+  const anio = parseInt(document.getElementById('nv-anio').value) || null
+  const costo = parseFloat(document.getElementById('nv-costo').value) || 0
+  const fecha = document.getElementById('nv-fecha').value || null
+  const notas = document.getElementById('nv-notas').value.trim()
+  const err = document.getElementById('modal-vin-error')
+
+  if (!vin) { showError(err, 'El VIN es obligatorio'); return }
+  if (vin.length < 4) { showError(err, 'El VIN debe tener al menos 4 caracteres'); return }
+  if (!propietario) { showError(err, 'El propietario es obligatorio'); return }
+
+  const btn = document.getElementById('btn-guardar-vin')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
+
+  const payload = { vin, propietario, marca, modelo, anio, costo_copart: costo, fecha_compra: fecha, notas, activo: true }
+
+  let error
+  if (editingVinId) {
+    const { error: e } = await sb.from('vehiculos_vin').update(payload).eq('id', editingVinId)
+    error = e
+  } else {
+    const { error: e } = await sb.from('vehiculos_vin').insert(payload)
+    error = e
+  }
+
+  btn.disabled = false
+  btn.textContent = editingVinId ? 'Actualizar vehículo' : 'Guardar vehículo'
+
+  if (error) {
+    if (error.message.includes('duplicate') || error.message.includes('unique')) {
+      showError(err, 'Ya existe un vehículo con este VIN')
+    } else {
+      showError(err, error.message)
+    }
+    return
+  }
+
+  closeModal('modal-vin')
+  toast(editingVinId ? 'Vehículo actualizado ✓' : 'Vehículo registrado ✓', 'success')
+  editingVinId = null
+  vinCache = null
+  loadVehiculos()
+}
+
+window.eliminarVehiculo = async (id, vin) => {
+  if (!confirm(`¿Eliminar el vehículo VIN ${vin}?\n\nSe marcará como inactivo.`)) return
+  const { error } = await sb.from('vehiculos_vin').update({ activo: false }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast('Vehículo eliminado ✓', 'success')
+  vinCache = null
+  loadVehiculos()
+}
+
+// ── BUSCADOR DE VIN (Modal desde Partidas) ──
+let vinCache = null
+
+async function ensureVinCache() {
+  if (vinCache) return
+  const { data } = await sb.from('vehiculos_vin')
+    .select('vin, propietario, marca, modelo, anio, costo_copart')
+    .eq('activo', true)
+    .order('propietario')
+  vinCache = data || []
+}
+
+window.abrirBuscarVin = async () => {
+  document.getElementById('vin-search-input').value = ''
+  document.getElementById('vin-search-results').innerHTML =
+    '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Escribe al menos 2 caracteres para buscar</div>'
+  document.getElementById('modal-buscar-vin').classList.add('open')
+  await ensureVinCache()
+  setTimeout(() => document.getElementById('vin-search-input').focus(), 200)
+}
+
+window.buscarVinLive = () => {
+  const term = (document.getElementById('vin-search-input')?.value || '').trim().toUpperCase()
+  const container = document.getElementById('vin-search-results')
+
+  if (term.length < 2) {
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Escribe al menos 2 caracteres para buscar</div>'
+    return
+  }
+
+  if (!vinCache) {
+    container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)"><div class="spinner"></div></div>'
+    ensureVinCache().then(() => buscarVinLive())
+    return
+  }
+
+  const results = vinCache.filter(v => v.vin.includes(term) || v.propietario.includes(term))
+  const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  if (!results.length) {
+    container.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">No se encontraron vehículos con "${term}"</div>`
+    return
+  }
+
+  container.innerHTML = `
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">${results.length} resultado(s)</div>
+    <table style="width:100%">
+      <thead><tr>
+        <th style="width:80px">Últimos 4</th>
+        <th>VIN completo</th>
+        <th>Propietario</th>
+        <th>Vehículo</th>
+        <th style="text-align:right">Costo</th>
+      </tr></thead>
+      <tbody>${results.map(v => {
+        const last4 = v.vin.slice(-4)
+        const vinHL = v.vin.replace(new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+          '<span style="background:rgba(250,204,21,0.3);border-radius:2px;padding:0 2px">$1</span>')
+        return `<tr style="cursor:pointer" onclick="seleccionarVinResult('${v.propietario}','${v.vin}')">
+          <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px;text-align:center">${last4}</td>
+          <td style="font-family:var(--mono);font-size:11px;color:var(--text2)">${vinHL}</td>
+          <td><span class="badge badge-blue" style="font-size:12px">${v.propietario}</span></td>
+          <td style="font-size:12px">${v.marca} ${v.modelo} ${v.anio || ''}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:12px">$${fmtD(v.costo_copart)}</td>
+        </tr>`
+      }).join('')}</tbody>
+    </table>`
+}
+
+window.seleccionarVinResult = (propietario, vin) => {
+  const last4 = vin.slice(-4)
+  const descInput = document.getElementById('pn-descripcion')
+  if (descInput) {
+    const current = descInput.value
+    if (current && !current.includes(last4)) {
+      descInput.value = `${current} · VIN ${last4} (${propietario})`
+    } else if (!current) {
+      descInput.value = `Gasto VIN ${last4} (${propietario})`
+    }
+  }
+  toast(`VIN ${last4} → ${propietario}`, 'success')
+  closeModal('modal-buscar-vin')
+}
+
+// ══════════════════════════════════════════════
+// ── MÓDULO UNIDADES TAXIS
+// ══════════════════════════════════════════════
+
+let allUnidades = []
+let filteredUnidades = []
+let editingUnidadId = null
+
+async function loadUnidadesTaxis() {
+  const tbody = document.getElementById('tbody-unidades-taxis')
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+
+  const { data, error } = await sb.from('unidades_taxis').select('*').eq('activo', true).order('registro')
+  if (error) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`
+    return
+  }
+  allUnidades = data || []
+
+  // Poblar filtro propietarios
+  const propSelect = document.getElementById('ut-filtro-prop')
+  if (propSelect) {
+    const props = [...new Set(allUnidades.map(u => u.propietario))].sort()
+    propSelect.innerHTML = '<option value="">Todos los propietarios</option>' + props.map(p => `<option value="${p}">${p}</option>`).join('')
+  }
+
+  // Stats
+  const taxis = allUnidades.filter(u => u.modalidad === 'TAXI').length
+  const vips = allUnidades.filter(u => u.modalidad === 'VIP').length
+  const fins = allUnidades.filter(u => u.financiado).length
+  const socios = allUnidades.filter(u => u.propietario !== 'TAXIS').length
+  const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v }
+  el('ut-stat-total', allUnidades.length)
+  el('ut-stat-taxi', taxis)
+  el('ut-stat-vip', vips)
+  el('ut-stat-fin', fins)
+  el('ut-stat-socios', socios)
+
+  filtrarUnidades()
+}
+window.loadUnidadesTaxis = loadUnidadesTaxis
+
+window.filtrarUnidades = () => {
+  const term = (document.getElementById('ut-buscar')?.value || '').toLowerCase().trim()
+  const propFilter = document.getElementById('ut-filtro-prop')?.value || ''
+  const modFilter = document.getElementById('ut-filtro-mod')?.value || ''
+  const finFilter = document.getElementById('ut-filtro-fin')?.value || ''
+
+  filteredUnidades = allUnidades.filter(u => {
+    if (propFilter && u.propietario !== propFilter) return false
+    if (modFilter && u.modalidad !== modFilter) return false
+    if (finFilter === 'true' && !u.financiado) return false
+    if (finFilter === 'false' && u.financiado) return false
+    if (term) {
+      const searchable = `${u.registro} ${u.propietario} ${u.motorista || ''} ${u.placa || ''} ${u.marca || ''} ${u.modalidad}`.toLowerCase()
+      return searchable.includes(term)
+    }
+    return true
+  })
+  renderUnidadesTable()
+}
+
+function renderUnidadesTable() {
+  const tbody = document.getElementById('tbody-unidades-taxis')
+  if (!tbody) return
+  if (!filteredUnidades.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron unidades</td></tr>'
+    return
+  }
+  const fmtD = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const esSA = currentProfile?.rol === 'super_admin'
+
+  tbody.innerHTML = filteredUnidades.map(u => `
+    <tr>
+      <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px">${u.registro}</td>
+      <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : 'badge-amber'}">${u.modalidad}</span></td>
+      <td>${u.propietario !== 'TAXIS' ? `<span class="badge badge-green">${u.propietario}</span>` : '<span style="color:var(--text3)">TAXIS</span>'}</td>
+      <td style="font-size:13px">${u.motorista || '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${u.financiado ? '<span class="badge badge-red" style="font-size:10px">FINANCIADO</span>' : '<span style="color:var(--text3);font-size:11px">—</span>'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:13px">${u.financiado && u.saldo_prestamo ? 'L. ' + fmtD(u.saldo_prestamo) : '<span style="color:var(--text3)">—</span>'}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${u.placa || '—'}</td>
+      <td style="text-align:center">
+        ${esSA ? `
+          <button onclick="editarUnidad('${u.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
+          <button onclick="desactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Desactivar">🚫</button>
+        ` : '—'}
+      </td>
+    </tr>`).join('')
+}
+
+// Toggle financiado fields visibility
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'nut-financiado') {
+    document.getElementById('nut-campos-fin').style.display = e.target.checked ? 'block' : 'none'
+  }
+})
+
+window.openModalUnidad = () => {
+  editingUnidadId = null
+  document.getElementById('modal-unidad-title').textContent = '🚕 Nueva unidad'
+  document.getElementById('btn-guardar-unidad').textContent = 'Guardar unidad'
+  ;['nut-registro','nut-motorista','nut-placa','nut-marca','nut-anio','nut-color','nut-saldo','nut-tasa','nut-gps','nut-seguro','nut-admin','nut-notas'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = ''
+  })
+  document.getElementById('nut-registro').disabled = false
+  document.getElementById('nut-propietario').value = 'TAXIS'
+  document.getElementById('nut-modalidad').value = 'TAXI'
+  document.getElementById('nut-financiado').checked = false
+  document.getElementById('nut-campos-fin').style.display = 'none'
+  document.getElementById('modal-unidad-error').classList.add('hidden')
+  document.getElementById('modal-unidad-taxi').classList.add('open')
+}
+
+window.editarUnidad = (id) => {
+  const u = allUnidades.find(x => x.id === id)
+  if (!u) return
+  editingUnidadId = id
+  document.getElementById('modal-unidad-title').textContent = `✏️ Editar unidad #${u.registro}`
+  document.getElementById('btn-guardar-unidad').textContent = 'Actualizar unidad'
+  document.getElementById('nut-registro').value = u.registro
+  document.getElementById('nut-registro').disabled = true
+  document.getElementById('nut-modalidad').value = u.modalidad
+  document.getElementById('nut-propietario').value = u.propietario
+  document.getElementById('nut-motorista').value = u.motorista || ''
+  document.getElementById('nut-placa').value = u.placa || ''
+  document.getElementById('nut-marca').value = u.marca || ''
+  document.getElementById('nut-anio').value = u.anio || ''
+  document.getElementById('nut-color').value = u.color || ''
+  document.getElementById('nut-financiado').checked = u.financiado
+  document.getElementById('nut-campos-fin').style.display = u.financiado ? 'block' : 'none'
+  document.getElementById('nut-saldo').value = u.saldo_prestamo || ''
+  document.getElementById('nut-tasa').value = u.tasa_interes || ''
+  document.getElementById('nut-gps').value = u.cuota_gps || ''
+  document.getElementById('nut-seguro').value = u.cuota_seguro || ''
+  document.getElementById('nut-admin').value = u.cuota_administracion || ''
+  document.getElementById('nut-notas').value = u.notas || ''
+  document.getElementById('modal-unidad-error').classList.add('hidden')
+  document.getElementById('modal-unidad-taxi').classList.add('open')
+}
+
+window.guardarUnidad = async () => {
+  const registro = parseInt(document.getElementById('nut-registro').value) || 0
+  const modalidad = document.getElementById('nut-modalidad').value
+  const propietario = document.getElementById('nut-propietario').value.trim().toUpperCase() || 'TAXIS'
+  const motorista = document.getElementById('nut-motorista').value.trim()
+  const placa = document.getElementById('nut-placa').value.trim().toUpperCase()
+  const marca = document.getElementById('nut-marca').value.trim().toUpperCase()
+  const anio = parseInt(document.getElementById('nut-anio').value) || 0
+  const color = document.getElementById('nut-color').value.trim().toUpperCase()
+  const financiado = document.getElementById('nut-financiado').checked
+  const saldo = parseFloat(document.getElementById('nut-saldo').value) || 0
+  const tasa = parseFloat(document.getElementById('nut-tasa').value) || 0
+  const gps = parseFloat(document.getElementById('nut-gps').value) || 0
+  const seguro = parseFloat(document.getElementById('nut-seguro').value) || 0
+  const admin = parseFloat(document.getElementById('nut-admin').value) || 0
+  const notas = document.getElementById('nut-notas').value.trim()
+  const err = document.getElementById('modal-unidad-error')
+
+  if (!registro) { showError(err, 'El número de registro es obligatorio'); return }
+
+  const btn = document.getElementById('btn-guardar-unidad')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
+
+  const payload = {
+    registro, modalidad, propietario, motorista, placa, marca, anio, color,
+    financiado, saldo_prestamo: saldo, tasa_interes: tasa,
+    cuota_gps: gps, cuota_seguro: seguro, cuota_administracion: admin,
+    centro_costo: 'TAXIS', notas, activo: true
+  }
+
+  let error
+  if (editingUnidadId) {
+    const { error: e } = await sb.from('unidades_taxis').update(payload).eq('id', editingUnidadId)
+    error = e
+  } else {
+    const { error: e } = await sb.from('unidades_taxis').insert(payload)
+    error = e
+  }
+
+  btn.disabled = false
+  btn.textContent = editingUnidadId ? 'Actualizar unidad' : 'Guardar unidad'
+
+  if (error) {
+    if (error.message.includes('duplicate') || error.message.includes('unique')) {
+      showError(err, `Ya existe una unidad con registro #${registro}`)
+    } else { showError(err, error.message) }
+    return
+  }
+
+  closeModal('modal-unidad-taxi')
+  toast(editingUnidadId ? `Unidad #${registro} actualizada ✓` : `Unidad #${registro} registrada ✓`, 'success')
+  editingUnidadId = null
+  loadUnidadesTaxis()
+}
+
+window.desactivarUnidad = async (id, registro) => {
+  if (!confirm(`¿Desactivar la unidad #${registro}?\n\nSe marcará como inactiva.`)) return
+  const { error } = await sb.from('unidades_taxis').update({ activo: false }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`Unidad #${registro} desactivada ✓`, 'success')
+  loadUnidadesTaxis()
+}
+
+
+// ══════════════════════════════════════════════
+// ── IMPORTAR FACTURAS TAXIS (XLSX plantel)
+// ══════════════════════════════════════════════
+
+const FACT_TAXIS_CUENTAS = {
+  costo_mercaderia: { codigo: '510101-001', nombre: 'COSTO DE ADQUISICION DE MERCADERIA TECNIMAX' },
+  mano_obra:        { codigo: '410101-004', nombre: 'MANO DE OBRA TAXIS' },
+  factura_taxis:    { codigo: '410301-004', nombre: 'FACTURAS DE TAXIS' },
+  factura_yonker:   { codigo: '410301-002', nombre: 'VENTA YONKER TECNIMAX 2' },
+}
+
+let factTaxisParsed = null  // { dias: [...], alertas: [...] }
+
+// Parsear el prefijo: T_0089, VIP_4361, VIN_8789, TAXI 4361, VIP 8544, VIN 2109
+function parseFactTaxisPrefix(desc) {
+  if (!desc) return null
+  const d = desc.trim()
+
+  // Formatos: T_XXXX, TAXI XXXX, TAXI_XXXX (puede tener coma después del número)
+  let m = d.match(/^T[_\s](\d+)/i) || d.match(/^TAXI[_\s](\d+)/i)
+  if (m) return { tipo: 'TAXI', registro: parseInt(m[1]), rest: d.substring(m[0].length).replace(/^[\s,]+/, '') }
+
+  // VIP_XXXX, VIP XXXX
+  m = d.match(/^VIP[_\s](\d+)/i)
+  if (m) return { tipo: 'VIP', registro: parseInt(m[1]), rest: d.substring(m[0].length).replace(/^[\s,]+/, '') }
+
+  // VIN_XXXX, VIN XXXX (puede traer nombre del dueño después)
+  m = d.match(/^VIN[_\s](\d+)/i)
+  if (m) return { tipo: 'VIN', registro: parseInt(m[1]), rest: d.substring(m[0].length).replace(/^[\s,]+/, '') }
+
+  return null
+}
+
+window.parsearFacturasTaxis = async () => {
+  const fileInput = document.getElementById('ift-file')
+  if (!fileInput.files.length) return
+
+  const file = fileInput.files[0]
+  const data = await file.arrayBuffer()
+  const wb = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false })
+  console.log('[FACT-TAXIS] Total rows:', rows.length)
+  console.log('[FACT-TAXIS] Row 0:', JSON.stringify(rows[0]))
+  console.log('[FACT-TAXIS] Row 1:', JSON.stringify(rows[1]))
+  if (rows.length > 14) console.log('[FACT-TAXIS] Row 14 (resumen):', JSON.stringify(rows[14]))
+
+  // Auto-detect columns by scanning first 20 rows
+  let colFecha = -1, colDesc = -1, colDebito = -1, colCredito = -1
+
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const row = rows[i]
+    if (!row || colDesc >= 0) break
+    for (let j = 0; j < row.length; j++) {
+      const val = row[j]
+      if (val == null || val === '') continue
+      const str = val.toString().trim()
+      // Find the description column (has T_ or VIP_ or TAXI or VIN prefix)
+      if (colDesc < 0 && /^(T[_\s]\d|VIP[_\s]\d|TAXI[_\s]\d|VIN[_\s]\d)/i.test(str)) {
+        colDesc = j
+        // Fecha is the column before desc (if it exists and had a date)
+        if (j > 0) colFecha = j - 1
+        // Debito is column after desc
+        colDebito = j + 1
+        // Credito is 2 columns after desc
+        colCredito = j + 2
+        break
+      }
+    }
+  }
+
+  // Fallback if nothing detected
+  if (colDesc < 0) {
+    colFecha = 0; colDesc = 1; colDebito = 2; colCredito = 3
+  }
+
+  console.log(`[FACT-TAXIS] Detected columns: fecha=${colFecha}, desc=${colDesc}, debito=${colDebito}, credito=${colCredito}`)
+
+  // Cargar tablas de referencia
+  const { data: unidades } = await sb.from('unidades_taxis').select('registro, modalidad, propietario').eq('activo', true)
+  const { data: vins } = await sb.from('vehiculos_vin').select('vin, propietario').eq('activo', true)
+  const unidadesMap = new Map((unidades || []).map(u => [u.registro, u]))
+  const vinsMap = new Map((vins || []).map(v => [v.vin.slice(-4), v]))  // últimos 4 del VIN
+
+  const dias = []     // { fecha, lineas: [...], resumen: [...] }
+  const alertas = []
+  let currentFecha = null
+  let currentLineas = []
+  let currentResumen = []
+
+  function flushDia() {
+    if (currentFecha && (currentLineas.length || currentResumen.length)) {
+      dias.push({ fecha: currentFecha, lineas: [...currentLineas], resumen: [...currentResumen] })
+    }
+    currentLineas = []
+    currentResumen = []
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row) continue
+    const colB = row[colFecha]                        // fecha
+    const colC = (row[colDesc] || '').toString().trim()  // descripción
+    const colD = parseFloat(row[colDebito]) || 0       // monto débito
+    const colE = parseFloat(row[colCredito]) || 0      // monto crédito (resumen)
+
+    if (!colC) continue
+
+    // ¿Hay nueva fecha en colB?
+    if (colB != null && colB !== '') {
+      flushDia()
+      if (colB instanceof Date) {
+        currentFecha = colB.toISOString().split('T')[0]
+      } else if (typeof colB === 'number') {
+        // Excel serial date → JS Date (SheetJS sin cellDates)
+        const d = new Date(Math.round((colB - 25569) * 86400 * 1000))
+        currentFecha = d.toISOString().split('T')[0]
+      } else if (typeof colB === 'string' && colB.includes('-')) {
+        currentFecha = colB.split('T')[0]
+      } else {
+        // Try parsing as string date
+        const d = new Date(colB)
+        if (!isNaN(d.getTime())) currentFecha = d.toISOString().split('T')[0]
+      }
+    }
+
+    // Líneas de resumen (tienen monto en colE)
+    if (colE > 0 && (colC === 'MANO DE OBRA' || colC.startsWith('FACTURAS DE'))) {
+      currentResumen.push({ concepto: colC, monto: colE })
+      continue
+    }
+
+    // Líneas de detalle (tienen monto en colD)
+    if (colD > 0 && currentFecha) {
+      const parsed = parseFactTaxisPrefix(colC)
+      if (!parsed) {
+        alertas.push({ fecha: currentFecha, desc: colC, msg: 'No se pudo parsear el prefijo' })
+        continue
+      }
+
+      const esManoObra = /MANO DE OBRA/i.test(colC)
+      let propietario = ''
+      let centroCosto = 'TAXIS'
+      let estado = 'ok'
+
+      if (parsed.tipo === 'TAXI' || parsed.tipo === 'VIP') {
+        const unidad = unidadesMap.get(parsed.registro)
+        if (unidad) {
+          propietario = unidad.propietario
+        } else {
+          estado = 'alerta'
+          alertas.push({ fecha: currentFecha, desc: colC, msg: `Registro #${parsed.registro} no encontrado en unidades_taxis` })
+        }
+      } else if (parsed.tipo === 'VIN') {
+        // Buscar en vehiculos_vin por últimos 4 dígitos
+        const regStr = parsed.registro.toString()
+        const vinMatch = vinsMap.get(regStr.padStart(4, '0')) || vinsMap.get(regStr)
+        if (vinMatch) {
+          propietario = vinMatch.propietario
+        } else {
+          // Intentar extraer nombre del texto (VIN 2109 AUTOLOTE SENSOR...)
+          const restWords = parsed.rest.split(/\s+/)
+          // El primer word podría ser el nombre del dueño si no es un repuesto común
+          const posibleNombre = restWords[0] || ''
+          if (posibleNombre && !/^(ACEITE|SENSOR|BOBINA|FILTRO|BOMBA|SOPORTE|BALINERA|BUJE|FRICCI)/i.test(posibleNombre)) {
+            propietario = posibleNombre.toUpperCase()
+          }
+          estado = 'alerta'
+          alertas.push({ fecha: currentFecha, desc: colC, msg: `VIN ${parsed.registro} no encontrado en vehiculos_vin (propietario inferido: ${propietario || '?'})` })
+        }
+      }
+
+      currentLineas.push({
+        fecha: currentFecha,
+        tipo_unidad: parsed.tipo,
+        registro: parsed.registro,
+        propietario,
+        centro_costo: centroCosto,
+        descripcion: colC,
+        es_mano_obra: esManoObra,
+        monto: colD,
+        estado
+      })
+    }
+  }
+  flushDia()
+
+  factTaxisParsed = { dias, alertas }
+
+  // Stats
+  const totalLineas = dias.reduce((s, d) => s + d.lineas.length, 0)
+  const totalMO = dias.reduce((s, d) => s + d.resumen.filter(r => r.concepto === 'MANO DE OBRA').reduce((s2, r) => s2 + r.monto, 0), 0)
+  const totalFact = dias.reduce((s, d) => s + d.resumen.filter(r => r.concepto.startsWith('FACTURAS')).reduce((s2, r) => s2 + r.monto, 0), 0)
+
+  document.getElementById('ift-stat-dias').textContent = dias.length
+  document.getElementById('ift-stat-lineas').textContent = totalLineas
+  document.getElementById('ift-stat-mo').textContent = 'L. ' + totalMO.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  document.getElementById('ift-stat-fact').textContent = 'L. ' + totalFact.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  document.getElementById('ift-stat-alerts').textContent = alertas.length
+
+  // Alertas
+  const alertsEl = document.getElementById('ift-alerts')
+  if (alertas.length) {
+    alertsEl.innerHTML = `<div style="background:rgba(239,68,68,0.08);border:1px solid var(--red);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+      <div style="font-weight:600;color:var(--red);margin-bottom:8px">⚠️ ${alertas.length} alerta(s) encontradas</div>
+      ${alertas.map(a => `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">
+        <span style="color:var(--text3)">${a.fecha}</span> · <b>${a.desc}</b> → ${a.msg}
+      </div>`).join('')}
+    </div>`
+  } else {
+    alertsEl.innerHTML = '<div style="background:rgba(16,185,129,0.08);border:1px solid var(--green);border-radius:var(--radius);padding:12px;color:var(--green);font-size:13px">✅ Todas las unidades fueron validadas correctamente</div>'
+  }
+
+  // Preview table
+  const fmtL = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const tbody = document.getElementById('tbody-ift-preview')
+  let html = ''
+  dias.forEach(dia => {
+    // Header del día
+    html += `<tr style="background:var(--bg3)"><td colspan="7" style="padding:10px 14px;font-weight:600;color:var(--gold)">${dia.fecha} · ${dia.lineas.length} líneas</td></tr>`
+    dia.lineas.forEach(l => {
+      const color = l.estado === 'alerta' ? 'rgba(239,68,68,0.06)' : ''
+      html += `<tr style="${color ? 'background:'+color : ''}">
+        <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${l.fecha}</td>
+        <td><span class="badge ${l.tipo_unidad === 'VIP' ? 'badge-blue' : l.tipo_unidad === 'VIN' ? 'badge-green' : 'badge-amber'}">${l.tipo_unidad}</span></td>
+        <td style="font-family:var(--mono);font-weight:600;color:var(--gold)">${l.registro}</td>
+        <td style="font-size:12px">${l.propietario || '—'}</td>
+        <td style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.descripcion}">${l.es_mano_obra ? '🔧 ' : ''}${l.descripcion}</td>
+        <td style="text-align:right;font-family:var(--mono);font-size:13px">L. ${fmtL(l.monto)}</td>
+        <td>${l.estado === 'alerta' ? '<span class="badge badge-red">⚠️</span>' : '<span style="color:var(--green)">✓</span>'}</td>
+      </tr>`
+    })
+    // Resumen del día
+    dia.resumen.forEach(r => {
+      html += `<tr style="background:var(--bg2);border-top:1px solid var(--border)">
+        <td></td><td colspan="4" style="text-align:right;font-weight:500;font-size:13px">${r.concepto}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600;color:var(--green)">L. ${fmtL(r.monto)}</td>
+        <td></td>
+      </tr>`
+    })
+  })
+  tbody.innerHTML = html
+  document.getElementById('ift-preview').classList.remove('hidden')
+}
+
+window.importarFacturasTaxis = async () => {
+  if (!factTaxisParsed || !factTaxisParsed.dias.length) { toast('No hay datos para importar', 'error'); return }
+
+  const btn = document.getElementById('btn-importar-ft')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Importando...'
+
+  const lote = new Date().toISOString().split('T')[0] + '_' + Date.now()
+  const { dias } = factTaxisParsed
+  let partidasCreadas = 0
+
+  // Obtener cuentas del catálogo
+  const getCuenta = (codigo) => (window.catalogoCuentas || []).find(c => c.codigo === codigo)
+  const ctaCosto = getCuenta(FACT_TAXIS_CUENTAS.costo_mercaderia.codigo)
+  const ctaMO = getCuenta(FACT_TAXIS_CUENTAS.mano_obra.codigo)
+  const ctaFactTaxis = getCuenta(FACT_TAXIS_CUENTAS.factura_taxis.codigo)
+  const ctaFactYonker = getCuenta(FACT_TAXIS_CUENTAS.factura_yonker.codigo)
+
+  console.log('[FACT-TAXIS] Cuentas:', { ctaCosto: ctaCosto?.codigo, ctaMO: ctaMO?.codigo, ctaFactTaxis: ctaFactTaxis?.codigo, ctaFactYonker: ctaFactYonker?.codigo })
+  console.log('[FACT-TAXIS] catalogoCuentas length:', (window.catalogoCuentas || []).length)
+
+  if (!ctaCosto) { toast('Cuenta 510101-001 no encontrada en el catálogo', 'error'); btn.disabled = false; btn.textContent = 'Importar y generar partidas →'; return }
+
+  // Obtener centro de costo TAXIS
+  const centroTaxis = empresas.find(e => e.nombre.toUpperCase().includes('TAXI'))
+  console.log('[FACT-TAXIS] Centro taxis:', centroTaxis?.id, centroTaxis?.nombre)
+  console.log('[FACT-TAXIS] Días a procesar:', dias.length)
+
+  for (const dia of dias) {
+    console.log(`[FACT-TAXIS] Procesando día ${dia.fecha}: ${dia.lineas.length} líneas, ${dia.resumen.length} resumen`)
+    if (!dia.lineas.length) { console.log('[FACT-TAXIS] Día sin líneas, saltando'); continue }
+
+    // Obtener siguiente número de partida
+    const { data: lastP } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+    const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+
+    const totalDebitos = dia.lineas.reduce((s, l) => s + l.monto, 0)
+    const totalMO = dia.resumen.filter(r => r.concepto === 'MANO DE OBRA').reduce((s, r) => s + r.monto, 0)
+    const factTaxi = dia.resumen.filter(r => r.concepto === 'FACTURAS DE TAXIS').reduce((s, r) => s + r.monto, 0)
+    const factYonker = dia.resumen.filter(r => r.concepto === 'FACTURAS DE YONKER').reduce((s, r) => s + r.monto, 0)
+
+    // Crear partida
+    const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+      numero_partida: numPartida,
+      fecha_partida: dia.fecha,
+      descripcion: `Facturas taxis ${dia.fecha} · ${dia.lineas.length} líneas · L. ${totalDebitos.toFixed(2)} [IMP-FACT-TAXIS]`,
+      estado: 'borrador',
+      tipo_origen: 'IMP-FACT-TAXIS',
+      generada_por: currentProfile.id,
+      centro_costo_id: centroTaxis?.id || null,
+      total: Math.round(totalDebitos * 100) / 100
+    }).select().single()
+
+    if (pErr) { console.error('[FACT-TAXIS] Error creando partida:', pErr.message); continue }
+    console.log(`[FACT-TAXIS] Partida #${numPartida} creada: ${partida.id}`)
+
+    // Líneas de débito (una por cada línea de factura → cuenta costo mercadería)
+    const lineasPartida = dia.lineas.map(l => ({
+      partida_id: partida.id,
+      tipo: 'debito',
+      cuenta_id: ctaCosto?.id || null,
+      cuenta_codigo: FACT_TAXIS_CUENTAS.costo_mercaderia.codigo,
+      cuenta_nombre: FACT_TAXIS_CUENTAS.costo_mercaderia.nombre,
+      monto: l.monto,
+      descripcion: l.descripcion,
+      centro_costo_id: centroTaxis?.id || null,
+      aplica_fiscal: true
+    }))
+
+    // Líneas de crédito (resumen)
+    if (totalMO > 0) {
+      lineasPartida.push({
+        partida_id: partida.id,
+        tipo: 'credito',
+        cuenta_id: ctaMO?.id || null,
+        cuenta_codigo: FACT_TAXIS_CUENTAS.mano_obra.codigo,
+        cuenta_nombre: FACT_TAXIS_CUENTAS.mano_obra.nombre,
+        monto: totalMO,
+        descripcion: `Mano de obra taxis ${dia.fecha}`,
+        centro_costo_id: centroTaxis?.id || null,
+        aplica_fiscal: true
+      })
+    }
+
+    if (factTaxi > 0) {
+      lineasPartida.push({
+        partida_id: partida.id,
+        tipo: 'credito',
+        cuenta_id: ctaFactTaxis?.id || null,
+        cuenta_codigo: FACT_TAXIS_CUENTAS.factura_taxis.codigo,
+        cuenta_nombre: FACT_TAXIS_CUENTAS.factura_taxis.nombre,
+        monto: factTaxi,
+        descripcion: `Facturas de taxis ${dia.fecha}`,
+        centro_costo_id: centroTaxis?.id || null,
+        aplica_fiscal: true
+      })
+    }
+
+    if (factYonker > 0) {
+      lineasPartida.push({
+        partida_id: partida.id,
+        tipo: 'credito',
+        cuenta_id: ctaFactYonker?.id || null,
+        cuenta_codigo: FACT_TAXIS_CUENTAS.factura_yonker.codigo,
+        cuenta_nombre: FACT_TAXIS_CUENTAS.factura_yonker.nombre,
+        monto: factYonker,
+        descripcion: `Facturas de yonker ${dia.fecha}`,
+        centro_costo_id: centroTaxis?.id || null,
+        aplica_fiscal: true
+      })
+    }
+
+    const { error: linErr } = await sb.from('lineas_partida').insert(lineasPartida)
+    if (linErr) console.error('[FACT-TAXIS] Error insertando líneas:', linErr.message)
+    else console.log(`[FACT-TAXIS] ${lineasPartida.length} líneas insertadas`)
+
+    // Guardar detalle en facturas_taxis
+    const detalleRows = dia.lineas.map(l => ({
+      fecha: l.fecha,
+      tipo_unidad: l.tipo_unidad,
+      registro: l.registro,
+      propietario: l.propietario,
+      centro_costo: l.centro_costo,
+      descripcion: l.descripcion,
+      es_mano_obra: l.es_mano_obra,
+      monto: l.monto,
+      lote_importacion: lote,
+      partida_id: partida.id
+    }))
+    await sb.from('facturas_taxis').insert(detalleRows)
+
+    // Guardar resumen
+    const resumenRows = dia.resumen.map(r => ({
+      fecha: dia.fecha,
+      concepto: r.concepto,
+      monto: r.monto,
+      lote_importacion: lote,
+      partida_id: partida.id
+    }))
+    if (resumenRows.length) await sb.from('facturas_taxis_resumen').insert(resumenRows)
+
+    partidasCreadas++
+  }
+
+  btn.disabled = false; btn.textContent = 'Importar y generar partidas →'
+  toast(`${partidasCreadas} partida(s) creadas desde facturas taxis ✓`, 'success')
+  factTaxisParsed = null
+  document.getElementById('ift-file').value = ''
+  document.getElementById('ift-preview').classList.add('hidden')
 }

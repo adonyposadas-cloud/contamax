@@ -80,6 +80,12 @@
           <span class="nav-dot"></span>Aprobaciones
           <span class="nav-badge hidden" id="badge-aprobaciones">0</span>
         </div>
+        <div class="nav-item hidden" id="nav-vehiculos" onclick="showView('vehiculos','Registro de vehículos (VIN)')">
+          <span class="nav-dot"></span>Vehículos VIN
+        </div>
+        <div class="nav-item hidden" id="nav-unidades-taxis" onclick="showView('unidades-taxis','Unidades de Taxis')">
+          <span class="nav-dot"></span>Unidades Taxis
+        </div>
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
@@ -107,6 +113,9 @@
           </div>
           <div class="nav-item" id="nav-importar-costos" onclick="showView('importar-costos','Importar costos Alpha')">
             <span class="nav-dot"></span>Costos Alpha
+          </div>
+          <div class="nav-item hidden" id="nav-importar-fact-taxis" onclick="showView('importar-fact-taxis','Importar facturas Taxis')">
+            <span class="nav-dot"></span>Facturas Taxis
           </div>
           <div class="nav-item" id="nav-importar-taxis" onclick="showView('importar-taxis','Importar entregas Taxis')">
             <span class="nav-dot"></span>Entregas Taxis
@@ -149,7 +158,7 @@
           <div class="stat-card"><div class="stat-num" id="stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-activos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Activos</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-roles">4</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Roles</div></div>
-          <div class="stat-card"><div class="stat-num">4</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Centros costo</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-centros">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Centros costo</div></div>
         </div>
         <div class="table-wrap">
           <div class="table-header">
@@ -166,6 +175,38 @@
               <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- CENTROS DE COSTO -->
+        <div style="margin-top:32px">
+          <div class="page-header">
+            <div>
+              <div class="page-title" style="font-size:18px">🏢 Centros de costo</div>
+              <div class="page-sub">Empresas y sucursales del grupo</div>
+            </div>
+            <button class="btn btn-gold" id="btn-nuevo-centro" onclick="openModalCentro()">+ Nuevo centro</button>
+          </div>
+          <div class="table-wrap">
+            <div class="table-header">
+              <span class="table-title">Centros registrados</span>
+              <button class="btn btn-ghost" onclick="loadCentrosCosto()" style="padding:6px 12px;font-size:12px">↻ Actualizar</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Código</th>
+                  <th>Nombre</th>
+                  <th>Tipo</th>
+                  <th>Estado</th>
+                  <th>Creado</th>
+                  <th style="width:80px;text-align:center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-centros">
+                <tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text3)"><div class="spinner"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -435,6 +476,7 @@
             <span>Líneas del asiento</span>
             <div style="display:flex;align-items:center;gap:16px">
               <span id="pn-balance" style="font-family:var(--mono);font-size:13px;color:var(--green)">Cuadrada: L. 0.00</span>
+              <button class="btn btn-ghost" onclick="abrirBuscarVin()" style="padding:5px 12px;font-size:12px;border-color:var(--blue);color:var(--blue)">🔍 Buscar VIN</button>
               <button class="btn btn-ghost" onclick="addLinea()" style="padding:5px 12px;font-size:12px">+ Línea</button>
             </div>
           </div>
@@ -478,10 +520,10 @@
           </div>
           <button class="btn btn-ghost" onclick="loadCaja()">↻ Actualizar</button>
         </div>
-        <!-- SALDO ACUMULADO -->
-        <div style="background:var(--bg2);border:1px solid var(--gold);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+        <!-- SALDO ACUMULADO LEMPIRAS -->
+        <div style="background:var(--bg2);border:1px solid var(--gold);border-radius:var(--radius-lg);padding:20px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
           <div>
-            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Saldo acumulado en caja</div>
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">💵 Efectivo Lempiras</div>
             <div style="font-size:28px;font-family:var(--mono);font-weight:500;margin-top:4px" id="cj-saldo">—</div>
           </div>
           <div style="display:flex;gap:20px;align-items:center">
@@ -494,6 +536,34 @@
               <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Total egresos</div>
             </div>
             <button class="btn btn-ghost" onclick="verArqueo()" style="padding:8px 14px;font-size:12px">📊 Ver arqueo</button>
+            <button class="btn btn-ghost" onclick="openModalCambioDenoms()" style="padding:8px 14px;font-size:12px;border-color:var(--amber);color:var(--amber)">🔄 Cambio</button>
+          </div>
+        </div>
+        <!-- SALDO USD + CHEQUES -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <!-- USD -->
+          <div style="background:var(--bg2);border:1px solid var(--blue);border-radius:var(--radius-lg);padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">💲 Dólares en caja</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-ghost" onclick="openModalCambioUSD()" style="padding:4px 10px;font-size:11px;border-color:var(--gold);color:var(--gold)">💱 Cambio</button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:baseline;gap:12px">
+              <div style="font-size:24px;font-family:var(--mono);font-weight:500;color:var(--blue)" id="cj-usd-saldo">$ 0.00</div>
+              <div style="font-size:12px;color:var(--text3)">≈ <span id="cj-usd-equiv-lps" style="font-family:var(--mono)">L. 0.00</span></div>
+            </div>
+            <div style="margin-top:6px;font-size:11px;color:var(--text3)">
+              TC promedio: <span style="font-family:var(--mono);color:var(--gold)" id="cj-tc-promedio">25.00</span>
+            </div>
+          </div>
+          <!-- CHEQUES -->
+          <div style="background:var(--bg2);border:1px solid var(--amber);border-radius:var(--radius-lg);padding:16px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">📄 Cheques en caja</div>
+            <div style="font-size:24px;font-family:var(--mono);font-weight:500;color:var(--amber)" id="cj-cheques-saldo">L. 0.00</div>
+            <div style="margin-top:6px;font-size:11px;color:var(--text3)">
+              Saldo de cheques según partidas contables
+            </div>
           </div>
         </div>
         <!-- STATS POR FECHA -->
@@ -1084,6 +1154,157 @@
         </div>
       </div>
 
+      <!-- IMPORTAR FACTURAS TAXIS -->
+      <div class="view" id="view-importar-fact-taxis">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🔧 Importar facturas Taxis</div>
+            <div class="page-sub">Carga el Excel de facturas del plantel para generar partidas por día</div>
+          </div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;margin-bottom:20px">
+          <div class="fld" style="margin-bottom:16px">
+            <label>Archivo Excel de facturas taxis</label>
+            <input type="file" id="ift-file" accept=".xlsx,.xls" onchange="parsearFacturasTaxis()" style="padding:10px">
+          </div>
+          <div id="ift-preview" class="hidden">
+            <div id="ift-alerts" style="margin-bottom:12px"></div>
+            <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+              <div class="stat-card"><div class="stat-num" id="ift-stat-dias">—</div><div class="stat-label">Días</div></div>
+              <div class="stat-card"><div class="stat-num" id="ift-stat-lineas">—</div><div class="stat-label">Líneas</div></div>
+              <div class="stat-card"><div class="stat-num" id="ift-stat-mo">—</div><div class="stat-label">Mano obra</div></div>
+              <div class="stat-card"><div class="stat-num" id="ift-stat-fact">—</div><div class="stat-label">Facturas</div></div>
+              <div class="stat-card"><div class="stat-num" id="ift-stat-alerts">0</div><div class="stat-label">⚠️ Alertas</div></div>
+            </div>
+            <div class="table-wrap" style="max-height:500px;overflow-y:auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Registro</th>
+                    <th>Propietario</th>
+                    <th>Descripción</th>
+                    <th style="text-align:right">Monto</th>
+                    <th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-ift-preview"></tbody>
+              </table>
+            </div>
+            <div class="modal-actions" style="margin-top:16px">
+              <button class="btn btn-ghost" onclick="document.getElementById('ift-file').value='';document.getElementById('ift-preview').classList.add('hidden')">Cancelar</button>
+              <button class="btn btn-gold" id="btn-importar-ft" onclick="importarFacturasTaxis()">Importar y generar partidas →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- UNIDADES TAXIS -->
+      <div class="view" id="view-unidades-taxis">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🚕 Unidades de Taxis</div>
+            <div class="page-sub">Registro y administración de unidades en operación</div>
+          </div>
+          <button class="btn btn-gold" id="btn-nueva-unidad" onclick="openModalUnidad()">+ Nueva unidad</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="ut-buscar" placeholder="Buscar por registro, propietario, motorista..." oninput="filtrarUnidades()" style="flex:1;min-width:220px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+          <select id="ut-filtro-prop" onchange="filtrarUnidades()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:170px">
+            <option value="">Todos los propietarios</option>
+          </select>
+          <select id="ut-filtro-mod" onchange="filtrarUnidades()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:130px">
+            <option value="">Todas</option>
+            <option value="TAXI">Taxi</option>
+            <option value="VIP">VIP</option>
+          </select>
+          <select id="ut-filtro-fin" onchange="filtrarUnidades()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:160px">
+            <option value="">Todos</option>
+            <option value="true">Financiados</option>
+            <option value="false">Sin financiamiento</option>
+          </select>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+          <div class="stat-card"><div class="stat-num" id="ut-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total unidades</div></div>
+          <div class="stat-card"><div class="stat-num" id="ut-stat-taxi">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Taxis</div></div>
+          <div class="stat-card"><div class="stat-num" id="ut-stat-vip">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>VIP</div></div>
+          <div class="stat-card"><div class="stat-num" id="ut-stat-fin">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Financiados</div></div>
+          <div class="stat-card"><div class="stat-num" id="ut-stat-socios">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>De socios</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Inventario de unidades</span>
+            <button class="btn btn-ghost" onclick="loadUnidadesTaxis()" style="padding:6px 12px;font-size:12px">↻ Actualizar</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Registro</th>
+                <th>Modalidad</th>
+                <th>Propietario</th>
+                <th>Motorista</th>
+                <th>Financiado</th>
+                <th style="text-align:right">Saldo préstamo</th>
+                <th>Placa</th>
+                <th style="width:70px;text-align:center">Acc.</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-unidades-taxis">
+              <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VEHÍCULOS VIN -->
+      <div class="view" id="view-vehiculos">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🚗 Registro de vehículos (VIN)</div>
+            <div class="page-sub">Consulta y administración de unidades por propietario</div>
+          </div>
+          <button class="btn btn-gold" id="btn-nuevo-vin" onclick="openModalVin()">+ Nuevo vehículo</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="vin-buscar" placeholder="Buscar por VIN, propietario, marca o modelo..." oninput="filtrarVehiculos()" style="flex:1;min-width:220px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+          <select id="vin-filtro-prop" onchange="filtrarVehiculos()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:200px">
+            <option value="">Todos los propietarios</option>
+          </select>
+          <button class="btn btn-ghost" onclick="loadVehiculos()" style="padding:8px 14px;font-size:12px">↻ Actualizar</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="stat-card"><div class="stat-num" id="vin-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total vehículos</div></div>
+          <div class="stat-card"><div class="stat-num" id="vin-stat-props">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Propietarios</div></div>
+          <div class="stat-card"><div class="stat-num" id="vin-stat-costo">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Costo total</div></div>
+          <div class="stat-card"><div class="stat-num" id="vin-stat-filtrados">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Mostrando</div></div>
+        </div>
+        <div class="table-wrap">
+          <div class="table-header">
+            <span class="table-title">Inventario de vehículos</span>
+            <span id="vin-count" style="font-size:11px;color:var(--text3)"></span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>VIN (últimos 4)</th>
+                <th>VIN completo</th>
+                <th>Propietario</th>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Año</th>
+                <th style="text-align:right">Costo Copart</th>
+                <th>Fecha compra</th>
+                <th style="width:70px;text-align:center">Acc.</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-vehiculos">
+              <tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div><!-- /content -->
   </div><!-- /layout -->
 </div><!-- /main-screen -->
@@ -1105,6 +1326,36 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
+
+<!-- MODAL NUEVO/EDITAR CENTRO DE COSTO -->
+<div class="modal-backdrop" id="modal-centro">
+  <div class="modal" style="width:500px">
+    <div class="modal-title" id="modal-centro-title">🏢 Nuevo centro de costo</div>
+    <div class="form-grid" style="gap:14px">
+      <div class="fld">
+        <label>Código</label>
+        <input type="text" id="ncc-codigo" placeholder="Ej: TC, YK, ADM" style="text-transform:uppercase">
+      </div>
+      <div class="fld">
+        <label>Nombre</label>
+        <input type="text" id="ncc-nombre" placeholder="Ej: Tecnicentro Comayagüela">
+      </div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="ncc-corporativo" style="width:auto;accent-color:var(--gold)">
+        <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">Es centro corporativo (no aparece en selects de operación)</label>
+      </div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="ncc-privado" style="width:auto;accent-color:var(--red)">
+        <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">🔒 Centro privado — reportes detallados solo para Super Admin</label>
+      </div>
+    </div>
+    <div id="modal-centro-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-centro')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-centro" onclick="guardarCentro()">Crear centro</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL NUEVO USUARIO -->
 <div class="modal-backdrop" id="modal-usuario">
@@ -1143,6 +1394,177 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-usuario')">Cancelar</button>
       <button class="btn btn-gold" id="btn-crear-usuario" onclick="crearUsuario()">Crear usuario</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NUEVA/EDITAR UNIDAD TAXI -->
+<div class="modal-backdrop" id="modal-unidad-taxi">
+  <div class="modal" style="width:600px">
+    <div class="modal-title" id="modal-unidad-title">🚕 Nueva unidad</div>
+    <div class="form-grid" style="gap:14px">
+      <div class="fld">
+        <label>N° Registro</label>
+        <input type="number" id="nut-registro" placeholder="Ej: 1247">
+      </div>
+      <div class="fld">
+        <label>Modalidad</label>
+        <select id="nut-modalidad">
+          <option value="TAXI">Taxi</option>
+          <option value="VIP">VIP</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Propietario</label>
+        <input type="text" id="nut-propietario" placeholder="TAXIS" style="text-transform:uppercase" value="TAXIS">
+      </div>
+      <div class="fld">
+        <label>Motorista</label>
+        <input type="text" id="nut-motorista" placeholder="Nombre del motorista">
+      </div>
+      <div class="fld">
+        <label>Placa</label>
+        <input type="text" id="nut-placa" placeholder="AAA-0000" style="text-transform:uppercase">
+      </div>
+      <div class="fld">
+        <label>Marca / Modelo</label>
+        <input type="text" id="nut-marca" placeholder="Ej: TOYOTA YARIS" style="text-transform:uppercase">
+      </div>
+      <div class="fld">
+        <label>Año</label>
+        <input type="number" id="nut-anio" placeholder="2020" min="1990" max="2030">
+      </div>
+      <div class="fld">
+        <label>Color</label>
+        <input type="text" id="nut-color" placeholder="Ej: BLANCO">
+      </div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="nut-financiado" style="width:auto;accent-color:var(--red)">
+        <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">Unidad financiada (préstamo activo)</label>
+      </div>
+      <div id="nut-campos-fin" class="col-full" style="display:none">
+        <div style="border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--bg3)">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:500">Datos de financiamiento</div>
+          <div class="form-grid" style="gap:10px">
+            <div class="fld">
+              <label>Saldo préstamo</label>
+              <input type="number" id="nut-saldo" placeholder="0.00" step="0.01">
+            </div>
+            <div class="fld">
+              <label>Tasa interés mensual (%)</label>
+              <input type="number" id="nut-tasa" placeholder="0.00" step="0.01">
+            </div>
+            <div class="fld">
+              <label>Cuota GPS</label>
+              <input type="number" id="nut-gps" placeholder="0.00" step="0.01">
+            </div>
+            <div class="fld">
+              <label>Cuota seguro</label>
+              <input type="number" id="nut-seguro" placeholder="0.00" step="0.01">
+            </div>
+            <div class="fld col-full">
+              <label>Cuota administración</label>
+              <input type="number" id="nut-admin" placeholder="0.00" step="0.01">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fld col-full">
+        <label>Notas</label>
+        <input type="text" id="nut-notas" placeholder="Observaciones...">
+      </div>
+    </div>
+    <div id="modal-unidad-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-unidad-taxi')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-unidad" onclick="guardarUnidad()">Guardar unidad</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CAMBIO USD ↔ LPS (bidireccional, con denominaciones) -->
+<div class="modal-backdrop" id="modal-cambio-usd">
+  <div class="modal" style="width:580px">
+    <div class="modal-title">💱 Cambio USD ↔ Lempiras</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Registrá un cambio de dólares. El TC se calcula automáticamente.</div>
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">Dirección del cambio</label>
+      <select id="cxusd-dir" onchange="onCambioDirChange()" style="margin-top:6px;width:100%;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+        <option value="usd_entra">💵→ Entran dólares · Salen lempiras</option>
+        <option value="usd_sale">←💵 Salen dólares · Entran lempiras</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;text-align:center">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px" id="cxusd-label-usd">Dólares que entran</div>
+        <div style="margin-top:6px"><input type="number" id="cxusd-monto" placeholder="0.00" step="0.01" oninput="calcCambioUsdTC()" style="font-size:20px;text-align:center;font-family:var(--mono);color:var(--blue);font-weight:600;width:100%"></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">En caja: <span id="cxusd-disp" style="font-family:var(--mono);color:var(--blue)">$ 0.00</span></div>
+      </div>
+      <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;text-align:center">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">TC resultante</div>
+        <div style="font-size:20px;font-family:var(--mono);font-weight:600;color:var(--gold);margin-top:6px" id="cxusd-tc">0.0000</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Equiv: <span id="cxusd-equiv" style="font-family:var(--mono)">L. 0.00</span></div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:500" id="cxusd-label-lps">Billetes Lps que salen de caja</div>
+    <table style="width:100%" id="tbl-cambio-usd">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px 10px;font-size:11px">BILLETE</th>
+          <th style="text-align:center;padding:6px 10px;font-size:11px;width:90px">CANTIDAD</th>
+          <th style="text-align:right;padding:6px 10px;font-size:11px;width:120px">SUBTOTAL</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-cambio-usd"></tbody>
+      <tfoot>
+        <tr style="background:var(--bg3)">
+          <td style="padding:10px;font-weight:500">TOTAL</td>
+          <td style="padding:10px;text-align:center;font-family:var(--mono)" id="cxusd-tot-qty">0</td>
+          <td style="padding:10px;text-align:right;font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold)" id="cxusd-tot-lps">L. 0.00</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="fld" style="margin-top:12px">
+      <label>Descripción</label>
+      <input type="text" id="cxusd-desc" placeholder="Ej: Cambio de dólares para gasto VIN">
+    </div>
+    <div id="modal-cxusd-error" class="login-error hidden" style="margin-top:10px"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cambio-usd')">Cancelar</button>
+      <button class="btn btn-gold" onclick="ejecutarCambioUSD()">Ejecutar cambio →</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL CAMBIO DE DENOMINACIONES LPS (entrada/salida) -->
+<div class="modal-backdrop" id="modal-cambio-denoms">
+  <div class="modal" style="width:640px">
+    <div class="modal-title">🔄 Cambio de denominaciones</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Cambiá billetes grandes por chicos o viceversa. Entrada y salida deben sumar igual.</div>
+    <table style="width:100%">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px 10px;font-size:11px">BILLETE</th>
+          <th style="text-align:center;padding:6px 10px;font-size:11px;width:90px;color:var(--green)">ENTRADA</th>
+          <th style="text-align:center;padding:6px 10px;font-size:11px;width:90px;color:var(--red)">SALIDA</th>
+          <th style="text-align:right;padding:6px 10px;font-size:11px;width:120px">NETO</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-cambio-denoms"></tbody>
+      <tfoot>
+        <tr style="background:var(--bg3)">
+          <td style="padding:10px;font-weight:500">TOTALES</td>
+          <td style="padding:10px;text-align:center;font-family:var(--mono);color:var(--green);font-weight:500" id="cxd-tot-in">L. 0.00</td>
+          <td style="padding:10px;text-align:center;font-family:var(--mono);color:var(--red);font-weight:500" id="cxd-tot-out">L. 0.00</td>
+          <td style="padding:10px;text-align:right;font-family:var(--mono);font-weight:600" id="cxd-diff">L. 0.00</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div id="modal-cxd-error" class="login-error hidden" style="margin-top:10px"></div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cambio-denoms')">Cancelar</button>
+      <button class="btn btn-gold" onclick="ejecutarCambioDenoms()">Aplicar cambio →</button>
     </div>
   </div>
 </div>
@@ -1204,6 +1626,69 @@
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn btn-ghost" onclick="cancelBilletes()">Cancelar</button>
       <button class="btn btn-gold" onclick="aplicarBilletes()">Aplicar total →</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NUEVO/EDITAR VEHÍCULO VIN -->
+<div class="modal-backdrop" id="modal-vin">
+  <div class="modal" style="width:560px">
+    <div class="modal-title" id="modal-vin-title">🚗 Nuevo vehículo</div>
+    <div class="form-grid" style="gap:14px">
+      <div class="fld col-full">
+        <label>VIN (17 caracteres)</label>
+        <input type="text" id="nv-vin" placeholder="Ej: 5J6RM4H38GL077042" maxlength="17" style="font-family:var(--mono);text-transform:uppercase;letter-spacing:1px">
+      </div>
+      <div class="fld">
+        <label>Propietario</label>
+        <input type="text" id="nv-propietario" placeholder="Ej: ADONY" style="text-transform:uppercase">
+      </div>
+      <div class="fld">
+        <label>Fecha de compra</label>
+        <input type="date" id="nv-fecha">
+      </div>
+      <div class="fld">
+        <label>Marca</label>
+        <input type="text" id="nv-marca" placeholder="Ej: HONDA" style="text-transform:uppercase">
+      </div>
+      <div class="fld">
+        <label>Modelo</label>
+        <input type="text" id="nv-modelo" placeholder="Ej: CIVIC" style="text-transform:uppercase">
+      </div>
+      <div class="fld">
+        <label>Año</label>
+        <input type="number" id="nv-anio" placeholder="2024" min="1990" max="2030">
+      </div>
+      <div class="fld">
+        <label>Costo Copart (USD)</label>
+        <input type="number" id="nv-costo" placeholder="0.00" step="0.01">
+      </div>
+      <div class="fld col-full">
+        <label>Notas (opcional)</label>
+        <input type="text" id="nv-notas" placeholder="Observaciones adicionales...">
+      </div>
+    </div>
+    <div id="modal-vin-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-vin')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-vin" onclick="guardarVehiculo()">Guardar vehículo</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL BUSCAR VIN (desde partidas) -->
+<div class="modal-backdrop" id="modal-buscar-vin">
+  <div class="modal" style="width:680px">
+    <div class="modal-title">🔍 Buscar vehículo por VIN</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Escribe los últimos dígitos del VIN para identificar propietario</div>
+    <div class="fld" style="margin-bottom:16px">
+      <input type="text" id="vin-search-input" placeholder="Escribe dígitos del VIN... (ej: 7042)" oninput="buscarVinLive()" style="font-family:var(--mono);font-size:16px;letter-spacing:2px;text-align:center;text-transform:uppercase">
+    </div>
+    <div id="vin-search-results" style="max-height:350px;overflow-y:auto">
+      <div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Escribe al menos 2 caracteres para buscar</div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-buscar-vin')">Cerrar</button>
     </div>
   </div>
 </div>
