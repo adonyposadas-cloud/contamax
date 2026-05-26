@@ -1072,6 +1072,14 @@ window.eliminarPartida = async () => {
   showView('partidas', 'Partidas contables')
 }
 
+window.toggleAllFiscal = (checked) => {
+  document.querySelectorAll('.fiscal-check').forEach(cb => {
+    cb.checked = checked
+    // Trigger the onchange to update the data model
+    cb.dispatchEvent(new Event('change'))
+  })
+}
+
 window.addLinea = () => {
   lineaCounter++
   const id = lineaCounter
@@ -1362,8 +1370,11 @@ window.guardarPartida = async (estado) => {
 
   if (editingPartidaId) {
     // ── ACTUALIZAR partida existente ──
+    // Preserve original tipo_origen if it was set by an import and form field is empty
+    const originalPartida = allPartidas.find(p => p.id === editingPartidaId)
+    const tipoOrigenFinal = tipo_origen || originalPartida?.tipo_origen || ''
     const updateData = {
-      tipo_origen, descripcion, numero_documento: documento || null,
+      tipo_origen: tipoOrigenFinal, descripcion, numero_documento: documento || null,
       fecha_partida: fecha, estado: estadoFinal, total: debitos,
       aprobada_at: estadoFinal === 'aprobada' ? new Date().toISOString() : null,
       aprobada_por: estadoFinal === 'aprobada' ? currentProfile.id : null
@@ -5664,8 +5675,9 @@ window.desactivarUnidad = async (id, registro) => {
 
 const FACT_TAXIS_CUENTAS = {
   costo_mercaderia: { codigo: '510101-001', nombre: 'COSTO DE ADQUISICION DE MERCADERIA TECNIMAX' },
+  inventario:       { codigo: '110501-001', nombre: 'INVENTARIO PARA LA VENTA BODEGA PRINCIPAL' },
   mano_obra:        { codigo: '410101-004', nombre: 'MANO DE OBRA TAXIS' },
-  factura_taxis:    { codigo: '410301-004', nombre: 'FACTURAS DE TAXIS' },
+  factura_taxis:    { codigo: '410301-004', nombre: 'VENTAS PLANTEL TAXIS' },
   factura_yonker:   { codigo: '410301-002', nombre: 'VENTA YONKER TECNIMAX 2' },
 }
 
@@ -5958,18 +5970,32 @@ window.importarFacturasTaxis = async () => {
     if (pErr) { console.error('[FACT-TAXIS] Error creando partida:', pErr.message); continue }
     console.log(`[FACT-TAXIS] Partida #${numPartida} creada: ${partida.id}`)
 
-    // Líneas de débito (una por cada línea de factura → cuenta costo mercadería)
-    const lineasPartida = dia.lineas.map(l => ({
-      partida_id: partida.id,
-      tipo: 'debito',
-      cuenta_id: ctaCosto?.id || null,
-      cuenta_codigo: FACT_TAXIS_CUENTAS.costo_mercaderia.codigo,
-      cuenta_nombre: FACT_TAXIS_CUENTAS.costo_mercaderia.nombre,
-      monto: l.monto,
-      descripcion: l.descripcion,
-      centro_costo_id: centroTaxis?.id || null,
-      aplica_fiscal: true
-    }))
+    // Líneas de débito: VIN → Inventario (110501-001) con centro del propietario
+    //                   TAXI/VIP → Costo mercadería (510101-001) con centro TAXIS
+    const ctaInventario = getCuenta(FACT_TAXIS_CUENTAS.inventario.codigo)
+
+    const lineasPartida = dia.lineas.map(l => {
+      const esVIN = l.tipo_unidad === 'VIN'
+      // Para VIN: buscar el centro de costo del propietario en todos los centros
+      let ccId = centroTaxis?.id || null
+      if (esVIN && l.propietario) {
+        const allCC = window._todosLosCentros ? window._todosLosCentros() : empresas
+        const ccProp = allCC.find(e => e.nombre.toUpperCase().includes(l.propietario.toUpperCase()))
+          || allCC.find(e => l.propietario.toUpperCase().includes(e.nombre.toUpperCase()))
+        if (ccProp) ccId = ccProp.id
+      }
+      return {
+        partida_id: partida.id,
+        tipo: 'debito',
+        cuenta_id: esVIN ? (ctaInventario?.id || null) : (ctaCosto?.id || null),
+        cuenta_codigo: esVIN ? FACT_TAXIS_CUENTAS.inventario.codigo : FACT_TAXIS_CUENTAS.costo_mercaderia.codigo,
+        cuenta_nombre: esVIN ? FACT_TAXIS_CUENTAS.inventario.nombre : FACT_TAXIS_CUENTAS.costo_mercaderia.nombre,
+        monto: l.monto,
+        descripcion: l.descripcion,
+        centro_costo_id: ccId,
+        aplica_fiscal: true
+      }
+    })
 
     // Líneas de crédito (resumen)
     if (totalMO > 0) {
