@@ -7,6 +7,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css">
+<style>
+.ac-wrap{position:relative}
+.ac-list{position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+.ac-list.hidden{display:none}
+.ac-item{padding:8px 12px;font-size:13px;cursor:pointer;color:var(--text);border-bottom:0.5px solid var(--border)}
+.ac-item:hover,.ac-item.active{background:var(--gold);color:#000}
+.ac-item:last-child{border-bottom:none}
+.ac-new{color:var(--text3);font-style:italic;font-size:12px}
+</style>
 </head>
 <body>
 
@@ -89,6 +98,9 @@
         <div class="nav-item hidden" id="nav-financiamiento" onclick="showView('financiamiento','Financiamiento Taxis')">
           <span class="nav-dot"></span>Financiamiento
         </div>
+        <div class="nav-item hidden" id="nav-cierre-recibos" onclick="showView('cierre-recibos','Cierre mensual recibos')">
+          <span class="nav-dot"></span>Cierre Recibos
+        </div>
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
@@ -128,6 +140,23 @@
           </div>
         </div>
       </div>
+      <div class="sidebar-section" id="section-rrhh">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('rrhh-items')">
+          RRHH <span class="toggle-arrow" id="arrow-rrhh-items">▾</span>
+        </div>
+        <div class="sidebar-group" id="rrhh-items">
+          <div class="nav-item" id="nav-empleados" onclick="showView('empleados','Expediente de empleados')">
+            <span class="nav-dot"></span>Empleados
+          </div>
+          <div class="nav-item" id="nav-planilla" onclick="showView('planilla','Planilla quincenal')">
+            <span class="nav-dot"></span>Planilla
+          </div>
+          <div class="nav-item" id="nav-prestamos-emp" onclick="showView('prestamos-emp','Préstamos a empleados')">
+            <span class="nav-dot"></span>Préstamos
+          </div>
+        </div>
+      </div>
+
       <div class="sidebar-section" id="section-reportes">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('report-items')">
           Reportes <span class="toggle-arrow" id="arrow-report-items">▾</span>
@@ -224,90 +253,71 @@
         </div>
 
         <div class="form-card">
-          <div class="form-card-title">📄 Datos generales</div>
+          <div class="form-card-title">📄 Datos del entregador</div>
           <div class="form-grid">
             <div class="fld">
-              <label>Centro de costo</label>
-              <select id="fc-empresa">
-                <option value="">Seleccionar...</option>
-              </select>
+              <label>Proveedor / Razón social *</label>
+              <div class="ac-wrap">
+                <input type="text" id="fc-proveedor-nombre" placeholder="Nombre del proveedor" autocomplete="off" oninput="acBuscar(this,'proveedor')" onfocus="acBuscar(this,'proveedor')" onblur="setTimeout(()=>acCerrar(this),200)" style="text-transform:uppercase">
+                <div class="ac-list hidden"></div>
+              </div>
             </div>
             <div class="fld">
-              <label>Fecha de factura</label>
+              <label>¿Quién pidió la compra? *</label>
+              <div class="ac-wrap">
+                <input type="text" id="fc-quien-pidio" placeholder="Nombre de quien autorizó" autocomplete="off" oninput="acBuscar(this,'quien_pidio')" onfocus="acBuscar(this,'quien_pidio')" onblur="setTimeout(()=>acCerrar(this),200)" style="text-transform:uppercase">
+                <div class="ac-list hidden"></div>
+              </div>
+            </div>
+            <div class="fld col-full">
+              <label>Descripción de la compra *</label>
+              <input type="text" id="fc-descripcion" placeholder="Ej: Filtro de aceite, batería, repuesto..." style="text-transform:uppercase">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">🧾 Facturas</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Fecha factura *</label>
               <input type="date" id="fc-fecha">
             </div>
             <div class="fld">
-              <label>N° de factura</label>
-              <input type="text" id="fc-numero" placeholder="0001-001-00000001">
+              <label>N° de factura *</label>
+              <input type="text" id="fc-numero" placeholder="S/F o número">
             </div>
             <div class="fld">
-              <label>CAI (opcional)</label>
-              <input type="text" id="fc-cai" placeholder="CAI-XXXX-XXXX-XXXX-XXXX-XX">
-            </div>
-            <div class="fld col-full">
-              <label>Proveedor / Razón social</label>
-              <input type="text" id="fc-proveedor-nombre" placeholder="Nombre del proveedor">
+              <label>Monto (L.) *</label>
+              <input type="number" id="fc-monto" placeholder="0.00" step="0.01">
             </div>
             <div class="fld">
-              <label>RTN del proveedor</label>
-              <input type="text" id="fc-rtn" placeholder="0801-0000-000000">
+              <label>Tipo de gasto *</label>
+              <div class="ac-wrap">
+                <input type="text" id="fc-tipo-gasto" placeholder="Ej: COMBUSTIBLE" autocomplete="off" oninput="acBuscar(this,'tipo_gasto')" onfocus="acBuscar(this,'tipo_gasto')" onblur="setTimeout(()=>acCerrar(this),200)" style="text-transform:uppercase">
+                <div class="ac-list hidden"></div>
+              </div>
             </div>
             <div class="fld">
-              <label>Tipo de gasto</label>
-              <select id="fc-tipo">
-                <option value="repuestos">Repuestos / Materiales</option>
-                <option value="servicios">Servicios</option>
-                <option value="combustible">Combustible</option>
-                <option value="mantenimiento">Mantenimiento de vehículo</option>
-                <option value="admin">Gastos administrativos</option>
-                <option value="otro">Otro</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div class="form-card">
-          <div class="form-card-title">💰 Montos</div>
-          <div class="form-grid-3">
-            <div class="fld">
-              <label>Subtotal (sin ISV)</label>
-              <input type="number" id="fc-subtotal" placeholder="0.00" step="0.01" oninput="calcISV()">
-            </div>
-            <div class="fld">
-              <label>ISV 15%</label>
-              <input type="number" id="fc-isv" placeholder="0.00" readonly>
-            </div>
-            <div class="fld">
-              <label>Total</label>
-              <input type="number" id="fc-total" placeholder="0.00" readonly style="color:var(--gold);font-weight:500">
-            </div>
-          </div>
-        </div>
-
-        <div class="form-card">
-          <div class="form-card-title">💳 Forma de pago</div>
-          <div class="form-grid">
-            <div class="fld">
-              <label>Forma de pago</label>
-              <select id="fc-pago" onchange="togglePagoFields()">
+              <label>Forma de pago *</label>
+              <select id="fc-pago">
                 <option value="contado">Contado (efectivo)</option>
                 <option value="credito">Crédito</option>
                 <option value="tarjeta">Tarjeta de crédito</option>
               </select>
             </div>
-            <div class="fld" id="field-banco">
-              <label>Banco / Entidad</label>
-              <input type="text" id="fc-banco" placeholder="Ej: Banco Atlántida">
-            </div>
-            <div class="fld hidden" id="field-cheque">
-              <label>N° de cheque</label>
-              <input type="text" id="fc-cheque" placeholder="000000">
+            <div class="fld">
+              <label>¿A quién se le entregó? *</label>
+              <div class="ac-wrap">
+                <input type="text" id="fc-entregado-a" placeholder="Nombre de quien recibió" autocomplete="off" oninput="acBuscar(this,'entregado_a')" onfocus="acBuscar(this,'entregado_a')" onblur="setTimeout(()=>acCerrar(this),200)" style="text-transform:uppercase">
+                <div class="ac-list hidden"></div>
+              </div>
             </div>
           </div>
         </div>
 
         <div class="form-card">
-          <div class="form-card-title">📎 Foto de factura</div>
+          <div class="form-card-title">📎 Imagen de factura</div>
           <div class="upload-zone" id="upload-zone" onclick="document.getElementById('fc-file').click()">
             <div class="upload-icon">📷</div>
             <div class="upload-text">Toca para subir foto o escaneo</div>
@@ -324,14 +334,14 @@
           </div>
           <div class="fld" style="margin-top:16px">
             <label>Observaciones</label>
-            <textarea id="fc-obs" placeholder="Descripción del gasto, N° de vehículo si aplica, notas..."></textarea>
+            <textarea id="fc-obs" placeholder="Notas adicionales..."></textarea>
           </div>
         </div>
 
         <div class="form-actions">
           <button class="btn btn-ghost" onclick="resetForm()">Limpiar</button>
           <button class="btn btn-gold" id="btn-guardar-compra" onclick="guardarCompra()">
-            Guardar y enviar a contabilidad →
+            Enviar solicitud →
           </button>
         </div>
       </div>
@@ -343,7 +353,7 @@
             <div class="page-title">Facturas pendientes</div>
             <div class="page-sub">Registradas por compras · en espera de partida contable</div>
           </div>
-          <button class="btn btn-gold" onclick="showView('compras','Registrar compras')">+ Nueva factura</button>
+          <button class="btn btn-gold" id="btn-nueva-factura-pend" onclick="showView('compras','Registrar compras')">+ Nueva factura</button>
         </div>
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
           <input type="text" id="pend-buscar" placeholder="Buscar por factura, proveedor u observaciones..." oninput="filtrarPendientes()" style="flex:1;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
@@ -1157,6 +1167,301 @@
         </div>
       </div>
 
+      <!-- ═══════════════ RRHH: EMPLEADOS ═══════════════ -->
+      <div class="view" id="view-empleados">
+        <div class="page-header">
+          <div>
+            <div class="page-title">👥 Expediente de empleados</div>
+            <div class="page-sub">Gestión de personal, datos y centros de costo</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="importarEmpleadosExcel()">📥 Importar Excel</button>
+            <button class="btn btn-gold" onclick="openModalEmpleado()">+ Nuevo empleado</button>
+          </div>
+        </div>
+        <div class="stats-row" id="stats-empleados">
+          <div class="stat-card"><div class="stat-num" id="stat-emp-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-emp-activos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Activos</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-emp-socios">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Socios</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-emp-planilla">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Planilla mensual</div></div>
+        </div>
+        <div class="form-card" style="margin-bottom:14px;padding:12px 16px">
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="emp-buscar" placeholder="Buscar por nombre, identidad..." style="flex:1;min-width:200px" oninput="filtrarEmpleados()">
+            <select id="emp-filtro-seccion" onchange="filtrarEmpleados()" style="min-width:160px">
+              <option value="">Todas las secciones</option>
+              <option value="GO Taller">GO Taller</option>
+              <option value="GV Taller">GV Taller</option>
+              <option value="GA Taller">GA Taller</option>
+              <option value="GO Yonker">GO Yonker</option>
+              <option value="GV Yonker">GV Yonker</option>
+              <option value="GA Yonker">GA Yonker</option>
+            </select>
+            <select id="emp-filtro-estado" onchange="filtrarEmpleados()">
+              <option value="activo">Activos</option>
+              <option value="inactivo">Inactivos</option>
+              <option value="">Todos</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Nombre</th>
+                <th>Puesto</th>
+                <th>Sección</th>
+                <th>Sueldo mensual</th>
+                <th>Fecha ingreso</th>
+                <th>Banco</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-empleados"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══════════════ RRHH: PLANILLA ═══════════════ -->
+      <div class="view" id="view-planilla">
+        <div class="page-header">
+          <div>
+            <div class="page-title">📋 Planilla quincenal</div>
+            <div class="page-sub">Cálculo y generación de planilla de sueldos</div>
+          </div>
+        </div>
+        <!-- Paso 1: Configurar quincena -->
+        <div id="planilla-config" class="form-card" style="margin-bottom:20px">
+          <div class="form-card-title">Configurar quincena</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld">
+              <label>Año</label>
+              <select id="pl-anio"></select>
+            </div>
+            <div class="fld">
+              <label>Mes</label>
+              <select id="pl-mes">
+                <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+                <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+                <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+                <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label>Quincena</label>
+              <select id="pl-quincena">
+                <option value="Q1">1ra (1-15)</option>
+                <option value="Q2">2da (16-30/31)</option>
+              </select>
+            </div>
+            <div class="fld" style="display:flex;align-items:flex-end">
+              <button class="btn btn-gold" onclick="generarPlanilla()" style="width:100%">Generar planilla →</button>
+            </div>
+          </div>
+          <div id="pl-existing" class="hidden" style="padding:10px 14px;background:var(--bg1);border-radius:var(--radius);border:1px solid var(--gold);margin-top:8px">
+            <span style="color:var(--gold)">⚠️</span> <span id="pl-existing-msg"></span>
+          </div>
+        </div>
+
+        <!-- Paso 2: Tabla de planilla generada -->
+        <div id="planilla-resultado" class="hidden">
+          <div class="stats-row" style="margin-bottom:16px">
+            <div class="stat-card"><div class="stat-num" id="pl-stat-emp">—</div><div class="stat-label">Empleados</div></div>
+            <div class="stat-card"><div class="stat-num" id="pl-stat-bruto">—</div><div class="stat-label">Total devengado</div></div>
+            <div class="stat-card"><div class="stat-num" id="pl-stat-deduc">—</div><div class="stat-label">Deducciones</div></div>
+            <div class="stat-card"><div class="stat-num" id="pl-stat-neto">—</div><div class="stat-label">Neto a pagar</div></div>
+            <div class="stat-card"><div class="stat-num" id="pl-stat-patronal">—</div><div class="stat-label">IHSS patronal</div></div>
+          </div>
+
+          <!-- Tabs por sección -->
+          <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap" id="pl-tabs"></div>
+
+          <div class="table-wrap" style="max-height:600px;overflow-y:auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nombre</th>
+                  <th style="text-align:right">Sueldo M.</th>
+                  <th style="text-align:center">Días</th>
+                  <th style="text-align:right">Quincenal</th>
+                  <th style="text-align:right">H/E</th>
+                  <th style="text-align:right">Otros ing.</th>
+                  <th style="text-align:right">Devengado</th>
+                  <th style="text-align:right">IHSS</th>
+                  <th style="text-align:right">Imp.Vec.</th>
+                  <th style="text-align:right">Anticipos</th>
+                  <th style="text-align:right">Trucha</th>
+                  <th style="text-align:right">Otras ded.</th>
+                  <th style="text-align:right">Tot.deduc.</th>
+                  <th style="text-align:right;font-weight:600">Neto</th>
+                  <th style="text-align:center;width:40px">✏️</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-planilla"></tbody>
+              <tfoot id="tfoot-planilla"></tfoot>
+            </table>
+          </div>
+
+          <div class="form-actions" style="margin-top:16px">
+            <button class="btn btn-ghost" onclick="exportarPlanillaExcel()">📥 Exportar Excel</button>
+            <button class="btn btn-gold" id="btn-aprobar-planilla" onclick="aprobarPlanilla()">✅ Aprobar y generar partida</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ RRHH: PRÉSTAMOS EMPLEADOS ═══════════════ -->
+      <div class="view" id="view-prestamos-emp">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💰 Préstamos a empleados</div>
+            <div class="page-sub">Control de anticipos, CXC y préstamos con deducción en planilla</div>
+          </div>
+          <button class="btn btn-gold" onclick="openModalPrestamoEmp()">+ Nuevo préstamo</button>
+        </div>
+        <div class="stats-row" id="stats-prestamos-emp">
+          <div class="stat-card"><div class="stat-num" id="stat-pe-activos">—</div><div class="stat-label">Préstamos activos</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-pe-monto">—</div><div class="stat-label">Saldo total</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Empleado</th>
+                <th>Descripción</th>
+                <th>Tipo</th>
+                <th style="text-align:right">Monto original</th>
+                <th style="text-align:right">Saldo</th>
+                <th style="text-align:right">Cuota quinc.</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-prestamos-emp"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ MODAL EMPLEADO ═══ -->
+      <div class="modal-backdrop" id="modal-empleado">
+        <div class="modal" style="max-width:700px">
+          <div class="modal-header">
+            <span id="modal-emp-title">Nuevo empleado</span>
+            <button class="modal-close" onclick="closeModal('modal-empleado')">✕</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="fld" style="grid-column:span 2"><label>Nombre completo</label><input type="text" id="emp-nombre"></div>
+            <div class="fld"><label>Identidad</label><input type="text" id="emp-identidad" placeholder="0801-XXXX-XXXXX"></div>
+            <div class="fld"><label>Puesto</label><input type="text" id="emp-puesto"></div>
+            <div class="fld">
+              <label>Sección</label>
+              <select id="emp-seccion">
+                <option value="GO Taller">GO Taller</option>
+                <option value="GV Taller">GV Taller</option>
+                <option value="GA Taller">GA Taller</option>
+                <option value="GO Yonker">GO Yonker</option>
+                <option value="GV Yonker">GV Yonker</option>
+                <option value="GA Yonker">GA Yonker</option>
+              </select>
+            </div>
+            <div class="fld"><label>Centro de costo</label><input type="text" id="emp-centro" placeholder="610101-001"></div>
+            <div class="fld"><label>Sueldo mensual (L.)</label><input type="number" id="emp-sueldo" step="0.01"></div>
+            <div class="fld"><label>Fecha de ingreso</label><input type="date" id="emp-fecha-ingreso"></div>
+            <div class="fld"><label>Edad</label><input type="number" id="emp-edad"></div>
+            <div class="fld"><label>Cuenta bancaria</label><input type="text" id="emp-cta-banco"></div>
+            <div class="fld">
+              <label>Banco</label>
+              <select id="emp-banco">
+                <option value="Bac Credomatic">BAC Credomatic</option>
+                <option value="Lafisse">Lafisse</option>
+                <option value="Banco Atlántida">Atlántida</option>
+                <option value="Ficohsa">Ficohsa</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div class="fld"><label>Cuenta CXC</label><input type="text" id="emp-cxc" placeholder="110301-XXX"></div>
+            <div class="fld">
+              <label>Forma de pago</label>
+              <select id="emp-forma-pago">
+                <option value="BAC">Transferencia BAC</option>
+                <option value="EFECTIVO">Efectivo</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="emp-es-socio" style="width:auto"> Es socio (sin deducciones)
+              </label>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('modal-empleado')">Cancelar</button>
+            <button class="btn btn-gold" onclick="guardarEmpleado()">Guardar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ MODAL EDITAR DETALLE PLANILLA ═══ -->
+      <div class="modal-backdrop" id="modal-detalle-pl">
+        <div class="modal" style="max-width:600px">
+          <div class="modal-header">
+            <span id="modal-dpl-title">Editar detalle</span>
+            <button class="modal-close" onclick="closeModal('modal-detalle-pl')">✕</button>
+          </div>
+          <div id="modal-dpl-nombre" style="font-weight:600;margin-bottom:14px;color:var(--gold)"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+            <div class="fld"><label>Días trabajados</label><input type="number" id="dpl-dias" step="0.5" min="0" max="15"></div>
+            <div class="fld"><label>Horas extra</label><input type="number" id="dpl-horas" step="0.5" min="0"></div>
+            <div class="fld"><label>Ajuste sueldo</label><input type="number" id="dpl-ajuste" step="0.01"></div>
+            <div class="fld"><label>Vacaciones</label><input type="number" id="dpl-vacaciones" step="0.01"></div>
+            <div class="fld"><label>Incapacidad</label><input type="number" id="dpl-incapacidad" step="0.01"></div>
+            <div class="fld"><label>Bonificaciones</label><input type="number" id="dpl-bonificaciones" step="0.01"></div>
+            <div class="fld"><label>Otros ingresos</label><input type="number" id="dpl-otros" step="0.01"></div>
+            <div class="fld"><label>Comisiones venta</label><input type="number" id="dpl-comisiones" step="0.01"></div>
+            <div class="fld"><label>Anticipos</label><input type="number" id="dpl-anticipos" step="0.01"></div>
+            <div class="fld"><label>CXC</label><input type="number" id="dpl-cxc" step="0.01"></div>
+            <div class="fld"><label>Trucha</label><input type="number" id="dpl-trucha" step="0.01"></div>
+            <div class="fld"><label>Otras deducc.</label><input type="number" id="dpl-otras-ded" step="0.01"></div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('modal-detalle-pl')">Cancelar</button>
+            <button class="btn btn-gold" onclick="guardarDetallePlanilla()">Recalcular y guardar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ MODAL PRÉSTAMO EMPLEADO ═══ -->
+      <div class="modal-backdrop" id="modal-prestamo-emp">
+        <div class="modal" style="max-width:500px">
+          <div class="modal-header">
+            <span>Nuevo préstamo / anticipo</span>
+            <button class="modal-close" onclick="closeModal('modal-prestamo-emp')">✕</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="fld" style="grid-column:span 2">
+              <label>Empleado</label>
+              <select id="pe-empleado"></select>
+            </div>
+            <div class="fld">
+              <label>Tipo</label>
+              <select id="pe-tipo">
+                <option value="prestamo">Préstamo</option>
+                <option value="anticipo">Anticipo de salario</option>
+                <option value="cxc">CXC (cuenta por cobrar)</option>
+              </select>
+            </div>
+            <div class="fld"><label>Monto</label><input type="number" id="pe-monto" step="0.01"></div>
+            <div class="fld"><label>Cuota quincenal</label><input type="number" id="pe-cuota" step="0.01"></div>
+            <div class="fld" style="grid-column:span 2"><label>Descripción</label><input type="text" id="pe-descripcion"></div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('modal-prestamo-emp')">Cancelar</button>
+            <button class="btn btn-gold" onclick="guardarPrestamoEmp()">Guardar</button>
+          </div>
+        </div>
+      </div>
+
       <!-- IMPORTAR FACTURAS TAXIS -->
       <div class="view" id="view-importar-fact-taxis">
         <div class="page-header">
@@ -1221,6 +1526,8 @@
             <option value="">Todas</option>
             <option value="TAXI">Taxi</option>
             <option value="VIP">VIP</option>
+            <option value="BUS">Bus</option>
+            <option value="PARTICULAR">Particular</option>
           </select>
           <select id="ut-filtro-fin" onchange="filtrarUnidades()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:160px">
             <option value="">Todos</option>
@@ -1228,12 +1535,11 @@
             <option value="false">Sin financiamiento</option>
           </select>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
           <div class="stat-card"><div class="stat-num" id="ut-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total unidades</div></div>
           <div class="stat-card"><div class="stat-num" id="ut-stat-taxi">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Taxis</div></div>
           <div class="stat-card"><div class="stat-num" id="ut-stat-vip">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>VIP</div></div>
           <div class="stat-card"><div class="stat-num" id="ut-stat-fin">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Financiados</div></div>
-          <div class="stat-card"><div class="stat-num" id="ut-stat-socios">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>De socios</div></div>
         </div>
         <div class="table-wrap">
           <div class="table-header">
@@ -1298,6 +1604,53 @@
               <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- CIERRE MENSUAL DE RECIBOS -->
+      <div class="view" id="view-cierre-recibos">
+        <div class="page-header">
+          <div>
+            <div class="page-title">📊 Cierre mensual de recibos</div>
+            <div class="page-sub">Genera la partida consolidada reclasificando entregas → intereses + capital + saldos</div>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title">Seleccionar período</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Fecha inicio</label>
+              <input type="date" id="cierre-desde">
+            </div>
+            <div class="fld">
+              <label>Fecha fin</label>
+              <input type="date" id="cierre-hasta">
+            </div>
+            <div class="fld">
+              <label>Centro de costo</label>
+              <select id="cierre-centro">
+                <option value="">— Seleccionar —</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-gold" onclick="consultarCierreMensual()">Consultar →</button>
+          </div>
+        </div>
+
+        <div class="form-card hidden" id="cierre-resultado">
+          <div class="form-card-title">Partida consolidada</div>
+          <div id="cierre-resumen"></div>
+          <div class="form-actions" style="margin-top:18px;gap:12px">
+            <button class="btn btn-ghost" onclick="document.getElementById('cierre-resultado').classList.add('hidden')">← Volver</button>
+            <button class="btn btn-gold" id="btn-generar-cierre" onclick="generarPartidaCierre()">Generar partida de cierre →</button>
+          </div>
+        </div>
+
+        <div class="form-card hidden" id="cierre-log-card">
+          <div class="form-card-title" style="color:var(--green)">✓ Partida generada</div>
+          <div id="cierre-log"></div>
         </div>
       </div>
 
@@ -1475,6 +1828,8 @@
         <select id="nut-modalidad">
           <option value="TAXI">Taxi</option>
           <option value="VIP">VIP</option>
+          <option value="BUS">Bus</option>
+          <option value="PARTICULAR">Particular</option>
         </select>
       </div>
       <div class="fld">
@@ -1693,6 +2048,19 @@
   </div>
 </div>
 
+<!-- MODAL REVISAR FACTURA (AUXILIAR CONTABLE) -->
+<div class="modal-backdrop" id="modal-revisar-factura">
+  <div class="modal" style="width:900px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title" id="modal-revisar-factura-title">🧾 Revisar factura</div>
+    <div id="revisar-factura-contenido"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-revisar-factura')">Cerrar</button>
+      <button class="btn btn-ghost hidden" id="btn-anular-factura" onclick="eliminarFacturaDesdeModal()" style="color:var(--red);border-color:var(--red)">Anular factura</button>
+      <button class="btn btn-gold" id="btn-procesar-factura" onclick="procesarFacturaAux()">Aprobar y crear partida →</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL DETALLE PRÉSTAMO -->
 <div class="modal-backdrop" id="modal-detalle-prestamo">
   <div class="modal" style="width:95vw;max-width:1100px;max-height:90vh;overflow-y:auto">
@@ -1709,6 +2077,11 @@
 <div class="modal-backdrop" id="modal-liquidacion">
   <div class="modal" style="width:800px;max-height:90vh;overflow-y:auto">
     <div class="modal-title" id="modal-liquidacion-title">🧾 Liquidación</div>
+    <div id="liq-fecha-corte-row" style="display:none;margin-bottom:12px;padding:10px 16px;background:var(--bg3);border-radius:var(--radius);align-items:center;gap:12px">
+      <span style="font-size:13px;color:var(--text2);white-space:nowrap">📅 Fecha de corte:</span>
+      <input type="date" id="liq-fecha-corte" style="font-family:var(--mono);font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text1);cursor:pointer">
+      <span id="liq-dias-info" style="font-size:12px;color:var(--text3);font-family:var(--mono)"></span>
+    </div>
     <div id="liq-contenido"><div style="text-align:center;padding:20px"><div class="spinner"></div></div></div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn btn-ghost" onclick="closeModal('modal-liquidacion')">Cancelar</button>
@@ -1751,7 +2124,7 @@
       </div>
       <div class="fld">
         <label>Tasa interés mensual (%)</label>
-        <input type="number" id="ep-tasa" placeholder="3" step="0.01" value="3">
+        <input type="number" id="ep-tasa" placeholder="3" step="any" value="3">
       </div>
       <div class="fld">
         <label>Cuotas pactadas</label>
@@ -1879,6 +2252,7 @@
           <option value="2">2 · Subgrupo</option>
           <option value="3" selected>3 · Cuenta</option>
           <option value="4">4 · Subcuenta</option>
+          <option value="5">5 · Detalle</option>
         </select>
       </div>
       <div class="fld col-full">
@@ -1932,6 +2306,8 @@
 </script>
 <script type="module" src="js/app.js"></script>
 <script type="module" src="js/reportes.js"></script>
-<script src="js/financiamiento.js"></script>
+<script src="js/jspdf.min.js"></script>
+<script defer src="js/financiamiento.js"></script>
+<script defer src="js/rrhh.js"></script>
 </body>
 </html>

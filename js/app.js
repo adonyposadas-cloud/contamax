@@ -79,15 +79,15 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -109,6 +109,12 @@ function setupUI() {
   const tieneReportes = reporteItems.some(id => visibles.includes(id))
   const sectionReportes = document.getElementById('section-reportes')
   if (sectionReportes) sectionReportes.classList.toggle('hidden', !tieneReportes)
+
+  // Ocultar sección RRHH si no tiene ningún módulo
+  const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
+  const tieneRRHH = rrhhItems.some(id => visibles.includes(id))
+  const sectionRRHH = document.getElementById('section-rrhh')
+  if (sectionRRHH) sectionRRHH.classList.toggle('hidden', !tieneRRHH)
 }
 
 // ── AUTH ──
@@ -167,9 +173,13 @@ window.showView = (id, label) => {
   if (id === 'vehiculos') loadVehiculos()
   if (id === 'unidades-taxis') loadUnidadesTaxis()
   if (id === 'financiamiento') loadFinanciamiento()
+  if (id === 'cierre-recibos') initCierreMensual()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
+  if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
+  if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
+  if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -212,6 +222,10 @@ function applyRoleRestrictions(viewId) {
       if (b.textContent.includes('Aprobar')) b.classList.add('hidden')
     })
   }
+
+  // Botón "+ Nueva factura" en pendientes — solo compras y super_admin
+  const btnNuevaFactPend = document.getElementById('btn-nueva-factura-pend')
+  if (btnNuevaFactPend) btnNuevaFactPend.classList.toggle('hidden', !['super_admin', 'compras'].includes(rol))
 }
 
 // ── EMPRESAS ──
@@ -464,23 +478,96 @@ window.toggleCentro = async (id, activa, nombre) => {
 }
 
 // ── COMPRAS FORM ──
+
+// Cache de autocompletado por tipo
+let acCache = {}
+
+async function loadAcCache(tipo) {
+  if (acCache[tipo]) return acCache[tipo]
+  const { data } = await sb.from('autocomplete_valores').select('valor').eq('tipo', tipo).order('valor')
+  acCache[tipo] = (data || []).map(d => d.valor)
+  return acCache[tipo]
+}
+
+async function acGuardar(tipo, valor) {
+  if (!valor) return
+  const v = valor.toUpperCase().trim()
+  if (!v) return
+  // Agregar al cache local
+  if (!acCache[tipo]) acCache[tipo] = []
+  if (!acCache[tipo].includes(v)) {
+    acCache[tipo].push(v)
+    acCache[tipo].sort()
+    // Guardar en DB (ignorar error si ya existe)
+    await sb.from('autocomplete_valores').insert({ tipo, valor: v }).single()
+  }
+}
+
+window.acBuscar = async (input, tipo) => {
+  const lista = input.parentElement.querySelector('.ac-list')
+  const q = (input.value || '').toUpperCase().trim()
+  const valores = await loadAcCache(tipo)
+  const filtrados = q ? valores.filter(v => v.includes(q)) : valores
+
+  if (!filtrados.length && !q) { lista.classList.add('hidden'); return }
+
+  let html = filtrados.slice(0, 15).map(v =>
+    `<div class="ac-item" onmousedown="acSelect(this,'${v.replace(/'/g, "\\'")}')"><b>${v.substring(0, q.length)}</b>${v.substring(q.length)}</div>`
+  ).join('')
+
+  if (q && !valores.includes(q)) {
+    html += `<div class="ac-item ac-new" onmousedown="acSelect(this,'${q.replace(/'/g, "\\'")}')">+ Agregar "${q}"</div>`
+  }
+
+  if (html) { lista.innerHTML = html; lista.classList.remove('hidden') }
+  else lista.classList.add('hidden')
+}
+
+window.acSelect = (el, valor) => {
+  const input = el.closest('.ac-wrap').querySelector('input')
+  input.value = valor
+  el.closest('.ac-list').classList.add('hidden')
+}
+
+window.acCerrar = (input) => {
+  const lista = input.parentElement.querySelector('.ac-list')
+  if (lista) lista.classList.add('hidden')
+  // Forzar mayúsculas al salir
+  if (input.value) input.value = input.value.toUpperCase().trim()
+}
+
 function initForm() {
   const today = new Date().toISOString().split('T')[0]
   document.getElementById('fc-fecha').value = today
-  togglePagoFields()
+  // Pre-cargar caches de autocompletado
+  ;['proveedor', 'quien_pidio', 'entregado_a', 'tipo_gasto'].forEach(t => loadAcCache(t))
 }
 
 window.calcISV = () => {
-  const sub = parseFloat(document.getElementById('fc-subtotal').value) || 0
+  const sub = parseFloat(document.getElementById('fc-subtotal')?.value) || 0
   const isv = sub * 0.15
-  document.getElementById('fc-isv').value = isv.toFixed(2)
-  document.getElementById('fc-total').value = (sub + isv).toFixed(2)
+  const isvEl = document.getElementById('fc-isv')
+  const totalEl = document.getElementById('fc-total')
+  if (isvEl) isvEl.value = isv.toFixed(2)
+  if (totalEl) totalEl.value = (sub + isv).toFixed(2)
 }
 
 window.togglePagoFields = () => {
-  const pago = document.getElementById('fc-pago').value
-  document.getElementById('field-banco').classList.toggle('hidden', pago === 'contado')
-  document.getElementById('field-cheque').classList.toggle('hidden', pago !== 'credito')
+  const pago = document.getElementById('fc-pago')?.value
+  const banco = document.getElementById('field-banco')
+  const cheque = document.getElementById('field-cheque')
+  if (banco) banco.classList.toggle('hidden', pago === 'contado')
+  if (cheque) cheque.classList.toggle('hidden', pago !== 'credito')
+}
+
+window.resetForm = () => {
+  ;['fc-numero','fc-proveedor-nombre','fc-quien-pidio','fc-descripcion','fc-monto','fc-tipo-gasto','fc-entregado-a','fc-obs'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = ''
+  })
+  document.getElementById('fc-file').value = ''
+  document.getElementById('upload-preview').classList.add('hidden')
+  document.getElementById('upload-zone').classList.remove('has-file')
+  initForm()
 }
 
 window.previewFoto = (input) => {
@@ -492,42 +579,36 @@ window.previewFoto = (input) => {
   document.getElementById('upload-zone').classList.add('has-file')
 }
 
-window.resetForm = () => {
-  ['fc-numero','fc-cai','fc-proveedor-nombre','fc-rtn','fc-subtotal','fc-isv','fc-total','fc-banco','fc-cheque','fc-obs'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value = ''
-  })
-  document.getElementById('fc-file').value = ''
-  document.getElementById('upload-preview').classList.add('hidden')
-  document.getElementById('upload-zone').classList.remove('has-file')
-  initForm()
-}
-
 window.guardarCompra = async () => {
-  const centro_costo_id = document.getElementById('fc-empresa').value
   const fecha = document.getElementById('fc-fecha').value
   const numero = document.getElementById('fc-numero').value.trim()
-  const proveedorNombre = document.getElementById('fc-proveedor-nombre').value.trim()
-  const subtotal = parseFloat(document.getElementById('fc-subtotal').value) || 0
+  const proveedorNombre = (document.getElementById('fc-proveedor-nombre').value || '').toUpperCase().trim()
+  const quienPidio = (document.getElementById('fc-quien-pidio').value || '').toUpperCase().trim()
+  const descripcion = (document.getElementById('fc-descripcion').value || '').toUpperCase().trim()
+  const monto = parseFloat(document.getElementById('fc-monto').value) || 0
+  const tipoGasto = (document.getElementById('fc-tipo-gasto').value || '').toUpperCase().trim()
+  const entregadoA = (document.getElementById('fc-entregado-a').value || '').toUpperCase().trim()
+  const formaPago = document.getElementById('fc-pago').value
+
   const btn = document.getElementById('btn-guardar-compra')
-  if (!centro_costo_id) { toast('Selecciona un centro de costo', 'error'); return }
   if (!fecha) { toast('Ingresa la fecha de la factura', 'error'); return }
   if (!numero) { toast('Ingresa el número de factura', 'error'); return }
   if (!proveedorNombre) { toast('Ingresa el nombre del proveedor', 'error'); return }
-  if (subtotal <= 0) { toast('El subtotal debe ser mayor a 0', 'error'); return }
+  if (!quienPidio) { toast('Ingresa quién pidió la compra', 'error'); return }
+  if (!descripcion) { toast('Ingresa la descripción de la compra', 'error'); return }
+  if (monto <= 0) { toast('El monto debe ser mayor a 0', 'error'); return }
+  if (!tipoGasto) { toast('Ingresa el tipo de gasto', 'error'); return }
+  if (!entregadoA) { toast('Ingresa a quién se le entregó', 'error'); return }
+
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...'
 
-  // Buscar o crear proveedor
-  let proveedor_id = null
-  const rtn = document.getElementById('fc-rtn').value.trim()
-  if (rtn) {
-    const { data: provExist } = await sb.from('proveedores').select('id').eq('rtn', rtn).single()
-    if (provExist) {
-      proveedor_id = provExist.id
-    } else {
-      const { data: newProv } = await sb.from('proveedores').insert({ nombre: proveedorNombre, rtn }).select('id').single()
-      if (newProv) proveedor_id = newProv.id
-    }
-  }
+  // Guardar valores nuevos en autocompletado
+  await Promise.all([
+    acGuardar('proveedor', proveedorNombre),
+    acGuardar('quien_pidio', quienPidio),
+    acGuardar('entregado_a', entregadoA),
+    acGuardar('tipo_gasto', tipoGasto),
+  ])
 
   // Subir foto si existe
   let foto_url = null
@@ -535,34 +616,42 @@ window.guardarCompra = async () => {
   if (fileInput.files?.[0]) {
     const file = fileInput.files[0]
     const ext = file.name.split('.').pop()
-    const path = `facturas/${centro_costo_id}/${Date.now()}.${ext}`
+    const path = `facturas/${Date.now()}.${ext}`
     const { error: uploadErr } = await sb.storage.from('facturas-compras').upload(path, file)
     if (!uploadErr) foto_url = path
   }
 
   const payload = {
-    centro_costo_id,
-    proveedor_id,
     registrado_por: currentProfile.id,
     numero_factura: numero,
-    cai: document.getElementById('fc-cai').value.trim() || null,
     fecha_factura: fecha,
-    tipo_gasto: document.getElementById('fc-tipo').value,
-    forma_pago: document.getElementById('fc-pago').value,
-    banco: document.getElementById('fc-banco').value.trim() || null,
-    numero_cheque: document.getElementById('fc-cheque').value.trim() || null,
-    subtotal: parseFloat(document.getElementById('fc-subtotal').value),
-    isv: parseFloat(document.getElementById('fc-isv').value) || 0,
-    total: parseFloat(document.getElementById('fc-total').value),
+    tipo_gasto: tipoGasto,
+    forma_pago: formaPago,
+    subtotal: monto,
+    isv: 0,
+    total: monto,
+    tiene_isv: false,
     foto_url,
     observaciones: document.getElementById('fc-obs').value.trim() || null,
+    quien_pidio: quienPidio,
+    descripcion_compra: descripcion,
+    entregado_a: entregadoA,
     estado: 'pendiente'
   }
 
+  // Buscar o crear proveedor
+  const { data: provExist } = await sb.from('proveedores').select('id').eq('nombre', proveedorNombre).limit(1).single()
+  if (provExist) {
+    payload.proveedor_id = provExist.id
+  } else {
+    const { data: newProv } = await sb.from('proveedores').insert({ nombre: proveedorNombre }).select('id').single()
+    if (newProv) payload.proveedor_id = newProv.id
+  }
+
   const { error } = await sb.from('facturas_compras').insert(payload)
-  btn.disabled = false; btn.textContent = 'Guardar y enviar a contabilidad →'
+  btn.disabled = false; btn.textContent = 'Enviar solicitud →'
   if (error) { toast('Error al guardar: ' + error.message, 'error'); return }
-  toast('Factura registrada y enviada a contabilidad', 'success')
+  toast('Solicitud enviada a contabilidad ✓', 'success')
   resetForm()
   setTimeout(() => showView('pendientes', 'Facturas pendientes'), 1000)
 }
@@ -621,7 +710,13 @@ window.filtrarPendientes = () => {
   const tipoLabel = { repuestos:'Repuestos/Mat.', servicios:'Servicios', combustible:'Combustible', mantenimiento:'Mant. Vehículo', admin:'Administrativo', otro:'Otro' }
   container.innerHTML = '<div class="pending-list">' + filtered.map(f => {
     const esImportada = (f.observaciones || '').includes('[IMP-COMPRA]')
-    const clickablePartida = esImportada && f.estado === 'pendiente'
+    const esContable = ['super_admin', 'contador', 'aux_contable'].includes(currentProfile?.rol)
+    const clickablePartida = (esImportada && f.estado === 'pendiente') || (esContable && f.estado === 'pendiente')
+    const clickAction = esContable && f.estado === 'pendiente' && !esImportada
+      ? `abrirRevisarFactura('${f.id}')`
+      : esImportada && f.estado === 'pendiente'
+        ? `crearPartidaDesdeFactura('${f.id}')`
+        : `abrirRevisarFactura('${f.id}')`
     const pendienteDoc = f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]')
 
     // Determinar estado visual
@@ -641,12 +736,12 @@ window.filtrarPendientes = () => {
     }
 
     return `
-    <div class="pending-item ${statusClass}" ${clickablePartida ? `onclick="crearPartidaDesdeFactura('${f.id}')" style="cursor:pointer"` : ''}>
+    <div class="pending-item ${statusClass}" ${clickablePartida ? `onclick="${clickAction}" style="cursor:pointer"` : ''}>
       <div class="pi-left">
         <div class="pi-dot ${statusClass}"></div>
         <div>
-          <div class="pi-info">${provNombre || 'Sin proveedor'} · Fact. ${f.numero_factura} · ${f.centro_costo?.nombre || ''}</div>
-          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}</div>
+          <div class="pi-info">${provNombre || 'Sin proveedor'} · Fact. ${f.numero_factura}${f.descripcion_compra ? ' · ' + f.descripcion_compra : ''}${f.centro_costo?.nombre ? ' · ' + f.centro_costo.nombre : ''}</div>
+          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}</div>
         </div>
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
@@ -672,6 +767,229 @@ window.marcarRecibida = async (facturaId) => {
   const f = pendientesData.find(x => x.id === facturaId)
   if (f) { f.recibida = true; f.recibida_por = currentProfile.id }
   filtrarPendientes()
+}
+
+window.eliminarFactura = async (facturaId) => {
+  const f = pendientesData.find(x => x.id === facturaId)
+  const desc = f ? `${f.proveedor?.nombre || ''} · Fact. ${f.numero_factura} · L. ${parseFloat(f.total).toLocaleString('es-HN', {minimumFractionDigits:2})}` : facturaId
+  if (!confirm(`¿Eliminar esta factura?\n\n${desc}\n\nEsta acción no se puede deshacer.`)) return
+
+  // Si tiene foto, eliminar del storage
+  if (f?.foto_url) {
+    await sb.storage.from('facturas-compras').remove([f.foto_url])
+  }
+
+  const { error } = await sb.from('facturas_compras').delete().eq('id', facturaId)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast('Factura eliminada ✓', 'success')
+  pendientesData = pendientesData.filter(x => x.id !== facturaId)
+  filtrarPendientes()
+}
+
+// ── REVISAR FACTURA (MODAL AUXILIAR CONTABLE) ──
+let facturaEnRevision = null
+
+window.abrirRevisarFactura = async (facturaId) => {
+  const f = pendientesData.find(x => x.id === facturaId)
+  if (!f) return
+  facturaEnRevision = f
+
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  // Obtener URL de la imagen si existe
+  let imgHtml = '<div style="text-align:center;padding:30px;color:var(--text3)">Sin imagen adjunta</div>'
+  if (f.foto_url) {
+    const { data: urlData } = await sb.storage.from('facturas-compras').createSignedUrl(f.foto_url, 3600)
+    if (urlData?.signedUrl) {
+      imgHtml = `<img src="${urlData.signedUrl}" style="max-width:100%;max-height:400px;border-radius:var(--radius);cursor:pointer" onclick="window.open('${urlData.signedUrl}','_blank')" title="Clic para abrir en nueva pestaña">`
+    }
+  }
+
+  // Construir select de centros de costo
+  const centrosOpts = (empresas || []).map(e =>
+    `<option value="${e.id}" ${f.centro_costo_id === e.id ? 'selected' : ''}>${e.nombre}</option>`
+  ).join('')
+
+  const html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <!-- IZQUIERDA: Datos de la factura (editables) -->
+      <div style="background:var(--bg3);border-radius:var(--radius);padding:16px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:12px;font-weight:500">Datos de la solicitud <span style="color:var(--amber);font-size:10px;text-transform:none">(editables si hay error)</span></div>
+        <div style="display:grid;gap:8px">
+          <div class="fld"><label style="font-size:11px;color:var(--text3)">Proveedor</label><input type="text" id="rev-proveedor" value="${f.proveedor?.nombre || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">N° Factura</label><input type="text" id="rev-numero" value="${f.numero_factura || ''}" style="font-family:var(--mono);font-size:13px;padding:6px 8px"></div>
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Fecha factura</label><input type="date" id="rev-fecha" value="${f.fecha_factura || ''}" style="font-size:13px;padding:6px 8px"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Monto (L.)</label><input type="number" id="rev-monto" value="${f.total || 0}" step="0.01" onchange="calcISVRevision()" style="font-family:var(--mono);font-size:15px;padding:6px 8px;font-weight:600;color:var(--gold)"></div>
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Tipo de gasto</label><input type="text" id="rev-tipo-gasto" value="${f.tipo_gasto || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Forma de pago</label>
+              <select id="rev-forma-pago" style="font-size:13px;padding:6px 8px">
+                <option value="contado" ${f.forma_pago === 'contado' ? 'selected' : ''}>Contado</option>
+                <option value="credito" ${f.forma_pago === 'credito' ? 'selected' : ''}>Crédito</option>
+                <option value="tarjeta" ${f.forma_pago === 'tarjeta' ? 'selected' : ''}>Tarjeta</option>
+              </select>
+            </div>
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Quién pidió</label><input type="text" id="rev-quien-pidio" value="${f.quien_pidio || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          </div>
+          <div class="fld"><label style="font-size:11px;color:var(--text3)">Descripción</label><input type="text" id="rev-descripcion" value="${f.descripcion_compra || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Entregado a</label><input type="text" id="rev-entregado-a" value="${f.entregado_a || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Registrado por</label><input type="text" value="${f.registrado?.nombre || '—'}" disabled style="font-size:13px;padding:6px 8px;opacity:0.5"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DERECHA: Imagen -->
+      <div style="background:var(--bg3);border-radius:var(--radius);padding:16px;display:flex;align-items:center;justify-content:center">
+        ${imgHtml}
+      </div>
+    </div>
+
+    <!-- CAMPOS DEL AUXILIAR -->
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:12px;font-weight:500">Completar datos contables</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="fld">
+          <label>Centro de costo *</label>
+          <select id="rev-centro">
+            <option value="">— Seleccionar —</option>
+            ${centrosOpts}
+          </select>
+        </div>
+        <div class="fld">
+          <label style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="rev-tiene-isv" onchange="calcISVRevision()" style="width:16px;height:16px">
+            ¿Tiene ISV?
+          </label>
+          <div style="margin-top:6px;font-family:var(--mono);font-size:14px;color:var(--text2)">
+            ISV: <span id="rev-isv-monto">L. 0.00</span>
+          </div>
+        </div>
+        <div class="fld">
+          <label>Total con ISV</label>
+          <div style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--gold);padding:8px 0" id="rev-total-final">L. ${fmt(f.total)}</div>
+        </div>
+      </div>
+      ${f.observaciones ? `<div style="margin-top:12px;font-size:12px;color:var(--text3)">Obs: ${f.observaciones}</div>` : ''}
+    </div>`
+
+  document.getElementById('modal-revisar-factura-title').textContent = `🧾 Revisar · ${f.proveedor?.nombre || 'Factura'} · ${f.numero_factura}`
+  document.getElementById('revisar-factura-contenido').innerHTML = html
+  const btnAnular = document.getElementById('btn-anular-factura')
+  if (btnAnular) btnAnular.classList.toggle('hidden', currentProfile?.rol !== 'super_admin')
+  document.getElementById('modal-revisar-factura').classList.add('open')
+}
+
+window.eliminarFacturaDesdeModal = async () => {
+  if (!facturaEnRevision) return
+  if (currentProfile?.rol !== 'super_admin') { toast('Solo Super Admin puede anular facturas', 'error'); return }
+  const id = facturaEnRevision.id
+  closeModal('modal-revisar-factura')
+  facturaEnRevision = null
+  await eliminarFactura(id)
+}
+
+window.calcISVRevision = () => {
+  const tieneISV = document.getElementById('rev-tiene-isv').checked
+  const monto = parseFloat(document.getElementById('rev-monto').value) || 0
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  if (tieneISV) {
+    const subtotal = Math.round((monto / 1.15) * 100) / 100
+    const isv = Math.round((monto - subtotal) * 100) / 100
+    document.getElementById('rev-isv-monto').textContent = `L. ${fmt(isv)}`
+    document.getElementById('rev-total-final').textContent = `L. ${fmt(monto)} (Sub: ${fmt(subtotal)} + ISV: ${fmt(isv)})`
+  } else {
+    document.getElementById('rev-isv-monto').textContent = 'L. 0.00'
+    document.getElementById('rev-total-final').textContent = `L. ${fmt(monto)}`
+  }
+}
+
+window.procesarFacturaAux = async () => {
+  const f = facturaEnRevision
+  if (!f) return
+
+  const centroCostoId = document.getElementById('rev-centro').value
+  if (!centroCostoId) { toast('Selecciona el centro de costo', 'error'); return }
+
+  const tieneISV = document.getElementById('rev-tiene-isv').checked
+  const monto = parseFloat(document.getElementById('rev-monto').value) || 0
+  let subtotal = monto, isv = 0
+  if (tieneISV) {
+    subtotal = Math.round((monto / 1.15) * 100) / 100
+    isv = Math.round((monto - subtotal) * 100) / 100
+  }
+
+  // Leer todos los campos editables
+  const proveedorNombre = (document.getElementById('rev-proveedor').value || '').toUpperCase().trim()
+  const numeroFactura = document.getElementById('rev-numero').value.trim()
+  const fechaFactura = document.getElementById('rev-fecha').value
+  const tipoGasto = (document.getElementById('rev-tipo-gasto').value || '').toUpperCase().trim()
+  const formaPago = document.getElementById('rev-forma-pago').value
+  const quienPidio = (document.getElementById('rev-quien-pidio').value || '').toUpperCase().trim()
+  const descripcion = (document.getElementById('rev-descripcion').value || '').toUpperCase().trim()
+  const entregadoA = (document.getElementById('rev-entregado-a').value || '').toUpperCase().trim()
+
+  const btn = document.getElementById('btn-procesar-factura')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Procesando...'
+
+  // Actualizar proveedor si cambió
+  let proveedorId = f.proveedor_id
+  if (proveedorNombre && proveedorNombre !== (f.proveedor?.nombre || '').toUpperCase()) {
+    const { data: provExist } = await sb.from('proveedores').select('id').eq('nombre', proveedorNombre).limit(1).single()
+    if (provExist) {
+      proveedorId = provExist.id
+    } else {
+      const { data: newProv } = await sb.from('proveedores').insert({ nombre: proveedorNombre }).select('id').single()
+      if (newProv) proveedorId = newProv.id
+    }
+  }
+
+  // Actualizar la factura con todos los datos
+  const { error } = await sb.from('facturas_compras').update({
+    centro_costo_id: centroCostoId,
+    proveedor_id: proveedorId,
+    numero_factura: numeroFactura,
+    fecha_factura: fechaFactura,
+    tipo_gasto: tipoGasto,
+    forma_pago: formaPago,
+    quien_pidio: quienPidio,
+    descripcion_compra: descripcion,
+    entregado_a: entregadoA,
+    tiene_isv: tieneISV,
+    subtotal,
+    isv,
+    total: monto,
+    estado: 'pendiente'
+  }).eq('id', f.id)
+
+  btn.disabled = false; btn.textContent = 'Aprobar y crear partida →'
+
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+
+  // Actualizar datos locales
+  f.centro_costo_id = centroCostoId
+  f.numero_factura = numeroFactura
+  f.fecha_factura = fechaFactura
+  f.tipo_gasto = tipoGasto
+  f.forma_pago = formaPago
+  f.quien_pidio = quienPidio
+  f.descripcion_compra = descripcion
+  f.entregado_a = entregadoA
+  f.tiene_isv = tieneISV
+  f.subtotal = subtotal
+  f.isv = isv
+  f.total = monto
+
+  closeModal('modal-revisar-factura')
+  facturaEnRevision = null
+
+  // Ahora abrir el flujo de crear partida existente
+  crearPartidaDesdeFactura(f.id)
 }
 
 // ── CREAR PARTIDA DESDE FACTURA PENDIENTE (CONTADO IMPORTADAS) ──
@@ -5723,7 +6041,7 @@ function renderUnidadesTable() {
   tbody.innerHTML = filteredUnidades.map(u => `
     <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro})">
       <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px">${u.registro}</td>
-      <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : 'badge-amber'}">${u.modalidad}</span></td>
+      <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : u.modalidad === 'BUS' ? 'badge-green' : u.modalidad === 'PARTICULAR' ? 'badge-red' : 'badge-amber'}">${u.modalidad}</span></td>
       <td>${u.propietario !== 'TAXIS' ? `<span class="badge badge-green">${u.propietario}</span>` : '<span style="color:var(--text3)">TAXIS</span>'}</td>
       <td style="font-size:13px">${u.motorista || '<span style="color:var(--text3)">—</span>'}</td>
       <td>${u.financiado ? '<span class="badge badge-red" style="font-size:10px">FINANCIADO</span>' : '<span style="color:var(--text3);font-size:11px">—</span>'}</td>
