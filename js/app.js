@@ -784,6 +784,16 @@ function showError(el, msg) {
 window.closeModal = (id) => {
   document.getElementById(id).classList.remove('open')
 }
+
+// ESC key closes the topmost open modal
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const openModals = document.querySelectorAll('.modal-backdrop.open')
+    if (openModals.length) {
+      openModals[openModals.length - 1].classList.remove('open')
+    }
+  }
+})
 window.toast = (msg, type = 'info') => {
   const icons = { success: '✓', error: '✕', info: '·' }
   const wrap = document.getElementById('toasts')

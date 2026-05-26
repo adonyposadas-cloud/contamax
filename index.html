@@ -1695,7 +1695,7 @@
 
 <!-- MODAL DETALLE PRÉSTAMO -->
 <div class="modal-backdrop" id="modal-detalle-prestamo">
-  <div class="modal" style="width:800px;max-height:90vh;overflow-y:auto">
+  <div class="modal" style="width:95vw;max-width:1100px;max-height:90vh;overflow-y:auto">
     <div class="modal-title" id="modal-detalle-prestamo-title">🧾 Detalle préstamo</div>
     <div id="dp-info"></div>
     <div id="dp-contenido"><div style="text-align:center;padding:20px"><div class="spinner"></div></div></div>
@@ -1705,55 +1705,14 @@
   </div>
 </div>
 
-<!-- MODAL GENERAR RECIBO -->
-<div class="modal-backdrop" id="modal-recibo">
-  <div class="modal" style="width:560px">
-    <div class="modal-title" id="modal-recibo-title">🧾 Generar recibo</div>
-    <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div><span style="color:var(--text3);font-size:11px">Código</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)" id="rec-codigo">—</div></div>
-      <div><span style="color:var(--text3);font-size:11px">Motorista</span><div id="rec-motorista">—</div></div>
-      <div><span style="color:var(--text3);font-size:11px">Saldo actual</span><div style="font-family:var(--mono);font-weight:600;color:var(--red)" id="rec-saldo">—</div></div>
-      <div><span style="color:var(--text3);font-size:11px">Tasa mensual</span><div style="font-family:var(--mono)" id="rec-tasa">—</div></div>
-      <div style="grid-column:span 2"><span style="color:var(--text3);font-size:11px">Intereses calculados (saldo × tasa)</span><div style="font-family:var(--mono);color:var(--amber)" id="rec-intereses-calc">—</div></div>
-    </div>
-    <div class="form-grid" style="gap:12px">
-      <div class="fld">
-        <label>Fecha del recibo</label>
-        <input type="date" id="rec-fecha">
-      </div>
-      <div class="fld">
-        <label>Abono a capital</label>
-        <input type="number" id="rec-capital" placeholder="0.00" step="0.01" oninput="calcRecibo()">
-      </div>
-      <div class="fld">
-        <label>Intereses</label>
-        <input type="number" id="rec-intereses" placeholder="0.00" step="0.01" oninput="calcRecibo()">
-      </div>
-      <div class="fld">
-        <label>Cuota GPS</label>
-        <input type="number" id="rec-gps" placeholder="0.00" step="0.01" oninput="calcRecibo()">
-      </div>
-      <div class="fld">
-        <label id="rec-label-seguro">Cuota seguro</label>
-        <input type="number" id="rec-seguro" placeholder="0.00" step="0.01" oninput="calcRecibo()">
-      </div>
-      <div class="fld">
-        <label>Cuota administración</label>
-        <input type="number" id="rec-admin" placeholder="0.00" step="0.01" oninput="calcRecibo()">
-      </div>
-      <div class="fld col-full" style="background:var(--bg3);border-radius:var(--radius);padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div><span style="color:var(--text3);font-size:11px">Total recibo</span><div style="font-family:var(--mono);font-weight:700;font-size:20px;color:var(--gold)" id="rec-total">L. 0.00</div></div>
-        <div><span style="color:var(--text3);font-size:11px">Nuevo saldo</span><div style="font-family:var(--mono);font-weight:700;font-size:20px" id="rec-nuevo-saldo">L. 0.00</div></div>
-      </div>
-      <div class="fld col-full">
-        <label>Notas</label>
-        <input type="text" id="rec-notas" placeholder="Observaciones...">
-      </div>
-    </div>
-    <div id="modal-recibo-error" class="login-error hidden" style="margin-top:14px"></div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="closeModal('modal-recibo')">Cancelar</button>
-      <button class="btn btn-gold" id="btn-guardar-recibo" onclick="guardarRecibo()">Guardar recibo</button>
+<!-- MODAL LIQUIDACIÓN Y RECIBO -->
+<div class="modal-backdrop" id="modal-liquidacion">
+  <div class="modal" style="width:800px;max-height:90vh;overflow-y:auto">
+    <div class="modal-title" id="modal-liquidacion-title">🧾 Liquidación</div>
+    <div id="liq-contenido"><div style="text-align:center;padding:20px"><div class="spinner"></div></div></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-liquidacion')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-confirmar-recibo" onclick="confirmarRecibo()">Confirmar y generar recibo →</button>
     </div>
   </div>
 </div>
