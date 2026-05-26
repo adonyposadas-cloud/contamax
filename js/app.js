@@ -6922,14 +6922,46 @@ window.aprobarMovCajaChica = async (partidaId) => {
   loadCajaChica()
 }
 
-// Arqueo de caja chica — reutiliza el modal de arqueo de caja general pero filtra por cuenta chica
-window.verArqueoCajaChica = () => {
-  // Reuse the caja general arqueo modal
-  verArqueo()
-  toast('Mostrando arqueo general — filtrá por la cuenta 110101-001 para ver solo Caja Chica', 'info')
+// Arqueo de caja chica — solo billetes, sin USD ni cheques
+window.verArqueoCajaChica = async () => {
+  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  
+  // Get all conteos for caja chica account
+  const { data: conteos } = await sb.from('conteo_billetes')
+    .select('*, partida:partidas_contables(estado)')
+    .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+
+  const validConteos = (conteos || []).filter(c => c.partida?.estado === 'aprobada')
+  
+  let totalIng = 0, totalEgr = 0, totalCaja = 0, totalValor = 0
+  const tbody = document.getElementById('tbody-arqueo-cc')
+  
+  tbody.innerHTML = denoms.map(d => {
+    const ingresos = validConteos.filter(c => c.denominacion === d && c.tipo === 'debito').reduce((s, c) => s + (c.cantidad || 0), 0)
+    const egresos = validConteos.filter(c => c.denominacion === d && c.tipo === 'credito').reduce((s, c) => s + (c.cantidad || 0), 0)
+    const enCaja = ingresos - egresos
+    const valor = enCaja * d
+    totalIng += ingresos; totalEgr += egresos; totalCaja += enCaja; totalValor += valor
+    const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return `<tr>
+      <td style="padding:8px 12px;font-weight:500">L. ${d}</td>
+      <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--green)">${ingresos || '—'}</td>
+      <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--red)">${egresos || '—'}</td>
+      <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-size:13px;font-weight:500">${enCaja}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--gold)">L. ${fmt(valor)}</td>
+    </tr>`
+  }).join('')
+
+  const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  document.getElementById('arqcc-tot-ing').textContent = totalIng
+  document.getElementById('arqcc-tot-egr').textContent = totalEgr
+  document.getElementById('arqcc-tot-caja').textContent = totalCaja
+  document.getElementById('arqcc-tot-valor').textContent = 'L. ' + fmt(totalValor)
+  
+  document.getElementById('modal-arqueo-cc').classList.add('open')
 }
 
-// Cambio de denominaciones — reutiliza el modal de caja general
+// Cambio de denominaciones caja chica — reutiliza el modal de caja general
 window.cambioDenomsCajaChica = () => {
   openModalCambioDenoms()
 }
