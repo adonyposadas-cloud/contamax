@@ -146,7 +146,16 @@ window.doLogout = async () => {
 }
 
 // ── NAVIGATION ──
+// ── Sidebar toggle (mobile) ──
+window.toggleSidebar = () => {
+  document.getElementById('sidebar').classList.toggle('open')
+  document.getElementById('sidebar-overlay').classList.toggle('active')
+}
+
 window.showView = (id, label) => {
+  // Close sidebar on mobile when navigating
+  document.getElementById('sidebar').classList.remove('open')
+  document.getElementById('sidebar-overlay').classList.remove('active')
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'))
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
   const view = document.getElementById('view-' + id)
