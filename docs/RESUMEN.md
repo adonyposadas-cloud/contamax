@@ -32,7 +32,6 @@ Supabase tiene nuevo formato de keys. La `sb_publishable_` NO funciona con el cl
 ## Usuarios Actuales
 - **Adony Posadas** — `adonyposadas@yahoo.es` — `super_admin` — Todas las empresas
 - **Adonis Posadas** — `aposadas310@gmail.com` — `compras` — Todas las empresas
-- Contraseña de admin: `Adony6910` (fue seteada vía SQL directo)
 
 ## Estructura de Base de Datos
 
