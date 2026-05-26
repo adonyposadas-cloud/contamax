@@ -200,7 +200,7 @@
           <table>
             <thead>
               <tr>
-                <th>Usuario</th><th>Rol</th><th>Centro costo</th><th>Estado</th><th>Registrado</th>
+                <th>Usuario</th><th>Rol</th><th>Centro costo</th><th>Estado</th><th>Registrado</th><th style="width:100px">Acciones</th>
               </tr>
             </thead>
             <tbody id="tbody-usuarios">
@@ -1791,6 +1791,43 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-usuario')">Cancelar</button>
       <button class="btn btn-gold" id="btn-crear-usuario" onclick="crearUsuario()">Crear usuario</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR USUARIO -->
+<div class="modal-backdrop" id="modal-editar-usuario">
+  <div class="modal">
+    <div class="modal-title" id="modal-edit-user-title">Editar usuario</div>
+    <div class="form-grid" style="gap:14px">
+      <div class="fld col-full">
+        <label>Nombre completo</label>
+        <input type="text" id="eu-nombre">
+      </div>
+      <div class="fld">
+        <label>Rol</label>
+        <select id="eu-rol">
+          <option value="super_admin">Super Admin</option>
+          <option value="contador">Contador</option>
+          <option value="aux_contable">Aux. Contable</option>
+          <option value="compras">Compras</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label>Centro de costo</label>
+        <select id="eu-empresa">
+          <option value="">Todos los centros de costo</option>
+        </select>
+      </div>
+      <div class="fld col-full" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+        <label>Nueva contraseña <span style="color:var(--text3);font-weight:400">(dejar vacío para no cambiar)</span></label>
+        <input type="password" id="eu-pass" placeholder="Mínimo 8 caracteres">
+      </div>
+    </div>
+    <div id="modal-edit-error" class="login-error hidden" style="margin-top:14px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-editar-usuario')">Cancelar</button>
+      <button class="btn btn-gold" id="btn-guardar-usuario" onclick="guardarEdicionUsuario()">Guardar cambios</button>
     </div>
   </div>
 </div>

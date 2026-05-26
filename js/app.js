@@ -280,16 +280,17 @@ async function loadTiposOrigen() {
 // ── USUARIOS ──
 async function loadUsuarios() {
   const tbody = document.getElementById('tbody-usuarios')
-  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
   const { data, error } = await sb.from('usuarios').select('*, centro_costo:centros_costo(nombre)').order('created_at', { ascending: false })
-  if (error) { tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`; return }
-  if (!data?.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text3)">No hay usuarios registrados</td></tr>'; return }
+  if (error) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`; return }
+  if (!data?.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay usuarios registrados</td></tr>'; return }
+  window._allUsuarios = data
   document.getElementById('stat-total').textContent = data.length
   document.getElementById('stat-activos').textContent = data.filter(u => u.activo).length
   const roleBadge = { super_admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber' }
   const roleLabel = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras' }
   tbody.innerHTML = data.map(u => `
-    <tr>
+    <tr style="${!u.activo ? 'opacity:0.5' : ''}">
       <td><div class="cell-name">
         <div class="avatar" style="width:30px;height:30px;font-size:10px">${u.nombre.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}</div>
         <div>
@@ -301,13 +302,92 @@ async function loadUsuarios() {
       <td>${u.centro_costo?.nombre || '<span style="color:var(--text3)">Todas</span>'}</td>
       <td><span class="badge ${u.activo?'badge-on':'badge-off'}">${u.activo?'Activo':'Inactivo'}</span></td>
       <td class="mono" style="color:var(--text3)">${new Date(u.created_at).toLocaleDateString('es-HN')}</td>
+      <td>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarUsuario('${u.id}')" title="Editar">✏️</button>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="toggleUsuarioActivo('${u.id}', ${u.activo})" title="${u.activo ? 'Desactivar' : 'Activar'}">${u.activo ? '🚫' : '✅'}</button>
+      </td>
     </tr>`).join('')
 }
 window.loadUsuarios = loadUsuarios
 
 window.openModalUsuario = () => {
   document.getElementById('modal-error').classList.add('hidden')
+  ;['nu-nombre','nu-email','nu-pass'].forEach(id => document.getElementById(id).value = '')
+  document.getElementById('nu-rol').value = 'compras'
   document.getElementById('modal-usuario').classList.add('open')
+}
+
+// ── Editar usuario ──
+let editingUserId = null
+window.editarUsuario = (id) => {
+  const u = (window._allUsuarios || []).find(x => x.id === id)
+  if (!u) return
+  editingUserId = id
+  document.getElementById('modal-edit-user-title').textContent = 'Editar: ' + u.nombre
+  document.getElementById('eu-nombre').value = u.nombre
+  document.getElementById('eu-rol').value = u.rol
+  document.getElementById('eu-pass').value = ''
+  document.getElementById('modal-edit-error').classList.add('hidden')
+  // Populate centro costo select
+  const sel = document.getElementById('eu-empresa')
+  const nuSel = document.getElementById('nu-empresa')
+  sel.innerHTML = nuSel.innerHTML // copy options from create modal
+  sel.value = u.centro_costo_id || ''
+  document.getElementById('modal-editar-usuario').classList.add('open')
+}
+
+window.guardarEdicionUsuario = async () => {
+  if (!editingUserId) return
+  const nombre = document.getElementById('eu-nombre').value.trim()
+  const rol = document.getElementById('eu-rol').value
+  const centro_costo_id = document.getElementById('eu-empresa').value || null
+  const newPass = document.getElementById('eu-pass').value
+  const err = document.getElementById('modal-edit-error')
+
+  if (!nombre) { showError(err, 'El nombre es obligatorio'); return }
+  if (newPass && newPass.length < 8) { showError(err, 'La contraseña debe tener al menos 8 caracteres'); return }
+
+  const btn = document.getElementById('btn-guardar-usuario')
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
+
+  // Update profile in usuarios table
+  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id }).eq('id', editingUserId)
+  if (updErr) {
+    btn.disabled = false; btn.textContent = 'Guardar cambios'
+    showError(err, updErr.message); return
+  }
+
+  // Update password if provided (requires admin API or auth.admin)
+  if (newPass) {
+    const user = (window._allUsuarios || []).find(x => x.id === editingUserId)
+    if (user?.auth_user_id) {
+      // Use Supabase auth admin updateUserById via RPC if available
+      const { error: passErr } = await sb.rpc('admin_update_password', {
+        target_user_id: user.auth_user_id,
+        new_password: newPass
+      })
+      if (passErr) {
+        // Fallback: try direct auth update (only works if current user is the target)
+        toast('Perfil actualizado. Para cambiar contraseña, el usuario debe hacerlo desde su sesión.', 'info')
+      } else {
+        toast('Contraseña actualizada', 'success')
+      }
+    }
+  }
+
+  btn.disabled = false; btn.textContent = 'Guardar cambios'
+  closeModal('modal-editar-usuario')
+  toast('Usuario actualizado', 'success')
+  loadUsuarios()
+}
+
+// ── Activar/Desactivar usuario ──
+window.toggleUsuarioActivo = async (id, activo) => {
+  if (!confirm(activo ? '¿Desactivar este usuario? No podrá iniciar sesión.' : '¿Reactivar este usuario?')) return
+  const { error } = await sb.from('usuarios').update({ activo: !activo }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(activo ? 'Usuario desactivado' : 'Usuario reactivado', 'success')
+  loadUsuarios()
 }
 
 window.crearUsuario = async () => {
