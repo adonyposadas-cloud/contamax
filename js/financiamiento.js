@@ -303,7 +303,7 @@ function renderLiquidacion() {
         </table>
         <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
           <label style="font-size:11px;color:var(--text3);white-space:nowrap">Fecha recibo:</label>
-          <input type="date" id="liq-fecha" value="${new Date().toLocaleDateString('en-CA')}" onchange="recalcularIntereses()" style="font-size:12px;padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
+          <input type="date" id="liq-fecha" value="${d.fechaRecibo || new Date().toLocaleDateString('en-CA')}" onchange="recalcularIntereses()" style="font-size:12px;padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
         </div>
         <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
           <div id="liq-concepto-display" style="font-size:12px;color:var(--text3);flex:1">${d.concepto}</div>
@@ -401,6 +401,9 @@ window.recalcularIntereses = () => {
   if (!d) return
   const fechaRecibo = document.getElementById('liq-fecha')?.value
   if (!fechaRecibo) return
+
+  // Guardar fecha seleccionada para que persista al re-renderizar
+  d.fechaRecibo = fechaRecibo
 
   const fechaUlt = new Date(d.fechaUltimoPago + 'T12:00:00')
   const fechaRec = new Date(fechaRecibo + 'T12:00:00')
