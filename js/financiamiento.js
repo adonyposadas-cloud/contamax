@@ -148,7 +148,7 @@ window.abrirLiquidacion = async (codigo) => {
 
   // Obtener último recibo para saldo del mes anterior y cuota_mes
   const { data: lastRec } = await getSb().from('recibos_prestamos')
-    .select('saldo_del_mes, gps, numero_alquiler, numero_recibo, cuota_mes')
+    .select('saldo_del_mes, gps, numero_alquiler, numero_recibo, cuota_mes, fecha')
     .eq('registro', codigo).order('fecha', { ascending: false }).limit(1)
 
   const saldoMesAnterior = parseFloat(lastRec?.[0]?.saldo_del_mes) || 0
@@ -156,6 +156,7 @@ window.abrirLiquidacion = async (codigo) => {
   const prevAlquiler = parseFloat(lastRec?.[0]?.numero_alquiler) || p.cuota_seguro || 0
   const cuotaMes = parseFloat(lastRec?.[0]?.cuota_mes) || 0
   const numReciboSig = (lastRec?.[0]?.numero_recibo || p.num_recibos || 0) + 1
+  const fechaUltimoPago = lastRec?.[0]?.fecha || p.fecha_inicio || p.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
 
   // Cargar entregas NO usadas en recibo anterior
   const { data: entregas } = await getSb().from('entregas_taxis')
@@ -193,8 +194,15 @@ window.abrirLiquidacion = async (codigo) => {
   const totalFacturas = (facturas || []).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
 
   const saldo = parseFloat(p.saldo_actual) || 0
-  const tasa = parseFloat(p.tasa_interes) || 0.03
-  const intereses = Math.round(saldo * tasa * 100) / 100
+  const tasa = parseFloat(p.tasa_interes) || 0.03 // tasa mensual (3% = 0.03)
+  
+  // Calcular días desde último pago hasta hoy (se recalculará al cambiar fecha)
+  const hoy = new Date()
+  const fechaUlt = new Date(fechaUltimoPago + 'T12:00:00')
+  const diasTranscurridos = Math.max(0, Math.round((hoy - fechaUlt) / (1000 * 60 * 60 * 24)))
+  const tasaDiaria = tasa / 30 // tasa mensual / 30 días
+  const intereses = Math.round(saldo * tasaDiaria * diasTranscurridos * 100) / 100
+  
   const gps = Math.abs(parseFloat(prevGps)) || 0
   const alquiler = Math.abs(parseFloat(prevAlquiler)) || 0
   const saldoAnt = parseFloat(saldoMesAnterior) || 0
@@ -244,7 +252,8 @@ window.abrirLiquidacion = async (codigo) => {
     entregas: entregas || [], facturas: facturas || [],
     abonosPartida: abonosValidos,
     totalEntregas, totalAbonosPartida, totalFacturas,
-    saldoInicial: saldo, tasa, intereses, gps, alquiler,
+    saldoInicial: saldo, tasa, tasaDiaria, intereses, gps, alquiler,
+    fechaUltimoPago, diasTranscurridos,
     saldoMesAnterior: saldoAnt, cargoSaldoAnt, abonoSaldoAnt, totalCargos,
     cuotaMes,
     saldoDelMes, abonoCapital, nuevoSaldoMes,
@@ -287,13 +296,13 @@ function renderLiquidacion() {
         <table style="width:100%">
           <tr><td style="padding:4px 0">Saldo inicial</td><td style="text-align:right;font-family:var(--mono)">L. ${getFmt(d.saldoInicial)}</td></tr>
           <tr><td style="padding:4px 0">Capital</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">${d.abonoCapital > 0 ? 'L. ' + getFmt(d.abonoCapital) : '—'}</td></tr>
-          <tr><td style="padding:4px 0">Intereses</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.intereses)}</td></tr>
+          <tr><td style="padding:4px 0">Intereses <span style="font-size:10px;color:var(--text3)">(${d.diasTranscurridos}d desde ${d.fechaUltimoPago})</span></td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.intereses)}</td></tr>
           <tr style="border-top:1px solid var(--border);font-weight:600"><td style="padding:6px 0">Total recibo</td><td style="text-align:right;font-family:var(--mono);font-size:16px;color:var(--gold)">L. ${getFmt(d.montoRecibo)}</td></tr>
           <tr style="border-top:2px solid var(--border)"><td style="padding:6px 0;font-weight:600">Nuevo saldo préstamo</td><td style="text-align:right;font-family:var(--mono);font-size:18px;font-weight:700;color:${d.nuevoSaldoPrestamo > 0 ? 'var(--red)' : 'var(--green)'}">L. ${getFmt(d.nuevoSaldoPrestamo)}</td></tr>
         </table>
         <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
           <label style="font-size:11px;color:var(--text3);white-space:nowrap">Fecha recibo:</label>
-          <input type="date" id="liq-fecha" value="${new Date().toLocaleDateString('en-CA')}" style="font-size:12px;padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
+          <input type="date" id="liq-fecha" value="${new Date().toLocaleDateString('en-CA')}" onchange="recalcularIntereses()" style="font-size:12px;padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
         </div>
         <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
           <div id="liq-concepto-display" style="font-size:12px;color:var(--text3);flex:1">${d.concepto}</div>
@@ -321,6 +330,49 @@ function renderLiquidacion() {
     </details>`
 
   document.getElementById('liq-contenido').innerHTML = html
+}
+
+window.recalcularIntereses = () => {
+  const d = liquidacionData
+  if (!d) return
+  const fechaRecibo = document.getElementById('liq-fecha')?.value
+  if (!fechaRecibo) return
+
+  const fechaUlt = new Date(d.fechaUltimoPago + 'T12:00:00')
+  const fechaRec = new Date(fechaRecibo + 'T12:00:00')
+  const dias = Math.max(0, Math.round((fechaRec - fechaUlt) / (1000 * 60 * 60 * 24)))
+  
+  d.diasTranscurridos = dias
+  d.intereses = Math.round(d.saldoInicial * d.tasaDiaria * dias * 100) / 100
+
+  // Recalcular todo
+  const totalCargos = d.intereses + d.totalFacturas + d.alquiler + d.gps + d.cargoSaldoAnt
+  d.saldoDelMes = d.totalEntregas + d.abonoSaldoAnt - totalCargos
+  d.totalCargos = totalCargos
+
+  let abonoCapital = 0
+  let nuevoSaldoMes = d.saldoDelMes
+  const capitalPactado = d.cuotaMes > 0 ? d.cuotaMes - d.intereses : 0
+
+  if (d.saldoDelMes > 0 && d.cuotaMes > 0) {
+    if (d.saldoDelMes >= capitalPactado && capitalPactado > 0) {
+      abonoCapital = Math.round(capitalPactado * 100) / 100
+      nuevoSaldoMes = Math.round((d.saldoDelMes - capitalPactado) * 100) / 100
+    } else if (d.saldoDelMes > 0) {
+      abonoCapital = Math.round(d.saldoDelMes * 100) / 100
+      nuevoSaldoMes = 0
+    }
+  } else if (d.saldoDelMes > 0 && d.cuotaMes === 0) {
+    abonoCapital = Math.round(d.saldoDelMes * 100) / 100
+    nuevoSaldoMes = 0
+  }
+
+  d.abonoCapital = abonoCapital
+  d.nuevoSaldoMes = nuevoSaldoMes
+  d.nuevoSaldoPrestamo = Math.round((d.saldoInicial - abonoCapital) * 100) / 100
+  d.montoRecibo = Math.round((d.intereses + abonoCapital) * 100) / 100
+
+  renderLiquidacion()
 }
 
 window.toggleEditConcepto = () => {
