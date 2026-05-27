@@ -1194,6 +1194,24 @@ window.crearPartidaDesdeFactura = async (facturaId) => {
   // Guardar referencia para actualizar estado al guardar
   window._facturaContadoId = facturaId
 
+  // ── PASAR IMAGEN DE FACTURA AL ADJUNTO DE LA PARTIDA ──
+  window._facturaFotoUrl = factura.foto_url || null
+  const adjuntoLink = document.getElementById('pn-adjunto-link')
+  const adjuntoStatus = document.getElementById('pn-adjunto-status')
+  if (document.getElementById('pn-adjunto')) document.getElementById('pn-adjunto').value = ''
+  if (factura.foto_url) {
+    const { data: urlData } = await sb.storage.from('facturas-compras').createSignedUrl(factura.foto_url, 3600)
+    if (urlData?.signedUrl && adjuntoLink) {
+      adjuntoLink.href = urlData.signedUrl
+      adjuntoLink.style.display = 'inline'
+      adjuntoLink.textContent = '📷 Ver foto de factura (se adjuntará automáticamente)'
+      if (adjuntoStatus) adjuntoStatus.textContent = '✓ Imagen de factura vinculada'
+    }
+  } else {
+    if (adjuntoLink) adjuntoLink.style.display = 'none'
+    if (adjuntoStatus) adjuntoStatus.textContent = ''
+  }
+
   toast('Débitos cargados. Completá el crédito con la forma de pago (caja, banco, etc.)', 'info')
 }
 
@@ -1314,6 +1332,7 @@ function renderPartidasTable(data) {
 
 async function initPartidaNueva() {
   editingPartidaId = null
+  window._facturaFotoUrl = null
   document.getElementById('pn-title').textContent = 'Nueva partida contable'
   const btnElim = document.getElementById('btn-eliminar-partida')
   if (btnElim) btnElim.classList.add('hidden')
@@ -1981,7 +2000,11 @@ window.guardarPartida = async (estado) => {
       await sb.from('partidas_contables').update({ adjunto_url: path }).eq('id', partidaId)
       toast('Adjunto guardado ✓', 'success')
     }
+  } else if (!adjuntoFile && window._facturaFotoUrl && partidaId && !editingPartidaId) {
+    // ── COPIAR IMAGEN DE FACTURA como adjunto de la partida ──
+    await sb.from('partidas_contables').update({ adjunto_url: window._facturaFotoUrl }).eq('id', partidaId)
   }
+  window._facturaFotoUrl = null
 
   // Insertar líneas
   const lineas = lineasValidas.map(l => ({
