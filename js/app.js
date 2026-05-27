@@ -3034,20 +3034,21 @@ function parseAlphaExcel(arrayBuffer) {
       const firstCell = row[colMap.factura_interna]
       if (firstCell == null || String(firstCell).trim() === '') break
       if (isNaN(Number(firstCell))) break
+      const r2 = v => Math.round((parseFloat(v) || 0) * 100) / 100
       facturas.push({
         factura_interna: firstCell,
         factura_electronica: String(row[colMap.factura_electronica] || ''),
         cliente: String(row[colMap.cliente] || ''),
         rtn: String(row[colMap.rtn] || ''),
-        subtotal: parseFloat(row[colMap.subtotal]) || 0,
-        impuestos: parseFloat(row[colMap.impuestos]) || 0,
-        total: parseFloat(row[colMap.total]) || 0,
-        total_exento: parseFloat(row[colMap.total_exento]) || 0,
-        total_gravado: parseFloat(row[colMap.total_gravado]) || 0,
+        subtotal: r2(row[colMap.subtotal]),
+        impuestos: r2(row[colMap.impuestos]),
+        total: r2(row[colMap.total]),
+        total_exento: r2(row[colMap.total_exento]),
+        total_gravado: r2(row[colMap.total_gravado]),
         fecha: String(row[colMap.fecha] || ''),
-        monto_tarjeta: parseFloat(row[colMap.monto_tarjeta]) || 0,
-        monto_efectivo: parseFloat(row[colMap.monto_efectivo]) || 0,
-        monto_transferencia: parseFloat(row[colMap.monto_transferencia]) || 0,
+        monto_tarjeta: r2(row[colMap.monto_tarjeta]),
+        monto_efectivo: r2(row[colMap.monto_efectivo]),
+        monto_transferencia: r2(row[colMap.monto_transferencia]),
         tipo_venta: String(row[colMap.tipo_venta] || 'Contado'),
         codigo_cliente: String(row[colMap.codigo_cliente] || ''),
       })
