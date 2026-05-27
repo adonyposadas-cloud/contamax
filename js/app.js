@@ -2061,6 +2061,7 @@ window.guardarPartida = async (estado) => {
     const conteos = lineasConBilletes.map(l => ({
       partida_id: partidaId,
       tipo: l.tipo === 'debito' ? 'ingreso' : 'egreso',
+      cuenta_codigo: l.cuenta_codigo,
       den_500: l.billetes[500] || 0,
       den_200: l.billetes[200] || 0,
       den_100: l.billetes[100] || 0,
@@ -7292,10 +7293,30 @@ window.aprobarMovCajaChica = async (partidaId) => {
 window.verArqueoCajaChica = async () => {
   const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
   
-  // Get all conteos for caja chica account
-  const { data: conteos } = await sb.from('conteo_billetes')
+  // Get all conteos for caja chica account (by cuenta_codigo or by partida that touches caja chica)
+  const { data: conteosDirect } = await sb.from('conteo_billetes')
     .select('*, partida:partidas_contables(estado)')
     .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+
+  // Also get conteos without cuenta_codigo — check if their partida has a caja chica line
+  const { data: conteosNull } = await sb.from('conteo_billetes')
+    .select('*, partida:partidas_contables(estado)')
+    .is('cuenta_codigo', null)
+
+  let conteosFromPartidas = []
+  if (conteosNull?.length) {
+    const partidaIds = [...new Set(conteosNull.map(c => c.partida_id).filter(Boolean))]
+    if (partidaIds.length) {
+      const { data: lineasCC } = await sb.from('lineas_partida')
+        .select('partida_id')
+        .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+        .in('partida_id', partidaIds)
+      const ccPartidaIds = new Set((lineasCC || []).map(l => l.partida_id))
+      conteosFromPartidas = conteosNull.filter(c => ccPartidaIds.has(c.partida_id))
+    }
+  }
+
+  const conteos = [...(conteosDirect || []), ...conteosFromPartidas]
 
   const validConteos = (conteos || []).filter(c => c.partida?.estado === 'aprobada')
   
