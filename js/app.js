@@ -1623,6 +1623,28 @@ function renderLineas() {
       ? `<span style="opacity:0.3;font-size:13px" title="No se puede eliminar línea de caja">🔒</span>`
       : `<button class="linea-del" onclick="removeLinea(${l.id})">✕</button>`
 
+    // USD conversion row
+    const esUSD = l.cuenta_nombre?.includes('$') || l.cuenta_codigo?.includes('$')
+    const usdRow = esUSD ? `
+    <tr class="usd-row" style="background:rgba(59,130,246,0.06)">
+      <td colspan="2" style="text-align:right;font-size:11px;color:var(--blue);padding:2px 12px">
+        💱 Conversión USD:
+      </td>
+      <td colspan="3" style="padding:2px 8px">
+        <div style="display:flex;gap:6px;align-items:center;font-size:12px">
+          <span style="color:var(--blue);font-weight:500">$</span>
+          <input type="text" inputmode="decimal" value="${l._usd_monto || ''}" placeholder="0.00"
+            oninput="setUSD(${l.id},this.value)" style="width:90px;text-align:right;font-family:var(--mono);font-size:12px;padding:4px 6px;background:var(--bg3);border:1px solid var(--blue);border-radius:4px;color:var(--text)">
+          <span style="color:var(--text3)">× TC</span>
+          <input type="text" inputmode="decimal" value="${l._usd_tc || ''}" placeholder="26.78"
+            oninput="setTC(${l.id},this.value)" style="width:70px;text-align:right;font-family:var(--mono);font-size:12px;padding:4px 6px;background:var(--bg3);border:1px solid var(--blue);border-radius:4px;color:var(--text)">
+          <span style="color:var(--text3)">=</span>
+          <span style="font-family:var(--mono);font-weight:600;color:var(--gold)" id="usd-result-${l.id}">L. ${l.monto ? l.monto.toLocaleString('es-HN',{minimumFractionDigits:2}) : '0.00'}</span>
+        </div>
+      </td>
+      <td></td>
+    </tr>` : ''
+
     return `
     <tr class="linea-row"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
       <td>
@@ -1647,9 +1669,47 @@ function renderLineas() {
       <td style="text-align:center">
         ${deleteBtn}
       </td>
-    </tr>`
+    </tr>${usdRow}`
   }).join('')
 }
+
+// ── USD conversion helpers ──
+window.setUSD = (id, val) => {
+  const l = partidaLineas.find(x => x.id === id)
+  if (!l) return
+  l._usd_monto = parseFloat(val) || 0
+  if (!l._usd_tc) l._usd_tc = window._lastTC || 0
+  const lempiras = Math.round((l._usd_monto * l._usd_tc) * 100) / 100
+  l.monto = lempiras
+  l.tipo = l.tipo || 'debito'
+  const res = document.getElementById(`usd-result-${id}`)
+  if (res) res.textContent = 'L. ' + lempiras.toLocaleString('es-HN', {minimumFractionDigits:2})
+  // Update the visible debe/haber input
+  renderLineas()
+  calcTotales()
+}
+
+window.setTC = (id, val) => {
+  const l = partidaLineas.find(x => x.id === id)
+  if (!l) return
+  l._usd_tc = parseFloat(val) || 0
+  window._lastTC = l._usd_tc // remember for next USD line
+  const lempiras = Math.round((l._usd_monto || 0) * l._usd_tc * 100) / 100
+  l.monto = lempiras
+  const res = document.getElementById(`usd-result-${id}`)
+  if (res) res.textContent = 'L. ' + lempiras.toLocaleString('es-HN', {minimumFractionDigits:2})
+  renderLineas()
+  calcTotales()
+}
+
+// Fetch BAC exchange rate on load
+async function fetchTCBac() {
+  try {
+    const { data } = await sb.from('caja_tc_promedio').select('tc_venta').order('created_at', { ascending: false }).limit(1)
+    if (data?.[0]?.tc_venta) window._lastTC = parseFloat(data[0].tc_venta)
+  } catch(e) {}
+}
+fetchTCBac()
 
 window.setDebe = (id, val) => {
   const l = partidaLineas.find(x => x.id === id)
@@ -1773,9 +1833,14 @@ window.filterCuentas = (lid, query) => {
 
 window.selectCuenta = (lid, cid, codigo, nombre) => {
   const l = partidaLineas.find(x => x.id === lid)
-  if (l) { l.cuenta_id = cid; l.cuenta_codigo = codigo; l.cuenta_nombre = nombre }
+  if (l) {
+    l.cuenta_id = cid; l.cuenta_codigo = codigo; l.cuenta_nombre = nombre
+    // Auto-set TC for USD accounts
+    if (nombre.includes('$') && window._lastTC && !l._usd_tc) {
+      l._usd_tc = window._lastTC
+    }
+  }
   document.getElementById('dd-' + lid).classList.remove('open')
-  // Re-render para que aparezca el botón de billetes si es cuenta de caja
   renderLineas()
   calcTotales()
 }
