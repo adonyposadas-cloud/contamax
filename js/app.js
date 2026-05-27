@@ -7168,7 +7168,7 @@ window.consultarCxP = async () => {
     .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
     .in('cuenta_codigo', codigos)
     .eq('tipo', 'credito') // Credits to passivo = cargos a la tarjeta
-    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
 
   const { data, error } = await query
   if (error) { toast('Error: ' + error.message, 'error'); return }
