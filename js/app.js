@@ -1675,23 +1675,37 @@ function renderLineas() {
   }).join('')
 }
 
-// Fetch BAC exchange rate on load (for reference)
+// Fetch TC: prioridad localStorage (manual del usuario), luego BD como fallback inicial
 async function fetchTCBac() {
-  try {
-    // Try multiple field names
-    const { data } = await sb.from('caja_tc_promedio').select('*').order('id', { ascending: false }).limit(1)
-    if (data?.[0]) {
-      const row = data[0]
-      const tc = parseFloat(row.tc_venta || row.tc_promedio || row.tc || row.tasa || 0)
-      if (tc > 0) window._lastTC = tc
-    }
-  } catch(e) {}
-  // Fallback: try to set from any stored value
-  if (!window._lastTC) window._lastTC = 26.7859
+  const stored = localStorage.getItem('contamax_tc_manual')
+  if (stored) {
+    window._lastTC = parseFloat(stored)
+  } else {
+    try {
+      const { data } = await sb.from('caja_tc_promedio').select('*').order('id', { ascending: false }).limit(1)
+      if (data?.[0]) {
+        const row = data[0]
+        const tc = parseFloat(row.tc_venta || row.tc_promedio || row.tc || row.tasa || 0)
+        if (tc > 0) window._lastTC = tc
+      }
+    } catch(e) {}
+    if (!window._lastTC) window._lastTC = 25.2857
+  }
   const tcInput = document.getElementById('calc-usd-tc')
-  if (tcInput && !tcInput.value) tcInput.value = window._lastTC
+  if (tcInput) tcInput.value = window._lastTC
 }
 fetchTCBac()
+
+// Guardar TC en localStorage cuando el usuario lo cambia manualmente
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'calc-usd-tc') {
+    const val = parseFloat(e.target.value)
+    if (val > 0) {
+      localStorage.setItem('contamax_tc_manual', val.toString())
+      window._lastTC = val
+    }
+  }
+})
 
 // ── Calculadora USD en partida ──
 window.calcUSD = () => {
