@@ -3317,7 +3317,7 @@ function renderFiscalDetail() {
   const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const tbody = document.getElementById('tbody-fiscal')
 
-  // Obtener números y detectar faltantes para insertar como "Anulada"
+  // Obtener números y detectar faltantes — verificar en hoja Crédito antes de marcar como anulada
   const facturasConAnuladas = []
   const nums = []
   let prefix = ''
@@ -3329,13 +3329,29 @@ function renderFiscalDetail() {
     }
   }
 
+  // Obtener facturas de crédito del mismo reporte para cruzar
+  const reporteActual = importFiscalTab === 'tecnimax' ? d.tecnimax_fiscal : d.yonker_fiscal
+  const factsCredito = reporteActual?.facturasCredito || []
+
   if (nums.length > 0) {
     const sorted = [...nums].sort((a, b) => a - b)
-    for (let n = sorted[0]; n <= sorted[sorted.length - 1]; n++) {
+    // Incluir también nums de crédito para ampliar el rango
+    const numsCredito = []
+    for (const fc of factsCredito) {
+      const parts = fc.factura_electronica.split('-')
+      if (parts.length >= 4) numsCredito.push(parseInt(parts[parts.length - 1]))
+    }
+    const allNums = [...sorted, ...numsCredito].sort((a, b) => a - b)
+    const minN = allNums[0], maxN = allNums[allNums.length - 1]
+
+    for (let n = minN; n <= maxN; n++) {
       const facNum = `${prefix}-${String(n).padStart(8, '0')}`
       const facReal = facturas.find(f => f.factura_electronica === facNum)
+      const facCredito = factsCredito.find(f => f.factura_electronica === facNum)
       if (facReal) {
-        facturasConAnuladas.push({ ...facReal, anulada: false })
+        facturasConAnuladas.push({ ...facReal, anulada: false, esCredito: false })
+      } else if (facCredito) {
+        facturasConAnuladas.push({ ...facCredito, anulada: false, esCredito: true })
       } else {
         facturasConAnuladas.push({
           factura_electronica: facNum,
@@ -3344,7 +3360,8 @@ function renderFiscalDetail() {
           subtotal: 0,
           impuestos: 0,
           total: 0,
-          anulada: true
+          anulada: true,
+          esCredito: false
         })
       }
     }
@@ -3365,6 +3382,16 @@ function renderFiscalDetail() {
         <td>—</td><td class="mono" style="text-align:right;color:var(--text3)">0.00</td>
         <td class="mono" style="text-align:right;color:var(--text3)">0.00</td>
         <td class="mono" style="text-align:right;color:var(--text3)">0.00</td>
+      </tr>`
+    }
+    if (f.esCredito) {
+      return `<tr style="background:#3b82f608">
+        <td class="mono" style="color:var(--blue)">${f.factura_electronica}</td>
+        <td style="color:var(--blue);font-weight:500">💳 ${f.cliente} <span style="font-size:10px;opacity:0.7">(CRÉDITO)</span></td>
+        <td class="mono" style="color:var(--text3)">${f.rtn && f.rtn !== 'null' && f.rtn !== 'NaN' ? f.rtn : '—'}</td>
+        <td class="mono" style="text-align:right">${fmt(f.subtotal)}</td>
+        <td class="mono" style="text-align:right">${fmt(f.impuestos)}</td>
+        <td class="mono" style="text-align:right;font-weight:500;color:var(--blue)">${fmt(f.total)}</td>
       </tr>`
     }
     return `<tr>
@@ -3400,34 +3427,67 @@ function renderImportPartida() {
   const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const granTotal = tf.total + ti.total + yf.total + yi.total
 
+  // Calcular total de facturas a crédito de todos los reportes
+  let totalCredito = 0
+  const facturasCredito = []
+  for (const r of [d.tecnimax_fiscal, d.tecnimax_interno, d.yonker_fiscal, d.yonker_interno]) {
+    if (r?.facturasCredito?.length) {
+      for (const fc of r.facturasCredito) {
+        totalCredito += fc.total
+        facturasCredito.push({ ...fc, centro: r.centro })
+      }
+    }
+  }
+  const totalContado = granTotal - totalCredito
+
   const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const C = IMPORT_CUENTAS
 
   const lineas = [
-    // DÉBITO — Caja General
-    { codigo: C.caja_general.codigo, nombre: C.caja_general.nombre, centro: '—', debe: granTotal, haber: 0, fiscal: '—' },
-    // CRÉDITOS FISCALES
+    // DÉBITO — Caja General (solo contado, sin créditos)
+    { codigo: C.caja_general.codigo, nombre: C.caja_general.nombre, centro: '—', debe: totalContado, haber: 0, fiscal: '—' },
+  ]
+
+  // DÉBITO — Cuentas por cobrar (facturas a crédito)
+  for (const fc of facturasCredito) {
+    const clienteNombre = fc.cliente.trim().toUpperCase()
+    const cxcCuenta = cuentasDetalle.find(c => c.nombre.toUpperCase().includes(clienteNombre))
+    lineas.push({
+      codigo: cxcCuenta ? cxcCuenta.codigo : '110301-???',
+      nombre: cxcCuenta ? cxcCuenta.nombre : `CxC ${clienteNombre} (cuenta no encontrada)`,
+      centro: fc.centro === 'Yonker' ? 'Yonker' : 'Tecnicentro',
+      debe: fc.total, haber: 0,
+      fiscal: fc.tipo_venta === 'Crédito' ? '💳' : '—',
+      _esCxC: true, _cliente: clienteNombre, _encontrada: !!cxcCuenta
+    })
+  }
+
+  // CRÉDITOS
+  lineas.push(
     { codigo: C.venta_tecnimax.codigo, nombre: C.venta_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: tf.subtotal, fiscal: '✓' },
     { codigo: C.isv_ventas.codigo, nombre: C.isv_ventas.nombre, centro: '—', debe: 0, haber: tf.impuestos, fiscal: '✓' },
     { codigo: C.venta_yonker.codigo, nombre: C.venta_yonker.nombre, centro: 'Yonker', debe: 0, haber: yf.total, fiscal: '✓' },
-    // CRÉDITOS INTERNOS
     { codigo: C.venta_tecnimax_int.codigo, nombre: C.venta_tecnimax_int.nombre, centro: 'Tecnicentro', debe: 0, haber: ti.subtotal, fiscal: '—' },
     { codigo: C.bono_tecnimax.codigo, nombre: C.bono_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: ti.impuestos, fiscal: '—' },
     { codigo: C.venta_yonker_int.codigo, nombre: C.venta_yonker_int.nombre, centro: 'Yonker', debe: 0, haber: yi.total, fiscal: '—' },
-  ].filter(l => l.debe > 0 || l.haber > 0)
+  )
+
+  const filtered = lineas.filter(l => l.debe > 0 || l.haber > 0)
 
   const tbody = document.getElementById('tbody-import-partida')
-  tbody.innerHTML = lineas.map(l => `
-    <tr>
-      <td><span class="mono" style="color:var(--gold);margin-right:8px">${l.codigo}</span>${l.nombre}</td>
+  tbody.innerHTML = filtered.map(l => {
+    const cxcStyle = l._esCxC ? (l._encontrada ? 'color:var(--blue)' : 'color:var(--red)') : ''
+    return `<tr>
+      <td><span class="mono" style="color:var(--gold);margin-right:8px">${l.codigo}</span><span style="${cxcStyle}">${l.nombre}</span></td>
       <td>${l.centro}</td>
       <td class="mono" style="text-align:right;color:${l.debe > 0 ? 'var(--text)' : 'var(--text3)'}">${l.debe > 0 ? fmt(l.debe) : ''}</td>
       <td class="mono" style="text-align:right;color:${l.haber > 0 ? 'var(--text)' : 'var(--text3)'}">${l.haber > 0 ? fmt(l.haber) : ''}</td>
-      <td style="text-align:center;color:${l.fiscal === '✓' ? 'var(--green)' : 'var(--text3)'}">${l.fiscal}</td>
-    </tr>`).join('')
+      <td style="text-align:center;color:${l.fiscal === '✓' ? 'var(--green)' : l.fiscal === '💳' ? 'var(--blue)' : 'var(--text3)'}">${l.fiscal}</td>
+    </tr>`
+  }).join('')
 
-  const totD = lineas.reduce((s, l) => s + l.debe, 0)
-  const totC = lineas.reduce((s, l) => s + l.haber, 0)
+  const totD = filtered.reduce((s, l) => s + l.debe, 0)
+  const totC = filtered.reduce((s, l) => s + l.haber, 0)
   document.getElementById('imp-tot-d').textContent = fmt(totD)
   document.getElementById('imp-tot-c').textContent = fmt(totC)
 }
@@ -3470,6 +3530,20 @@ window.guardarImportPartida = async () => {
 
   const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
 
+  // ── Recopilar facturas de crédito de todos los reportes ──
+  let totalCredito = 0
+  const facturasCredito = []
+  for (const r of [d.tecnimax_fiscal, d.tecnimax_interno, d.yonker_fiscal, d.yonker_interno]) {
+    if (r?.facturasCredito?.length) {
+      for (const fc of r.facturasCredito) {
+        totalCredito += fc.total
+        const centro = r.centro
+        const ccId = centro === 'Yonker' ? (ccYonker?.id || '') : (ccTecni?.id || '')
+        facturasCredito.push({ ...fc, ccId, centro })
+      }
+    }
+  }
+
   // Preparar líneas de CRÉDITO (automáticas de la importación)
   const creditosRaw = [
     { cuenta: C.venta_tecnimax, monto: tf.subtotal, cc: ccTecni?.id || '', fiscal: true },
@@ -3496,6 +3570,40 @@ window.guardarImportPartida = async () => {
   // Limpiar líneas actuales y crear las de crédito + líneas vacías para débitos
   partidaLineas = []
   lineaCounter = 0
+
+  // ── DÉBITO: Líneas de CxC para facturas a crédito ──
+  for (const fc of facturasCredito) {
+    const clienteNombre = fc.cliente.trim().toUpperCase()
+    const cxcCuenta = cuentasDetalle.find(c => c.nombre.toUpperCase().includes(clienteNombre))
+    if (cxcCuenta) {
+      lineaCounter++
+      partidaLineas.push({
+        id: lineaCounter,
+        cuenta_id: cxcCuenta.id,
+        cuenta_codigo: cxcCuenta.codigo,
+        cuenta_nombre: cxcCuenta.nombre,
+        tipo: 'debito',
+        monto: Math.round(fc.total * 100) / 100,
+        centro_costo_id: fc.ccId,
+        descripcion: `CXC ${clienteNombre} FACT ${fc.factura_electronica}`,
+        aplica_fiscal: true
+      })
+    } else {
+      // Cuenta no encontrada — agregar línea vacía con nota
+      lineaCounter++
+      partidaLineas.push({
+        id: lineaCounter,
+        cuenta_id: '',
+        cuenta_codigo: '',
+        cuenta_nombre: '',
+        tipo: 'debito',
+        monto: Math.round(fc.total * 100) / 100,
+        centro_costo_id: fc.ccId,
+        descripcion: `⚠ CXC ${clienteNombre} - BUSCAR CUENTA`,
+        aplica_fiscal: true
+      })
+    }
+  }
 
   // Agregar 2 líneas vacías para débitos (el usuario las llena manualmente)
   lineaCounter++
