@@ -97,6 +97,9 @@
           <span class="nav-dot"></span>Caja Chica
           <span class="nav-badge hidden" id="badge-caja-chica">0</span>
         </div>
+        <div class="nav-item hidden" id="nav-cxp" onclick="showView('cxp','Conciliación Cuentas por Pagar')">
+          <span class="nav-dot"></span>Cuentas x Pagar
+        </div>
         <div class="nav-item hidden" id="nav-aprobaciones" onclick="showView('aprobaciones','Pendientes de aprobación')">
           <span class="nav-dot"></span>Aprobaciones
           <span class="nav-badge hidden" id="badge-aprobaciones">0</span>
@@ -1359,6 +1362,61 @@
               </tr>
             </thead>
             <tbody id="tbody-prestamos-emp"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══════════════ CUENTAS POR PAGAR ═══════════════ -->
+      <div class="view" id="view-cxp">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💳 Conciliación Cuentas por Pagar</div>
+            <div class="page-sub">Seleccioná los movimientos que coinciden con tu estado de cuenta</div>
+          </div>
+        </div>
+        <div class="form-card">
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="fld" style="flex:1;min-width:250px">
+              <label>Cuentas por pagar (buscá tarjeta, proveedor, etc.)</label>
+              <div class="ac-wrap">
+                <input type="text" id="cxp-cuenta-buscar" placeholder="Ej: tarjeta, 210701..." oninput="buscarCuentasCxP(this.value)" onfocus="buscarCuentasCxP(this.value)">
+                <div class="ac-list hidden" id="cxp-cuenta-list" style="max-height:250px;overflow-y:auto"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="cxp-cuentas-sel"></div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
+            <div class="fld"><label>Desde</label><input type="date" id="cxp-desde"></div>
+            <div class="fld"><label>Hasta</label><input type="date" id="cxp-hasta"></div>
+            <div class="fld">
+              <label>Estado</label>
+              <select id="cxp-estado-filtro">
+                <option value="pendiente">Pendientes de pago</option>
+                <option value="pagado">Ya pagados</option>
+                <option value="todos">Todos</option>
+              </select>
+            </div>
+            <button class="btn btn-gold" onclick="consultarCxP()">Consultar →</button>
+          </div>
+        </div>
+        <!-- Filtro rápido -->
+        <div style="display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap" id="cxp-filtro-rapido" class="hidden">
+          <input type="text" id="cxp-filtro-texto" placeholder="Filtrar por descripción o monto..." oninput="filtrarCxPTexto()" style="flex:1;min-width:200px;padding:8px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;outline:none">
+          <div style="font-family:var(--mono);font-size:14px;color:var(--gold);font-weight:600" id="cxp-suma-sel">Seleccionados: L. 0.00</div>
+          <button class="btn btn-gold" id="btn-generar-pago" onclick="generarPagoCxP()" style="display:none">💰 Generar pago</button>
+        </div>
+        <!-- Tabla de movimientos -->
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:40px"><input type="checkbox" id="cxp-check-all" onchange="toggleAllCxP(this.checked)"></th>
+                <th>Fecha</th><th>N° Part.</th><th>Cuenta</th><th>Descripción</th><th>Monto</th><th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-cxp">
+              <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">Seleccioná cuentas y consultá</td></tr>
+            </tbody>
           </table>
         </div>
       </div>

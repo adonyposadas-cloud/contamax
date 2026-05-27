@@ -86,15 +86,15 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-auxiliar', 'nav-balance-comp'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -181,6 +181,7 @@ window.showView = (id, label) => {
   if (id === 'partida-nueva' && !editingPartidaId) initPartidaNueva()
   if (id === 'caja') loadCaja()
   if (id === 'caja-chica') window.loadCajaChica?.()
+  if (id === 'cxp') window.loadCxP?.()
   if (id === 'importar') initImport()
   if (id === 'importar-compras') initImportCompras()
   if (id === 'importar-costos') initImportCostos()
@@ -7093,3 +7094,170 @@ window.cambioDenomsCajaChica = () => {
 }
 
 window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
+
+// ══════════════════════════════════════════════
+// ═══  CUENTAS POR PAGAR (CxP)  ═══
+// ══════════════════════════════════════════════
+
+let cxpCuentasSel = [] // [{id, codigo, nombre}]
+let cxpMovimientos = []
+let cxpFiltrados = []
+
+window.loadCxP = () => {
+  cxpCuentasSel = []
+  cxpMovimientos = []
+  renderCxPCuentasSel()
+  const now = new Date()
+  document.getElementById('cxp-desde').value = localDateStr(new Date(now.getFullYear(), now.getMonth(), 1))
+  document.getElementById('cxp-hasta').value = localDateStr()
+}
+
+window.buscarCuentasCxP = (val) => {
+  const list = document.getElementById('cxp-cuenta-list')
+  if (!val || val.length < 2) { list.classList.add('hidden'); return }
+  const term = val.toLowerCase()
+  // Filter accounts that are "detalle" and match search - focus on passivo accounts (2xxxxx)
+  const matches = (window.catalogoCuentas || []).filter(c =>
+    c.es_detalle && (c.codigo.toLowerCase().includes(term) || c.nombre.toLowerCase().includes(term))
+  ).slice(0, 15)
+  if (!matches.length) { list.classList.add('hidden'); return }
+  list.innerHTML = matches.map(c =>
+    `<div class="ac-item" onmousedown="selCuentaCxP('${c.id}','${c.codigo}','${c.nombre.replace(/'/g,"&#39;")}')" style="display:flex;gap:8px;align-items:center">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--gold);min-width:90px">${c.codigo}</span>
+      <span style="font-size:12px">${c.nombre}</span>
+    </div>`
+  ).join('')
+  list.classList.remove('hidden')
+}
+
+window.selCuentaCxP = (id, codigo, nombre) => {
+  if (cxpCuentasSel.some(c => c.id === id)) return // already selected
+  cxpCuentasSel.push({ id, codigo, nombre })
+  document.getElementById('cxp-cuenta-buscar').value = ''
+  document.getElementById('cxp-cuenta-list').classList.add('hidden')
+  renderCxPCuentasSel()
+}
+
+function renderCxPCuentasSel() {
+  const div = document.getElementById('cxp-cuentas-sel')
+  div.innerHTML = cxpCuentasSel.map(c =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;font-family:var(--mono)">
+      ${c.codigo}
+      <button onclick="remCuentaCxP('${c.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 2px">✕</button>
+    </span>`
+  ).join('')
+}
+
+window.remCuentaCxP = (id) => {
+  cxpCuentasSel = cxpCuentasSel.filter(c => c.id !== id)
+  renderCxPCuentasSel()
+}
+
+window.consultarCxP = async () => {
+  if (!cxpCuentasSel.length) { toast('Seleccioná al menos una cuenta', 'error'); return }
+  const desde = document.getElementById('cxp-desde').value
+  const hasta = document.getElementById('cxp-hasta').value
+  const estadoFiltro = document.getElementById('cxp-estado-filtro').value
+  const codigos = cxpCuentasSel.map(c => c.codigo)
+
+  const tbody = document.getElementById('tbody-cxp')
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+
+  // Query lineas_partida for these accounts
+  let query = sb.from('lineas_partida')
+    .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
+    .in('cuenta_codigo', codigos)
+    .eq('tipo', 'credito') // Credits to passivo = cargos a la tarjeta
+    .order('created_at', { ascending: true })
+
+  const { data, error } = await query
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+
+  // Filter by date and estado
+  cxpMovimientos = (data || []).filter(l => {
+    if (!l.partida || l.partida.estado !== 'aprobada') return false
+    if (desde && l.partida.fecha_partida < desde) return false
+    if (hasta && l.partida.fecha_partida > hasta) return false
+    if (estadoFiltro === 'pendiente' && l.pagado) return false
+    if (estadoFiltro === 'pagado' && !l.pagado) return false
+    return true
+  })
+
+  document.getElementById('cxp-filtro-rapido').classList.remove('hidden')
+  cxpFiltrados = [...cxpMovimientos]
+  renderCxPTabla()
+}
+
+window.filtrarCxPTexto = () => {
+  const term = (document.getElementById('cxp-filtro-texto').value || '').toLowerCase()
+  if (!term) {
+    cxpFiltrados = [...cxpMovimientos]
+  } else {
+    cxpFiltrados = cxpMovimientos.filter(l => {
+      const desc = (l.partida?.descripcion || '').toLowerCase()
+      const monto = String(l.monto)
+      return desc.includes(term) || monto.includes(term) || (l.cuenta_codigo || '').includes(term)
+    })
+  }
+  renderCxPTabla()
+}
+
+function renderCxPTabla() {
+  const tbody = document.getElementById('tbody-cxp')
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  if (!cxpFiltrados.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</td></tr>'
+    document.getElementById('btn-generar-pago').style.display = 'none'
+    return
+  }
+
+  tbody.innerHTML = cxpFiltrados.map(l => {
+    const p = l.partida
+    return `<tr style="${l.pagado ? 'opacity:0.5' : ''}">
+      <td><input type="checkbox" class="cxp-check" data-id="${l.id}" data-monto="${l.monto}" onchange="updateSumaCxP()" ${l.pagado ? 'disabled' : ''}></td>
+      <td>${p.fecha_partida}</td>
+      <td style="color:var(--gold)">${p.numero_partida || '—'}</td>
+      <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
+      <td style="max-width:300px">${p.descripcion || l.descripcion || '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${fmt(l.monto)}</td>
+      <td>${l.pagado ? '<span class="badge badge-on">Pagado</span>' : '<span class="badge badge-amber">Pendiente</span>'}</td>
+    </tr>`
+  }).join('')
+
+  updateSumaCxP()
+}
+
+window.toggleAllCxP = (checked) => {
+  document.querySelectorAll('.cxp-check:not(:disabled)').forEach(cb => { cb.checked = checked })
+  updateSumaCxP()
+}
+
+window.updateSumaCxP = () => {
+  const checks = document.querySelectorAll('.cxp-check:checked')
+  let suma = 0
+  checks.forEach(cb => { suma += parseFloat(cb.dataset.monto) || 0 })
+  suma = Math.round(suma * 100) / 100
+  const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  document.getElementById('cxp-suma-sel').textContent = `Seleccionados: L. ${fmt(suma)} (${checks.length})`
+  document.getElementById('btn-generar-pago').style.display = checks.length > 0 ? 'inline-flex' : 'none'
+}
+
+window.generarPagoCxP = async () => {
+  const checks = document.querySelectorAll('.cxp-check:checked')
+  if (!checks.length) return
+  const ids = Array.from(checks).map(cb => cb.dataset.id)
+  let suma = 0
+  checks.forEach(cb => { suma += parseFloat(cb.dataset.monto) || 0 })
+  suma = Math.round(suma * 100) / 100
+
+  const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (!confirm(`¿Marcar ${ids.length} movimientos como pagados?\nTotal: L. ${fmt(suma)}\n\nEsto los marcará como pagados en la conciliación.`)) return
+
+  // Mark as pagado
+  const { error } = await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString() }).in('id', ids)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+
+  toast(`${ids.length} movimientos marcados como pagados · L. ${fmt(suma)}`, 'success')
+  consultarCxP() // Refresh
+}
