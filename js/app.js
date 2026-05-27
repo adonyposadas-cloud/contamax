@@ -1955,10 +1955,15 @@ window.guardarPartida = async (estado) => {
   if (tocaCaja && estado === 'aprobada') {
     // Super Admin con conteo de billetes hecho → aprobada directamente
     // Super Admin sin conteo → pendiente_caja (se obliga a aprobar con conteo)
+    // Aux. Contable con conteo en caja chica → aprobada directamente
     // Otros roles → pendiente_caja siempre
     const lineasCajaConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
+    const lineasCajaChicaConBilletes = lineasValidas.filter(l => l.billetes && l.cuenta_codigo === CUENTA_CAJA_CHICA)
     if (esSuperAdmin && lineasCajaConBilletes.length > 0) {
-      estadoFinal = 'aprobada' // Super Admin ya contó billetes, se aprueba directo
+      estadoFinal = 'aprobada'
+    } else if (esAuxContable && lineasCajaChicaConBilletes.length > 0 && !lineasValidas.some(l => esCuentaCaja(l.cuenta_codigo) && l.cuenta_codigo !== CUENTA_CAJA_CHICA)) {
+      // Aux. Contable con conteo en caja chica y sin tocar caja general → aprobada
+      estadoFinal = 'aprobada'
     } else {
       estadoFinal = 'pendiente_caja'
     }
