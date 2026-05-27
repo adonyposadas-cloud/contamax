@@ -1992,6 +1992,13 @@ window.guardarPartida = async (estado) => {
     if (esAuxContable) {
       updateData.modificada_por = currentProfile.id
       updateData.modificada_at = new Date().toISOString()
+      // Si la partida ya estaba aprobada, pasa a borrador para re-aprobación
+      if (originalPartida?.estado === 'aprobada' && estadoFinal === 'aprobada') {
+        updateData.estado = 'borrador'
+        updateData.aprobada_at = null
+        updateData.aprobada_por = null
+        estadoFinal = 'borrador'
+      }
     }
     const { error: pErr } = await sb.from('partidas_contables').update(updateData).eq('id', editingPartidaId)
     if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
@@ -2101,6 +2108,8 @@ window.guardarPartida = async (estado) => {
     toast(`Partida ${accion} y aprobada con conteo de billetes ✓`, 'success')
   } else if (estadoFinal === 'aprobada') {
     toast(`Partida ${accion} y contabilizada ✓`, 'success')
+  } else if (esAuxContable && editingPartidaId && estadoFinal === 'borrador' && estado === 'aprobada') {
+    toast(`Partida ${accion} · Pendiente de re-aprobación por Contador o Super Admin`, 'info')
   } else if (esAuxContable && estado === 'aprobada') {
     toast(`Partida ${accion} · Enviada a revisión por un superior`, 'info')
   } else {
