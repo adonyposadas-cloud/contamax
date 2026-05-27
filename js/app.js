@@ -1101,10 +1101,12 @@ window.procesarFacturaAux = async () => {
 window.crearPartidaDesdeFactura = async (facturaId) => {
   // Cargar factura
   const { data: factura, error } = await sb.from('facturas_compras')
-    .select('*')
+    .select('*, proveedor_rel:proveedores(nombre)')
     .eq('id', facturaId)
     .single()
   if (error || !factura) { toast('Error al cargar factura', 'error'); return }
+  // Set proveedor name from relation or direct field
+  if (!factura.proveedor && factura.proveedor_rel?.nombre) factura.proveedor = factura.proveedor_rel.nombre
 
   // Cargar cuentas detalle
   if (!cuentasDetalle.length) {
@@ -1123,9 +1125,11 @@ window.crearPartidaDesdeFactura = async (facturaId) => {
 
   await new Promise(r => setTimeout(r, 300))
 
-  // Llenar encabezado
+  // Llenar encabezado con proveedor + descripción
   document.getElementById('pn-fecha').value = factura.fecha_factura
-  document.getElementById('pn-descripcion').value = productosDesc || obs
+  const prov = (factura.proveedor || '').toUpperCase()
+  const desc = (factura.descripcion_compra || productosDesc || obs).toUpperCase()
+  document.getElementById('pn-descripcion').value = prov && desc ? `${prov} · ${desc}` : prov || desc || obs
   document.getElementById('pn-origen').value = 'compra'
   document.getElementById('pn-documento').value = factura.numero_factura || ''
 
