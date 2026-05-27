@@ -1656,10 +1656,32 @@ function renderLineas() {
 async function fetchTCBac() {
   try {
     const { data } = await sb.from('caja_tc_promedio').select('tc_venta').order('created_at', { ascending: false }).limit(1)
-    if (data?.[0]?.tc_venta) window._lastTC = parseFloat(data[0].tc_venta)
+    if (data?.[0]?.tc_venta) {
+      window._lastTC = parseFloat(data[0].tc_venta)
+      const tcInput = document.getElementById('calc-usd-tc')
+      if (tcInput && !tcInput.value) tcInput.value = window._lastTC
+    }
   } catch(e) {}
 }
 fetchTCBac()
+
+// ── Calculadora USD en partida ──
+window.calcUSD = () => {
+  const monto = parseFloat(document.getElementById('calc-usd-monto')?.value) || 0
+  const tc = parseFloat(document.getElementById('calc-usd-tc')?.value) || 0
+  const resultado = Math.round(monto * tc * 100) / 100
+  document.getElementById('calc-usd-result').textContent = 'L. ' + resultado.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+window.copyCalcUSD = () => {
+  const text = document.getElementById('calc-usd-result').textContent.replace('L. ', '').replace(/,/g, '')
+  navigator.clipboard.writeText(text).then(() => toast('Copiado: ' + text, 'success')).catch(() => {
+    // Fallback
+    const el = document.createElement('textarea')
+    el.value = text; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el)
+    toast('Copiado: ' + text, 'success')
+  })
+}
 
 window.setDebe = (id, val) => {
   const l = partidaLineas.find(x => x.id === id)

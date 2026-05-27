@@ -477,7 +477,20 @@
           <button class="btn btn-ghost" onclick="volverDesdePartida()">← Volver al listado</button>
         </div>
         <div class="form-card">
-          <div class="form-card-title">Encabezado de la partida</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <div class="form-card-title">Encabezado de la partida</div>
+            <div style="display:flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;font-size:12px" id="calc-usd">
+              <span style="color:var(--blue);font-weight:600">$</span>
+              <input type="text" inputmode="decimal" id="calc-usd-monto" placeholder="0.00" oninput="calcUSD()"
+                style="width:80px;text-align:right;font-family:var(--mono);font-size:12px;padding:4px 6px;background:var(--bg);border:1px solid var(--blue);border-radius:4px;color:var(--blue)">
+              <span style="color:var(--text3)">× TC</span>
+              <input type="text" inputmode="decimal" id="calc-usd-tc" placeholder="26.78" oninput="calcUSD()"
+                style="width:65px;text-align:right;font-family:var(--mono);font-size:12px;padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+              <span style="color:var(--text3)">=</span>
+              <span style="font-family:var(--mono);font-weight:600;color:var(--gold);min-width:90px" id="calc-usd-result">L. 0.00</span>
+              <button onclick="copyCalcUSD()" title="Copiar resultado" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px">📋</button>
+            </div>
+          </div>
           <div class="form-grid">
             <div class="fld">
               <label>Fecha</label>
