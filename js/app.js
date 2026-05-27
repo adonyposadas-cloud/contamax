@@ -7302,9 +7302,13 @@ window.verArqueoCajaChica = async () => {
   let totalIng = 0, totalEgr = 0, totalCaja = 0, totalValor = 0
   const tbody = document.getElementById('tbody-arqueo-cc')
   
+  // Mapeo denominación → campo en conteo_billetes
+  const denField = { 500:'den_500', 200:'den_200', 100:'den_100', 50:'den_50', 20:'den_20', 10:'den_10', 5:'den_5', 2:'den_2', 1:'den_1' }
+
   tbody.innerHTML = denoms.map(d => {
-    const ingresos = validConteos.filter(c => c.denominacion === d && c.tipo === 'debito').reduce((s, c) => s + (c.cantidad || 0), 0)
-    const egresos = validConteos.filter(c => c.denominacion === d && c.tipo === 'credito').reduce((s, c) => s + (c.cantidad || 0), 0)
+    const field = denField[d]
+    const ingresos = validConteos.filter(c => c.tipo === 'ingreso').reduce((s, c) => s + (c[field] || 0), 0)
+    const egresos = validConteos.filter(c => c.tipo === 'egreso').reduce((s, c) => s + (c[field] || 0), 0)
     const enCaja = ingresos - egresos
     const valor = enCaja * d
     totalIng += ingresos; totalEgr += egresos; totalCaja += enCaja; totalValor += valor
