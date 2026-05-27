@@ -1,19 +1,12 @@
-const CACHE_NAME = 'contamax-v1'
+const CACHE_NAME = 'contamax-v2'
 const ASSETS = [
   '/contamax/',
   '/contamax/index.html',
   '/contamax/css/styles.css',
-  '/contamax/js/app.js',
-  '/contamax/js/rrhh.js',
-  '/contamax/js/financiamiento.js',
-  '/contamax/js/reportes.js',
   '/contamax/manifest.json'
 ]
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
-  )
   self.skipWaiting()
 })
 
@@ -27,12 +20,15 @@ self.addEventListener('activate', e => {
 })
 
 self.addEventListener('fetch', e => {
-  // Network first for API calls, cache first for app shell
-  if (e.request.url.includes('supabase.co') || e.request.url.includes('esm.sh')) {
-    e.respondWith(fetch(e.request).catch(() => caches.match(e.request)))
-  } else {
-    e.respondWith(
-      caches.match(e.request).then(cached => cached || fetch(e.request))
-    )
-  }
+  // Always network first for JS files and API calls
+  e.respondWith(
+    fetch(e.request).then(res => {
+      // Cache successful responses for offline fallback
+      if (res.ok && e.request.method === 'GET') {
+        const clone = res.clone()
+        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone))
+      }
+      return res
+    }).catch(() => caches.match(e.request))
+  )
 })
