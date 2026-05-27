@@ -7251,13 +7251,70 @@ window.generarPagoCxP = async () => {
   checks.forEach(cb => { suma += parseFloat(cb.dataset.monto) || 0 })
   suma = Math.round(suma * 100) / 100
 
+  // Group selected amounts by cuenta_codigo
+  const porCuenta = {}
+  cxpFiltrados.filter(l => ids.includes(l.id)).forEach(l => {
+    const k = l.cuenta_codigo
+    if (!porCuenta[k]) porCuenta[k] = { codigo: k, nombre: l.cuenta_nombre, total: 0, items: [] }
+    porCuenta[k].total = Math.round((porCuenta[k].total + (parseFloat(l.monto) || 0)) * 100) / 100
+    porCuenta[k].items.push(l)
+  })
+
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  if (!confirm(`¿Marcar ${ids.length} movimientos como pagados?\nTotal: L. ${fmt(suma)}\n\nEsto los marcará como pagados en la conciliación.`)) return
+  const cuentasDetalle = Object.values(porCuenta).map(c => `${c.codigo} ${c.nombre}: L.${fmt(c.total)}`).join('\n')
 
-  // Mark as pagado
-  const { error } = await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString() }).in('id', ids)
-  if (error) { toast('Error: ' + error.message, 'error'); return }
+  if (!confirm(`¿Generar partida de pago en borrador?\n\nCuentas:\n${cuentasDetalle}\n\nTotal: L. ${fmt(suma)}\n\nSe creará una partida borrador con los débitos. Vos cargás la forma de pago (crédito).`)) return
 
-  toast(`${ids.length} movimientos marcados como pagados · L. ${fmt(suma)}`, 'success')
-  consultarCxP() // Refresh
+  // Get next partida number
+  const { data: lastPN } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+  const nuevoNumero = (lastPN?.[0]?.numero_partida || 0) + 1
+
+  // Build description
+  const cuentasStr = Object.values(porCuenta).map(c => c.codigo).join(', ')
+  const descripcion = `PAGO CUENTAS POR PAGAR: ${cuentasStr} · ${ids.length} movimientos`
+
+  // Create partida as borrador
+  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+    centro_costo_id: null,
+    numero_partida: nuevoNumero,
+    generada_por: currentProfile.id,
+    fecha_partida: localDateStr(),
+    estado: 'borrador',
+    total: suma,
+    descripcion,
+    tipo_origen: 'otro'
+  }).select('id').single()
+
+  if (pErr) { toast('Error creando partida: ' + pErr.message, 'error'); return }
+
+  // Insert debit lines (one per cuenta)
+  const lineas = Object.values(porCuenta).map(c => ({
+    partida_id: partida.id,
+    cuenta_codigo: c.codigo,
+    cuenta_nombre: c.nombre,
+    tipo: 'debito',
+    monto: c.total,
+    descripcion: `Pago ${c.items.length} cargos`,
+    aplica_fiscal: true
+  }))
+
+  // Add empty credit line placeholder
+  lineas.push({
+    partida_id: partida.id,
+    cuenta_codigo: '',
+    cuenta_nombre: '',
+    tipo: 'credito',
+    monto: suma,
+    descripcion: 'FORMA DE PAGO (editar)',
+    aplica_fiscal: true
+  })
+
+  const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
+  if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
+
+  // Mark selected items as pagado
+  await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString() }).in('id', ids)
+
+  toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala para agregar la forma de pago.`, 'success')
+  consultarCxP()
 }
