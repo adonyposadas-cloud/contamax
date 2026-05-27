@@ -220,16 +220,20 @@ window.abrirLiquidacion = async (codigo) => {
   if (saldoDelMes > 0 && cuotaMes > 0) {
     // La cuota ya incluye intereses, entonces capital = cuota - intereses
     const capitalPactado = cuotaMes - intereses
-    if (saldoDelMes >= cuotaMes && capitalPactado > 0) {
-      // Cubre la cuota completa: abona capital pactado, el resto es saldo a favor
+    if (saldoDelMes >= capitalPactado && capitalPactado > 0) {
+      // Cubre la cuota de capital completa: abona capital pactado, el resto es saldo a favor
       abonoCapital = Math.round(capitalPactado * 100) / 100
-      nuevoSaldoMes = Math.round((saldoDelMes - cuotaMes) * 100) / 100
-    } else if (saldoDelMes >= intereses) {
-      // Cubre intereses pero no toda la cuota: abona lo que pueda a capital
-      abonoCapital = Math.round((saldoDelMes - intereses) * 100) / 100
+      nuevoSaldoMes = Math.round((saldoDelMes - capitalPactado) * 100) / 100
+    } else if (saldoDelMes > 0) {
+      // No cubre toda la cuota de capital: todo el saldo va a capital
+      abonoCapital = Math.round(saldoDelMes * 100) / 100
       nuevoSaldoMes = 0
     }
-    // Si no cubre ni intereses: no abona, arrastra
+    // Si saldoDelMes <= 0: no abona capital, arrastra deuda
+  } else if (saldoDelMes > 0 && cuotaMes === 0) {
+    // Sin cuota pactada: todo el saldo va a capital
+    abonoCapital = Math.round(saldoDelMes * 100) / 100
+    nuevoSaldoMes = 0
   }
 
   const nuevoSaldoPrestamo = Math.round((saldo - abonoCapital) * 100) / 100
