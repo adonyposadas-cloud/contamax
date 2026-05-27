@@ -287,7 +287,7 @@ function renderLiquidacion() {
           <tr style="border-top:1px solid var(--border);font-weight:600"><td style="padding:6px 0">Total recibo</td><td style="text-align:right;font-family:var(--mono);font-size:16px;color:var(--gold)">L. ${getFmt(d.montoRecibo)}</td></tr>
           <tr style="border-top:2px solid var(--border)"><td style="padding:6px 0;font-weight:600">Nuevo saldo préstamo</td><td style="text-align:right;font-family:var(--mono);font-size:18px;font-weight:700;color:${d.nuevoSaldoPrestamo > 0 ? 'var(--red)' : 'var(--green)'}">L. ${getFmt(d.nuevoSaldoPrestamo)}</td></tr>
         </table>
-        <div style="margin-top:12px;font-size:12px;color:var(--text3)">${d.concepto}</div>
+        <div style="margin-top:12px"><input type="text" id="liq-concepto" value="${d.concepto}" oninput="liquidacionData.concepto=this.value" style="width:100%;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);text-transform:uppercase"></div>
       </div>
     </div>
     <!-- Detalle de entregas -->
