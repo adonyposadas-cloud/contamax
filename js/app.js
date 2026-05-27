@@ -6096,6 +6096,90 @@ window.seleccionarVinResult = (propietario, vin) => {
   closeModal('modal-buscar-vin')
 }
 
+// ── BUSCAR TAXI DESDE PARTIDA ──
+let taxiCache = null
+
+async function ensureTaxiCache() {
+  if (taxiCache) return
+  const { data } = await sb.from('unidades_taxis').select('*').eq('activo', true).order('registro')
+  taxiCache = data || []
+}
+
+window.abrirBuscarTaxi = async () => {
+  document.getElementById('taxi-search-input').value = ''
+  document.getElementById('taxi-search-results').innerHTML =
+    '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Escribe al menos 1 carácter para buscar</div>'
+  document.getElementById('modal-buscar-taxi').classList.add('open')
+  await ensureTaxiCache()
+  setTimeout(() => document.getElementById('taxi-search-input').focus(), 200)
+}
+
+window.buscarTaxiLive = () => {
+  const term = (document.getElementById('taxi-search-input')?.value || '').trim().toUpperCase()
+  const container = document.getElementById('taxi-search-results')
+
+  if (term.length < 1) {
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Escribe al menos 1 carácter para buscar</div>'
+    return
+  }
+
+  if (!taxiCache) {
+    container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)"><div class="spinner"></div></div>'
+    ensureTaxiCache().then(() => buscarTaxiLive())
+    return
+  }
+
+  const results = taxiCache.filter(u => {
+    const searchable = `${u.registro} ${u.propietario || ''} ${u.motorista || ''} ${u.placa || ''} ${u.marca || ''} ${u.modalidad || ''}`.toUpperCase()
+    return searchable.includes(term)
+  })
+  const fmtD = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  if (!results.length) {
+    container.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">No se encontraron unidades con "${term}"</div>`
+    return
+  }
+
+  container.innerHTML = `
+    <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">${results.length} resultado(s)</div>
+    <table style="width:100%">
+      <thead><tr>
+        <th style="width:70px">Registro</th>
+        <th>Modalidad</th>
+        <th>Propietario</th>
+        <th>Motorista</th>
+        <th>Placa</th>
+        <th>Vehículo</th>
+        <th style="text-align:right">Saldo</th>
+      </tr></thead>
+      <tbody>${results.map(u => `
+        <tr style="cursor:pointer" onclick="seleccionarTaxiResult(${u.registro},'${(u.propietario||'').replace(/'/g,"\\'")}','${(u.motorista||'').replace(/'/g,"\\'")}')">
+          <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px;text-align:center">${u.registro}</td>
+          <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : u.modalidad === 'BUS' ? 'badge-green' : 'badge-amber'}">${u.modalidad}</span></td>
+          <td>${u.propietario !== 'TAXIS' ? `<span class="badge badge-green">${u.propietario}</span>` : '<span style="color:var(--text3)">TAXIS</span>'}</td>
+          <td style="font-size:12px">${u.motorista || '<span style="color:var(--text3)">—</span>'}</td>
+          <td style="font-family:var(--mono);font-size:12px">${u.placa || '—'}</td>
+          <td style="font-size:12px">${u.marca || ''} ${u.modelo || ''} ${u.anio || ''}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:12px">${u.financiado && u.saldo_prestamo ? 'L. ' + fmtD(u.saldo_prestamo) : '<span style="color:var(--text3)">—</span>'}</td>
+        </tr>`).join('')}</tbody>
+    </table>`
+}
+
+window.seleccionarTaxiResult = (registro, propietario, motorista) => {
+  const descInput = document.getElementById('pn-descripcion')
+  if (descInput) {
+    const current = descInput.value
+    const info = `TAXI #${registro}${motorista ? ' (' + motorista + ')' : ''}`
+    if (current && !current.includes(`#${registro}`)) {
+      descInput.value = `${current} · ${info}`
+    } else if (!current) {
+      descInput.value = info
+    }
+  }
+  toast(`Taxi #${registro} → ${motorista || propietario}`, 'success')
+  closeModal('modal-buscar-taxi')
+}
+
 // ── DETALLE DE VEHÍCULO VIN (inversión total) ──
 
 window.verDetalleVin = async (vinId) => {
