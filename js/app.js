@@ -8,6 +8,13 @@ const sb = createClient(
 )
 window._sb = sb
 
+// ── HELPERS ──
+// Returns YYYY-MM-DD in local timezone (not UTC)
+function localDateStr(d) {
+  const dt = d || new Date()
+  return dt.toLocaleDateString('en-CA') // en-CA returns YYYY-MM-DD format
+}
+
 // ── STATE ──
 let currentUser = null
 let currentProfile = null
@@ -634,7 +641,7 @@ window.acCerrar = (input) => {
 }
 
 function initForm() {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
   document.getElementById('fc-fecha').value = today
   // Pre-cargar caches de autocompletado
   ;['proveedor', 'quien_pidio', 'entregado_a', 'tipo_gasto'].forEach(t => loadAcCache(t))
@@ -1305,7 +1312,7 @@ async function initPartidaNueva() {
   document.getElementById('pn-title').textContent = 'Nueva partida contable'
   const btnElim = document.getElementById('btn-eliminar-partida')
   if (btnElim) btnElim.classList.add('hidden')
-  document.getElementById('pn-fecha').value = new Date().toISOString().split('T')[0]
+  document.getElementById('pn-fecha').value = new Date().toLocaleDateString('en-CA')
   document.getElementById('pn-descripcion').value = ''
   document.getElementById('pn-documento').value = ''
   document.getElementById('pn-origen').value = 'compra'
@@ -2795,7 +2802,7 @@ function initImport() {
   // Default: fecha de ayer (los reportes siempre son del día anterior)
   const ayer = new Date()
   ayer.setDate(ayer.getDate() - 1)
-  document.getElementById('imp-fecha').value = ayer.toISOString().split('T')[0]
+  document.getElementById('imp-fecha').value = localDateStr(ayer)
   const fecha = document.getElementById('imp-fecha').value
   document.getElementById('imp-desc').value = `Ventas Alpha ${fecha}`
   resetImport()
@@ -4704,7 +4711,7 @@ function parseUtilidadExcel(arrayBuffer, fileName) {
 function initImportCostos() {
   const ayer = new Date()
   ayer.setDate(ayer.getDate() - 1)
-  document.getElementById('icu-fecha').value = ayer.toISOString().split('T')[0]
+  document.getElementById('icu-fecha').value = localDateStr(ayer)
 
   const sel = document.getElementById('icu-centro')
   sel.innerHTML = '<option value="">— Seleccionar —</option>'
@@ -5459,8 +5466,8 @@ let ptxData = null
 function initPartidasTaxis() {
   const now = new Date()
   const primerDia = new Date(now.getFullYear(), now.getMonth(), 1)
-  document.getElementById('ptx-desde').value = primerDia.toISOString().split('T')[0]
-  document.getElementById('ptx-hasta').value = now.toISOString().split('T')[0]
+  document.getElementById('ptx-desde').value = localDateStr(primerDia)
+  document.getElementById('ptx-hasta').value = localDateStr(now)
 
   const sel = document.getElementById('ptx-centro')
   sel.innerHTML = '<option value="">— Seleccionar —</option>'
@@ -6314,7 +6321,7 @@ window.verDetalleUnidad = (registro) => {
   // Default: mes actual
   const hoy = new Date()
   document.getElementById('du-desde').value = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
-  document.getElementById('du-hasta').value = hoy.toISOString().split('T')[0]
+  document.getElementById('du-hasta').value = localDateStr(hoy)
   document.getElementById('du-resumen').innerHTML = ''
   document.getElementById('du-contenido').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Selecciona un rango de fechas y consulta</div>'
   document.getElementById('modal-detalle-unidad').classList.add('open')
