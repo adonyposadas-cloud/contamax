@@ -3235,6 +3235,12 @@ window.procesarImport = async () => {
 
     importData = { tecnimax_fiscal, tecnimax_interno, yonker_fiscal, yonker_interno, alertas }
 
+    // Cargar cuentas detalle para búsqueda de CxC clientes
+    if (!cuentasDetalle.length) {
+      const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+      cuentasDetalle = data || []
+    }
+
     // Mostrar resultados
     renderImportResults()
 
@@ -3453,7 +3459,7 @@ function renderImportPartida() {
     const clienteNombre = fc.cliente.trim().toUpperCase()
     const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
     lineas.push({
-      codigo: cxcCuenta ? cxcCuenta.codigo : '110301-???',
+      codigo: cxcCuenta ? cxcCuenta.codigo : '110201-???',
       nombre: cxcCuenta ? cxcCuenta.nombre : `CxC ${clienteNombre} (cuenta no encontrada)`,
       centro: fc.centro === 'Yonker' ? 'Yonker' : 'Tecnicentro',
       debe: fc.total, haber: 0,
