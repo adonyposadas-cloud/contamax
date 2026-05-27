@@ -5989,16 +5989,29 @@ window.verDetalleVin = async (vinId) => {
     .eq('registro', regNum)
     .order('fecha')
 
-  // 2. Buscar en lineas_partida donde la descripción menciona el VIN (últimos 4 dígitos o VIN completo)
+  // 2. Buscar en lineas_partida donde la descripción de la línea O de la partida menciona el VIN
   // Solo partidas aprobadas
   const { data: lineasVin } = await sb.from('lineas_partida')
     .select('monto, descripcion, tipo, partida:partidas_contables(fecha_partida, estado, descripcion)')
-    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%`)
+    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%`)
 
-  // Filtrar solo partidas aprobadas y débitos (gastos)
-  const gastosPartidas = (lineasVin || []).filter(l =>
-    l.partida?.estado === 'aprobada' && l.tipo === 'debito'
-  ).map(l => ({
+  // Also search by partida description
+  const { data: lineasVinPadre } = await sb.from('lineas_partida')
+    .select('monto, descripcion, tipo, partida:partidas_contables!inner(fecha_partida, estado, descripcion)')
+    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%`, { referencedTable: 'partidas_contables' })
+
+  // Filtrar solo partidas aprobadas y débitos (gastos) — merge both searches
+  const allLineasVin = [...(lineasVin || []), ...(lineasVinPadre || [])]
+  // Deduplicate by partida id + monto
+  const seenIds = new Set()
+  const gastosPartidas = allLineasVin.filter(l => {
+    if (!l.partida?.estado || l.partida.estado !== 'aprobada') return false
+    if (l.tipo !== 'debito') return false
+    const key = `${l.partida.fecha_partida}-${l.monto}`
+    if (seenIds.has(key)) return false
+    seenIds.add(key)
+    return true
+  }).map(l => ({
     fecha: l.partida.fecha_partida,
     descripcion: l.descripcion || l.partida.descripcion,
     monto: parseFloat(l.monto) || 0,
