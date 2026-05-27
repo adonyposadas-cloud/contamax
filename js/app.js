@@ -7217,15 +7217,75 @@ window.aprobarMovCajaChica = async (partidaId) => {
     toast('Solo Aux. Contable o Super Admin pueden aprobar movimientos de caja chica', 'error')
     return
   }
-  if (!confirm('¿Aprobar este movimiento de Caja Chica?')) return
-  const { error } = await sb.from('partidas_contables').update({
-    estado: 'aprobada',
-    aprobada_at: new Date().toISOString(),
-    aprobada_por: currentProfile?.id
-  }).eq('id', partidaId)
-  if (error) { toast('Error: ' + error.message, 'error'); return }
-  toast('Movimiento aprobado ✓', 'success')
-  loadCajaChica()
+
+  // Buscar la línea de caja chica para saber el monto y tipo
+  const item = allCCPartidas.find(l => l.partida?.id === partidaId)
+  if (!item) { toast('No se encontró el movimiento', 'error'); return }
+
+  const monto = parseFloat(item.monto) || 0
+  const esIngreso = item.tipo === 'debito'
+  const desc = item.partida.descripcion || 'Sin descripción'
+  const tipo = esIngreso ? 'recibís' : 'entregás'
+
+  // Cargar conteo existente si lo hay
+  let existingBilletes = null
+  const { data: conteoExist } = await sb.from('conteo_billetes')
+    .select('*')
+    .eq('partida_id', partidaId)
+    .limit(1)
+  if (conteoExist?.length) {
+    const c = conteoExist[0]
+    existingBilletes = {
+      500: c.den_500 || 0, 200: c.den_200 || 0, 100: c.den_100 || 0,
+      50: c.den_50 || 0, 20: c.den_20 || 0, 10: c.den_10 || 0,
+      5: c.den_5 || 0, 2: c.den_2 || 0, 1: c.den_1 || 0,
+      _cheques: parseFloat(c.den_cheques) || 0
+    }
+  }
+
+  openBilletes(
+    `💵 Conteo · Caja Chica · ${esIngreso ? 'Ingreso' : 'Egreso'}`,
+    `${desc} — Contá los billetes que ${tipo} (esperado: L. ${monto.toLocaleString('es-HN', {minimumFractionDigits:2})})`,
+    async (montoContado, detalle) => {
+      if (Math.abs(montoContado - monto) > 0.01) {
+        const diff = montoContado - monto
+        const ok = confirm(`⚠️ El conteo (L. ${montoContado.toLocaleString('es-HN',{minimumFractionDigits:2})}) no coincide con el esperado (L. ${monto.toLocaleString('es-HN',{minimumFractionDigits:2})}).\n\nDiferencia: L. ${diff.toLocaleString('es-HN',{minimumFractionDigits:2})}\n\n¿Aprobar de todas formas?`)
+        if (!ok) return
+      }
+
+      // Guardar conteo de billetes
+      const tipoConteo = esIngreso ? 'ingreso' : 'egreso'
+      await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+      const conteoBilletes = {
+        partida_id: partidaId,
+        tipo: tipoConteo,
+        cuenta_codigo: CUENTA_CAJA_CHICA,
+        den_500: detalle[500] || 0, den_200: detalle[200] || 0, den_100: detalle[100] || 0,
+        den_50: detalle[50] || 0, den_20: detalle[20] || 0, den_10: detalle[10] || 0,
+        den_5: detalle[5] || 0, den_2: detalle[2] || 0, den_1: detalle[1] || 0,
+        den_cheques: detalle._cheques || 0,
+        total_billetes: DENOMINACIONES.reduce((s, d) => s + (detalle[d] || 0), 0),
+        total_monto: montoContado,
+        registrado_por: currentProfile.id,
+      }
+      const { error: conteoErr } = await sb.from('conteo_billetes').insert(conteoBilletes)
+      if (conteoErr) {
+        toast('⚠️ Error guardando conteo: ' + conteoErr.message, 'error')
+        return
+      }
+
+      // Aprobar la partida
+      const { error } = await sb.from('partidas_contables').update({
+        estado: 'aprobada',
+        aprobada_at: new Date().toISOString(),
+        aprobada_por: currentProfile?.id
+      }).eq('id', partidaId)
+      if (error) { toast('Error: ' + error.message, 'error'); return }
+      toast('Movimiento de Caja Chica aprobado ✓', 'success')
+      loadCajaChica()
+    },
+    existingBilletes
+  )
 }
 
 // Arqueo de caja chica — solo billetes, sin USD ni cheques
