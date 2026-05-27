@@ -5995,10 +5995,24 @@ window.verDetalleVin = async (vinId) => {
     .select('monto, descripcion, tipo, partida:partidas_contables(fecha_partida, estado, descripcion)')
     .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%`)
 
-  // Also search by partida description
-  const { data: lineasVinPadre } = await sb.from('lineas_partida')
-    .select('monto, descripcion, tipo, partida:partidas_contables!inner(fecha_partida, estado, descripcion)')
-    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%`, { referencedTable: 'partidas_contables' })
+  // Also search partidas whose description mentions this VIN, then get their debit lines
+  const { data: partidasVin } = await sb.from('partidas_contables')
+    .select('id, fecha_partida, estado, descripcion')
+    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%,descripcion.ilike.%${last4}%`)
+    .eq('estado', 'aprobada')
+
+  let lineasVinPadre = []
+  if (partidasVin?.length) {
+    const ids = partidasVin.map(p => p.id)
+    const { data: lp } = await sb.from('lineas_partida')
+      .select('monto, descripcion, tipo, partida_id')
+      .in('partida_id', ids)
+      .eq('tipo', 'debito')
+    lineasVinPadre = (lp || []).map(l => {
+      const p = partidasVin.find(pp => pp.id === l.partida_id)
+      return { ...l, partida: p }
+    })
+  }
 
   // Filtrar solo partidas aprobadas y débitos (gastos) — merge both searches
   const allLineasVin = [...(lineasVin || []), ...(lineasVinPadre || [])]
