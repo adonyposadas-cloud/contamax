@@ -1592,20 +1592,31 @@ window.removeLinea = (id) => {
 function renderLineas() {
   const tbody = document.getElementById('tbody-lineas')
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
+  const esAuxContable = currentProfile?.rol === 'aux_contable'
   tbody.innerHTML = partidaLineas.map(l => {
     const debeVal = l.tipo === 'debito' && l.monto ? l.monto : ''
     const haberVal = l.tipo === 'credito' && l.monto ? l.monto : ''
     const esCaja = esCuentaCaja(l.cuenta_codigo)
+    const esCajaChica = l.cuenta_codigo === CUENTA_CAJA_CHICA
 
     // ── Política de Caja General ──
     // Super Admin: control total (botones 💵 en debe y haber, puede editar todo)
     // Otros roles: pueden AGREGAR nuevas líneas de caja (solo ingreso/débito con conteo)
     //              NO pueden modificar líneas de caja que ya existían en la BD (_fromDB)
-    const cajaReadonly = esCaja && !esSuperAdmin && l._fromDB
+    // ── Política de Caja Chica ──
+    // Aux. Contable: control total de caja chica (debe y haber)
+    // Otros roles: solo débito en caja chica, haber bloqueado
+    const cajaReadonly = esCaja && !esSuperAdmin && !(esCajaChica && esAuxContable) && l._fromDB
 
     let debeInput, haberInput
 
-    if (esCaja && esSuperAdmin) {
+    if (esCajaChica && esAuxContable) {
+      // Aux. Contable es dueña de caja chica: control total sin botón 💵
+      debeInput = `<input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
+          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+      haberInput = `<input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
+          oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+    } else if (esCaja && esSuperAdmin) {
       // Super Admin: botones 💵 en ambos lados
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
@@ -1945,6 +1956,12 @@ window.guardarPartida = async (estado) => {
     } else {
       estadoFinal = 'pendiente_caja'
     }
+  }
+
+  // ── CONTROL CAJA CHICA: partidas de otros usuarios quedan pendientes para el auxiliar ──
+  const tocaCajaChica = lineasValidas.some(l => l.cuenta_codigo === CUENTA_CAJA_CHICA && l.monto > 0)
+  if (tocaCajaChica && !esAuxContable && !esSuperAdmin && estado === 'aprobada') {
+    estadoFinal = 'pendiente_caja'
   }
 
   let partidaId = editingPartidaId
