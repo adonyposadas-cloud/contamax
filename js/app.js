@@ -2491,6 +2491,16 @@ window.guardarCuenta = async () => {
 // El super_admin define qué cuentas son "Caja General"
 const CAJA_CODIGOS = ['110101-001', '110102', '110102-001'] // Caja Chica MN + Caja General (NO 110101 genérico)
 
+// ── CUENTAS SENSIBLES (solo Super Admin puede ver saldos) ──
+const CUENTAS_SENSIBLES_PREFIJOS = ['110102', '110103', '110104'] // Caja General, Chequeras, Bancos
+function esCuentaSensible(codigo) {
+  if (!codigo) return false
+  return CUENTAS_SENSIBLES_PREFIJOS.some(p => codigo === p || codigo.startsWith(p + '-'))
+}
+function puedeVerSensibles() {
+  return currentProfile?.rol === 'super_admin'
+}
+
 function esCuentaCaja(codigo) {
   if (!codigo) return false
   // Match exacto o subcuentas directas, pero NO 110103 (chequeras) ni 110104 (bancos)

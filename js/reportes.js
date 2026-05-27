@@ -101,6 +101,14 @@ window.generarAuxiliar = async () => {
   if (!fechaIni || !fechaFin) { toast('Selecciona rango de fechas', 'error'); return }
   if (!cuentaId) { toast('Selecciona una cuenta contable', 'error'); return }
 
+  // ── Privacidad: bloquear cuentas de caja/banco para no super_admin ──
+  const cuentaInput = document.getElementById('aux-cuenta-input').value || ''
+  const codigoCuenta = cuentaInput.split(' ')[0]
+  if (esCuentaSensible(codigoCuenta) && !puedeVerSensibles()) {
+    toast('Solo el Super Admin puede consultar saldos de caja y bancos', 'error')
+    return
+  }
+
   // ── Privacidad: bloquear auxiliar filtrado por centro privado si no es super_admin ──
   if (centroId && !esSuperAdmin()) {
     const idsPriv = getIdsPrivados()
@@ -335,6 +343,7 @@ window.generarBalance = async () => {
   const cuentas = Object.values(cuentaMap).map(c => {
     const cat = getCatalogo().find(x => x.codigo === c.codigo)
     const naturaleza = cat?.naturaleza || 'deudora'
+    const sensible = esCuentaSensible(c.codigo) && !puedeVerSensibles()
     const neto = c.debe - c.haber
     return {
       ...c,
@@ -343,6 +352,7 @@ window.generarBalance = async () => {
       tipo: cat?.tipo || '',
       saldoDeudor: neto > 0 ? Math.round(neto * 100) / 100 : 0,
       saldoAcreedor: neto < 0 ? Math.round(Math.abs(neto) * 100) / 100 : 0,
+      _sensible: sensible,
     }
   })
 
@@ -410,16 +420,22 @@ window.generarBalance = async () => {
         <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th>
         <th style="text-align:right">Saldo deudor</th><th style="text-align:right">Saldo acreedor</th>
       </tr></thead>
-      <tbody>${filtradas.map(c => `
-        <tr${c._privado ? ' style="background:rgba(239,68,68,0.04);border-left:3px solid var(--red)"' : ''}>
+      <tbody>${filtradas.map(c => {
+        const masked = c._sensible
+        const mDebe = masked ? '🔒' : (c.debe ? fmtL(c.debe) : '—')
+        const mHaber = masked ? '🔒' : (c.haber ? fmtL(c.haber) : '—')
+        const mSD = masked ? '🔒' : (c.saldoDeudor ? fmtL(c.saldoDeudor) : '—')
+        const mSA = masked ? '🔒' : (c.saldoAcreedor ? fmtL(c.saldoAcreedor) : '—')
+        const rowStyle = c._privado ? ' style="background:rgba(239,68,68,0.04);border-left:3px solid var(--red)"' : (masked ? ' style="background:rgba(239,68,68,0.03)"' : '')
+        return `<tr${rowStyle}>
           <td style="font-family:var(--mono);color:var(--gold);font-size:12px">${c.codigo}</td>
-          <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nombre}</td>
+          <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.nombre}${masked ? ' <span style="font-size:10px;color:var(--text3)">(restringido)</span>' : ''}</td>
           <td style="font-size:11px;color:var(--text3)">${c.naturaleza === 'deudora' ? 'D' : c.naturaleza === 'acreedora' ? 'A' : c.naturaleza}</td>
-          <td style="text-align:right;font-family:var(--mono)">${c.debe ? fmtL(c.debe) : '—'}</td>
-          <td style="text-align:right;font-family:var(--mono)">${c.haber ? fmtL(c.haber) : '—'}</td>
-          <td style="text-align:right;font-family:var(--mono);color:var(--green)">${c.saldoDeudor ? fmtL(c.saldoDeudor) : '—'}</td>
-          <td style="text-align:right;font-family:var(--mono);color:var(--red)">${c.saldoAcreedor ? fmtL(c.saldoAcreedor) : '—'}</td>
-        </tr>`).join('')}
+          <td style="text-align:right;font-family:var(--mono)">${mDebe}</td>
+          <td style="text-align:right;font-family:var(--mono)">${mHaber}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--green)">${mSD}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--red)">${mSA}</td>
+        </tr>`}).join('')}
       </tbody>
       <tfoot><tr style="background:var(--bg3);font-weight:600">
         <td colspan="3" style="text-align:right">TOTALES</td>
