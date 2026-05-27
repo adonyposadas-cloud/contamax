@@ -295,7 +295,11 @@ function renderLiquidacion() {
           <label style="font-size:11px;color:var(--text3);white-space:nowrap">Fecha recibo:</label>
           <input type="date" id="liq-fecha" value="${new Date().toLocaleDateString('en-CA')}" style="font-size:12px;padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
         </div>
-        <div style="margin-top:6px"><input type="text" id="liq-concepto" value="${d.concepto}" oninput="liquidacionData.concepto=this.value" style="width:100%;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);text-transform:uppercase"></div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+          <div id="liq-concepto-display" style="font-size:12px;color:var(--text3);flex:1">${d.concepto}</div>
+          <input type="text" id="liq-concepto-input" value="${d.concepto}" oninput="liquidacionData.concepto=this.value" style="display:none;flex:1;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);text-transform:uppercase">
+          <button onclick="toggleEditConcepto()" id="btn-edit-concepto" style="background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text3);cursor:pointer;white-space:nowrap">✏️ Editar</button>
+        </div>
       </div>
     </div>
     <!-- Detalle de entregas -->
@@ -317,6 +321,28 @@ function renderLiquidacion() {
     </details>`
 
   document.getElementById('liq-contenido').innerHTML = html
+}
+
+window.toggleEditConcepto = () => {
+  const display = document.getElementById('liq-concepto-display')
+  const input = document.getElementById('liq-concepto-input')
+  const btn = document.getElementById('btn-edit-concepto')
+  if (input.style.display === 'none') {
+    // Entrar en modo edición
+    input.style.display = ''
+    display.style.display = 'none'
+    input.focus()
+    btn.textContent = '✓ Listo'
+    btn.style.color = 'var(--green)'
+  } else {
+    // Salir de modo edición
+    liquidacionData.concepto = input.value.toUpperCase()
+    display.textContent = liquidacionData.concepto
+    input.style.display = 'none'
+    display.style.display = ''
+    btn.textContent = '✏️ Editar'
+    btn.style.color = 'var(--text3)'
+  }
 }
 
 window.confirmarRecibo = async () => {
