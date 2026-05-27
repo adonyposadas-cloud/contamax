@@ -128,6 +128,9 @@
           <div class="nav-item" id="nav-partidas" onclick="showView('partidas','Partidas contables')">
             <span class="nav-dot"></span>Partidas
           </div>
+          <div class="nav-item" id="nav-tipos-origen" onclick="showView('tipos-origen','Tipos de Origen')">
+            <span class="nav-dot"></span>Tipos de origen
+          </div>
         </div>
       </div>
       <div class="sidebar-section" id="section-importar">
@@ -465,6 +468,21 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- TIPOS DE ORIGEN -->
+      <div class="view" id="view-tipos-origen">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Tipos de Origen</div>
+            <div class="page-sub">Administrar tipos de origen para partidas contables</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="loadTiposOrigenAdmin()">↻ Actualizar</button>
+            <button class="btn btn-gold" onclick="nuevoTipoOrigen()">+ Nuevo tipo</button>
+          </div>
+        </div>
+        <div id="tabla-tipos-origen"></div>
       </div>
 
       <!-- NUEVA PARTIDA - FORMULARIO -->

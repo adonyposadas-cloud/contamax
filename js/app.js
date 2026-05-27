@@ -86,7 +86,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
@@ -177,6 +177,7 @@ window.showView = (id, label) => {
   if (id === 'pendientes') loadPendientes()
   if (id === 'compras') initForm()
   if (id === 'catalogo') loadCatalogo()
+  if (id === 'tipos-origen') loadTiposOrigenAdmin()
   if (id === 'partidas') loadPartidas()
   if (id === 'partida-nueva' && !editingPartidaId) initPartidaNueva()
   if (id === 'caja') loadCaja()
@@ -285,6 +286,77 @@ async function loadTiposOrigen() {
   if (fpOrigen) {
     fpOrigen.innerHTML = '<option value="">Todo origen</option>' + tiposOrigen.map(t => `<option value="${t.id}">${t.nombre}</option>`).join('')
   }
+}
+
+// ── ADMIN TIPOS DE ORIGEN ──
+async function loadTiposOrigenAdmin() {
+  const container = document.getElementById('tabla-tipos-origen')
+  if (!container) return
+  const { data, error } = await sb.from('tipos_origen').select('*').order('orden')
+  if (error) { container.innerHTML = `<div style="color:var(--red);padding:20px">${error.message}</div>`; return }
+
+  const fmt = (d) => d ? new Date(d).toLocaleDateString('es-HN') : '—'
+  container.innerHTML = `
+    <table>
+      <thead><tr>
+        <th style="width:50px">Orden</th>
+        <th>Nombre</th>
+        <th>Valor (ID)</th>
+        <th style="width:80px">Estado</th>
+        <th style="width:120px">Acciones</th>
+      </tr></thead>
+      <tbody>${(data || []).map(t => `
+        <tr>
+          <td style="text-align:center;font-family:var(--mono)">${t.orden || '—'}</td>
+          <td style="font-weight:500">${t.nombre}</td>
+          <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${t.id}</td>
+          <td style="text-align:center"><span class="badge ${t.activo ? 'badge-green' : 'badge-red'}">${t.activo ? 'Activo' : 'Inactivo'}</span></td>
+          <td style="text-align:center">
+            <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="editarTipoOrigen('${t.id}','${t.nombre.replace(/'/g,"\\'")}',${t.orden || 0},${t.activo})">✏️</button>
+            <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;color:var(--red)" onclick="eliminarTipoOrigen('${t.id}','${t.nombre.replace(/'/g,"\\'")}')">🗑️</button>
+          </td>
+        </tr>`).join('')}</tbody>
+    </table>`
+}
+window.loadTiposOrigenAdmin = loadTiposOrigenAdmin
+
+window.nuevoTipoOrigen = async () => {
+  const nombre = prompt('Nombre del nuevo tipo de origen:')
+  if (!nombre) return
+  const id = nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/(^_|_$)/g,'')
+  const { data: maxOrden } = await sb.from('tipos_origen').select('orden').order('orden', { ascending: false }).limit(1)
+  const orden = (maxOrden?.[0]?.orden || 0) + 1
+  const { error } = await sb.from('tipos_origen').insert({ id, nombre: nombre.trim(), orden, activo: true })
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`Tipo "${nombre}" creado ✓`, 'success')
+  loadTiposOrigenAdmin()
+  loadTiposOrigen()
+}
+
+window.editarTipoOrigen = async (id, nombreActual, ordenActual, activoActual) => {
+  const nombre = prompt('Nombre:', nombreActual)
+  if (nombre === null) return
+  const ordenStr = prompt('Orden (número):', ordenActual)
+  if (ordenStr === null) return
+  const activo = confirm('¿Está activo?')
+  const { error } = await sb.from('tipos_origen').update({
+    nombre: nombre.trim(),
+    orden: parseInt(ordenStr) || 0,
+    activo
+  }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`Tipo "${nombre}" actualizado ✓`, 'success')
+  loadTiposOrigenAdmin()
+  loadTiposOrigen()
+}
+
+window.eliminarTipoOrigen = async (id, nombre) => {
+  if (!confirm(`¿Eliminar el tipo de origen "${nombre}"?\n\nLas partidas existentes con este tipo no se verán afectadas.`)) return
+  const { error } = await sb.from('tipos_origen').delete().eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`Tipo "${nombre}" eliminado`, 'success')
+  loadTiposOrigenAdmin()
+  loadTiposOrigen()
 }
 
 // ── USUARIOS ──
