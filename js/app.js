@@ -1439,6 +1439,16 @@ window.editarPartida = async (id) => {
         }
       }
     }
+    // Si es cuenta USD, inicializar campos de conversión
+    if ((l.cuenta_nombre || '').includes('$')) {
+      const tc = window._lastTC || 26.78
+      lineaObj._usd_tc = tc
+      if (lineaObj.monto > 0 && tc > 0) {
+        const usdMonto = Math.round((lineaObj.monto / tc) * 100) / 100
+        if (lineaObj.tipo === 'debito') lineaObj._usd_debe = usdMonto
+        else lineaObj._usd_haber = usdMonto
+      }
+    }
     partidaLineas.push(lineaObj)
   }
 
