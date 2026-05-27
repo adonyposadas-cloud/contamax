@@ -2500,6 +2500,8 @@ function esCuentaSensible(codigo) {
 function puedeVerSensibles() {
   return currentProfile?.rol === 'super_admin'
 }
+window.esCuentaSensible = esCuentaSensible
+window.puedeVerSensibles = puedeVerSensibles
 
 function esCuentaCaja(codigo) {
   if (!codigo) return false
