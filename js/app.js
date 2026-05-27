@@ -1611,11 +1611,17 @@ function renderLineas() {
     let debeInput, haberInput
 
     if (esCajaChica && esAuxContable) {
-      // Aux. Contable es dueña de caja chica: control total sin botón 💵
-      debeInput = `<input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
-      haberInput = `<input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
-          oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+      // Aux. Contable es dueña de caja chica: control total con botón 💵
+      debeInput = `<div style="display:flex;gap:4px;align-items:center">
+          <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
+            oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+        </div>`
+      haberInput = `<div style="display:flex;gap:4px;align-items:center">
+          <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
+            oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+          <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+        </div>`
     } else if (esCaja && esSuperAdmin) {
       // Super Admin: botones 💵 en ambos lados
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
