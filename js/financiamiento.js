@@ -163,13 +163,30 @@ window.abrirLiquidacion = async (codigo) => {
     .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
     .order('fecha_deposito')
 
+  // ── Buscar abonos vía partidas contables (créditos que mencionan el código de unidad) ──
+  // Busca en lineas_partida donde la descripción contiene el código de la unidad
+  // y que sean de partidas aprobadas, no usadas en recibo anterior
+  const codigoStr = String(codigo).trim()
+  const { data: abonosPartida } = await getSb().from('lineas_partida')
+    .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, usado_en_recibo, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
+    .eq('tipo', 'credito')
+    .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
+    .ilike('descripcion', `%${codigoStr}%`)
+
+  // Filtrar solo partidas aprobadas y que no sean de cuentas de venta (ya se procesan en importación)
+  const abonosValidos = (abonosPartida || []).filter(a => 
+    a.partida?.estado === 'aprobada' && a.monto > 0
+  )
+
+  const totalAbonosPartida = abonosValidos.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
+
   // Cargar facturas NO usadas
   const { data: facturas } = await getSb().from('facturas_taxis')
     .select('*').eq('registro', registro)
     .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
     .order('fecha')
 
-  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + totalAbonosPartida
   const totalFacturas = (facturas || []).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
 
   const saldo = parseFloat(p.saldo_actual) || 0
@@ -218,7 +235,8 @@ window.abrirLiquidacion = async (codigo) => {
   liquidacionData = {
     codigo, registro, motorista: p.motorista,
     entregas: entregas || [], facturas: facturas || [],
-    totalEntregas, totalFacturas,
+    abonosPartida: abonosValidos,
+    totalEntregas, totalAbonosPartida, totalFacturas,
     saldoInicial: saldo, tasa, intereses, gps, alquiler,
     saldoMesAnterior: saldoAnt, cargoSaldoAnt, abonoSaldoAnt, totalCargos,
     cuotaMes,
@@ -241,7 +259,7 @@ function renderLiquidacion() {
       <div style="background:var(--bg3);border-radius:var(--radius);padding:16px">
         <div style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;font-weight:500">Cuadro de liquidación</div>
         <table style="width:100%">
-          <tr><td style="padding:4px 0;color:var(--green)">Total entregas (${d.entregas.length})</td><td style="text-align:right;font-family:var(--mono);color:var(--green);font-weight:500">L. ${getFmt(d.totalEntregas)}</td></tr>
+          <tr><td style="padding:4px 0;color:var(--green)">Total entregas (${d.entregas.length}${d.abonosPartida.length ? ' + ' + d.abonosPartida.length + ' partidas' : ''})</td><td style="text-align:right;font-family:var(--mono);color:var(--green);font-weight:500">L. ${getFmt(d.totalEntregas)}</td></tr>
           ${d.abonoSaldoAnt > 0 ? `<tr><td style="padding:4px 0;color:var(--green)">+ Saldo a favor mes ant.</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${getFmt(d.abonoSaldoAnt)}</td></tr>` : ''}
           <tr style="border-top:1px solid var(--border)"><td style="padding:4px 0" colspan="2"><b style="font-size:11px;color:var(--text3)">CARGOS:</b></td></tr>
           <tr><td style="padding:2px 0;padding-left:12px;font-size:13px">Intereses (${(d.tasa * 100).toFixed(0)}%)</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.intereses)}</td></tr>
@@ -271,10 +289,12 @@ function renderLiquidacion() {
     </div>
     <!-- Detalle de entregas -->
     <details style="margin-bottom:8px">
-      <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">📥 Entregas incluidas (${d.entregas.length}) — L. ${getFmt(d.totalEntregas)}</summary>
+      <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">📥 Entregas incluidas (${d.entregas.length + d.abonosPartida.length}) — L. ${getFmt(d.totalEntregas)}</summary>
       <div style="max-height:200px;overflow-y:auto;margin-top:8px">
-        <table style="width:100%"><thead><tr><th>Fecha</th><th>Banco</th><th style="text-align:right">Monto</th></tr></thead>
-        <tbody>${d.entregas.map(e => `<tr><td style="font-family:var(--mono);font-size:12px">${e.fecha_deposito}</td><td style="font-size:12px">${e.banco || '—'}</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${getFmt(e.monto)}</td></tr>`).join('')}</tbody></table>
+        <table style="width:100%"><thead><tr><th>Fecha</th><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
+        <tbody>${d.entregas.map(e => `<tr><td style="font-family:var(--mono);font-size:12px">${e.fecha_deposito}</td><td style="font-size:11px"><span class="badge badge-green">Entrega</span></td><td style="font-size:12px">${e.banco || '—'}</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${getFmt(e.monto)}</td></tr>`).join('')}
+        ${d.abonosPartida.map(a => `<tr style="background:rgba(59,130,246,0.05)"><td style="font-family:var(--mono);font-size:12px">${a.partida?.fecha_partida || '—'}</td><td style="font-size:11px"><span class="badge badge-blue">Partida</span></td><td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.descripcion}">${a.descripcion || a.partida?.descripcion || '—'}</td><td style="text-align:right;font-family:var(--mono);color:var(--blue)">L. ${getFmt(a.monto)}</td></tr>`).join('')}
+        </tbody></table>
       </div>
     </details>
     <details>
@@ -333,6 +353,13 @@ window.confirmarRecibo = async () => {
   // 3. Marcar facturas como usadas
   for (const f of d.facturas) {
     await getSb().from('facturas_taxis').update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id }).eq('id', f.id)
+  }
+
+  // 3b. Marcar abonos de partidas contables como usados
+  if (d.abonosPartida?.length) {
+    for (const a of d.abonosPartida) {
+      await getSb().from('lineas_partida').update({ usado_en_recibo: true }).eq('id', a.id)
+    }
   }
 
   // 4. Actualizar préstamo
