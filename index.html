@@ -527,6 +527,10 @@
             <div class="fld">
               <label>Descripción</label>
               <input type="text" id="pn-descripcion" placeholder="Ej: Compra de repuestos a Proveedor X" style="text-transform:uppercase">
+              <label style="font-size:11px;color:var(--text3);margin-top:6px;display:flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" id="pn-desc-individual" onchange="toggleDescIndividual(this.checked)" style="accent-color:var(--gold);cursor:pointer">
+                Descripción individual por línea
+              </label>
             </div>
           </div>
           <!-- Adjunto / Comprobante -->

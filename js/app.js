@@ -1412,6 +1412,8 @@ async function initPartidaNueva() {
   document.getElementById('pn-descripcion').value = ''
   document.getElementById('pn-documento').value = ''
   document.getElementById('pn-origen').value = 'compra'
+  const descIndCheck = document.getElementById('pn-desc-individual')
+  if (descIndCheck) descIndCheck.checked = false
   partidaLineas = []
   lineaCounter = 0
   // Load cuentas detalle for selector
@@ -1543,6 +1545,14 @@ window.editarPartida = async (id) => {
     partidaLineas.push(lineaObj)
   }
 
+  // Detectar si las líneas tienen descripciones individuales distintas
+  const descCheck = document.getElementById('pn-desc-individual')
+  if (descCheck) {
+    const descs = partidaLineas.map(l => (l.descripcion || '').trim()).filter(Boolean)
+    const tieneIndividuales = descs.length > 0 && new Set(descs).size > 1
+    descCheck.checked = tieneIndividuales
+  }
+
   renderLineas()
   calcTotales()
 
@@ -1642,9 +1652,19 @@ async function limpiarDatosImportacion(partidaId) {
 window.toggleAllFiscal = (checked) => {
   document.querySelectorAll('.fiscal-check').forEach(cb => {
     cb.checked = checked
-    // Trigger the onchange to update the data model
     cb.dispatchEvent(new Event('change'))
   })
+}
+
+window.toggleDescIndividual = (checked) => {
+  if (checked) {
+    // Al activar, copiar descripción general a todas las líneas que no tengan una propia
+    const descGeneral = document.getElementById('pn-descripcion').value.trim().toUpperCase()
+    if (descGeneral) {
+      partidaLineas.forEach(l => { if (!l.descripcion) l.descripcion = descGeneral })
+    }
+  }
+  renderLineas()
 }
 
 window.addLinea = () => {
@@ -1742,6 +1762,16 @@ function renderLineas() {
       : `<button class="linea-del" onclick="removeLinea(${l.id})">✕</button>`
 
     // USD conversion row
+    const showDescInd = document.getElementById('pn-desc-individual')?.checked
+    const descRow = showDescInd ? `
+    <tr class="linea-desc-row" style="border-top:none">
+      <td colspan="6" style="padding:0 8px 8px 8px">
+        <input type="text" value="${l.descripcion || ''}" placeholder="Descripción de esta línea..."
+          oninput="updLinea(${l.id},'descripcion',this.value)"
+          style="text-transform:uppercase;font-size:11px;padding:4px 8px;width:100%;border:1px dashed var(--border);background:var(--bg2);color:var(--text2);border-radius:4px">
+      </td>
+    </tr>` : ''
+
     return `
     <tr class="linea-row"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
       <td>
@@ -1766,7 +1796,7 @@ function renderLineas() {
       <td style="text-align:center">
         ${deleteBtn}
       </td>
-    </tr>`
+    </tr>${descRow}`
   }).join('')
 }
 
@@ -2141,7 +2171,7 @@ window.guardarPartida = async (estado) => {
     tipo: l.tipo,
     monto: Math.round((l.monto || 0) * 100) / 100,
     centro_costo_id: l.centro_costo_id || null,
-    descripcion: descripcion,
+    descripcion: (l.descripcion || descripcion).toUpperCase(),
     numero_documento: documento || null,
     aplica_fiscal: l.aplica_fiscal
   }))
