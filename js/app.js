@@ -2154,7 +2154,7 @@ function renderTree() {
     const isCollapsed = collapsedGroups.has(c.id)
     const toggleBtn = isGroup ? `<span class="tree-toggle" onclick="toggleGroup('${c.id}')">${isCollapsed ? '▸' : '▾'}</span>` : '<span style="width:22px;display:inline-block"></span>'
     return `<div class="tree-row nivel-${c.nivel}">
-      <div class="tree-name">${toggleBtn}<span class="tree-code">${c.codigo}</span>${c.nombre}${c.es_detalle ? '' : ' <span style="font-size:10px;color:var(--text3);margin-left:4px">(grupo)</span>'}</div>
+      <div class="tree-name" style="cursor:pointer" onclick="verDescCuenta('${c.id}')">${toggleBtn}<span class="tree-code">${c.codigo}</span>${c.nombre}${c.es_detalle ? '' : ' <span style="font-size:10px;color:var(--text3);margin-left:4px">(grupo)</span>'}${c.descripcion_uso ? ' <span style="font-size:10px;color:var(--blue)">💬</span>' : ''}</div>
       <span><span class="badge-tipo ${tipoColors[c.tipo]||''}">${c.tipo}</span></span>
       <span style="font-size:12px;color:var(--text3);text-transform:capitalize">${c.naturaleza}</span>
       <span style="font-size:12px;color:var(--text3)">${nivelLabels[c.nivel]||c.nivel}</span>
@@ -2178,6 +2178,34 @@ window.filtrarTipo = (btn, tipo) => {
   filtroTipo = tipo
   document.querySelectorAll('.cat-filter').forEach(b => b.classList.remove('active'))
   btn.classList.add('active')
+  renderTree()
+}
+
+// ── Descripción de uso de cuenta ──
+let descCuentaId = null
+window.verDescCuenta = (id) => {
+  const c = allCuentas.find(x => x.id === id)
+  if (!c) return
+  descCuentaId = id
+  document.getElementById('desc-cuenta-title').textContent = `${c.codigo} · ${c.nombre}`
+  document.getElementById('desc-cuenta-texto').value = c.descripcion_uso || ''
+  const rol = currentProfile?.rol
+  const puedeEditar = rol === 'super_admin' || rol === 'contador'
+  document.getElementById('desc-cuenta-texto').readOnly = !puedeEditar
+  document.getElementById('btn-guardar-desc').style.display = puedeEditar ? 'inline-flex' : 'none'
+  document.getElementById('desc-cuenta-hint').textContent = puedeEditar ? 'Escribí qué se carga en esta cuenta y cuándo se usa' : 'Solo el contador o Super Admin pueden editar esta descripción'
+  document.getElementById('modal-desc-cuenta').classList.add('open')
+}
+
+window.guardarDescCuenta = async () => {
+  if (!descCuentaId) return
+  const texto = document.getElementById('desc-cuenta-texto').value.trim()
+  const { error } = await sb.from('catalogo_cuentas').update({ descripcion_uso: texto }).eq('id', descCuentaId)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  const c = allCuentas.find(x => x.id === descCuentaId)
+  if (c) c.descripcion_uso = texto
+  closeModal('modal-desc-cuenta')
+  toast('Descripción guardada ✓', 'success')
   renderTree()
 }
 
