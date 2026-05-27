@@ -2442,11 +2442,12 @@ async function loadCaja() {
   const container = document.getElementById('lista-caja')
   container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>'
 
-  // Cargar partidas que afectan caja general (las que tienen lineas con cuentas de caja)
-  // Primero obtener las líneas que tocan caja
+  // Cargar partidas que afectan SOLO caja general (110102), NO caja chica (110101)
+  // Primero obtener las líneas que tocan caja general
+  const CAJA_GENERAL_CODIGOS = ['110102', '110102-001']
   const { data: lineasCaja, error: lcErr } = await sb.from('lineas_partida')
     .select('partida_id, tipo, monto, cuenta_codigo, cuenta_nombre')
-    .or(CAJA_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%`).join(','))
+    .or(CAJA_GENERAL_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%`).join(','))
 
   if (lcErr) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${lcErr.message}</div></div>`
