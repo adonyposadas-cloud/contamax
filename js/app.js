@@ -5996,10 +5996,13 @@ window.verDetalleVin = async (vinId) => {
     .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%`)
 
   // Also search partidas whose description mentions this VIN, then get their debit lines
-  const { data: partidasVin } = await sb.from('partidas_contables')
+  const vinSearchFilter = `descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%,descripcion.ilike.%${last4}%`
+  console.log('VIN search filter:', vinSearchFilter, '| last4:', last4)
+  const { data: partidasVin, error: pvErr } = await sb.from('partidas_contables')
     .select('id, fecha_partida, estado, descripcion')
-    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%,descripcion.ilike.%${last4}%`)
+    .or(vinSearchFilter)
     .eq('estado', 'aprobada')
+  console.log('Partidas found:', partidasVin, '| Error:', pvErr)
 
   let lineasVinPadre = []
   if (partidasVin?.length) {
