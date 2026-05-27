@@ -1671,21 +1671,21 @@ window.setHaber = (id, val) => {
 window.updLinea = (id, field, val) => {
   const l = partidaLineas.find(x => x.id === id)
   if (!l) return
-  if (field === 'monto') l[field] = parseFloat(val) || 0
+  if (field === 'monto') l[field] = Math.round((parseFloat(val) || 0) * 100) / 100
   else if (field === 'aplica_fiscal') l[field] = val
   else l[field] = val
   calcTotales()
 }
 
 function calcTotales() {
-  const debitos = partidaLineas.filter(l => l.tipo === 'debito').reduce((s, l) => s + (l.monto || 0), 0)
-  const creditos = partidaLineas.filter(l => l.tipo === 'credito').reduce((s, l) => s + (l.monto || 0), 0)
-  const diff = Math.abs(debitos - creditos)
+  const debitos = Math.round(partidaLineas.filter(l => l.tipo === 'debito').reduce((s, l) => s + (l.monto || 0), 0) * 100) / 100
+  const creditos = Math.round(partidaLineas.filter(l => l.tipo === 'credito').reduce((s, l) => s + (l.monto || 0), 0) * 100) / 100
+  const diff = Math.round(Math.abs(debitos - creditos) * 100) / 100
   document.getElementById('pn-tot-d').textContent = debitos.toFixed(2)
   document.getElementById('pn-tot-c').textContent = creditos.toFixed(2)
   const diffEl = document.getElementById('pn-diff')
   const balEl = document.getElementById('pn-balance')
-  if (diff < 0.01 && debitos > 0) {
+  if (diff === 0 && debitos > 0) {
     diffEl.textContent = 'Cuadrada ✓'
     diffEl.style.color = 'var(--green)'
     balEl.textContent = `Cuadrada: L. ${debitos.toFixed(2)}`
@@ -1780,10 +1780,10 @@ window.guardarPartida = async (estado) => {
       return
     }
   }
-  const debitos = lineasValidas.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.monto, 0)
-  const creditos = lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0)
-  if (estado === 'aprobada' && Math.abs(debitos - creditos) >= 0.01) {
-    toast('La partida debe cuadrar para aprobarla (débitos = créditos)', 'error'); return
+  const debitos = Math.round(lineasValidas.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.monto, 0) * 100) / 100
+  const creditos = Math.round(lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0) * 100) / 100
+  if (estado === 'aprobada' && debitos !== creditos) {
+    toast(`La partida no cuadra: Débitos L.${debitos.toFixed(2)} ≠ Créditos L.${creditos.toFixed(2)}`, 'error'); return
   }
 
   // ── VALIDACIÓN DE UNIDADES (VIN, TAXI, VIP) EN DESCRIPCIÓN ──
@@ -1917,7 +1917,7 @@ window.guardarPartida = async (estado) => {
     cuenta_codigo: l.cuenta_codigo,
     cuenta_nombre: l.cuenta_nombre,
     tipo: l.tipo,
-    monto: l.monto,
+    monto: Math.round((l.monto || 0) * 100) / 100,
     centro_costo_id: l.centro_costo_id || null,
     descripcion: descripcion,
     numero_documento: documento || null,
