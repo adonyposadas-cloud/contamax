@@ -1625,6 +1625,7 @@ function renderLineas() {
 
     // USD conversion row
     const esUSD = l.cuenta_nombre?.includes('$') || l.cuenta_codigo?.includes('$')
+    console.log('USD check:', l.cuenta_codigo, l.cuenta_nombre, '→ esUSD:', esUSD)
     const usdRow = esUSD ? `
     <tr class="usd-row" style="background:rgba(59,130,246,0.06)">
       <td colspan="2" style="text-align:right;font-size:11px;color:var(--blue);padding:2px 12px">
