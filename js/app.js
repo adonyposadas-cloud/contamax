@@ -1675,24 +1675,50 @@ function renderLineas() {
   }).join('')
 }
 
-// Fetch TC: prioridad localStorage (manual del usuario), luego BD como fallback inicial
+// Fetch TC: 1) Ficohsa online (venta del día), 2) localStorage, 3) fallback
 async function fetchTCBac() {
-  const stored = localStorage.getItem('contamax_tc_manual')
-  if (stored) {
-    window._lastTC = parseFloat(stored)
+  let tcOnline = 0
+  try {
+    // Intentar obtener TC de Ficohsa via proxy CORS
+    const resp = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www.ficohsa.hn/tasas-de-cambio'))
+    if (resp.ok) {
+      const html = await resp.text()
+      // Buscar "Venta" seguido de "L XX.XXXX" en la sección del dólar
+      const match = html.match(/Venta[\s\S]*?L\s*([\d]+\.[\d]+)/)
+      if (match) tcOnline = parseFloat(match[1])
+    }
+  } catch(e) { console.log('TC online no disponible, usando cache') }
+
+  if (tcOnline > 20) {
+    // TC obtenido exitosamente de Ficohsa
+    window._lastTC = tcOnline
+    localStorage.setItem('contamax_tc_online', tcOnline.toString())
+    localStorage.setItem('contamax_tc_fecha', new Date().toLocaleDateString('en-CA'))
   } else {
-    try {
-      const { data } = await sb.from('caja_tc_promedio').select('*').order('id', { ascending: false }).limit(1)
-      if (data?.[0]) {
-        const row = data[0]
-        const tc = parseFloat(row.tc_venta || row.tc_promedio || row.tc || row.tasa || 0)
-        if (tc > 0) window._lastTC = tc
-      }
-    } catch(e) {}
-    if (!window._lastTC) window._lastTC = 25.2857
+    // Fallback: localStorage manual > localStorage online > BD > hardcoded
+    const manual = localStorage.getItem('contamax_tc_manual')
+    const cached = localStorage.getItem('contamax_tc_online')
+    if (manual) {
+      window._lastTC = parseFloat(manual)
+    } else if (cached) {
+      window._lastTC = parseFloat(cached)
+    } else {
+      try {
+        const { data } = await sb.from('caja_tc_promedio').select('*').order('id', { ascending: false }).limit(1)
+        if (data?.[0]) {
+          const row = data[0]
+          const tc = parseFloat(row.tc_venta || row.tc_promedio || row.tc || row.tasa || 0)
+          if (tc > 0) window._lastTC = tc
+        }
+      } catch(e) {}
+      if (!window._lastTC) window._lastTC = 26.5923
+    }
   }
   const tcInput = document.getElementById('calc-usd-tc')
   if (tcInput) tcInput.value = window._lastTC
+  // Mostrar fuente del TC
+  const tcFecha = localStorage.getItem('contamax_tc_fecha')
+  console.log(`[TC] ${window._lastTC} ${tcOnline > 0 ? '(Ficohsa ' + tcFecha + ')' : '(cache)'}`)
 }
 fetchTCBac()
 
