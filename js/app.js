@@ -1634,7 +1634,8 @@ function renderLineas() {
       : `<button class="linea-del" onclick="removeLinea(${l.id})">✕</button>`
 
     // USD conversion row
-    const esUSD = l.cuenta_nombre?.includes('$') || l.cuenta_codigo?.includes('$')
+    const cuentaTexto = `${l.cuenta_codigo || ''} ${l.cuenta_nombre || ''}`
+    const esUSD = cuentaTexto.includes('$')
 
     // For USD accounts: TC input below centro costo, debe/haber show USD with lempira conversion
     const tcField = esUSD ? `<div style="margin-top:4px;display:flex;align-items:center;gap:4px">
@@ -1650,15 +1651,15 @@ function renderLineas() {
       const haberL = l.tipo === 'credito' && l.monto ? l.monto : 0
       debeUSD = `<div>
         <input type="text" inputmode="decimal" value="${l._usd_debe || ''}" placeholder="$ 0.00"
-          onchange="setUSDDebe(${l.id},this.value)" onblur="setUSDDebe(${l.id},this.value)"
-          style="text-align:right;font-family:var(--mono);color:var(--blue)">
-        ${debeL > 0 ? `<div style="font-size:10px;color:var(--green);font-family:var(--mono);text-align:right;margin-top:2px">L. ${debeL.toLocaleString('es-HN',{minimumFractionDigits:2})}</div>` : ''}
+          oninput="setUSDDebe(${l.id},this.value)"
+          style="text-align:right;font-family:var(--mono);color:var(--blue);border-color:var(--blue)">
+        <div class="usd-lemp" style="font-size:10px;color:var(--green);font-family:var(--mono);text-align:right;margin-top:2px">${debeL > 0 ? 'L. ' + debeL.toLocaleString('es-HN',{minimumFractionDigits:2}) : ''}</div>
       </div>`
       haberUSD = `<div>
         <input type="text" inputmode="decimal" value="${l._usd_haber || ''}" placeholder="$ 0.00"
-          onchange="setUSDHaber(${l.id},this.value)" onblur="setUSDHaber(${l.id},this.value)"
-          style="text-align:right;font-family:var(--mono);color:var(--blue)">
-        ${haberL > 0 ? `<div style="font-size:10px;color:var(--red);font-family:var(--mono);text-align:right;margin-top:2px">L. ${haberL.toLocaleString('es-HN',{minimumFractionDigits:2})}</div>` : ''}
+          oninput="setUSDHaber(${l.id},this.value)"
+          style="text-align:right;font-family:var(--mono);color:var(--blue);border-color:var(--blue)">
+        <div class="usd-lemp" style="font-size:10px;color:var(--red);font-family:var(--mono);text-align:right;margin-top:2px">${haberL > 0 ? 'L. ' + haberL.toLocaleString('es-HN',{minimumFractionDigits:2}) : ''}</div>
       </div>`
     }
 
@@ -1697,7 +1698,6 @@ window.setTCLinea = (id, val) => {
   if (!l) return
   l._usd_tc = parseFloat(val) || 0
   window._lastTC = l._usd_tc
-  // Recalculate if there's a USD amount
   if (l._usd_debe) {
     l.monto = Math.round((l._usd_debe * l._usd_tc) * 100) / 100
     l.tipo = 'debito'
@@ -1705,7 +1705,6 @@ window.setTCLinea = (id, val) => {
     l.monto = Math.round((l._usd_haber * l._usd_tc) * 100) / 100
     l.tipo = 'credito'
   }
-  renderLineas()
   calcTotales()
 }
 
@@ -1717,7 +1716,13 @@ window.setUSDDebe = (id, val) => {
   if (!l._usd_tc) l._usd_tc = window._lastTC || 0
   l.monto = Math.round((l._usd_debe * l._usd_tc) * 100) / 100
   l.tipo = 'debito'
-  renderLineas()
+  // Update lempira display without full re-render
+  const row = document.querySelector(`[data-lid="${id}"]`)?.closest('tr')
+  if (row) {
+    const debeCell = row.querySelectorAll('td')[2]
+    const lempDiv = debeCell?.querySelector('.usd-lemp')
+    if (lempDiv) lempDiv.textContent = 'L. ' + l.monto.toLocaleString('es-HN', {minimumFractionDigits:2})
+  }
   calcTotales()
 }
 
@@ -1729,7 +1734,12 @@ window.setUSDHaber = (id, val) => {
   if (!l._usd_tc) l._usd_tc = window._lastTC || 0
   l.monto = Math.round((l._usd_haber * l._usd_tc) * 100) / 100
   l.tipo = 'credito'
-  renderLineas()
+  const row = document.querySelector(`[data-lid="${id}"]`)?.closest('tr')
+  if (row) {
+    const haberCell = row.querySelectorAll('td')[3]
+    const lempDiv = haberCell?.querySelector('.usd-lemp')
+    if (lempDiv) lempDiv.textContent = 'L. ' + l.monto.toLocaleString('es-HN', {minimumFractionDigits:2})
+  }
   calcTotales()
 }
 
