@@ -3822,9 +3822,15 @@ window.openCajaHaber = (lineaId) => {
 
 // ── ARQUEO DE CAJA ──
 window.verArqueo = async () => {
-  // Cargar todos los conteos de billetes
-  const { data: conteos, error } = await sb.from('conteo_billetes').select('*')
+  // Cargar conteos de billetes — solo caja general (excluir caja chica 110101-001)
+  const { data: allConteos, error } = await sb.from('conteo_billetes').select('*, partida:partidas_contables(estado)')
   if (error) { toast('Error al cargar arqueo: ' + error.message, 'error'); return }
+
+  // Filtrar: solo conteos de partidas aprobadas que NO sean de caja chica
+  const conteos = (allConteos || []).filter(c => 
+    c.partida?.estado === 'aprobada' && 
+    c.cuenta_codigo !== '110101-001' && c.cuenta_codigo !== '110101'
+  )
 
   const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
   const tbody = document.getElementById('tbody-arqueo')
