@@ -1404,16 +1404,22 @@ window.editarPartida = async (id) => {
   document.getElementById('pn-documento').value = partida.numero_documento || ''
   document.getElementById('pn-origen').value = partida.tipo_origen || 'compra'
 
-  // Mostrar adjunto existente
+  // Mostrar adjuntos existentes (pueden ser múltiples separados por coma)
   const adjuntoLink = document.getElementById('pn-adjunto-link')
   const adjuntoStatus = document.getElementById('pn-adjunto-status')
   document.getElementById('pn-adjunto').value = ''
   if (partida.adjunto_url) {
-    const { data: signedUrl } = await sb.storage.from('facturas-compras').createSignedUrl(partida.adjunto_url, 3600)
-    if (signedUrl?.signedUrl) {
-      adjuntoLink.href = signedUrl.signedUrl
-      adjuntoLink.style.display = 'inline'
-      adjuntoStatus.textContent = ''
+    const paths = partida.adjunto_url.split(',').filter(Boolean)
+    const links = []
+    for (let i = 0; i < paths.length; i++) {
+      const { data: signedUrl } = await sb.storage.from('facturas-compras').createSignedUrl(paths[i].trim(), 3600)
+      if (signedUrl?.signedUrl) {
+        links.push(`<a href="${signedUrl.signedUrl}" target="_blank" style="font-size:11px;color:var(--blue)">📷 Adjunto ${i + 1}</a>`)
+      }
+    }
+    if (links.length) {
+      adjuntoLink.style.display = 'none'
+      adjuntoStatus.innerHTML = links.join(' &nbsp;|&nbsp; ')
     }
   } else {
     adjuntoLink.style.display = 'none'
@@ -2025,19 +2031,30 @@ window.guardarPartida = async (estado) => {
     partidaId = partida.id
   }
 
-  // ── SUBIR ADJUNTO si hay archivo ──
-  const adjuntoFile = document.getElementById('pn-adjunto')?.files?.[0]
-  if (adjuntoFile && partidaId) {
-    const ext = adjuntoFile.name.split('.').pop().toLowerCase()
-    const path = `partidas/${partidaId}.${ext}`
-    const { error: upErr } = await sb.storage.from('facturas-compras').upload(path, adjuntoFile, { upsert: true })
-    if (upErr) {
-      toast('Partida guardada pero error subiendo adjunto: ' + upErr.message, 'error')
-    } else {
-      await sb.from('partidas_contables').update({ adjunto_url: path }).eq('id', partidaId)
-      toast('Adjunto guardado ✓', 'success')
+  // ── SUBIR ADJUNTOS (múltiples archivos) ──
+  const adjuntoFiles = document.getElementById('pn-adjunto')?.files
+  if (adjuntoFiles?.length && partidaId) {
+    const paths = []
+    for (let i = 0; i < adjuntoFiles.length; i++) {
+      const file = adjuntoFiles[i]
+      const ext = file.name.split('.').pop().toLowerCase()
+      const path = `partidas/${partidaId}_${i + 1}.${ext}`
+      const { error: upErr } = await sb.storage.from('facturas-compras').upload(path, file, { upsert: true })
+      if (upErr) {
+        toast(`Error subiendo ${file.name}: ${upErr.message}`, 'error')
+      } else {
+        paths.push(path)
+      }
     }
-  } else if (!adjuntoFile && window._facturaFotoUrl && partidaId && !editingPartidaId) {
+    if (paths.length) {
+      // Concatenar con adjuntos existentes si hay
+      const { data: existing } = await sb.from('partidas_contables').select('adjunto_url').eq('id', partidaId).single()
+      const existingPaths = existing?.adjunto_url ? existing.adjunto_url.split(',').filter(Boolean) : []
+      const allPaths = [...existingPaths, ...paths].join(',')
+      await sb.from('partidas_contables').update({ adjunto_url: allPaths }).eq('id', partidaId)
+      toast(`${paths.length} adjunto(s) guardado(s) ✓`, 'success')
+    }
+  } else if (!adjuntoFiles?.length && window._facturaFotoUrl && partidaId && !editingPartidaId) {
     // ── COPIAR IMAGEN DE FACTURA como adjunto de la partida ──
     await sb.from('partidas_contables').update({ adjunto_url: window._facturaFotoUrl }).eq('id', partidaId)
   }
