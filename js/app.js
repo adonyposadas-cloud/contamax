@@ -3451,7 +3451,7 @@ function renderImportPartida() {
   // DÉBITO — Cuentas por cobrar (facturas a crédito)
   for (const fc of facturasCredito) {
     const clienteNombre = fc.cliente.trim().toUpperCase()
-    const cxcCuenta = cuentasDetalle.find(c => c.nombre.toUpperCase().includes(clienteNombre))
+    const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
     lineas.push({
       codigo: cxcCuenta ? cxcCuenta.codigo : '110301-???',
       nombre: cxcCuenta ? cxcCuenta.nombre : `CxC ${clienteNombre} (cuenta no encontrada)`,
@@ -3574,7 +3574,7 @@ window.guardarImportPartida = async () => {
   // ── DÉBITO: Líneas de CxC para facturas a crédito ──
   for (const fc of facturasCredito) {
     const clienteNombre = fc.cliente.trim().toUpperCase()
-    const cxcCuenta = cuentasDetalle.find(c => c.nombre.toUpperCase().includes(clienteNombre))
+    const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
     if (cxcCuenta) {
       lineaCounter++
       partidaLineas.push({
