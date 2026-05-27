@@ -2989,10 +2989,77 @@ window.onImportFiles = (input) => {
 
 function parseAlphaExcel(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array' })
+  
+  // ── Parsear una hoja individual ──
+  function parseSheet(ws) {
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+    let headerRow = -1, colMap = {}
+    for (let r = 0; r < Math.min(20, data.length); r++) {
+      const row = data[r]
+      if (!row) continue
+      for (let c = 0; c < row.length; c++) {
+        const val = String(row[c] || '').trim().toLowerCase()
+        if (val === 'no. factura interna' || val.includes('factura interna')) {
+          headerRow = r
+          for (let cc = 0; cc < row.length; cc++) {
+            const h = String(row[cc] || '').trim().toLowerCase()
+            if (h.includes('factura electr')) colMap.factura_electronica = cc
+            else if (h.includes('factura interna')) colMap.factura_interna = cc
+            else if (h === 'cliente') colMap.cliente = cc
+            else if (h === 'rtn') colMap.rtn = cc
+            else if (h === 'subtotal') colMap.subtotal = cc
+            else if (h === 'impuestos' && !h.includes('devuelto') && !h.includes('servicio')) colMap.impuestos = cc
+            else if (h === 'total') colMap.total = cc
+            else if (h.includes('total exento')) colMap.total_exento = cc
+            else if (h.includes('total gravado') && !h.includes('15')) colMap.total_gravado = cc
+            else if (h === 'fecha') colMap.fecha = cc
+            else if (h.includes('monto en tarjeta')) colMap.monto_tarjeta = cc
+            else if (h.includes('monto en efectivo')) colMap.monto_efectivo = cc
+            else if (h.includes('monto transacción') || h.includes('monto transaccion')) colMap.monto_transferencia = cc
+            else if (h.includes('tipo de venta')) colMap.tipo_venta = cc
+            else if (h.includes('código cliente') || h.includes('codigo cliente')) colMap.codigo_cliente = cc
+          }
+          break
+        }
+      }
+      if (headerRow >= 0) break
+    }
+    if (headerRow < 0) headerRow = 8
+    if (!colMap.factura_interna && colMap.factura_interna !== 0) colMap = { factura_interna:0, factura_electronica:4, cliente:10, rtn:11, subtotal:18, impuestos:19, total:24, total_exento:25, total_gravado:26, fecha:17, monto_tarjeta:30, monto_efectivo:31, monto_transferencia:33, tipo_venta:13, codigo_cliente:9 }
+    
+    const facturas = []
+    for (let i = headerRow + 1; i < data.length; i++) {
+      const row = data[i]
+      if (!row) break
+      const firstCell = row[colMap.factura_interna]
+      if (firstCell == null || String(firstCell).trim() === '') break
+      if (isNaN(Number(firstCell))) break
+      facturas.push({
+        factura_interna: firstCell,
+        factura_electronica: String(row[colMap.factura_electronica] || ''),
+        cliente: String(row[colMap.cliente] || ''),
+        rtn: String(row[colMap.rtn] || ''),
+        subtotal: parseFloat(row[colMap.subtotal]) || 0,
+        impuestos: parseFloat(row[colMap.impuestos]) || 0,
+        total: parseFloat(row[colMap.total]) || 0,
+        total_exento: parseFloat(row[colMap.total_exento]) || 0,
+        total_gravado: parseFloat(row[colMap.total_gravado]) || 0,
+        fecha: String(row[colMap.fecha] || ''),
+        monto_tarjeta: parseFloat(row[colMap.monto_tarjeta]) || 0,
+        monto_efectivo: parseFloat(row[colMap.monto_efectivo]) || 0,
+        monto_transferencia: parseFloat(row[colMap.monto_transferencia]) || 0,
+        tipo_venta: String(row[colMap.tipo_venta] || 'Contado'),
+        codigo_cliente: String(row[colMap.codigo_cliente] || ''),
+      })
+    }
+    return facturas
+  }
+
+  // ── Leer hoja principal (Contado o primera hoja) ──
   const ws = wb.Sheets[wb.SheetNames[0]]
   const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
 
-  // Identificar empresa — buscar en las primeras filas el valor después de "Empresa:"
+  // Identificar empresa
   let empresaRaw = ''
   for (let r = 0; r < Math.min(10, data.length); r++) {
     const row = data[r]
@@ -3000,111 +3067,59 @@ function parseAlphaExcel(arrayBuffer) {
     for (let c = 0; c < Math.min(10, row.length); c++) {
       const val = String(row[c] || '').trim()
       if (val.toLowerCase() === 'empresa:' || val.toLowerCase() === 'empresa') {
-        // El nombre está en la siguiente columna
         empresaRaw = String(row[c + 1] || '').trim()
-        if (!empresaRaw) {
-          // O quizás en la siguiente fila misma columna
-          empresaRaw = String((data[r + 1] || [])[c] || '').trim()
-        }
+        if (!empresaRaw) empresaRaw = String((data[r + 1] || [])[c] || '').trim()
         break
       }
     }
     if (empresaRaw) break
   }
-
-  // Si aún no encontró, intentar fila 3 columnas 1-5
   if (!empresaRaw) {
     for (let c = 0; c < 6; c++) {
       const v = String((data[3] || [])[c] || '').trim()
-      if (v && v !== 'Empresa:' && v.length > 2 && !v.includes('Fecha')) {
-        empresaRaw = v
-        break
-      }
+      if (v && v !== 'Empresa:' && v.length > 2 && !v.includes('Fecha')) { empresaRaw = v; break }
     }
   }
 
-  // Detectar tipo: si el nombre es todo mayúsculas = interno, si tiene mixed case = fiscal
+  // Detectar tipo
   let tipo, centro
   const esUpper = empresaRaw === empresaRaw.toUpperCase() && empresaRaw.length > 0
   const tieneYonker = empresaRaw.toLowerCase().includes('yonker')
-
   if (tieneYonker && esUpper) { tipo = 'yonker_interno'; centro = 'Yonker' }
   else if (tieneYonker && !esUpper) { tipo = 'yonker_fiscal'; centro = 'Yonker' }
   else if (!tieneYonker && esUpper) { tipo = 'tecnimax_interno'; centro = 'Tecnicentro' }
   else if (!tieneYonker && !esUpper && empresaRaw) { tipo = 'tecnimax_fiscal'; centro = 'Tecnicentro' }
   else { tipo = 'desconocido'; centro = empresaRaw || '?' }
 
-  // Buscar dinámicamente la fila de headers y columnas
-  let headerRow = -1
-  let colMap = {}
-  for (let r = 0; r < Math.min(20, data.length); r++) {
-    const row = data[r]
-    if (!row) continue
-    for (let c = 0; c < row.length; c++) {
-      const val = String(row[c] || '').trim().toLowerCase()
-      if (val === 'no. factura interna' || val.includes('factura interna')) {
-        headerRow = r
-        // Mapear todas las columnas por nombre
-        for (let cc = 0; cc < row.length; cc++) {
-          const h = String(row[cc] || '').trim().toLowerCase()
-          if (h.includes('factura electr')) colMap.factura_electronica = cc
-          else if (h.includes('factura interna')) colMap.factura_interna = cc
-          else if (h === 'cliente') colMap.cliente = cc
-          else if (h === 'rtn') colMap.rtn = cc
-          else if (h === 'subtotal') colMap.subtotal = cc
-          else if (h === 'impuestos' && !h.includes('devuelto') && !h.includes('servicio')) colMap.impuestos = cc
-          else if (h === 'total') colMap.total = cc
-          else if (h.includes('total exento')) colMap.total_exento = cc
-          else if (h.includes('total gravado') && !h.includes('15')) colMap.total_gravado = cc
-          else if (h === 'fecha') colMap.fecha = cc
-          else if (h.includes('monto en tarjeta')) colMap.monto_tarjeta = cc
-          else if (h.includes('monto en efectivo')) colMap.monto_efectivo = cc
-          else if (h.includes('monto transacción') || h.includes('monto transaccion')) colMap.monto_transferencia = cc
-        }
-        break
-      }
-    }
-    if (headerRow >= 0) break
+  // Parsear hoja Contado (primera hoja)
+  const facturasContado = parseSheet(ws)
+
+  // ── Leer hoja Crédito si existe ──
+  let facturasCredito = []
+  const creditoSheetName = wb.SheetNames.find(s => s.toLowerCase().includes('créd') || s.toLowerCase().includes('cred'))
+  if (creditoSheetName) {
+    facturasCredito = parseSheet(wb.Sheets[creditoSheetName])
+    facturasCredito.forEach(f => f.tipo_venta = 'Crédito')
   }
 
-  // Fallback a posiciones fijas si no encontró headers
-  if (headerRow < 0) headerRow = 8
-  if (!colMap.factura_interna && colMap.factura_interna !== 0) colMap = { factura_interna:0, factura_electronica:4, cliente:10, rtn:11, subtotal:18, impuestos:19, total:24, total_exento:25, total_gravado:26, fecha:17, monto_tarjeta:30, monto_efectivo:31, monto_transferencia:33 }
-
-  // Extraer filas de datos (empezar después del header)
-  const facturas = []
-  for (let i = headerRow + 1; i < data.length; i++) {
-    const row = data[i]
-    if (!row) break
-    const firstCell = row[colMap.factura_interna]
-    if (firstCell == null || String(firstCell).trim() === '') break
-    // Verificar que sea un número (factura interna) no un texto de resumen
-    if (isNaN(Number(firstCell))) break
-    facturas.push({
-      factura_interna: firstCell,
-      factura_electronica: String(row[colMap.factura_electronica] || ''),
-      cliente: String(row[colMap.cliente] || ''),
-      rtn: String(row[colMap.rtn] || ''),
-      subtotal: parseFloat(row[colMap.subtotal]) || 0,
-      impuestos: parseFloat(row[colMap.impuestos]) || 0,
-      total: parseFloat(row[colMap.total]) || 0,
-      total_exento: parseFloat(row[colMap.total_exento]) || 0,
-      total_gravado: parseFloat(row[colMap.total_gravado]) || 0,
-      fecha: String(row[colMap.fecha] || ''),
-      monto_tarjeta: parseFloat(row[colMap.monto_tarjeta]) || 0,
-      monto_efectivo: parseFloat(row[colMap.monto_efectivo]) || 0,
-      monto_transferencia: parseFloat(row[colMap.monto_transferencia]) || 0,
-    })
-  }
+  // Todas las facturas (contado + crédito) para validación de correlativos
+  const todasFacturas = [...facturasContado, ...facturasCredito]
 
   const totales = {
-    subtotal: facturas.reduce((s, f) => s + f.subtotal, 0),
-    impuestos: facturas.reduce((s, f) => s + f.impuestos, 0),
-    total: facturas.reduce((s, f) => s + f.total, 0),
-    exento: facturas.reduce((s, f) => s + f.total_exento, 0),
+    subtotal: facturasContado.reduce((s, f) => s + f.subtotal, 0),
+    impuestos: facturasContado.reduce((s, f) => s + f.impuestos, 0),
+    total: facturasContado.reduce((s, f) => s + f.total, 0),
+    exento: facturasContado.reduce((s, f) => s + f.total_exento, 0),
   }
 
-  return { empresaRaw, tipo, centro, facturas, totales }
+  const totalesCredito = {
+    subtotal: facturasCredito.reduce((s, f) => s + f.subtotal, 0),
+    impuestos: facturasCredito.reduce((s, f) => s + f.impuestos, 0),
+    total: facturasCredito.reduce((s, f) => s + f.total, 0),
+    exento: facturasCredito.reduce((s, f) => s + f.total_exento, 0),
+  }
+
+  return { empresaRaw, tipo, centro, facturas: facturasContado, facturasCredito, todasFacturas, totales, totalesCredito }
 }
 
 function validarCorrelativos(facturas) {
@@ -3168,7 +3183,9 @@ window.procesarImport = async () => {
 
     // Debug: mostrar qué se detectó
     for (const r of reportes) {
-      alertas.push({ tipo: 'info', msg: `📄 "${r.empresaRaw}" → ${r.tipo} (${r.facturas.length} facturas, centro: ${r.centro})` })
+      const creditCount = r.facturasCredito?.length || 0
+      const creditInfo = creditCount ? ` + ${creditCount} crédito` : ''
+      alertas.push({ tipo: 'info', msg: `📄 "${r.empresaRaw}" → ${r.tipo} (${r.facturas.length} facturas${creditInfo}, centro: ${r.centro})` })
     }
 
     // Verificar que se subieron los 4 tipos
@@ -3177,14 +3194,19 @@ window.procesarImport = async () => {
     if (!yonker_fiscal) alertas.push({ tipo: 'error', msg: 'Falta reporte: Yonker Tecnimax fiscal (Yonker Tecnimax en minúscula)' })
     if (!yonker_interno) alertas.push({ tipo: 'error', msg: 'Falta reporte: YONKER TECNIMAX interno (YONKER TECNIMAX en mayúscula)' })
 
-    // Correlativos
+    // Correlativos — usar todasFacturas (contado + crédito) para no marcar créditos como faltantes
     for (const r of reportes) {
       if (!r) continue
-      const corr = validarCorrelativos(r.facturas)
+      const corr = validarCorrelativos(r.todasFacturas || r.facturas)
       if (!corr.ok) {
         alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: Correlativos faltantes: ${corr.faltantes.join(', ')}` })
       } else {
         alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: Correlativos completos (${corr.rango})` })
+      }
+      // Mostrar info de facturas de crédito encontradas
+      if (r.facturasCredito?.length) {
+        const clientesCredito = r.facturasCredito.map(f => `${f.cliente} (L.${f.total.toLocaleString('es-HN',{minimumFractionDigits:2})})`).join(', ')
+        alertas.push({ tipo: 'info', msg: `💳 ${r.empresaRaw}: ${r.facturasCredito.length} factura(s) a crédito: ${clientesCredito}` })
       }
     }
 
