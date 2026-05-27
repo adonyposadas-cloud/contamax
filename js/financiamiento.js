@@ -164,19 +164,22 @@ window.abrirLiquidacion = async (codigo) => {
     .order('fecha_deposito')
 
   // ── Buscar abonos vía partidas contables (créditos que mencionan el código de unidad) ──
-  // Busca en lineas_partida donde la descripción contiene el código de la unidad
-  // y que sean de partidas aprobadas, no usadas en recibo anterior
   const codigoStr = String(codigo).trim()
-  const { data: abonosPartida } = await getSb().from('lineas_partida')
-    .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, usado_en_recibo, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
-    .eq('tipo', 'credito')
-    .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
-    .ilike('descripcion', `%${codigoStr}%`)
+  const codigoSinCero = codigoStr.replace(/^0+/, '') // "03989" → "3989"
+  let abonosValidos = []
+  try {
+    // Buscar por código con y sin ceros iniciales
+    const { data: abonosPartida, error: apErr } = await getSb().from('lineas_partida')
+      .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, usado_en_recibo, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
+      .eq('tipo', 'credito')
+      .ilike('descripcion', `%${codigoSinCero}%`)
 
-  // Filtrar solo partidas aprobadas y que no sean de cuentas de venta (ya se procesan en importación)
-  const abonosValidos = (abonosPartida || []).filter(a => 
-    a.partida?.estado === 'aprobada' && a.monto > 0
-  )
+    if (!apErr && abonosPartida?.length) {
+      abonosValidos = abonosPartida.filter(a => 
+        a.partida?.estado === 'aprobada' && a.monto > 0 && !a.usado_en_recibo
+      )
+    }
+  } catch(e) { console.log('Abonos partida no disponible:', e) }
 
   const totalAbonosPartida = abonosValidos.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
 
