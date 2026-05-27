@@ -3457,14 +3457,26 @@ function renderImportPartida() {
   addCreditos(d.yonker_fiscal, 'yonker_fiscal')
   addCreditos(d.yonker_interno, 'yonker_interno')
 
-  const totalContado = granTotal - totalCredito
+  const r2 = (v) => Math.round(v * 100) / 100
+
+  // Calcular total haber primero para que caja cuadre por diferencia
+  const totalHaber = r2(
+    (tf.subtotal + creditoTecnimaxFiscalSub) +
+    (tf.impuestos + creditoTecnimaxFiscalISV) +
+    (yf.total + creditoYonkerFiscalTotal) +
+    (ti.subtotal + creditoTecnimaxIntSub) +
+    (ti.impuestos + creditoTecnimaxIntISV) +
+    (yi.total + creditoYonkerIntTotal)
+  )
+  const totalCxC = r2(totalCredito)
+  const totalCaja = r2(totalHaber - totalCxC)
 
   const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const C = IMPORT_CUENTAS
 
   const lineas = [
-    // DÉBITO — Caja General (solo contado, sin créditos)
-    { codigo: C.caja_general.codigo, nombre: C.caja_general.nombre, centro: '—', debe: totalContado, haber: 0, fiscal: '—' },
+    // DÉBITO — Caja General (total haber menos CxC para cuadrar exacto)
+    { codigo: C.caja_general.codigo, nombre: C.caja_general.nombre, centro: '—', debe: totalCaja, haber: 0, fiscal: '—' },
   ]
 
   // DÉBITO — Cuentas por cobrar (facturas a crédito)
@@ -3482,7 +3494,6 @@ function renderImportPartida() {
   }
 
   // CRÉDITOS — incluyen contado + crédito (la venta se registra igual, solo cambia el débito)
-  const r2 = (v) => Math.round(v * 100) / 100
   lineas.push(
     { codigo: C.venta_tecnimax.codigo, nombre: C.venta_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(tf.subtotal + creditoTecnimaxFiscalSub), fiscal: '✓' },
     { codigo: C.isv_ventas.codigo, nombre: C.isv_ventas.nombre, centro: '—', debe: 0, haber: r2(tf.impuestos + creditoTecnimaxFiscalISV), fiscal: '✓' },
