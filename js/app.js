@@ -5965,7 +5965,10 @@ window.seleccionarVinResult = (propietario, vin) => {
 window.verDetalleVin = async (vinId) => {
   const v = allVehiculos.find(x => x.id === vinId)
   if (!v) return
+  // Extract all trailing digits from VIN for search
+  const trailingDigits = v.vin.match(/(\d+)$/)?.[1] || v.vin.slice(-4)
   const last4 = v.vin.slice(-4)
+  const searchNum = trailingDigits.length > 4 ? trailingDigits : last4
 
   document.getElementById('modal-dv-title').textContent = `🚗 Detalle VIN ${last4} · ${v.marca} ${v.modelo} ${v.anio || ''}`
   document.getElementById('dv-info').innerHTML = `
@@ -5981,7 +5984,7 @@ window.verDetalleVin = async (vinId) => {
 
   const fmtL = (val) => (val || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // 1. Buscar en facturas_taxis donde tipo_unidad='VIN' y registro coincide con últimos 4
+  // 1. Buscar en facturas_taxis donde tipo_unidad='VIN' y registro coincide
   const regNum = parseInt(last4)
   const { data: facturas } = await sb.from('facturas_taxis')
     .select('fecha, descripcion, monto, es_mano_obra')
@@ -5989,20 +5992,17 @@ window.verDetalleVin = async (vinId) => {
     .eq('registro', regNum)
     .order('fecha')
 
-  // 2. Buscar en lineas_partida donde la descripción de la línea O de la partida menciona el VIN
-  // Solo partidas aprobadas
+  // 2. Buscar en lineas_partida donde la descripción menciona el VIN
   const { data: lineasVin } = await sb.from('lineas_partida')
     .select('monto, descripcion, tipo, partida:partidas_contables(fecha_partida, estado, descripcion)')
-    .or(`descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%`)
+    .or(`descripcion.ilike.%VIN ${searchNum}%,descripcion.ilike.%VIN_${searchNum}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${searchNum}%`)
 
   // Also search partidas whose description mentions this VIN, then get their debit lines
-  const vinSearchFilter = `descripcion.ilike.%VIN ${last4}%,descripcion.ilike.%VIN_${last4}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${last4}%,descripcion.ilike.%${last4}%`
-  console.log('VIN search filter:', vinSearchFilter, '| last4:', last4)
-  const { data: partidasVin, error: pvErr } = await sb.from('partidas_contables')
+  const vinSearchFilter = `descripcion.ilike.%VIN ${searchNum}%,descripcion.ilike.%VIN_${searchNum}%,descripcion.ilike.%${v.vin}%,descripcion.ilike.%VIN${searchNum}%,descripcion.ilike.%${searchNum}%`
+  const { data: partidasVin } = await sb.from('partidas_contables')
     .select('id, fecha_partida, estado, descripcion')
     .or(vinSearchFilter)
     .eq('estado', 'aprobada')
-  console.log('Partidas found:', partidasVin, '| Error:', pvErr)
 
   let lineasVinPadre = []
   if (partidasVin?.length) {
