@@ -1439,16 +1439,6 @@ window.editarPartida = async (id) => {
         }
       }
     }
-    // Si es cuenta USD, inicializar campos de conversión
-    if ((l.cuenta_nombre || '').includes('$')) {
-      const tc = window._lastTC || 26.78
-      lineaObj._usd_tc = tc
-      if (lineaObj.monto > 0 && tc > 0) {
-        const usdMonto = Math.round((lineaObj.monto / tc) * 100) / 100
-        if (lineaObj.tipo === 'debito') lineaObj._usd_debe = usdMonto
-        else lineaObj._usd_haber = usdMonto
-      }
-    }
     partidaLineas.push(lineaObj)
   }
 
@@ -1634,37 +1624,8 @@ function renderLineas() {
       : `<button class="linea-del" onclick="removeLinea(${l.id})">✕</button>`
 
     // USD conversion row
-    const cuentaTexto = `${l.cuenta_codigo || ''} ${l.cuenta_nombre || ''}`
-    const esUSD = cuentaTexto.includes('$')
-
-    // For USD accounts: TC input below centro costo, debe/haber show USD with lempira conversion
-    const tcField = esUSD ? `<div style="margin-top:4px;display:flex;align-items:center;gap:4px">
-      <span style="font-size:10px;color:var(--blue)">TC:</span>
-      <input type="text" inputmode="decimal" value="${l._usd_tc || window._lastTC || ''}" placeholder="26.78"
-        onchange="setTCLinea(${l.id},this.value)" onblur="setTCLinea(${l.id},this.value)"
-        style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 4px;background:var(--bg3);border:1px solid var(--blue);border-radius:3px;color:var(--blue)">
-    </div>` : ''
-
-    let debeUSD = '', haberUSD = ''
-    if (esUSD) {
-      const debeL = l.tipo === 'debito' && l.monto ? l.monto : 0
-      const haberL = l.tipo === 'credito' && l.monto ? l.monto : 0
-      debeUSD = `<div>
-        <input type="text" inputmode="decimal" value="${l._usd_debe || ''}" placeholder="$ 0.00"
-          oninput="setUSDDebe(${l.id},this.value)"
-          style="text-align:right;font-family:var(--mono);color:var(--blue);border-color:var(--blue)">
-        <div class="usd-lemp" style="font-size:10px;color:var(--green);font-family:var(--mono);text-align:right;margin-top:2px">${debeL > 0 ? 'L. ' + debeL.toLocaleString('es-HN',{minimumFractionDigits:2}) : ''}</div>
-      </div>`
-      haberUSD = `<div>
-        <input type="text" inputmode="decimal" value="${l._usd_haber || ''}" placeholder="$ 0.00"
-          oninput="setUSDHaber(${l.id},this.value)"
-          style="text-align:right;font-family:var(--mono);color:var(--blue);border-color:var(--blue)">
-        <div class="usd-lemp" style="font-size:10px;color:var(--red);font-family:var(--mono);text-align:right;margin-top:2px">${haberL > 0 ? 'L. ' + haberL.toLocaleString('es-HN',{minimumFractionDigits:2}) : ''}</div>
-      </div>`
-    }
-
     return `
-    <tr class="linea-row"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}${esUSD ? ' style="background:rgba(59,130,246,0.04)"' : ''}>
+    <tr class="linea-row"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
       <td>
         <div class="cuenta-wrap">
           <input type="text" value="${l.cuenta_codigo ? l.cuenta_codigo+' '+l.cuenta_nombre : ''}" placeholder="Buscar cuenta..."
@@ -1678,10 +1639,9 @@ function renderLineas() {
           <option value="">—</option>
           ${empresas.map(e => `<option value="${e.id}" ${l.centro_costo_id===e.id?'selected':''}>${e.nombre}</option>`).join('')}
         </select>
-        ${tcField}
       </td>
-      <td>${esUSD ? debeUSD : debeInput}</td>
-      <td>${esUSD ? haberUSD : haberInput}</td>
+      <td>${debeInput}</td>
+      <td>${haberInput}</td>
       <td style="text-align:center">
         <input type="checkbox" class="fiscal-check" ${l.aplica_fiscal?'checked':''} onchange="updLinea(${l.id},'aplica_fiscal',this.checked)" ${cajaReadonly ? 'disabled' : ''}>
       </td>
@@ -1692,56 +1652,7 @@ function renderLineas() {
   }).join('')
 }
 
-// ── USD conversion helpers ──
-window.setTCLinea = (id, val) => {
-  const l = partidaLineas.find(x => x.id === id)
-  if (!l) return
-  l._usd_tc = parseFloat(val) || 0
-  window._lastTC = l._usd_tc
-  if (l._usd_debe) {
-    l.monto = Math.round((l._usd_debe * l._usd_tc) * 100) / 100
-    l.tipo = 'debito'
-  } else if (l._usd_haber) {
-    l.monto = Math.round((l._usd_haber * l._usd_tc) * 100) / 100
-    l.tipo = 'credito'
-  }
-  calcTotales()
-}
-
-window.setUSDDebe = (id, val) => {
-  const l = partidaLineas.find(x => x.id === id)
-  if (!l) return
-  l._usd_debe = parseFloat(val) || 0
-  l._usd_haber = 0
-  if (!l._usd_tc) l._usd_tc = window._lastTC || 0
-  l.monto = Math.round((l._usd_debe * l._usd_tc) * 100) / 100
-  l.tipo = 'debito'
-  // Update lempira display inline
-  const input = event?.target
-  if (input) {
-    const lempDiv = input.parentElement?.querySelector('.usd-lemp')
-    if (lempDiv) lempDiv.textContent = l.monto > 0 ? 'L. ' + l.monto.toLocaleString('es-HN', {minimumFractionDigits:2}) : ''
-  }
-  calcTotales()
-}
-
-window.setUSDHaber = (id, val) => {
-  const l = partidaLineas.find(x => x.id === id)
-  if (!l) return
-  l._usd_haber = parseFloat(val) || 0
-  l._usd_debe = 0
-  if (!l._usd_tc) l._usd_tc = window._lastTC || 0
-  l.monto = Math.round((l._usd_haber * l._usd_tc) * 100) / 100
-  l.tipo = 'credito'
-  const input = event?.target
-  if (input) {
-    const lempDiv = input.parentElement?.querySelector('.usd-lemp')
-    if (lempDiv) lempDiv.textContent = l.monto > 0 ? 'L. ' + l.monto.toLocaleString('es-HN', {minimumFractionDigits:2}) : ''
-  }
-  calcTotales()
-}
-
-// Fetch BAC exchange rate on load
+// Fetch BAC exchange rate on load (for reference)
 async function fetchTCBac() {
   try {
     const { data } = await sb.from('caja_tc_promedio').select('tc_venta').order('created_at', { ascending: false }).limit(1)
@@ -1874,10 +1785,6 @@ window.selectCuenta = (lid, cid, codigo, nombre) => {
   const l = partidaLineas.find(x => x.id === lid)
   if (l) {
     l.cuenta_id = cid; l.cuenta_codigo = codigo; l.cuenta_nombre = nombre
-    // Auto-set TC for USD accounts
-    if (nombre.includes('$') && window._lastTC && !l._usd_tc) {
-      l._usd_tc = window._lastTC
-    }
   }
   document.getElementById('dd-' + lid).classList.remove('open')
   renderLineas()
