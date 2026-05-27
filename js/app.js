@@ -1655,13 +1655,18 @@ function renderLineas() {
 // Fetch BAC exchange rate on load (for reference)
 async function fetchTCBac() {
   try {
-    const { data } = await sb.from('caja_tc_promedio').select('tc_venta').order('created_at', { ascending: false }).limit(1)
-    if (data?.[0]?.tc_venta) {
-      window._lastTC = parseFloat(data[0].tc_venta)
-      const tcInput = document.getElementById('calc-usd-tc')
-      if (tcInput && !tcInput.value) tcInput.value = window._lastTC
+    // Try multiple field names
+    const { data } = await sb.from('caja_tc_promedio').select('*').order('id', { ascending: false }).limit(1)
+    if (data?.[0]) {
+      const row = data[0]
+      const tc = parseFloat(row.tc_venta || row.tc_promedio || row.tc || row.tasa || 0)
+      if (tc > 0) window._lastTC = tc
     }
   } catch(e) {}
+  // Fallback: try to set from any stored value
+  if (!window._lastTC) window._lastTC = 26.7859
+  const tcInput = document.getElementById('calc-usd-tc')
+  if (tcInput && !tcInput.value) tcInput.value = window._lastTC
 }
 fetchTCBac()
 
@@ -1670,7 +1675,7 @@ window.calcUSD = () => {
   const monto = parseFloat(document.getElementById('calc-usd-monto')?.value) || 0
   const tc = parseFloat(document.getElementById('calc-usd-tc')?.value) || 0
   const resultado = Math.round(monto * tc * 100) / 100
-  document.getElementById('calc-usd-result').textContent = 'L. ' + resultado.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  document.getElementById('calc-usd-result').textContent = 'L. ' + resultado.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 }
 
 window.copyCalcUSD = () => {
