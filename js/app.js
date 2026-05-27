@@ -1322,7 +1322,7 @@ function renderPartidasTable(data) {
   tbody.innerHTML = data.map(p => `
     <tr style="cursor:pointer" onclick="editarPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
-      <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida).toLocaleDateString('es-HN')}</td>
+      <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
       <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descripcion}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${getOrigenLabel(p.tipo_origen)}</span></td>
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
@@ -2816,7 +2816,7 @@ async function loadAprobaciones() {
           const fechaMod = p.modificada_at ? new Date(p.modificada_at).toLocaleDateString('es-HN') + ' ' + new Date(p.modificada_at).toLocaleTimeString('es-HN', {hour:'2-digit',minute:'2-digit'}) : '—'
           return `<tr>
             <td class="mono" style="color:var(--gold);cursor:pointer" onclick="editarPartida('${p.id}')">${p.numero_partida || '—'}</td>
-            <td class="mono" style="font-size:12px">${new Date(p.fecha_partida).toLocaleDateString('es-HN')}</td>
+            <td class="mono" style="font-size:12px">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
             <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.descripcion}</td>
             <td class="mono" style="font-weight:500">L. ${fmt(p.total)}</td>
             <td style="font-size:12px;color:var(--amber)">${modificador}</td>
