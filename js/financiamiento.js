@@ -109,9 +109,9 @@ window.verDetallePrestamo = async (codigo) => {
         <th>#</th><th>Fecha</th><th style="text-align:right">Monto</th>
         <th style="text-align:right">Capital</th><th style="text-align:right">Intereses</th>
         <th style="text-align:right">Facturas</th><th style="text-align:right">Alq/Seg</th><th style="text-align:right">GPS</th>
-        <th style="text-align:right">Saldo ini</th><th style="text-align:right">Saldo fin</th><th>Concepto</th>
+        <th style="text-align:right">Saldo ini</th><th style="text-align:right">Saldo fin</th><th>Concepto</th><th style="width:40px"></th>
       </tr></thead>
-      <tbody>${recibos.map(r => `<tr>
+      <tbody>${recibos.map((r, idx) => `<tr>
         <td style="font-family:var(--mono);color:var(--gold)">${r.numero_recibo}</td>
         <td style="font-family:var(--mono);font-size:12px">${r.fecha || '—'}</td>
         <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${getFmt(r.monto_recibo)}</td>
@@ -123,6 +123,7 @@ window.verDetallePrestamo = async (codigo) => {
         <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${getFmt(r.saldo_inicial)}</td>
         <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${getFmt(r.saldo_actual)}</td>
         <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3)" title="${r.concepto || ''}">${r.concepto || '—'}</td>
+        <td style="text-align:center">${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo})" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo">🗑️</button>` : ''}</td>
       </tr>`).join('')}</tbody></table>
     </div>`
 }
@@ -330,6 +331,69 @@ function renderLiquidacion() {
     </details>`
 
   document.getElementById('liq-contenido').innerHTML = html
+}
+
+window.eliminarRecibo = async (reciboId, codigo, numRecibo) => {
+  if (!confirm(`⚠️ ¿Eliminar recibo #${numRecibo} del préstamo ${codigo}?\n\nEsto va a:\n• Reversar el saldo del préstamo al anterior\n• Liberar las entregas para volver a usarlas\n• Liberar las facturas para volver a usarlas\n• Liberar los abonos de partida\n• Eliminar el recibo permanentemente\n\n¿Continuar?`)) return
+
+  try {
+    // 1. Obtener datos del recibo
+    const { data: recibo } = await getSb().from('recibos_prestamos').select('*').eq('id', reciboId).single()
+    if (!recibo) { window.toast('Recibo no encontrado', 'error'); return }
+
+    // 2. Liberar entregas vinculadas a este recibo
+    const { data: entregasUsadas } = await getSb().from('entregas_taxis')
+      .select('id').eq('recibo_prestamo_id', reciboId)
+    if (entregasUsadas?.length) {
+      for (const e of entregasUsadas) {
+        await getSb().from('entregas_taxis').update({ usado_en_recibo: false, recibo_prestamo_id: null }).eq('id', e.id)
+      }
+    }
+
+    // 3. Liberar facturas vinculadas a este recibo
+    const { data: facturasUsadas } = await getSb().from('facturas_taxis')
+      .select('id').eq('recibo_prestamo_id', reciboId)
+    if (facturasUsadas?.length) {
+      for (const f of facturasUsadas) {
+        await getSb().from('facturas_taxis').update({ usado_en_recibo: false, recibo_prestamo_id: null }).eq('id', f.id)
+      }
+    }
+
+    // 4. Liberar abonos de partidas contables (buscar por usado_en_recibo = true y descripción con código)
+    const codigoSinCero = String(codigo).replace(/^0+/, '')
+    try {
+      const { data: lineasUsadas } = await getSb().from('lineas_partida')
+        .select('id')
+        .eq('tipo', 'credito')
+        .eq('usado_en_recibo', true)
+        .ilike('descripcion', `%${codigoSinCero}%`)
+      if (lineasUsadas?.length) {
+        for (const l of lineasUsadas) {
+          await getSb().from('lineas_partida').update({ usado_en_recibo: false }).eq('id', l.id)
+        }
+      }
+    } catch(e) { console.log('No se pudieron liberar abonos de partida:', e) }
+
+    // 5. Reversar saldo del préstamo (volver al saldo_inicial del recibo)
+    const saldoAnterior = parseFloat(recibo.saldo_inicial) || 0
+    const prevRecibo = numRecibo - 1
+    await getSb().from('prestamos_taxis').update({
+      saldo_actual: saldoAnterior,
+      num_recibos: prevRecibo > 0 ? prevRecibo : 0,
+    }).eq('codigo', codigo)
+
+    // 6. Eliminar el recibo
+    const { error: delErr } = await getSb().from('recibos_prestamos').delete().eq('id', reciboId)
+    if (delErr) { window.toast('Error eliminando recibo: ' + delErr.message, 'error'); return }
+
+    window.toast(`Recibo #${numRecibo} eliminado y reversado ✓`, 'success')
+    
+    // Recargar vista
+    window.closeModal('modal-detalle-prestamo')
+    loadFinanciamiento()
+  } catch(err) {
+    window.toast('Error: ' + err.message, 'error')
+  }
 }
 
 window.recalcularIntereses = () => {
