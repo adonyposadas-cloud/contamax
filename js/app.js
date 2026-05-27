@@ -1380,6 +1380,22 @@ window.editarPartida = async (id) => {
   document.getElementById('pn-documento').value = partida.numero_documento || ''
   document.getElementById('pn-origen').value = partida.tipo_origen || 'compra'
 
+  // Mostrar adjunto existente
+  const adjuntoLink = document.getElementById('pn-adjunto-link')
+  const adjuntoStatus = document.getElementById('pn-adjunto-status')
+  document.getElementById('pn-adjunto').value = ''
+  if (partida.adjunto_url) {
+    const { data: signedUrl } = await sb.storage.from('facturas-compras').createSignedUrl(partida.adjunto_url, 3600)
+    if (signedUrl?.signedUrl) {
+      adjuntoLink.href = signedUrl.signedUrl
+      adjuntoLink.style.display = 'inline'
+      adjuntoStatus.textContent = ''
+    }
+  } else {
+    adjuntoLink.style.display = 'none'
+    adjuntoStatus.textContent = ''
+  }
+
   // Cargar líneas en el formulario
   partidaLineas = []
   lineaCounter = 0
@@ -1908,6 +1924,20 @@ window.guardarPartida = async (estado) => {
     }).select('id').single()
     if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
     partidaId = partida.id
+  }
+
+  // ── SUBIR ADJUNTO si hay archivo ──
+  const adjuntoFile = document.getElementById('pn-adjunto')?.files?.[0]
+  if (adjuntoFile && partidaId) {
+    const ext = adjuntoFile.name.split('.').pop().toLowerCase()
+    const path = `partidas/${partidaId}.${ext}`
+    const { error: upErr } = await sb.storage.from('facturas-compras').upload(path, adjuntoFile, { upsert: true })
+    if (upErr) {
+      toast('Partida guardada pero error subiendo adjunto: ' + upErr.message, 'error')
+    } else {
+      await sb.from('partidas_contables').update({ adjunto_url: path }).eq('id', partidaId)
+      toast('Adjunto guardado ✓', 'success')
+    }
   }
 
   // Insertar líneas
