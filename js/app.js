@@ -3433,17 +3433,30 @@ function renderImportPartida() {
   const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const granTotal = tf.total + ti.total + yf.total + yi.total
 
-  // Calcular total de facturas a crédito de todos los reportes
+  // Calcular total de facturas a crédito de todos los reportes, separado por origen
   let totalCredito = 0
+  let creditoTecnimaxFiscalSub = 0, creditoTecnimaxFiscalISV = 0
+  let creditoTecnimaxIntSub = 0, creditoTecnimaxIntISV = 0
+  let creditoYonkerFiscalTotal = 0
+  let creditoYonkerIntTotal = 0
   const facturasCredito = []
-  for (const r of [d.tecnimax_fiscal, d.tecnimax_interno, d.yonker_fiscal, d.yonker_interno]) {
-    if (r?.facturasCredito?.length) {
-      for (const fc of r.facturasCredito) {
-        totalCredito += fc.total
-        facturasCredito.push({ ...fc, centro: r.centro })
-      }
+
+  const addCreditos = (r, tipo) => {
+    if (!r?.facturasCredito?.length) return
+    for (const fc of r.facturasCredito) {
+      totalCredito += fc.total
+      facturasCredito.push({ ...fc, centro: r.centro })
+      if (tipo === 'tecnimax_fiscal') { creditoTecnimaxFiscalSub += fc.subtotal; creditoTecnimaxFiscalISV += fc.impuestos }
+      else if (tipo === 'tecnimax_interno') { creditoTecnimaxIntSub += fc.subtotal; creditoTecnimaxIntISV += fc.impuestos }
+      else if (tipo === 'yonker_fiscal') { creditoYonkerFiscalTotal += fc.total }
+      else if (tipo === 'yonker_interno') { creditoYonkerIntTotal += fc.total }
     }
   }
+  addCreditos(d.tecnimax_fiscal, 'tecnimax_fiscal')
+  addCreditos(d.tecnimax_interno, 'tecnimax_interno')
+  addCreditos(d.yonker_fiscal, 'yonker_fiscal')
+  addCreditos(d.yonker_interno, 'yonker_interno')
+
   const totalContado = granTotal - totalCredito
 
   const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
@@ -3468,14 +3481,15 @@ function renderImportPartida() {
     })
   }
 
-  // CRÉDITOS
+  // CRÉDITOS — incluyen contado + crédito (la venta se registra igual, solo cambia el débito)
+  const r2 = (v) => Math.round(v * 100) / 100
   lineas.push(
-    { codigo: C.venta_tecnimax.codigo, nombre: C.venta_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: tf.subtotal, fiscal: '✓' },
-    { codigo: C.isv_ventas.codigo, nombre: C.isv_ventas.nombre, centro: '—', debe: 0, haber: tf.impuestos, fiscal: '✓' },
-    { codigo: C.venta_yonker.codigo, nombre: C.venta_yonker.nombre, centro: 'Yonker', debe: 0, haber: yf.total, fiscal: '✓' },
-    { codigo: C.venta_tecnimax_int.codigo, nombre: C.venta_tecnimax_int.nombre, centro: 'Tecnicentro', debe: 0, haber: ti.subtotal, fiscal: '—' },
-    { codigo: C.bono_tecnimax.codigo, nombre: C.bono_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: ti.impuestos, fiscal: '—' },
-    { codigo: C.venta_yonker_int.codigo, nombre: C.venta_yonker_int.nombre, centro: 'Yonker', debe: 0, haber: yi.total, fiscal: '—' },
+    { codigo: C.venta_tecnimax.codigo, nombre: C.venta_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(tf.subtotal + creditoTecnimaxFiscalSub), fiscal: '✓' },
+    { codigo: C.isv_ventas.codigo, nombre: C.isv_ventas.nombre, centro: '—', debe: 0, haber: r2(tf.impuestos + creditoTecnimaxFiscalISV), fiscal: '✓' },
+    { codigo: C.venta_yonker.codigo, nombre: C.venta_yonker.nombre, centro: 'Yonker', debe: 0, haber: r2(yf.total + creditoYonkerFiscalTotal), fiscal: '✓' },
+    { codigo: C.venta_tecnimax_int.codigo, nombre: C.venta_tecnimax_int.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(ti.subtotal + creditoTecnimaxIntSub), fiscal: '—' },
+    { codigo: C.bono_tecnimax.codigo, nombre: C.bono_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(ti.impuestos + creditoTecnimaxIntISV), fiscal: '—' },
+    { codigo: C.venta_yonker_int.codigo, nombre: C.venta_yonker_int.nombre, centro: 'Yonker', debe: 0, haber: r2(yi.total + creditoYonkerIntTotal), fiscal: '—' },
   )
 
   const filtered = lineas.filter(l => l.debe > 0 || l.haber > 0)
@@ -3492,8 +3506,8 @@ function renderImportPartida() {
     </tr>`
   }).join('')
 
-  const totD = filtered.reduce((s, l) => s + l.debe, 0)
-  const totC = filtered.reduce((s, l) => s + l.haber, 0)
+  const totD = Math.round(filtered.reduce((s, l) => s + l.debe, 0) * 100) / 100
+  const totC = Math.round(filtered.reduce((s, l) => s + l.haber, 0) * 100) / 100
   document.getElementById('imp-tot-d').textContent = fmt(totD)
   document.getElementById('imp-tot-c').textContent = fmt(totC)
 }
@@ -3538,26 +3552,36 @@ window.guardarImportPartida = async () => {
 
   // ── Recopilar facturas de crédito de todos los reportes ──
   let totalCredito = 0
+  let crTFSub = 0, crTFISV = 0, crTISub = 0, crTIISV = 0, crYFTot = 0, crYITot = 0
   const facturasCredito = []
-  for (const r of [d.tecnimax_fiscal, d.tecnimax_interno, d.yonker_fiscal, d.yonker_interno]) {
-    if (r?.facturasCredito?.length) {
-      for (const fc of r.facturasCredito) {
-        totalCredito += fc.total
-        const centro = r.centro
-        const ccId = centro === 'Yonker' ? (ccYonker?.id || '') : (ccTecni?.id || '')
-        facturasCredito.push({ ...fc, ccId, centro })
-      }
+  const addCr = (r, tipo) => {
+    if (!r?.facturasCredito?.length) return
+    for (const fc of r.facturasCredito) {
+      totalCredito += fc.total
+      const centro = r.centro
+      const ccId = centro === 'Yonker' ? (ccYonker?.id || '') : (ccTecni?.id || '')
+      facturasCredito.push({ ...fc, ccId, centro })
+      if (tipo === 'tf') { crTFSub += fc.subtotal; crTFISV += fc.impuestos }
+      else if (tipo === 'ti') { crTISub += fc.subtotal; crTIISV += fc.impuestos }
+      else if (tipo === 'yf') { crYFTot += fc.total }
+      else if (tipo === 'yi') { crYITot += fc.total }
     }
   }
+  addCr(d.tecnimax_fiscal, 'tf')
+  addCr(d.tecnimax_interno, 'ti')
+  addCr(d.yonker_fiscal, 'yf')
+  addCr(d.yonker_interno, 'yi')
 
-  // Preparar líneas de CRÉDITO (automáticas de la importación)
+  const r2 = (v) => Math.round(v * 100) / 100
+
+  // Preparar líneas de CRÉDITO — incluyen contado + crédito
   const creditosRaw = [
-    { cuenta: C.venta_tecnimax, monto: tf.subtotal, cc: ccTecni?.id || '', fiscal: true },
-    { cuenta: C.isv_ventas, monto: tf.impuestos, cc: '', fiscal: true },
-    { cuenta: C.venta_yonker, monto: yf.total, cc: ccYonker?.id || '', fiscal: true },
-    { cuenta: C.venta_tecnimax_int, monto: ti.subtotal, cc: ccTecni?.id || '', fiscal: false },
-    { cuenta: C.bono_tecnimax, monto: ti.impuestos, cc: ccTecni?.id || '', fiscal: false },
-    { cuenta: C.venta_yonker_int, monto: yi.total, cc: ccYonker?.id || '', fiscal: false },
+    { cuenta: C.venta_tecnimax, monto: r2(tf.subtotal + crTFSub), cc: ccTecni?.id || '', fiscal: true },
+    { cuenta: C.isv_ventas, monto: r2(tf.impuestos + crTFISV), cc: '', fiscal: true },
+    { cuenta: C.venta_yonker, monto: r2(yf.total + crYFTot), cc: ccYonker?.id || '', fiscal: true },
+    { cuenta: C.venta_tecnimax_int, monto: r2(ti.subtotal + crTISub), cc: ccTecni?.id || '', fiscal: false },
+    { cuenta: C.bono_tecnimax, monto: r2(ti.impuestos + crTIISV), cc: ccTecni?.id || '', fiscal: false },
+    { cuenta: C.venta_yonker_int, monto: r2(yi.total + crYITot), cc: ccYonker?.id || '', fiscal: false },
   ].filter(l => l.monto > 0)
 
   // Navegar al formulario de nueva partida
