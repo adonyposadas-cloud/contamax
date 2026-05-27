@@ -206,7 +206,7 @@ function applyRoleRestrictions(viewId) {
   const rol = currentProfile?.rol
   if (!rol) return
   const puedeCrearCuentas = ['super_admin', 'contador'].includes(rol)
-  const puedeCrearPartidas = ['super_admin', 'contador'].includes(rol)
+  const puedeCrearPartidas = ['super_admin', 'contador', 'aux_contable'].includes(rol)
   const puedeCrearUsuarios = rol === 'super_admin'
 
   // Botón "+ Nueva cuenta" en catálogo
