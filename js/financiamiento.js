@@ -287,7 +287,11 @@ function renderLiquidacion() {
           <tr style="border-top:1px solid var(--border);font-weight:600"><td style="padding:6px 0">Total recibo</td><td style="text-align:right;font-family:var(--mono);font-size:16px;color:var(--gold)">L. ${getFmt(d.montoRecibo)}</td></tr>
           <tr style="border-top:2px solid var(--border)"><td style="padding:6px 0;font-weight:600">Nuevo saldo préstamo</td><td style="text-align:right;font-family:var(--mono);font-size:18px;font-weight:700;color:${d.nuevoSaldoPrestamo > 0 ? 'var(--red)' : 'var(--green)'}">L. ${getFmt(d.nuevoSaldoPrestamo)}</td></tr>
         </table>
-        <div style="margin-top:12px"><input type="text" id="liq-concepto" value="${d.concepto}" oninput="liquidacionData.concepto=this.value" style="width:100%;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);text-transform:uppercase"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+          <label style="font-size:11px;color:var(--text3);white-space:nowrap">Fecha recibo:</label>
+          <input type="date" id="liq-fecha" value="${new Date().toLocaleDateString('en-CA')}" style="font-size:12px;padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
+        </div>
+        <div style="margin-top:6px"><input type="text" id="liq-concepto" value="${d.concepto}" oninput="liquidacionData.concepto=this.value" style="width:100%;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);text-transform:uppercase"></div>
       </div>
     </div>
     <!-- Detalle de entregas -->
@@ -315,7 +319,7 @@ window.confirmarRecibo = async () => {
   const d = liquidacionData
   if (!d || !selectedPrestamo) return
 
-  const fecha = new Date().toISOString().split('T')[0]
+  const fecha = document.getElementById('liq-fecha')?.value || new Date().toISOString().split('T')[0]
   if (!confirm(`¿Generar recibo #${d.numRecibo} para ${d.codigo}?\n\nCapital: L.${getFmt(d.abonoCapital)}\nIntereses: L.${getFmt(d.intereses)}\nNuevo saldo: L.${getFmt(d.nuevoSaldoPrestamo)}\nSaldo del mes: L.${getFmt(d.nuevoSaldoMes)}`)) return
 
   const btn = document.getElementById('btn-confirmar-recibo')
