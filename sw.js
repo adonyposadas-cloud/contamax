@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v2'
+const CACHE_NAME = 'contamax-v3'
 const ASSETS = [
   '/contamax/',
   '/contamax/index.html',
