@@ -1862,8 +1862,8 @@ window.selectCuenta = (lid, cid, codigo, nombre) => {
 
 window.guardarPartida = async (estado) => {
   const fecha = document.getElementById('pn-fecha').value
-  const descripcion = document.getElementById('pn-descripcion').value.trim()
-  const documento = document.getElementById('pn-documento').value.trim()
+  const descripcion = document.getElementById('pn-descripcion').value.trim().toUpperCase()
+  const documento = document.getElementById('pn-documento').value.trim().toUpperCase()
   const tipo_origen = document.getElementById('pn-origen').value
   if (!fecha) { toast('Selecciona la fecha', 'error'); return }
   if (!descripcion) { toast('Ingresa una descripción', 'error'); return }
