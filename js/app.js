@@ -1886,8 +1886,13 @@ window.guardarPartida = async (estado) => {
     if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
   } else {
     // ── CREAR partida nueva ──
+    // Auto-increment numero_partida
+    const { data: lastPN } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+    const nuevoNumero = (lastPN?.[0]?.numero_partida || 0) + 1
+
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
       centro_costo_id: null,
+      numero_partida: nuevoNumero,
       generada_por: currentProfile.id,
       tipo_origen, descripcion, numero_documento: documento || null,
       fecha_partida: fecha, estado: estadoFinal, total: debitos,
