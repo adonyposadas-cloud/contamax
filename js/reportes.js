@@ -192,14 +192,19 @@ window.generarAuxiliar = async () => {
     </div>`
 
   // Render tabla
+  const searchId = 'aux-buscar-desc'
   document.getElementById('aux-tabla').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <input type="text" id="${searchId}" placeholder="🔍 Buscar en descripción..." style="flex:1;max-width:400px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
+      <span id="aux-buscar-count" style="font-size:12px;color:var(--text3)"></span>
+    </div>
     <table>
       <thead><tr>
         <th>Fecha</th><th>N° Part.</th><th>Descripción</th><th>Origen</th>
         <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
       </tr></thead>
-      <tbody>${movimientos.map(m => `
-        <tr style="cursor:pointer" onclick="editarPartida('${m.partidaId}')">
+      <tbody id="aux-tbody">${movimientos.map((m, i) => `
+        <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" onclick="editarPartida('${m.partidaId}')">
           <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
           <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
           <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion}</td>
@@ -216,6 +221,21 @@ window.generarAuxiliar = async () => {
         <td style="text-align:right;font-family:var(--mono);color:var(--gold)">L. ${fmtL(Math.abs(saldo))}</td>
       </tr></tfoot>
     </table>`
+
+  // ── Filtro de búsqueda por descripción (client-side) ──
+  document.getElementById(searchId).addEventListener('input', function() {
+    const term = this.value.toLowerCase().trim()
+    const rows = document.querySelectorAll('#aux-tbody tr')
+    let shown = 0
+    rows.forEach(tr => {
+      const desc = tr.getAttribute('data-desc') || ''
+      const match = !term || desc.includes(term)
+      tr.style.display = match ? '' : 'none'
+      if (match) shown++
+    })
+    const countEl = document.getElementById('aux-buscar-count')
+    if (countEl) countEl.textContent = term ? `${shown} de ${rows.length} registros` : ''
+  })
 
   document.getElementById('aux-resultado').classList.remove('hidden')
   document.getElementById('btn-auxiliar-xlsx').style.display = ''
