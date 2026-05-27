@@ -2400,7 +2400,7 @@ window.guardarCuenta = async () => {
 
 // Cuentas de caja general: detectamos por código (1101 = Caja, o cuentas que empiecen con 1101)
 // El super_admin define qué cuentas son "Caja General"
-const CAJA_CODIGOS = ['110101', '110101-001', '110102', '110102-001'] // Solo Caja Chica + Caja General MN (NO chequeras ni bancos)
+const CAJA_CODIGOS = ['110101-001', '110102', '110102-001'] // Caja Chica MN + Caja General (NO 110101 genérico)
 
 function esCuentaCaja(codigo) {
   if (!codigo) return false
@@ -3826,10 +3826,10 @@ window.verArqueo = async () => {
   const { data: allConteos, error } = await sb.from('conteo_billetes').select('*, partida:partidas_contables(estado)')
   if (error) { toast('Error al cargar arqueo: ' + error.message, 'error'); return }
 
-  // Filtrar: solo conteos de partidas aprobadas que NO sean de caja chica
+  // Filtrar: solo conteos de partidas aprobadas que NO sean de caja chica (110101-001)
   const conteos = (allConteos || []).filter(c => 
     c.partida?.estado === 'aprobada' && 
-    c.cuenta_codigo !== '110101-001' && c.cuenta_codigo !== '110101'
+    c.cuenta_codigo !== '110101-001'
   )
 
   const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
