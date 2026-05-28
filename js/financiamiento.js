@@ -543,93 +543,151 @@ window.confirmarRecibo = async () => {
 // ══════════════════════════════════════════════
 
 function imprimirRecibo(d) {
-  const fechaHoy = new Date().toLocaleDateString('es-HN', { year: 'numeric', month: 'long', day: 'numeric' })
+  const fechaRecibo = d.fechaRecibo || new Date().toLocaleDateString('en-CA')
+  const fechaFmt = new Date(fechaRecibo + 'T12:00:00').toLocaleDateString('es-HN', { year: 'numeric', month: 'long', day: 'numeric' })
+  const getFmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // Generar entregas por día para la cara trasera
-  const entregasHTML = d.entregas.map(e => `<tr><td>${e.fecha_deposito}</td><td style="text-align:right">${getFmt(e.monto)}</td></tr>`).join('')
-  const facturasHTML = d.facturas.map(f => `<tr><td>${f.fecha} - ${f.descripcion?.substring(0, 40) || ''}</td><td style="text-align:right">${getFmt(f.monto)}</td></tr>`).join('')
+  const entregasRows = d.entregas.map(e => `<tr><td style="padding:4px 8px;font-size:11px">${e.fecha_deposito}</td><td style="padding:4px 8px"><span style="background:#e6f1fb;color:#0c447c;font-size:10px;padding:2px 6px;border-radius:3px">Depósito</span></td><td style="padding:4px 8px;font-size:11px">${e.banco || '—'}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#0f6e56">${getFmt(e.monto)}</td></tr>`).join('')
+  const abonosPartidaRows = (d.abonosPartida || []).map(a => `<tr><td style="padding:4px 8px;font-size:11px">${a.partida?.fecha_partida || '—'}</td><td style="padding:4px 8px"><span style="background:#eeedfe;color:#3c3489;font-size:10px;padding:2px 6px;border-radius:3px">Partida</span></td><td style="padding:4px 8px;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.descripcion || '—'}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#0f6e56">${getFmt(a.monto)}</td></tr>`).join('')
+  const facturasRows = d.facturas.map(f => `<tr><td style="padding:4px 8px;font-size:11px">${f.fecha}</td><td style="padding:4px 8px"><span style="background:#faece7;color:#712b13;font-size:10px;padding:2px 6px;border-radius:3px">Factura</span></td><td style="padding:4px 8px;font-size:11px">${(f.descripcion || '').substring(0, 40)}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#993c1d">${getFmt(f.monto)}</td></tr>`).join('')
 
   const printWindow = window.open('', '_blank')
   printWindow.document.write(`<!DOCTYPE html><html><head><title>Recibo #${d.numRecibo} - ${d.codigo}</title>
 <style>
   @page { size: letter; margin: 15mm; }
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #000; }
-  .page { page-break-after: always; padding: 20px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #1a1a1a; }
+  .page { page-break-after: always; padding: 10px; }
   .page:last-child { page-break-after: auto; }
-  h2 { text-align: center; margin: 0 0 20px 0; font-size: 24px; }
+  .mono { font-family: 'Courier New', monospace; }
+  .grid2 { display: flex; gap: 16px; }
+  .grid2 > div { flex: 1; }
+  .grid3 { display: flex; gap: 8px; }
+  .grid3 > div { flex: 1; }
+  .card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; }
   table { width: 100%; border-collapse: collapse; }
-  td, th { padding: 4px 8px; }
-  .bordered td, .bordered th { border: 1px solid #ccc; }
-  .label { font-weight: bold; width: 180px; }
-  .right { text-align: right; }
-  .bold { font-weight: bold; }
-  .line { border-top: 2px solid #000; margin: 30px 80px 5px 80px; }
-  .center { text-align: center; }
-  .cuadro { border: 1px solid #000; padding: 8px; margin-top: 20px; }
-  .cuadro td { padding: 3px 6px; font-size: 11px; }
+  .bordered td, .bordered th { border: 1px solid #ddd; padding: 4px 8px; font-size: 11px; }
+  .bordered th { background: #f5f5f5; text-align: left; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
 </style></head><body>
 
-<!-- CARA 1: RECIBO -->
 <div class="page">
-  <h2>RECIBO</h2>
-  <table>
-    <tr><td class="label">REGISTRO</td><td>${d.codigo}</td><td></td><td class="bold">NUMERO: ${d.numRecibo}</td></tr>
-    <tr><td class="label">RECIBO ANT.</td><td>${d.numRecibo - 1}</td><td></td><td></td></tr>
-    <tr><td class="label">POR Lps.</td><td colspan="3" class="bold" style="font-size:14px">${getFmt(d.montoRecibo)}</td></tr>
-  </table>
-  <br>
-  <table>
-    <tr><td class="label">FECHA:</td><td>${fechaHoy}</td></tr>
-    <tr><td class="label">RECIBI DE:</td><td class="bold">${d.motorista || '—'}</td></tr>
-    <tr><td class="label">POR CONCEPTO DE:</td><td>${d.concepto}</td></tr>
-  </table>
-  <br>
-  <table>
-    <tr><td class="label">CAPITAL=</td><td class="right bold">${getFmt(d.abonoCapital)}</td></tr>
-    <tr><td class="label">INTERESES=</td><td class="right bold">${getFmt(d.intereses)}</td></tr>
-    <tr><td class="label">TOTAL=</td><td class="right bold" style="font-size:14px;border-top:1px solid #000">${getFmt(d.montoRecibo)}</td></tr>
-  </table>
-  <br>
-  <table>
-    <tr><td class="label">SALDO INICIAL</td><td class="right">${getFmt(d.saldoInicial)}</td></tr>
-    <tr><td class="label">ABONO A CAPITAL</td><td class="right">${d.abonoCapital > 0 ? getFmt(d.abonoCapital) : '—'}</td></tr>
-    <tr><td class="label bold">NUEVO SALDO</td><td class="right bold" style="font-size:14px">${getFmt(d.nuevoSaldoPrestamo)}</td></tr>
-  </table>
+  <!-- ENCABEZADO -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+    <div>
+      <div style="font-size:20px;font-weight:700;letter-spacing:2px">AUTOLOTE TECNIMAX</div>
+      <div style="font-size:10px;color:#666;margin-top:2px">RTN: 08019010278503 | Tel: +504 97045242 | Blvd. FF.AA, Tegucigalpa</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:10px;color:#999;letter-spacing:1px">RECIBO</div>
+      <div style="font-size:32px;font-weight:700">#${d.numRecibo}</div>
+    </div>
+  </div>
 
-  <div class="line"></div>
-  <p class="center bold">ADONY FABRICIO POSADAS AGUILAR<br>EL ARENDADOR<br>DNI. 1701-1981-03404</p>
+  <!-- DATOS MOTORISTA + FECHA -->
+  <div class="grid2" style="margin-bottom:16px">
+    <div style="background:#f5f5f5;border-radius:6px;padding:10px 12px">
+      <div style="font-size:10px;color:#999;letter-spacing:1px;margin-bottom:3px">MOTORISTA</div>
+      <div style="font-size:13px;font-weight:600">${d.motorista || '—'}</div>
+      <div style="font-size:11px;color:#666;margin-top:2px">Registro: ${d.codigo} | ${d.esTaxi ? 'TAXI' : 'VIP'}</div>
+    </div>
+    <div style="background:#f5f5f5;border-radius:6px;padding:10px 12px">
+      <div style="font-size:10px;color:#999;letter-spacing:1px;margin-bottom:3px">FECHA</div>
+      <div style="font-size:13px;font-weight:600">${fechaFmt}</div>
+      <div style="font-size:11px;color:#666;margin-top:2px">Recibo anterior: #${d.numRecibo - 1}</div>
+    </div>
+  </div>
 
-  <div class="cuadro">
-    <table>
-      <tr><td>${getFmt(d.totalEntregas)}</td><td>TOTAL DEL MES</td></tr>
-      <tr><td>(${getFmt(d.montoRecibo)})</td><td>LETRA DE CARRO</td></tr>
-      <tr><td>${d.totalFacturas ? '(' + getFmt(d.totalFacturas) + ')' : '—'}</td><td>FACTURAS</td></tr>
-      <tr><td>(${getFmt(d.alquiler)})</td><td>${d.esTaxi ? 'ALQUILER DE NUMERO' : 'SEGURO'}</td></tr>
-      <tr><td>(${getFmt(d.gps)})</td><td>GPS</td></tr>
-      <tr><td>${getFmt(d.saldoMesAnterior)}</td><td>SALDO MES ANT.</td></tr>
-      <tr><td class="bold">${getFmt(d.nuevoSaldoMes)}</td><td class="bold">SALDO DEL MES</td></tr>
+  <!-- LIQUIDACIÓN + DESGLOSE -->
+  <div class="grid2" style="margin-bottom:16px">
+    <div class="card">
+      <div style="font-size:10px;color:#999;letter-spacing:1px;margin-bottom:8px;font-weight:600">LIQUIDACIÓN</div>
+      <table>
+        <tr><td style="padding:3px 0;color:#0f6e56">▼ Entregas (${d.entregas.length}${d.abonosPartida?.length ? ' + ' + d.abonosPartida.length + ' partidas' : ''})</td><td style="text-align:right" class="mono" style="color:#0f6e56">${getFmt(d.totalEntregas)}</td></tr>
+        <tr><td style="padding:3px 0;color:#993c1d">— Intereses ${d.diasTranscurridos || 30}d</td><td style="text-align:right;color:#993c1d" class="mono">(${getFmt(d.intereses)})</td></tr>
+        ${d.totalFacturas ? `<tr><td style="padding:3px 0;color:#666">— Facturas</td><td style="text-align:right" class="mono">(${getFmt(d.totalFacturas)})</td></tr>` : `<tr><td style="padding:3px 0;color:#999">— Facturas</td><td style="text-align:right;color:#999" class="mono">—</td></tr>`}
+        ${d.gps ? `<tr><td style="padding:3px 0;color:#666">— GPS</td><td style="text-align:right" class="mono">(${getFmt(d.gps)})</td></tr>` : ''}
+        ${d.alquiler ? `<tr><td style="padding:3px 0;color:#666">— ${d.esTaxi ? 'Alquiler' : 'Seguro'}</td><td style="text-align:right" class="mono">(${getFmt(d.alquiler)})</td></tr>` : ''}
+        <tr style="border-top:1px solid #ddd"><td style="padding:6px 0;font-weight:600">Saldo del mes</td><td style="text-align:right;font-weight:600;color:${d.saldoDelMes >= 0 ? '#0f6e56' : '#993c1d'}" class="mono">${getFmt(d.saldoDelMes)}</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <div style="font-size:10px;color:#999;letter-spacing:1px;margin-bottom:8px;font-weight:600">DESGLOSE DEL RECIBO</div>
+      <table>
+        <tr><td style="padding:3px 0">Capital</td><td style="text-align:right;color:#0f6e56" class="mono">${d.abonoCapital > 0 ? getFmt(d.abonoCapital) : '—'}</td></tr>
+        <tr><td style="padding:3px 0">Intereses</td><td style="text-align:right;color:#993c1d" class="mono">${getFmt(d.intereses)}</td></tr>
+        <tr style="border-top:2px solid #1a1a1a"><td style="padding:8px 0;font-weight:700;font-size:14px">Total recibo</td><td style="text-align:right;font-weight:700;font-size:18px" class="mono">L. ${getFmt(d.montoRecibo)}</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- SALDOS -->
+  <div class="grid3" style="margin-bottom:16px">
+    <div style="text-align:center;padding:10px;border:1px solid #ddd;border-radius:6px">
+      <div style="font-size:9px;color:#999;letter-spacing:1px">SALDO INICIAL</div>
+      <div style="font-size:15px;font-weight:600;margin-top:3px" class="mono">${getFmt(d.saldoInicial)}</div>
+    </div>
+    <div style="text-align:center;padding:10px;background:#eaf3de;border-radius:6px">
+      <div style="font-size:9px;color:#3b6d11;letter-spacing:1px">ABONO CAPITAL</div>
+      <div style="font-size:15px;font-weight:600;margin-top:3px;color:#3b6d11" class="mono">-${getFmt(d.abonoCapital)}</div>
+    </div>
+    <div style="text-align:center;padding:10px;background:#fcebeb;border-radius:6px">
+      <div style="font-size:9px;color:#a32d2d;letter-spacing:1px">NUEVO SALDO</div>
+      <div style="font-size:15px;font-weight:600;margin-top:3px;color:#a32d2d" class="mono">${getFmt(d.nuevoSaldoPrestamo)}</div>
+    </div>
+  </div>
+
+  <!-- CONCEPTO -->
+  <div style="text-align:center;font-size:11px;color:#666;margin-bottom:20px">${d.concepto}</div>
+
+  <!-- FIRMAS -->
+  <div class="grid2" style="margin-top:40px">
+    <div style="text-align:center">
+      <div style="border-top:1px solid #1a1a1a;width:70%;margin:0 auto"></div>
+      <div style="font-size:11px;font-weight:600;margin-top:4px">ADONY FABRICIO POSADAS AGUILAR</div>
+      <div style="font-size:10px;color:#999">El arrendador — DNI: 1701-1981-03404</div>
+    </div>
+    <div style="text-align:center">
+      <div style="border-top:1px solid #1a1a1a;width:70%;margin:0 auto"></div>
+      <div style="font-size:11px;font-weight:600;margin-top:4px">${d.motorista || 'MOTORISTA'}</div>
+      <div style="font-size:10px;color:#999">Recibe conforme</div>
+    </div>
+  </div>
+
+  <!-- CUADRO RESUMEN (pie) -->
+  <div style="border:1px solid #ddd;border-radius:6px;padding:8px 12px;margin-top:20px">
+    <div style="font-size:9px;color:#999;letter-spacing:1px;margin-bottom:4px">RESUMEN MENSUAL</div>
+    <table style="font-size:11px">
+      <tr><td style="padding:2px 0">${getFmt(d.totalEntregas)}</td><td style="padding:2px 8px">Total del mes</td><td style="padding:2px 0">${getFmt(d.nuevoSaldoMes)}</td><td style="padding:2px 8px">Saldo del mes</td></tr>
+      <tr><td style="padding:2px 0">(${getFmt(d.montoRecibo)})</td><td style="padding:2px 8px">Letra de carro</td><td style="padding:2px 0">${d.saldoMesAnterior ? getFmt(d.saldoMesAnterior) : '—'}</td><td style="padding:2px 8px">Saldo mes ant.</td></tr>
     </table>
   </div>
 </div>
 
 <!-- CARA 2: DETALLE DE ENTREGAS -->
 <div class="page">
-  <h2>DETALLE DE ENTREGAS Y GASTOS</h2>
-  <p><strong>REGISTRO:</strong> ${d.codigo} &nbsp;&nbsp; <strong>MOTORISTA:</strong> ${d.motorista || '—'} &nbsp;&nbsp; <strong>RECIBO:</strong> #${d.numRecibo}</p>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+    <div>
+      <div style="font-size:18px;font-weight:700">DETALLE DE ENTREGAS Y GASTOS</div>
+      <div style="font-size:11px;color:#666;margin-top:2px">${d.motorista || '—'} | Registro: ${d.codigo} | Recibo #${d.numRecibo}</div>
+    </div>
+    <div style="font-size:11px;color:#999">${fechaFmt}</div>
+  </div>
 
-  <h3>ENTREGAS (${d.entregas.length})</h3>
-  <table class="bordered">
-    <thead><tr><th>FECHA</th><th class="right">INGRESO</th></tr></thead>
-    <tbody>${entregasHTML || '<tr><td colspan="2" style="text-align:center">Sin entregas</td></tr>'}</tbody>
-    <tfoot><tr class="bold"><td>TOTAL</td><td class="right">${getFmt(d.totalEntregas)}</td></tr></tfoot>
+  <div style="font-size:11px;font-weight:600;color:#999;letter-spacing:1px;margin-bottom:6px">ENTREGAS (${d.entregas.length + (d.abonosPartida?.length || 0)})</div>
+  <table class="bordered" style="margin-bottom:16px">
+    <thead><tr><th>Fecha</th><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
+    <tbody>${entregasRows}${abonosPartidaRows || ''}</tbody>
+    <tfoot><tr style="font-weight:600;background:#f5f5f5"><td colspan="3">TOTAL ENTREGAS</td><td style="text-align:right" class="mono">${getFmt(d.totalEntregas)}</td></tr></tfoot>
   </table>
 
-  ${d.facturas.length ? `<h3 style="margin-top:20px">FACTURAS / GASTOS (${d.facturas.length})</h3>
+  ${d.facturas.length ? `
+  <div style="font-size:11px;font-weight:600;color:#999;letter-spacing:1px;margin-bottom:6px">FACTURAS / GASTOS (${d.facturas.length})</div>
   <table class="bordered">
-    <thead><tr><th>DETALLE</th><th class="right">MONTO</th></tr></thead>
-    <tbody>${facturasHTML}</tbody>
-    <tfoot><tr class="bold"><td>TOTAL FACTURAS</td><td class="right">${getFmt(d.totalFacturas)}</td></tr></tfoot>
-  </table>` : ''}
+    <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
+    <tbody>${facturasRows}</tbody>
+    <tfoot><tr style="font-weight:600;background:#f5f5f5"><td colspan="3">TOTAL FACTURAS</td><td style="text-align:right" class="mono">${getFmt(d.totalFacturas)}</td></tr></tfoot>
+  </table>` : '<div style="color:#999;font-size:11px;text-align:center;padding:20px">Sin facturas en este período</div>'}
 </div>
 
 </body></html>`)
