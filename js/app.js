@@ -1455,6 +1455,8 @@ window.verPartida = async (id) => {
   const { data: p } = await sb.from('partidas_contables').select('*').eq('id', id).single()
   if (!p) { toast('Partida no encontrada', 'error'); return }
   const { data: lineas } = await sb.from('lineas_partida').select('*').eq('partida_id', id).order('id')
+  const { data: ccData } = await sb.from('centros_costo').select('id, nombre')
+  const ccMap = Object.fromEntries((ccData || []).map(c => [c.id, c.nombre]))
   const fmtM = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const fecha = p.fecha_partida ? new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN') : '—'
   const estadoBadge = { aprobada: 'badge-on', borrador: 'badge-amber', pendiente_caja: 'badge-blue', anulada: 'badge-off' }
@@ -1493,7 +1495,7 @@ window.verPartida = async (id) => {
         const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
         return `<tr>
           <td style="font-size:12px"><span style="font-family:var(--mono);color:var(--gold)">${l.cuenta_codigo}</span> ${l.cuenta_nombre}</td>
-          <td style="text-align:center;font-size:11px;color:var(--text3)">${l.centro_costo_id ? '●' : '—'}</td>
+          <td style="text-align:center;font-size:11px;color:var(--text3)">${l.centro_costo_id ? ccMap[l.centro_costo_id] || '—' : '—'}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:12px${debe ? ';color:var(--green)' : ''}">${debe ? 'L. ' + fmtM(debe) : ''}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:12px${haber ? ';color:var(--red)' : ''}">${haber ? 'L. ' + fmtM(haber) : ''}</td>
         </tr>
