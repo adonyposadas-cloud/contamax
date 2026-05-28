@@ -1496,7 +1496,6 @@ window.editarPartida = async (id) => {
       adjuntoLink.style.display = 'none'
       adjuntoStatus.innerHTML = links.join(' &nbsp;|&nbsp; ')
     }
-    }
   } else {
     adjuntoLink.style.display = 'none'
     adjuntoStatus.textContent = ''
