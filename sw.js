@@ -1,10 +1,4 @@
-const CACHE_NAME = 'contamax-v3'
-const ASSETS = [
-  '/contamax/',
-  '/contamax/index.html',
-  '/contamax/css/styles.css',
-  '/contamax/manifest.json'
-]
+const CACHE_NAME = 'contamax-v4'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
@@ -20,14 +14,22 @@ self.addEventListener('activate', e => {
 })
 
 self.addEventListener('fetch', e => {
-  // Always network first for JS files and API calls
+  // Skip non-GET, non-HTTP(S), and API/auth requests
+  if (e.request.method !== 'GET') return
+  if (!e.request.url.startsWith('http')) return
+  if (e.request.url.includes('supabase') || e.request.url.includes('/auth/') || e.request.url.includes('/rest/')) return
+
   e.respondWith(
     fetch(e.request).then(res => {
-      // Cache successful responses for offline fallback
-      if (res.ok && e.request.method === 'GET') {
-        const clone = res.clone()
-        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone))
-      }
+      // Only cache same-origin successful responses
+      try {
+        if (res.ok && res.type === 'basic') {
+          const clone = res.clone()
+          caches.open(CACHE_NAME).then(cache => {
+            cache.put(e.request, clone).catch(() => {})
+          })
+        }
+      } catch(err) {}
       return res
     }).catch(() => caches.match(e.request))
   )
