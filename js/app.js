@@ -7045,7 +7045,7 @@ window.cargarDetalleUnidad = async () => {
     .lte('fecha_deposito', hasta)
     .order('fecha_deposito')
 
-  // 2. Cargar facturas (gastos)
+  // 2. Cargar facturas (gastos) desde importación
   const { data: facturas } = await sb.from('facturas_taxis')
     .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
     .eq('registro', detalleRegistro)
@@ -7053,9 +7053,49 @@ window.cargarDetalleUnidad = async () => {
     .lte('fecha', hasta)
     .order('fecha')
 
+  // 3. Cargar gastos de partidas manuales que referencian esta unidad en la descripción
+  const reg = String(detalleRegistro)
+  const patterns = [`%TAXI ${reg}%`, `%TAXI_${reg}%`, `%T_${reg}%`, `%VIP ${reg}%`, `%VIP_${reg}%`]
+  // Buscar partidas aprobadas en el rango
+  const { data: partidasRango } = await sb.from('partidas_contables')
+    .select('id, fecha_partida, descripcion')
+    .eq('estado', 'aprobada')
+    .gte('fecha_partida', desde)
+    .lte('fecha_partida', hasta)
+  const partidaIds = (partidasRango || []).map(p => p.id)
+  let partidasGastos = []
+  if (partidaIds.length) {
+    for (const pat of patterns) {
+      const { data } = await sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
+        .in('partida_id', partidaIds)
+        .ilike('descripcion', pat)
+      if (data?.length) partidasGastos.push(...data)
+    }
+  }
+  // Deduplicar
+  const seenKeys = new Set()
+  partidasGastos = partidasGastos.filter(g => {
+    const key = `${g.partida_id}_${g.cuenta_codigo}_${g.monto}`
+    if (seenKeys.has(key)) return false
+    seenKeys.add(key)
+    return true
+  })
+  const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
+  const gastosPartidas = partidasGastos.map(g => ({
+    fecha: partidaMap[g.partida_id]?.fecha_partida || '',
+    descripcion: g.descripcion || partidaMap[g.partida_id]?.descripcion || '',
+    monto: parseFloat(g.monto) || 0,
+    es_mano_obra: false,
+    _fromPartida: true
+  }))
+
+  // Combinar facturas importadas + gastos de partidas manuales
+  const todasFacturas = [...(facturas || []), ...gastosPartidas].sort((a, b) => a.fecha?.localeCompare(b.fecha))
+
   const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
-  const totalFacturas = (facturas || []).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
-  const totalMO = (facturas || []).filter(f => f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalFacturas = todasFacturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalMO = todasFacturas.filter(f => f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
   const totalRepuestos = totalFacturas - totalMO
   const neto = totalEntregas - totalFacturas
 
@@ -7072,7 +7112,7 @@ window.cargarDetalleUnidad = async () => {
   let html = `
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <button class="btn btn-ghost" onclick="toggleDetalleTab('entregas')" id="du-tab-entregas" style="border-color:var(--green);color:var(--green);font-size:12px;padding:6px 14px">📥 Entregas (${(entregas || []).length})</button>
-      <button class="btn btn-ghost" onclick="toggleDetalleTab('facturas')" id="du-tab-facturas" style="font-size:12px;padding:6px 14px">🔧 Facturas (${(facturas || []).length})</button>
+      <button class="btn btn-ghost" onclick="toggleDetalleTab('facturas')" id="du-tab-facturas" style="font-size:12px;padding:6px 14px">🔧 Facturas (${todasFacturas.length})</button>
     </div>
     <div id="du-panel-entregas">
       <table style="width:100%">
@@ -7090,11 +7130,11 @@ window.cargarDetalleUnidad = async () => {
     <div id="du-panel-facturas" style="display:none">
       <table style="width:100%">
         <thead><tr><th>Fecha</th><th>Descripción</th><th>Tipo</th><th style="text-align:right">Monto</th></tr></thead>
-        <tbody>${(facturas || []).length ? (facturas || []).map(f => `
+        <tbody>${todasFacturas.length ? todasFacturas.map(f => `
           <tr>
             <td style="font-family:var(--mono);font-size:12px">${f.fecha}</td>
             <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${f.descripcion}">${f.descripcion}</td>
-            <td>${f.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
+            <td>${f._fromPartida ? '<span class="badge badge-purple" style="font-size:10px">Partida</span>' : f.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(f.monto)}</td>
           </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">No hay facturas en este período</td></tr>'}
         </tbody>
