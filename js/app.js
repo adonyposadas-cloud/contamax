@@ -7652,7 +7652,7 @@ function renderCajaChicaList() {
         ${estadoBadge[p.estado] || p.estado}
         ${(p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ?
           `<button class="btn btn-ghost" style="padding:6px 12px;font-size:11px;color:var(--green)" onclick="aprobarMovCajaChica('${p.id}')">✅ Aprobar</button>` : ''}
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="editPartida('${p.id}')">👁️</button>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="editarPartida('${p.id}')">👁️</button>
       </div>
     </div>`
   }).join('')
