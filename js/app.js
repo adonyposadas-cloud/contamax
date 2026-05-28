@@ -7390,12 +7390,32 @@ window.parsearFacturasTaxis = async () => {
         // Excel serial date → JS Date (SheetJS sin cellDates)
         const d = new Date(Math.round((colB - 25569) * 86400 * 1000))
         currentFecha = d.toISOString().split('T')[0]
-      } else if (typeof colB === 'string' && colB.includes('-')) {
-        currentFecha = colB.split('T')[0]
-      } else {
-        // Try parsing as string date
-        const d = new Date(colB)
-        if (!isNaN(d.getTime())) currentFecha = d.toISOString().split('T')[0]
+      } else if (typeof colB === 'string') {
+        const bs = colB.trim()
+        // yyyy-mm-dd or yyyy-mm-ddT...
+        if (/^\d{4}-\d{2}-\d{2}/.test(bs)) {
+          currentFecha = bs.substring(0, 10)
+        }
+        // DD/MM/YYYY
+        else if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(bs)) {
+          const parts = bs.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+          if (parts) currentFecha = `${parts[3]}-${parts[2].padStart(2,'0')}-${parts[1].padStart(2,'0')}`
+        }
+        // D-MMM, DD-MMM, D-MMM-YYYY (e.g. "12-May", "4-Jun", "12-May-2026")
+        else {
+          const meses = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12',
+                          ene:'01',feb:'02',mar:'03',abr:'04',may:'05',jun:'06',jul:'07',ago:'08',sep:'09',oct:'10',nov:'11',dic:'12' }
+          const mMatch = bs.match(/^(\d{1,2})[- ]([A-Za-z]{3})(?:[- ](\d{4}))?/)
+          if (mMatch) {
+            const dd = mMatch[1].padStart(2, '0')
+            const mm = meses[mMatch[2].toLowerCase()] || '01'
+            const yyyy = mMatch[3] || new Date().getFullYear().toString()
+            currentFecha = `${yyyy}-${mm}-${dd}`
+          } else {
+            const d = new Date(bs)
+            if (!isNaN(d.getTime())) currentFecha = d.toISOString().split('T')[0]
+          }
+        }
       }
     }
 
