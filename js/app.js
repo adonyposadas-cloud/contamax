@@ -1486,14 +1486,16 @@ window.editarPartida = async (id) => {
     const paths = partida.adjunto_url.split(',').filter(Boolean)
     const links = []
     for (let i = 0; i < paths.length; i++) {
-      const { data: signedUrl } = await sb.storage.from('facturas-compras').createSignedUrl(paths[i].trim(), 3600)
+      const p = paths[i].trim()
+      const { data: signedUrl } = await sb.storage.from('facturas-compras').createSignedUrl(p, 3600)
       if (signedUrl?.signedUrl) {
-        links.push(`<a href="${signedUrl.signedUrl}" target="_blank" style="font-size:11px;color:var(--blue)">📷 Adjunto ${i + 1}</a>`)
+        links.push(`<span style="display:inline-flex;align-items:center;gap:4px"><a href="${signedUrl.signedUrl}" target="_blank" style="font-size:11px;color:var(--blue)">📷 Adjunto ${i + 1}</a><button onclick="eliminarAdjuntoPartida('${p.replace(/'/g, "\\'")}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;padding:2px 4px" title="Eliminar adjunto">✕</button></span>`)
       }
     }
     if (links.length) {
       adjuntoLink.style.display = 'none'
       adjuntoStatus.innerHTML = links.join(' &nbsp;|&nbsp; ')
+    }
     }
   } else {
     adjuntoLink.style.display = 'none'
@@ -1966,6 +1968,24 @@ window.selectCuenta = (lid, cid, codigo, nombre) => {
   document.getElementById('dd-' + lid).classList.remove('open')
   renderLineas()
   calcTotales()
+}
+
+window.eliminarAdjuntoPartida = async (path) => {
+  if (!editingPartidaId) return
+  if (!confirm('¿Eliminar este adjunto?')) return
+  const sb = getSb()
+  // Remove from storage
+  await sb.storage.from('facturas-compras').remove([path])
+  // Update partida record
+  const { data: partida } = await sb.from('partidas_contables').select('adjunto_url').eq('id', editingPartidaId).single()
+  if (partida) {
+    const paths = (partida.adjunto_url || '').split(',').filter(Boolean).map(p => p.trim())
+    const updated = paths.filter(p => p !== path).join(',')
+    await sb.from('partidas_contables').update({ adjunto_url: updated || null }).eq('id', editingPartidaId)
+  }
+  toast('Adjunto eliminado ✓', 'success')
+  // Reload the partida to refresh adjuntos display
+  editPartida(editingPartidaId)
 }
 
 window.guardarPartida = async (estado) => {
