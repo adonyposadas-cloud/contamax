@@ -7259,17 +7259,49 @@ function parseFactTaxisPrefix(desc) {
   if (!desc) return null
   const d = desc.trim()
 
-  // Formatos: T_XXXX, TAXI XXXX, TAXI_XXXX (puede tener coma después del número)
-  let m = d.match(/^T[_\s](\d+)/i) || d.match(/^TAXI[_\s](\d+)/i)
-  if (m) return { tipo: 'TAXI', registro: parseInt(m[1]), rest: d.substring(m[0].length).replace(/^[\s,]+/, '') }
+  // Buscar prefijo en cualquier posición (no solo al inicio)
+  // Orden: TAXI VIP primero, luego TAXI, VIP, VIN, T_ (para evitar matchs parciales)
+  let m
 
-  // VIP_XXXX, VIP XXXX
-  m = d.match(/^VIP[_\s](\d+)/i)
-  if (m) return { tipo: 'VIP', registro: parseInt(m[1]), rest: d.substring(m[0].length).replace(/^[\s,]+/, '') }
+  // TAXI VIP XXXX
+  m = d.match(/(?:^|[\s,;(])TAXI[\s_]VIP[\s_](\d+)/i)
+  if (m) return { tipo: 'VIP', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
 
-  // VIN_XXXX, VIN XXXX (puede traer nombre del dueño después)
-  m = d.match(/^VIN[_\s](\d+)/i)
-  if (m) return { tipo: 'VIN', registro: parseInt(m[1]), rest: d.substring(m[0].length).replace(/^[\s,]+/, '') }
+  // TAXI_XXXX, TAXI XXXX
+  m = d.match(/(?:^|[\s,;(])TAXI[\s_](\d+)/i)
+  if (m) return { tipo: 'TAXI', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
+
+  // TAXIS VIP XXXX (plural)
+  m = d.match(/(?:^|[\s,;(])TAXIS[\s_]VIP[\s_](\d+)/i)
+  if (m) return { tipo: 'VIP', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
+
+  // TAXIS XXXX (plural)
+  m = d.match(/(?:^|[\s,;(])TAXIS[\s_](\d+)/i)
+  if (m) return { tipo: 'TAXI', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
+
+  // VIP_XXXX, VIP XXXX, VIP_ XXXX (con word boundary)
+  m = d.match(/(?:^|[\s,;(])VIP[\s_]+(\d+)/i)
+  if (m) return { tipo: 'VIP', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
+
+  // VIN_XXXX, VIN XXXX (con word boundary)
+  m = d.match(/(?:^|[\s,;(])VIN[\s_](\d+)/i)
+  if (m) return { tipo: 'VIN', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
+
+  // VIN_XXXX con alfanumérico (VIN_3476)
+  m = d.match(/(?:^|[\s,;(])VIN[\s_]([A-Z0-9]+)/i)
+  if (m) { const num = parseInt(m[1]); if (!isNaN(num)) return { tipo: 'VIN', registro: num, rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() } }
+
+  // T_XXXX (solo con guion bajo, al inicio o tras espacio)
+  m = d.match(/(?:^|[\s,;(])T[_](\d+)/i)
+  if (m) return { tipo: 'TAXI', registro: parseInt(m[1]), rest: d.replace(m[0], '').replace(/^[\s,]+/, '').trim() }
+
+  // CXP XXXX (Cuenta por pagar de un propietario - extraer VIN si existe después)
+  m = d.match(/(?:^|[\s,;(])CXP[\s_](\w+)/i)
+  if (m) {
+    // Buscar VIN dentro del resto
+    const vinMatch = d.match(/(?:^|[\s,;(])VIN[\s_](\d+)/i)
+    if (vinMatch) return { tipo: 'VIN', registro: parseInt(vinMatch[1]), rest: d.replace(vinMatch[0], '').replace(/^[\s,]+/, '').trim() }
+  }
 
   return null
 }
@@ -7299,7 +7331,7 @@ window.parsearFacturasTaxis = async () => {
       if (val == null || val === '') continue
       const str = val.toString().trim()
       // Find the description column (has T_ or VIP_ or TAXI or VIN prefix)
-      if (colDesc < 0 && /^(T[_\s]\d|VIP[_\s]\d|TAXI[_\s]\d|VIN[_\s]\d)/i.test(str)) {
+      if (colDesc < 0 && /(^|[\s,;(])(T[_]\d|VIP[\s_]\d|TAXI[\s_]\d|TAXIS[\s_]\d|VIN[\s_]\d)/i.test(str)) {
         colDesc = j
         // Fecha is the column before desc (if it exists and had a date)
         if (j > 0) colFecha = j - 1
