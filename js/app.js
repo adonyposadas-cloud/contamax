@@ -1443,6 +1443,64 @@ window.volverDesdePartida = () => {
 }
 
 // ── EDITAR PARTIDA EXISTENTE ──
+window.verPartida = async (id) => {
+  const sb = getSb()
+  const { data: p } = await sb.from('partidas_contables').select('*').eq('id', id).single()
+  if (!p) { toast('Partida no encontrada', 'error'); return }
+  const { data: lineas } = await sb.from('lineas_partida').select('*').eq('partida_id', id).order('id')
+  const fmtM = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fecha = p.fecha_partida ? new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN') : '—'
+  const estadoBadge = { aprobada: 'badge-on', borrador: 'badge-amber', pendiente_caja: 'badge-blue', anulada: 'badge-off' }
+
+  // Adjuntos
+  let adjuntosHtml = ''
+  if (p.adjunto_url) {
+    const paths = p.adjunto_url.split(',').filter(Boolean)
+    const links = []
+    for (let i = 0; i < paths.length; i++) {
+      const { data: su } = await sb.storage.from('facturas-compras').createSignedUrl(paths[i].trim(), 3600)
+      if (su?.signedUrl) links.push(`<a href="${su.signedUrl}" target="_blank" style="color:var(--blue);font-size:12px">📷 Adjunto ${i + 1}</a>`)
+    }
+    if (links.length) adjuntosHtml = `<div style="margin-top:10px">${links.join(' &nbsp;|&nbsp; ')}</div>`
+  }
+
+  document.getElementById('mvp-title').textContent = `Partida #${p.numero_partida || '—'}`
+  document.getElementById('mvp-contenido').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;padding:14px;background:var(--bg3);border-radius:var(--radius)">
+      <div><span style="color:var(--text3);font-size:11px">Fecha</span><div>${fecha}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Tipo de origen</span><div>${p.tipo_origen || '—'}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Nro. Documento</span><div style="font-family:var(--mono);font-size:12px">${p.numero_documento || '—'}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Estado</span><div><span class="badge ${estadoBadge[p.estado] || ''}">${p.estado}</span></div></div>
+      <div class="col-full"><span style="color:var(--text3);font-size:11px">Descripción</span><div>${p.descripcion || '—'}</div></div>
+    </div>
+    ${adjuntosHtml}
+    <table style="width:100%;margin-top:10px">
+      <thead><tr>
+        <th style="text-align:left">Cuenta</th>
+        <th>Centro costo</th>
+        <th style="text-align:right">Debe</th>
+        <th style="text-align:right">Haber</th>
+      </tr></thead>
+      <tbody>${(lineas || []).map(l => {
+        const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
+        const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
+        return `<tr>
+          <td style="font-size:12px"><span style="font-family:var(--mono);color:var(--gold)">${l.cuenta_codigo}</span> ${l.cuenta_nombre}</td>
+          <td style="text-align:center;font-size:11px;color:var(--text3)">${l.centro_costo_id ? '●' : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:12px${debe ? ';color:var(--green)' : ''}">${debe ? 'L. ' + fmtM(debe) : ''}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:12px${haber ? ';color:var(--red)' : ''}">${haber ? 'L. ' + fmtM(haber) : ''}</td>
+        </tr>
+        ${l.descripcion && l.descripcion !== p.descripcion ? `<tr><td colspan="4" style="padding:2px 8px 8px;font-size:11px;color:var(--text3);font-style:italic">${l.descripcion}</td></tr>` : ''}`
+      }).join('')}</tbody>
+      <tfoot><tr style="background:var(--bg3);font-weight:600">
+        <td colspan="2" style="text-align:right">TOTALES</td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtM((lineas || []).filter(l => l.tipo === 'debito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0))}</td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtM((lineas || []).filter(l => l.tipo === 'credito').reduce((s, l) => s + (parseFloat(l.monto) || 0), 0))}</td>
+      </tr></tfoot>
+    </table>`
+  document.getElementById('modal-ver-partida').classList.add('open')
+}
+
 window.editarPartida = async (id) => {
   // Cargar cuentas si no están
   if (!cuentasDetalle.length) {
@@ -7692,7 +7750,7 @@ function renderCajaChicaList() {
         ${estadoBadge[p.estado] || p.estado}
         ${(p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ?
           `<button class="btn btn-ghost" style="padding:6px 12px;font-size:11px;color:var(--green)" onclick="aprobarMovCajaChica('${p.id}')">✅ Aprobar</button>` : ''}
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="editarPartida('${p.id}')">👁️</button>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="verPartida('${p.id}')">👁️</button>
       </div>
     </div>`
   }).join('')
