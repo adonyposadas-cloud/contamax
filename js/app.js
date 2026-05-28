@@ -6188,7 +6188,7 @@ async function loadVehiculos() {
   const { data, error } = await sb.from('vehiculos_vin')
     .select('*')
     .eq('activo', true)
-    .order('propietario')
+    .order('fecha_compra', { ascending: false, nullsFirst: false })
     .order('vin')
 
   if (error) {
