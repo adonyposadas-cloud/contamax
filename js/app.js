@@ -5701,13 +5701,19 @@ function parseFechaTaxi(val) {
   const s = String(val).trim()
   // If it's already yyyy-mm-dd, return directly
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10)
+  // DD/MM/YYYY or D/M/YYYY format
+  const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/)
+  if (dmyMatch) {
+    const dd = dmyMatch[1].padStart(2, '0')
+    const mm = dmyMatch[2].padStart(2, '0')
+    const yyyy = dmyMatch[3]
+    return `${yyyy}-${mm}-${dd}`
+  }
   // If it's a number (Excel serial date)
   if (/^\d{4,5}(\.\d+)?$/.test(s)) {
     const serial = Math.floor(parseFloat(s))
     if (serial > 40000 && serial < 60000) {
-      // Excel epoch: day 1 = 1900-01-01, but Excel thinks 1900 is leap year
-      // serial 1 = 1900-01-01, so serial N = 1899-12-31 + N days
-      const base = new Date(1899, 11, 30) // Dec 30, 1899 (local time)
+      const base = new Date(1899, 11, 30)
       base.setDate(base.getDate() + serial)
       const yyyy = base.getFullYear()
       const mm = String(base.getMonth() + 1).padStart(2, '0')
