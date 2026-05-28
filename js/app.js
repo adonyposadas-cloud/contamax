@@ -1412,6 +1412,13 @@ async function initPartidaNueva() {
   document.getElementById('pn-descripcion').value = ''
   document.getElementById('pn-documento').value = ''
   document.getElementById('pn-origen').value = 'compra'
+  // Limpiar adjuntos
+  const adjInput = document.getElementById('pn-adjunto')
+  if (adjInput) adjInput.value = ''
+  const adjLink = document.getElementById('pn-adjunto-link')
+  if (adjLink) adjLink.style.display = 'none'
+  const adjStatus = document.getElementById('pn-adjunto-status')
+  if (adjStatus) adjStatus.innerHTML = ''
   const descIndCheck = document.getElementById('pn-desc-individual')
   if (descIndCheck) descIndCheck.checked = false
   partidaLineas = []
