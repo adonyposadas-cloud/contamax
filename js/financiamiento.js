@@ -123,7 +123,10 @@ window.verDetallePrestamo = async (codigo) => {
         <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${getFmt(r.saldo_inicial)}</td>
         <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${getFmt(r.saldo_actual)}</td>
         <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3)" title="${r.concepto || ''}">${r.concepto || '—'}</td>
-        <td style="text-align:center">${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo})" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo">🗑️</button>` : ''}</td>
+        <td style="text-align:center;white-space:nowrap">
+          <button onclick="reimprimirRecibo('${r.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--blue)" title="Reimprimir recibo">🖨️</button>
+          ${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo})" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo">🗑️</button>` : ''}
+        </td>
       </tr>`).join('')}</tbody></table>
     </div>`
 }
@@ -331,6 +334,64 @@ function renderLiquidacion() {
     </details>`
 
   document.getElementById('liq-contenido').innerHTML = html
+}
+
+window.reimprimirRecibo = async (reciboId) => {
+  const { data: r, error } = await getSb().from('recibos_prestamos').select('*').eq('id', reciboId).single()
+  if (error || !r) { window.toast('Error cargando recibo: ' + (error?.message || 'no encontrado'), 'error'); return }
+
+  // Cargar entregas y facturas vinculadas a este recibo
+  const { data: entregas } = await getSb().from('entregas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha_deposito')
+  
+  const { data: facturas } = await getSb().from('facturas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha')
+
+  // Buscar abonos de partida vinculados
+  let abonosPartida = []
+  try {
+    const codigoSinCero = String(r.registro).replace(/^0+/, '')
+    const { data: lineas } = await getSb().from('lineas_partida')
+      .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
+      .eq('tipo', 'credito')
+      .eq('usado_en_recibo', true)
+      .ilike('descripcion', `%${codigoSinCero}%`)
+    abonosPartida = lineas || []
+  } catch(e) {}
+
+  // Determinar si es taxi
+  const { data: prestamo } = await getSb().from('prestamos_taxis').select('categoria').eq('codigo', r.registro).single()
+  const esTaxi = prestamo?.categoria?.toLowerCase().includes('taxi')
+
+  // Reconstruir datos para impresión
+  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
+  const totalFacturas = parseFloat(r.facturas) || 0
+
+  const d = {
+    codigo: r.registro,
+    numRecibo: r.numero_recibo,
+    motorista: r.nombre,
+    montoRecibo: parseFloat(r.monto_recibo) || 0,
+    abonoCapital: parseFloat(r.capital) || 0,
+    intereses: parseFloat(r.intereses) || 0,
+    saldoInicial: parseFloat(r.saldo_inicial) || 0,
+    nuevoSaldoPrestamo: parseFloat(r.saldo_actual) || 0,
+    totalEntregas,
+    totalFacturas,
+    totalAbonosPartida: abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0),
+    gps: Math.abs(parseFloat(r.gps) || 0),
+    alquiler: Math.abs(parseFloat(r.numero_alquiler) || 0),
+    saldoMesAnterior: parseFloat(r.saldo_anterior) || 0,
+    nuevoSaldoMes: parseFloat(r.saldo_del_mes) || 0,
+    saldoDelMes: parseFloat(r.saldo_del_mes) || 0,
+    concepto: r.concepto || '',
+    diasTranscurridos: '',
+    esTaxi,
+    entregas: entregas || [],
+    facturas: facturas || [],
+    abonosPartida,
+    fechaRecibo: r.fecha,
+  }
+
+  imprimirRecibo(d)
 }
 
 window.eliminarRecibo = async (reciboId, codigo, numRecibo) => {
