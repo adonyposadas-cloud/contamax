@@ -7376,8 +7376,8 @@ window.parsearFacturasTaxis = async () => {
     if (!row) continue
     const colB = row[colFecha]                        // fecha
     const colC = (row[colDesc] || '').toString().trim()  // descripción
-    const colD = parseFloat(row[colDebito]) || 0       // monto débito
-    const colE = parseFloat(row[colCredito]) || 0      // monto crédito (resumen)
+    const colD = parseFloat(String(row[colDebito] || '').replace(/,/g, '')) || 0       // monto débito
+    const colE = parseFloat(String(row[colCredito] || '').replace(/,/g, '')) || 0      // monto crédito (resumen)
 
     if (!colC) continue
 
