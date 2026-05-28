@@ -117,6 +117,7 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
 .badge-red{background:#ef444415;color:#f87171;border:0.5px solid #ef444430}
 .badge-on{background:#22c55e15;color:#4ade80;border:0.5px solid #22c55e30}
 .badge-off{background:#64748b15;color:#94a3b8;border:0.5px solid #64748b30}
+.badge-purple{background:#8b5cf615;color:#a78bfa;border:0.5px solid #8b5cf630}
 .mono{font-family:var(--mono);font-size:12px}
 
 /* FORM */

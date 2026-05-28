@@ -6216,6 +6216,36 @@ async function loadVehiculos() {
   if (elProps) elProps.textContent = props.size
   if (elCosto) elCosto.textContent = `$${fmtD(totalCosto)}`
 
+  // Ubicacion chips
+  const ubicacionCounts = {}
+  allVehiculos.forEach(v => {
+    const ub = v.ubicacion || 'Sin asignar'
+    ubicacionCounts[ub] = (ubicacionCounts[ub] || 0) + 1
+  })
+  const chipColors = {
+    'Tránsito a puerto': '#f59e0b',
+    'Bodega USA': '#3b82f6',
+    'En tránsito marítimo': '#06b6d4',
+    'Trámites aduaneros': '#f97316',
+    'Grúa a TGU': '#8b5cf6',
+    'Grúa a SPS': '#a855f7',
+    'Llegado a plantel': '#22c55e',
+    'Vendido': '#6b7280',
+    'Sin asignar': '#4b5563'
+  }
+  const chipsEl = document.getElementById('vin-ubicacion-chips')
+  if (chipsEl) {
+    chipsEl.innerHTML = Object.entries(ubicacionCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([ub, count]) => {
+        const color = chipColors[ub] || '#6b7280'
+        return `<span onclick="document.getElementById('vin-filtro-ubicacion').value='${ub === 'Sin asignar' ? '' : ub}';filtrarVehiculos()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:${color}22;border:1px solid ${color}44;color:${color};border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500">
+          <span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>
+          ${ub} <strong>${count}</strong>
+        </span>`
+      }).join('')
+  }
+
   filtrarVehiculos()
 }
 window.loadVehiculos = loadVehiculos
@@ -6223,11 +6253,13 @@ window.loadVehiculos = loadVehiculos
 window.filtrarVehiculos = () => {
   const term = (document.getElementById('vin-buscar')?.value || '').toLowerCase().trim()
   const propFilter = document.getElementById('vin-filtro-prop')?.value || ''
+  const ubicacionFilter = document.getElementById('vin-filtro-ubicacion')?.value || ''
 
   filteredVehiculos = allVehiculos.filter(v => {
     if (propFilter && v.propietario !== propFilter) return false
+    if (ubicacionFilter && (v.ubicacion || '') !== ubicacionFilter) return false
     if (term) {
-      const searchable = `${v.vin} ${v.propietario} ${v.marca} ${v.modelo} ${v.anio} ${v.notas || ''}`.toLowerCase()
+      const searchable = `${v.vin} ${v.propietario} ${v.marca} ${v.modelo} ${v.anio} ${v.ubicacion || ''} ${v.notas || ''}`.toLowerCase()
       return searchable.includes(term)
     }
     return true
@@ -6244,12 +6276,28 @@ function renderVehiculosTable() {
   if (!tbody) return
 
   if (!filteredVehiculos.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron vehículos</td></tr>'
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron vehículos</td></tr>'
     return
   }
 
   const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
+
+  const ubicBadge = (ub) => {
+    const colors = {
+      'Tránsito a puerto': 'badge-amber',
+      'Bodega USA': 'badge-blue',
+      'En tránsito marítimo': 'badge-blue',
+      'Trámites aduaneros': 'badge-amber',
+      'Grúa a TGU': 'badge-purple',
+      'Grúa a SPS': 'badge-purple',
+      'Llegado a plantel': 'badge-on',
+      'Vendido': 'badge-off'
+    }
+    if (!ub) return '<span style="color:var(--text3);font-size:11px">—</span>'
+    const cls = colors[ub] || 'badge-off'
+    return `<span class="badge ${cls}" style="font-size:10px;white-space:nowrap">${ub}</span>`
+  }
 
   tbody.innerHTML = filteredVehiculos.map(v => {
     const last4 = v.vin.slice(-4)
@@ -6264,6 +6312,7 @@ function renderVehiculosTable() {
       <td style="font-family:var(--mono)">${v.anio || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:500">$${fmtD(v.costo_copart)}</td>
       <td style="font-size:12px;color:var(--text3)">${fecha}</td>
+      <td>${ubicBadge(v.ubicacion)}</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSuperAdmin ? `
           <button onclick="editarVehiculo('${v.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
@@ -6278,7 +6327,7 @@ window.openModalVin = () => {
   editingVinId = null
   document.getElementById('modal-vin-title').textContent = '🚗 Nuevo vehículo'
   document.getElementById('btn-guardar-vin').textContent = 'Guardar vehículo'
-  ;['nv-vin','nv-propietario','nv-marca','nv-modelo','nv-anio','nv-costo','nv-fecha','nv-notas'].forEach(id => {
+  ;['nv-vin','nv-propietario','nv-marca','nv-modelo','nv-anio','nv-costo','nv-fecha','nv-notas','nv-ubicacion'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
   document.getElementById('nv-vin').disabled = false
@@ -6301,6 +6350,7 @@ window.editarVehiculo = (id) => {
   document.getElementById('nv-costo').value = v.costo_copart || ''
   document.getElementById('nv-fecha').value = v.fecha_compra || ''
   document.getElementById('nv-notas').value = v.notas || ''
+  document.getElementById('nv-ubicacion').value = v.ubicacion || ''
   document.getElementById('modal-vin-error').classList.add('hidden')
   document.getElementById('modal-vin').classList.add('open')
 }
@@ -6314,6 +6364,7 @@ window.guardarVehiculo = async () => {
   const costo = parseFloat(document.getElementById('nv-costo').value) || 0
   const fecha = document.getElementById('nv-fecha').value || null
   const notas = document.getElementById('nv-notas').value.trim()
+  const ubicacion = document.getElementById('nv-ubicacion').value || null
   const err = document.getElementById('modal-vin-error')
 
   if (!vin) { showError(err, 'El VIN es obligatorio'); return }
@@ -6323,7 +6374,7 @@ window.guardarVehiculo = async () => {
   const btn = document.getElementById('btn-guardar-vin')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
-  const payload = { vin, propietario, marca, modelo, anio, costo_copart: costo, fecha_compra: fecha, notas, activo: true }
+  const payload = { vin, propietario, marca, modelo, anio, costo_copart: costo, fecha_compra: fecha, notas, ubicacion, activo: true }
 
   let error
   if (editingVinId) {
@@ -6550,6 +6601,7 @@ window.verDetalleVin = async (vinId) => {
       <div><span style="color:var(--text3);font-size:11px">Propietario</span><div><span class="badge badge-blue">${v.propietario}</span></div></div>
       <div><span style="color:var(--text3);font-size:11px">Vehículo</span><div>${v.marca} ${v.modelo} ${v.anio || ''}</div></div>
       <div><span style="color:var(--text3);font-size:11px">Costo Copart</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Ubicación</span><div>${v.ubicacion ? `<span class="badge ${({'Tránsito a puerto':'badge-amber','Bodega USA':'badge-blue','En tránsito marítimo':'badge-blue','Trámites aduaneros':'badge-amber','Grúa a TGU':'badge-purple','Grúa a SPS':'badge-purple','Llegado a plantel':'badge-on','Vendido':'badge-off'})[v.ubicacion] || 'badge-off'}">${v.ubicacion}</span>` : '<span style="color:var(--text3)">Sin asignar</span>'}</div></div>
     </div>`
   document.getElementById('dv-resumen').innerHTML = ''
   document.getElementById('dv-contenido').innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>'
