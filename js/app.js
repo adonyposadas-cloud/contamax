@@ -2023,7 +2023,7 @@ window.guardarPartida = async (estado) => {
     //   VIP 1234, VIP_ARNOL             → unidades_taxis
     //   TAXI VIP 1234                   → unidades_taxis
     // Códigos pueden ser numéricos (01005) o alfanuméricos (ARNOL, J1791)
-    const prefixPattern = /(?:TAXI[\s_]VIP[\s_]([A-Z0-9]+))|(?:TAXI[\s_]([A-Z0-9]+))|(?:VIP[\s_]([A-Z0-9]+))|(?:VIN[\s_]([A-Z0-9]+))|(?:(?:^|[\s,;(])T[_]([A-Z0-9]+))|(?:(?:^|[\s,;(])T\s([A-Z0-9]+))/gi
+    const prefixPattern = /(?:(?:^|[\s,;(])TAXI[\s_]VIP[\s_]([A-Z0-9]+))|(?:(?:^|[\s,;(])TAXI[\s_]([A-Z0-9]+))|(?:(?:^|[\s,;(])VIP[\s_]([A-Z0-9]+))|(?:(?:^|[\s,;(])VIN[\s_]([A-Z0-9]+))|(?:(?:^|[\s,;(])T[_]([A-Z0-9]+))|(?:(?:^|[\s,;(])T\s([A-Z0-9]+))/gi
     for (const txt of textosBuscar) {
       if (!txt) continue
       const matches = txt.matchAll(prefixPattern)
