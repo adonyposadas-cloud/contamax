@@ -6404,6 +6404,32 @@ window.guardarVehiculo = async () => {
   loadVehiculos()
 }
 
+window.exportarVehiculosExcel = () => {
+  if (!filteredVehiculos.length) { toast('No hay vehículos para exportar', 'error'); return }
+  const rows = filteredVehiculos.map(v => ({
+    'VIN': v.vin,
+    'Propietario': v.propietario,
+    'Marca': v.marca,
+    'Modelo': v.modelo,
+    'Año': v.anio || '',
+    'Costo Copart (USD)': v.costo_copart || 0,
+    'Fecha Compra': v.fecha_compra || '',
+    'Ubicación': v.ubicacion || 'Sin asignar',
+    'Notas': v.notas || ''
+  }))
+  const ws = window.XLSX.utils.json_to_sheet(rows)
+  // Column widths
+  ws['!cols'] = [
+    { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 6 },
+    { wch: 16 }, { wch: 12 }, { wch: 22 }, { wch: 30 }
+  ]
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Vehículos')
+  const fecha = new Date().toISOString().slice(0, 10)
+  window.XLSX.writeFile(wb, `Vehiculos_${fecha}.xlsx`)
+  toast(`${filteredVehiculos.length} vehículos exportados ✓`, 'success')
+}
+
 window.eliminarVehiculo = async (id, vin) => {
   if (!confirm(`¿Eliminar el vehículo VIN ${vin}?\n\nSe marcará como inactivo.`)) return
   const { error } = await sb.from('vehiculos_vin').update({ activo: false }).eq('id', id)
