@@ -1996,15 +1996,23 @@ window.guardarPartida = async (estado) => {
     const textosBuscar = [descripcion, ...lineasValidas.map(l => l.descripcion || '')]
     const refsEncontradas = []
 
+    // Prefijos soportados:
+    //   VIN 1234, VIN_1234              → vehiculos_vin
+    //   T_1234, T_ARNOL                 → unidades_taxis (solo con guion bajo, evita TARJETA, TRASLADO)
+    //   TAXI 1234, TAXI_ARNOL           → unidades_taxis
+    //   VIP 1234, VIP_ARNOL             → unidades_taxis
+    //   TAXI VIP 1234                   → unidades_taxis
+    // Códigos pueden ser numéricos (01005) o alfanuméricos (ARNOL, J1791)
+    const prefixPattern = /(?:TAXI[\s_]VIP[\s_]([A-Z0-9]+))|(?:TAXI[\s_]([A-Z0-9]+))|(?:VIP[\s_]([A-Z0-9]+))|(?:VIN[\s_]([A-Z0-9]+))|(?:(?:^|[\s,;(])T[_]([A-Z0-9]+))|(?:(?:^|[\s,;(])T\s([A-Z0-9]+))/gi
     for (const txt of textosBuscar) {
       if (!txt) continue
-      // Buscar patrones: VIN XXXX, VIN_XXXX, T_XXXX, TAXI XXXX, VIP_XXXX, VIP XXXX
-      const matches = txt.matchAll(/(?:VIN[_\s](\d+))|(?:T[_\s](\d+))|(?:TAXI[_\s](\d+))|(?:VIP[_\s](\d+))/gi)
+      const matches = txt.matchAll(prefixPattern)
       for (const m of matches) {
-        const num = parseInt(m[1] || m[2] || m[3] || m[4])
-        const tipo = m[1] ? 'VIN' : (m[2] || m[3]) ? 'TAXI' : 'VIP'
-        if (num && !refsEncontradas.some(r => r.num === num && r.tipo === tipo)) {
-          refsEncontradas.push({ tipo, num })
+        const raw = (m[1] || m[2] || m[3] || m[4] || m[5] || m[6] || '').trim()
+        if (!raw) continue
+        const tipo = m[4] ? 'VIN' : 'TAXI'
+        if (!refsEncontradas.some(r => r.raw === raw && r.tipo === tipo)) {
+          refsEncontradas.push({ tipo, raw })
         }
       }
     }
@@ -2013,22 +2021,35 @@ window.guardarPartida = async (estado) => {
       const errores = []
       for (const ref of refsEncontradas) {
         if (ref.tipo === 'VIN') {
-          // Buscar por últimos 4 dígitos en vehiculos_vin
-          const regStr = ref.num.toString().padStart(4, '0')
+          // Buscar por últimos dígitos en vehiculos_vin
           const { data: vinData } = await sb.from('vehiculos_vin')
             .select('vin, propietario')
             .eq('activo', true)
-            .ilike('vin', `%${regStr}`)
+            .ilike('vin', `%${ref.raw}`)
             .limit(1)
-          if (!vinData?.length) errores.push(`VIN ${ref.num} no existe en la tabla de vehículos`)
+          if (!vinData?.length) errores.push(`VIN ${ref.raw} no existe en la tabla de vehículos`)
         } else {
-          // TAXI o VIP: buscar en unidades_taxis
-          const { data: unidadData } = await sb.from('unidades_taxis')
-            .select('registro, propietario')
-            .eq('registro', ref.num)
-            .eq('activo', true)
-            .limit(1)
-          if (!unidadData?.length) errores.push(`${ref.tipo} ${ref.num} no existe en la tabla de unidades`)
+          // TAXI/VIP: buscar primero en unidades_taxis (registro numérico), luego en prestamos_taxis (codigo alfanumérico)
+          let encontrado = false
+          const regNum = parseInt(ref.raw)
+          if (!isNaN(regNum) && String(regNum) === ref.raw.replace(/^0+/, '')) {
+            const { data } = await sb.from('unidades_taxis')
+              .select('registro')
+              .eq('registro', regNum)
+              .eq('activo', true)
+              .limit(1)
+            if (data?.length) encontrado = true
+          }
+          if (!encontrado) {
+            // Buscar por codigo en prestamos_taxis (ARNOL, J1791, 01005, etc.)
+            const { data } = await sb.from('prestamos_taxis')
+              .select('codigo')
+              .eq('activo', true)
+              .ilike('codigo', ref.raw)
+              .limit(1)
+            if (data?.length) encontrado = true
+          }
+          if (!encontrado) errores.push(`TAXI ${ref.raw} no existe en unidades ni en financiamiento`)
         }
       }
 
