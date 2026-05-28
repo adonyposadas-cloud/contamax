@@ -7409,7 +7409,19 @@ window.parsearFacturasTaxis = async () => {
     if (colD > 0 && currentFecha) {
       const parsed = parseFactTaxisPrefix(colC)
       if (!parsed) {
-        alertas.push({ fecha: currentFecha, desc: colC, msg: 'No se pudo parsear el prefijo' })
+        alertas.push({ fecha: currentFecha, desc: colC, msg: 'Sin prefijo — importada como gasto sin unidad' })
+        // Importar como gasto genérico sin unidad asignada
+        currentLineas.push({
+          fecha: currentFecha,
+          tipo_unidad: 'OTRO',
+          registro: 0,
+          propietario: '',
+          centro_costo: 'TAXIS',
+          descripcion: colC,
+          es_mano_obra: /MANO DE OBRA/i.test(colC),
+          monto: colD,
+          estado: 'alerta'
+        })
         continue
       }
 
@@ -7497,7 +7509,7 @@ window.parsearFacturasTaxis = async () => {
       const color = l.estado === 'alerta' ? 'rgba(239,68,68,0.06)' : ''
       html += `<tr style="${color ? 'background:'+color : ''}">
         <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${l.fecha}</td>
-        <td><span class="badge ${l.tipo_unidad === 'VIP' ? 'badge-blue' : l.tipo_unidad === 'VIN' ? 'badge-green' : 'badge-amber'}">${l.tipo_unidad}</span></td>
+        <td><span class="badge ${l.tipo_unidad === 'VIP' ? 'badge-blue' : l.tipo_unidad === 'VIN' ? 'badge-green' : l.tipo_unidad === 'OTRO' ? 'badge-off' : 'badge-amber'}">${l.tipo_unidad === 'OTRO' ? 'S/A' : l.tipo_unidad}</span></td>
         <td style="font-family:var(--mono);font-weight:600;color:var(--gold)">${l.registro}</td>
         <td style="font-size:12px">${l.propietario || '—'}</td>
         <td style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.descripcion}">${l.es_mano_obra ? '🔧 ' : ''}${l.descripcion}</td>
