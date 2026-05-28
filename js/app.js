@@ -1392,13 +1392,13 @@ function renderPartidasTable(data) {
   const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber', pendiente_anulacion:'badge-red', anulada:'badge-red' }
   const estadoLabel = { pendiente_caja:'⏳ Pend. caja', pendiente_anulacion:'⚠ Pend. anulación', anulada:'✕ Anulada' }
   tbody.innerHTML = data.map(p => `
-    <tr style="cursor:pointer" onclick="editarPartida('${p.id}')">
+    <tr style="cursor:pointer" onclick="verPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
       <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descripcion}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${getOrigenLabel(p.tipo_origen)}</span></td>
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
-      <td><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span></td>
+      <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar">✏️</button></td>
     </tr>`).join('')
 }
 
@@ -2883,6 +2883,7 @@ function renderCajaList(fechaFiltro) {
           <div style="text-align:right;margin-top:4px"><span class="badge ${estadoBadge}">${estadoLabel}</span></div>
         </div>
         ${actions}
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
       </div>
     </div>`
   }).join('')
