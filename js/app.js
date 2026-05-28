@@ -7685,10 +7685,12 @@ window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
 let cxpCuentasSel = [] // [{id, codigo, nombre}]
 let cxpMovimientos = []
 let cxpFiltrados = []
+let cxpSeleccionados = new Set() // persists across filter changes
 
 window.loadCxP = () => {
   cxpCuentasSel = []
   cxpMovimientos = []
+  cxpSeleccionados = new Set()
   renderCxPCuentasSel()
   const now = new Date()
   document.getElementById('cxp-desde').value = localDateStr(new Date(now.getFullYear(), now.getMonth(), 1))
@@ -7767,6 +7769,7 @@ window.consultarCxP = async () => {
   })
 
   document.getElementById('cxp-filtro-rapido').classList.remove('hidden')
+  cxpSeleccionados = new Set()
   cxpFiltrados = [...cxpMovimientos]
   renderCxPTabla()
 }
@@ -7797,8 +7800,9 @@ function renderCxPTabla() {
 
   tbody.innerHTML = cxpFiltrados.map(l => {
     const p = l.partida
+    const isChecked = cxpSeleccionados.has(l.id)
     return `<tr style="${l.pagado ? 'opacity:0.5' : ''}">
-      <td><input type="checkbox" class="cxp-check" data-id="${l.id}" data-monto="${l.monto}" onchange="updateSumaCxP()" ${l.pagado ? 'disabled' : ''}></td>
+      <td><input type="checkbox" class="cxp-check" data-id="${l.id}" data-monto="${l.monto}" onchange="toggleCxPCheck(this)" ${isChecked ? 'checked' : ''} ${l.pagado ? 'disabled' : ''}></td>
       <td>${p.fecha_partida}</td>
       <td style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
@@ -7811,32 +7815,54 @@ function renderCxPTabla() {
   updateSumaCxP()
 }
 
+window.toggleCxPCheck = (cb) => {
+  const id = cb.dataset.id
+  if (cb.checked) {
+    cxpSeleccionados.add(id)
+  } else {
+    cxpSeleccionados.delete(id)
+  }
+  updateSumaCxP()
+}
+
 window.toggleAllCxP = (checked) => {
-  document.querySelectorAll('.cxp-check:not(:disabled)').forEach(cb => { cb.checked = checked })
+  document.querySelectorAll('.cxp-check:not(:disabled)').forEach(cb => {
+    cb.checked = checked
+    const id = cb.dataset.id
+    if (checked) {
+      cxpSeleccionados.add(id)
+    } else {
+      cxpSeleccionados.delete(id)
+    }
+  })
   updateSumaCxP()
 }
 
 window.updateSumaCxP = () => {
-  const checks = document.querySelectorAll('.cxp-check:checked')
+  // Sum from ALL selected across all movimientos, not just visible filtered ones
   let suma = 0
-  checks.forEach(cb => { suma += parseFloat(cb.dataset.monto) || 0 })
+  let count = cxpSeleccionados.size
+  cxpMovimientos.forEach(l => {
+    if (cxpSeleccionados.has(l.id)) {
+      suma += parseFloat(l.monto) || 0
+    }
+  })
   suma = Math.round(suma * 100) / 100
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  document.getElementById('cxp-suma-sel').textContent = `Seleccionados: L. ${fmt(suma)} (${checks.length})`
-  document.getElementById('btn-generar-pago').style.display = checks.length > 0 ? 'inline-flex' : 'none'
+  document.getElementById('cxp-suma-sel').textContent = `Seleccionados: L. ${fmt(suma)} (${count})`
+  document.getElementById('btn-generar-pago').style.display = count > 0 ? 'inline-flex' : 'none'
 }
 
 window.generarPagoCxP = async () => {
-  const checks = document.querySelectorAll('.cxp-check:checked')
-  if (!checks.length) return
-  const ids = Array.from(checks).map(cb => cb.dataset.id)
+  if (!cxpSeleccionados.size) return
+  const ids = Array.from(cxpSeleccionados)
   let suma = 0
-  checks.forEach(cb => { suma += parseFloat(cb.dataset.monto) || 0 })
+  cxpMovimientos.filter(l => cxpSeleccionados.has(l.id)).forEach(l => { suma += parseFloat(l.monto) || 0 })
   suma = Math.round(suma * 100) / 100
 
   // Group selected amounts by cuenta_codigo
   const porCuenta = {}
-  cxpFiltrados.filter(l => ids.includes(l.id)).forEach(l => {
+  cxpMovimientos.filter(l => cxpSeleccionados.has(l.id)).forEach(l => {
     const k = l.cuenta_codigo
     if (!porCuenta[k]) porCuenta[k] = { codigo: k, nombre: l.cuenta_nombre, total: 0, items: [] }
     porCuenta[k].total = Math.round((porCuenta[k].total + (parseFloat(l.monto) || 0)) * 100) / 100
