@@ -1984,10 +1984,16 @@ window.eliminarAdjuntoPartida = async (path) => {
   }
   toast('Adjunto eliminado ✓', 'success')
   // Reload the partida to refresh adjuntos display
-  editPartida(editingPartidaId)
+  editarPartida(editingPartidaId)
 }
 
+let _guardandoPartida = false
 window.guardarPartida = async (estado) => {
+  if (_guardandoPartida) return
+  _guardandoPartida = true
+  // Deshabilitar botones para evitar doble click
+  document.querySelectorAll('#view-partida-nueva .btn-gold, #view-partida-nueva .btn-green').forEach(b => b.disabled = true)
+  try {
   const fecha = document.getElementById('pn-fecha').value
   const descripcion = document.getElementById('pn-descripcion').value.trim().toUpperCase()
   const documento = document.getElementById('pn-documento').value.trim().toUpperCase()
@@ -2353,6 +2359,10 @@ window.guardarPartida = async (estado) => {
     showView('pendientes', 'Facturas pendientes')
   } else {
     showView('partidas', 'Partidas contables')
+  }
+  } finally {
+    _guardandoPartida = false
+    document.querySelectorAll('#view-partida-nueva .btn-gold, #view-partida-nueva .btn-green').forEach(b => b.disabled = false)
   }
 }
 
