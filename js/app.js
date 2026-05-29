@@ -7145,9 +7145,15 @@ window.cargarDetalleUnidad = async () => {
     .lte('fecha', hasta)
     .order('fecha')
 
-  // 3. Cargar gastos de partidas manuales que referencian esta unidad en la descripción
+  // 3. Cargar gastos/ingresos de partidas manuales que referencian esta unidad
   const reg = String(detalleRegistro)
-  const patterns = [`%TAXI ${reg}%`, `%TAXI_${reg}%`, `%T_${reg}%`, `%VIP ${reg}%`, `%VIP_${reg}%`]
+  // Patterns with single and double spaces to handle inconsistent spacing
+  const patterns = [
+    `%TAXI ${reg}%`, `%TAXI_${reg}%`, `%T_${reg}%`,
+    `%VIP ${reg}%`, `%VIP_${reg}%`,
+    `%TAXI  ${reg}%`, `%VIP  ${reg}%`,
+    `%TAXI VIP ${reg}%`, `%TAXI VIP  ${reg}%`
+  ]
   // Buscar partidas aprobadas en el rango
   const { data: partidasRango } = await sb.from('partidas_contables')
     .select('id, fecha_partida, descripcion')
@@ -7157,11 +7163,28 @@ window.cargarDetalleUnidad = async () => {
   const partidaIds = (partidasRango || []).map(p => p.id)
   let partidasGastos = []
   if (partidaIds.length) {
+    // Buscar en descripción de LINEAS
     for (const pat of patterns) {
       const { data } = await sb.from('lineas_partida')
         .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
         .in('partida_id', partidaIds)
         .ilike('descripcion', pat)
+      if (data?.length) partidasGastos.push(...data)
+    }
+    // Buscar también en descripción del ENCABEZADO de la partida
+    const partidasHeader = partidasRango.filter(p => {
+      if (!p.descripcion) return false
+      const d = p.descripcion.toUpperCase()
+      return patterns.some(pat => {
+        const regex = new RegExp(pat.replace(/%/g, '.*'), 'i')
+        return regex.test(d)
+      })
+    })
+    if (partidasHeader.length) {
+      const headerIds = partidasHeader.map(p => p.id)
+      const { data } = await sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
+        .in('partida_id', headerIds)
       if (data?.length) partidasGastos.push(...data)
     }
   }
@@ -7179,7 +7202,9 @@ window.cargarDetalleUnidad = async () => {
     descripcion: g.descripcion || partidaMap[g.partida_id]?.descripcion || '',
     monto: parseFloat(g.monto) || 0,
     es_mano_obra: false,
-    _fromPartida: true
+    _fromPartida: true,
+    _tipo: g.tipo,
+    _cuenta: g.cuenta_codigo
   }))
 
   // Combinar facturas importadas + gastos de partidas manuales
@@ -7226,8 +7251,8 @@ window.cargarDetalleUnidad = async () => {
           <tr>
             <td style="font-family:var(--mono);font-size:12px">${f.fecha}</td>
             <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${f.descripcion}">${f.descripcion}</td>
-            <td>${f._fromPartida ? '<span class="badge badge-purple" style="font-size:10px">Partida</span>' : f.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(f.monto)}</td>
+            <td>${f._fromPartida ? (f._tipo === 'credito' && f._cuenta?.startsWith('4') ? '<span class="badge badge-on" style="font-size:10px">Ingreso</span>' : '<span class="badge badge-purple" style="font-size:10px">Gasto</span>') : f.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:${f._fromPartida && f._tipo === 'credito' && f._cuenta?.startsWith('4') ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(f.monto)}</td>
           </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">No hay facturas en este período</td></tr>'}
         </tbody>
         <tfoot>
