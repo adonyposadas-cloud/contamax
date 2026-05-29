@@ -743,13 +743,13 @@ function imprimirRecibo(d) {
   <!-- FIRMAS -->
   <div class="grid2" style="margin-top:40px">
     <div style="text-align:center;position:relative">
-      <div style="height:60px;position:relative"><img src="${FIRMA_ADONY_B64}" style="height:60px;position:absolute;bottom:0;left:50%;transform:translateX(-50%)" alt="Firma"></div>
+      <div style="height:80px;position:relative"><img src="${FIRMA_ADONY_B64}" style="height:80px;position:absolute;bottom:0;left:50%;transform:translateX(-50%)" alt="Firma"></div>
       <div style="border-top:1px solid #1a1a1a;width:70%;margin:0 auto;position:relative;z-index:1"></div>
       <div style="font-size:11px;font-weight:600;margin-top:4px">ADONY FABRICIO POSADAS AGUILAR</div>
       <div style="font-size:10px;color:#999">El arrendador — DNI: 1701-1981-03404</div>
     </div>
     <div style="text-align:center">
-      <div style="height:60px"></div>
+      <div style="height:80px"></div>
       <div style="border-top:1px solid #1a1a1a;width:70%;margin:0 auto"></div>
       <div style="font-size:11px;font-weight:600;margin-top:4px">${d.motorista || 'MOTORISTA'}</div>
       <div style="font-size:10px;color:#999">Recibe conforme</div>
