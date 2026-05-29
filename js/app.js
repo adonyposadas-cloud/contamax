@@ -4053,7 +4053,13 @@ window.openCajaDebe = (lineaId) => {
   const l = partidaLineas.find(x => x.id === lineaId)
   const existing = l?.billetes || null
   openBilletes('💵 Ingreso a Caja General', 'Contá los billetes que entran a caja', (monto, detalle) => {
-    if (l) { l.tipo = 'debito'; l.monto = monto; l.billetes = detalle }
+    if (l) {
+      const montoAnterior = l.monto || 0
+      if (montoAnterior > 0 && Math.abs(montoAnterior - monto) > 0.01) {
+        if (!confirm(`El monto actual es L. ${montoAnterior.toLocaleString('es-HN',{minimumFractionDigits:2})} pero el conteo suma L. ${monto.toLocaleString('es-HN',{minimumFractionDigits:2})}.\n\n¿Reemplazar el monto con el conteo de billetes?`)) return
+      }
+      l.tipo = 'debito'; l.monto = monto; l.billetes = detalle
+    }
     renderLineas()
     calcTotales()
   }, existing)
@@ -4063,7 +4069,13 @@ window.openCajaHaber = (lineaId) => {
   const l = partidaLineas.find(x => x.id === lineaId)
   const existing = l?.billetes || null
   openBilletes('💵 Egreso de Caja General', 'Contá los billetes que salen de caja', (monto, detalle) => {
-    if (l) { l.tipo = 'credito'; l.monto = monto; l.billetes = detalle }
+    if (l) {
+      const montoAnterior = l.monto || 0
+      if (montoAnterior > 0 && Math.abs(montoAnterior - monto) > 0.01) {
+        if (!confirm(`El monto actual es L. ${montoAnterior.toLocaleString('es-HN',{minimumFractionDigits:2})} pero el conteo suma L. ${monto.toLocaleString('es-HN',{minimumFractionDigits:2})}.\n\n¿Reemplazar el monto con el conteo de billetes?`)) return
+      }
+      l.tipo = 'credito'; l.monto = monto; l.billetes = detalle
+    }
     renderLineas()
     calcTotales()
   }, existing)
