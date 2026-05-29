@@ -10,6 +10,7 @@ let allPrestamos = []
 let filteredPrestamos = []
 let selectedPrestamo = null
 let editingPrestamoCode = null
+let currentDetalleCodigo = null
 let liquidacionData = null // Datos de la liquidación actual para generar recibo
 
 // ══════════════════════════════════════════════
@@ -20,22 +21,24 @@ window.loadFinanciamiento = async () => {
   const tbody = document.getElementById('tbody-financiamiento')
   if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
 
-  const { data, error } = await getSb().from('prestamos_taxis').select('*').eq('activo', true).order('categoria').order('codigo')
+  const { data, error } = await getSb().from('prestamos_taxis').select('*').order('categoria').order('codigo')
   if (error) { if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`; return }
 
   allPrestamos = data || []
-  const totalSaldo = allPrestamos.reduce((s, p) => s + (parseFloat(p.saldo_actual) || 0), 0)
-  const morosos = allPrestamos.filter(p => p.dias_sin_pago > 30).length
+  const activos = allPrestamos.filter(p => p.activo !== false)
+  const totalSaldo = activos.reduce((s, p) => s + (parseFloat(p.saldo_actual) || 0), 0)
+  const morosos = activos.filter(p => p.dias_sin_pago > 30).length
   const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v }
-  el('fin-stat-total', allPrestamos.length)
+  el('fin-stat-total', activos.length)
   el('fin-stat-saldo', 'L. ' + getFmt(totalSaldo))
-  el('fin-stat-cats', [...new Set(allPrestamos.map(p => p.categoria))].length)
+  el('fin-stat-cats', [...new Set(activos.map(p => p.categoria))].length)
   el('fin-stat-morosos', morosos)
 
   const catSelect = document.getElementById('fin-filtro-cat')
   if (catSelect) {
-    const cats = [...new Set(allPrestamos.map(p => p.categoria))].sort()
-    catSelect.innerHTML = '<option value="">Todas</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('')
+    const cats = [...new Set(activos.map(p => p.categoria))].sort()
+    const inactivos = allPrestamos.filter(p => p.activo === false).length
+    catSelect.innerHTML = '<option value="">Todas</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('') + (inactivos ? `<option value="_INACTIVOS">📦 Dados de baja (${inactivos})</option>` : '')
   }
   filtrarPrestamos()
 }
@@ -44,7 +47,9 @@ window.filtrarPrestamos = () => {
   const term = (document.getElementById('fin-buscar')?.value || '').toLowerCase().trim()
   const catFilter = document.getElementById('fin-filtro-cat')?.value || ''
   filteredPrestamos = allPrestamos.filter(p => {
+    if (catFilter === '_INACTIVOS') return p.activo === false
     if (catFilter && p.categoria !== catFilter) return false
+    if (!catFilter && p.activo === false) return false // hide inactive by default
     if (term) return `${p.codigo} ${p.motorista} ${p.categoria}`.toLowerCase().includes(term)
     return true
   })
@@ -84,6 +89,7 @@ function renderPrestamosTable() {
 window.verDetallePrestamo = async (codigo) => {
   const p = allPrestamos.find(x => x.codigo === codigo)
   if (!p) return
+  currentDetalleCodigo = codigo
   document.getElementById('modal-detalle-prestamo-title').textContent = `🧾 Préstamo #${codigo} · ${p.motorista || p.categoria}`
   document.getElementById('modal-detalle-prestamo').classList.add('open')
 
@@ -771,6 +777,7 @@ window.openModalNuevoPrestamo = () => {
   document.getElementById('ep-tasa').value = '3'
   document.getElementById('ep-cuotas').value = '24'
   document.getElementById('ep-categoria').value = 'TAXIS'
+  document.getElementById('ep-fecha-inicio').value = new Date().toISOString().split('T')[0]
   document.getElementById('modal-edit-prestamo-error').classList.add('hidden')
   document.getElementById('modal-edit-prestamo').classList.add('open')
 }
@@ -792,6 +799,7 @@ window.editarPrestamo = (codigo) => {
   document.getElementById('ep-seguro').value = p.cuota_seguro || ''
   document.getElementById('ep-admin').value = p.cuota_admin || ''
   document.getElementById('ep-notas').value = p.notas || ''
+  document.getElementById('ep-fecha-inicio').value = p.fecha_inicio || ''
   document.getElementById('modal-edit-prestamo-error').classList.add('hidden')
   document.getElementById('modal-edit-prestamo').classList.add('open')
 }
@@ -808,12 +816,13 @@ window.guardarPrestamo = async () => {
   const seguro = parseFloat(document.getElementById('ep-seguro').value) || 0
   const admin = parseFloat(document.getElementById('ep-admin').value) || 0
   const notas = document.getElementById('ep-notas').value.trim()
+  const fecha_inicio = document.getElementById('ep-fecha-inicio').value || null
   const err = document.getElementById('modal-edit-prestamo-error')
   if (!codigo) { showError(err, 'Código obligatorio'); return }
 
   const btn = document.getElementById('btn-guardar-prestamo')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
-  const payload = { codigo, motorista, categoria, monto_prestamo: monto || saldo, saldo_actual: saldo, tasa_interes: tasa, cuotas_pactadas: cuotas, cuota_gps: gps, cuota_seguro: seguro, cuota_admin: admin, notas, activo: true }
+  const payload = { codigo, motorista, categoria, monto_prestamo: monto || saldo, saldo_actual: saldo, tasa_interes: tasa, cuotas_pactadas: cuotas, cuota_gps: gps, cuota_seguro: seguro, cuota_admin: admin, notas, fecha_inicio, activo: true }
 
   let error
   if (editingPrestamoCode) { const { error: e } = await getSb().from('prestamos_taxis').update(payload).eq('codigo', editingPrestamoCode); error = e }
@@ -824,6 +833,19 @@ window.guardarPrestamo = async () => {
   window.closeModal('modal-edit-prestamo')
   window.toast(editingPrestamoCode ? `#${codigo} actualizado ✓` : `#${codigo} creado ✓`, 'success')
   editingPrestamoCode = null; loadFinanciamiento()
+}
+
+window.inactivarPrestamo = async () => {
+  if (!currentDetalleCodigo) return
+  const p = allPrestamos.find(x => x.codigo === currentDetalleCodigo)
+  if (!p) return
+  if (!confirm(`¿Dar de baja el préstamo #${currentDetalleCodigo} de ${p.motorista}?\n\nEl préstamo quedará inactivo y se podrá reasignar la unidad a otro motorista.`)) return
+  const { error } = await getSb().from('prestamos_taxis').update({ activo: false, fecha_baja: new Date().toISOString().split('T')[0] }).eq('codigo', currentDetalleCodigo)
+  if (error) { window.toast(error.message, 'error'); return }
+  window.closeModal('modal-detalle-prestamo')
+  window.toast(`Préstamo #${currentDetalleCodigo} dado de baja ✓`, 'success')
+  currentDetalleCodigo = null
+  loadFinanciamiento()
 }
 
 function showError(el, msg) { if (el) { el.textContent = msg; el.classList.remove('hidden') } }
