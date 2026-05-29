@@ -63,6 +63,7 @@ window.openAuxCuentaDD = () => {
 }
 
 window.filterAuxCuentas = (val) => {
+  auxCuentaDDIndex = -1
   const dd = document.getElementById('aux-cuenta-dd')
   const term = (val || '').toLowerCase()
   const filtered = getCatalogo()
@@ -80,6 +81,38 @@ window.selectAuxCuenta = (id, codigo, nombre) => {
   document.getElementById('aux-cuenta-input').value = `${codigo} ${nombre}`
   document.getElementById('aux-cuenta-id').value = id
   document.getElementById('aux-cuenta-dd').style.display = 'none'
+  auxCuentaDDIndex = -1
+}
+
+let auxCuentaDDIndex = -1
+
+window.navAuxCuentaDD = (e) => {
+  const dd = document.getElementById('aux-cuenta-dd')
+  if (!dd || dd.style.display === 'none') return
+  const opts = dd.querySelectorAll('.cuenta-opt')
+  if (!opts.length) return
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    auxCuentaDDIndex = Math.min(auxCuentaDDIndex + 1, opts.length - 1)
+    opts.forEach((o, i) => o.style.background = i === auxCuentaDDIndex ? 'var(--bg3)' : '')
+    opts[auxCuentaDDIndex].scrollIntoView({ block: 'nearest' })
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    auxCuentaDDIndex = Math.max(auxCuentaDDIndex - 1, 0)
+    opts.forEach((o, i) => o.style.background = i === auxCuentaDDIndex ? 'var(--bg3)' : '')
+    opts[auxCuentaDDIndex].scrollIntoView({ block: 'nearest' })
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (auxCuentaDDIndex >= 0 && opts[auxCuentaDDIndex]) {
+      opts[auxCuentaDDIndex].click()
+    }
+  } else if (e.key === 'Escape') {
+    dd.style.display = 'none'
+    auxCuentaDDIndex = -1
+  } else {
+    auxCuentaDDIndex = -1
+  }
 }
 
 // Cerrar dropdown al hacer click fuera

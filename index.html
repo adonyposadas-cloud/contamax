@@ -1096,7 +1096,7 @@
             <div class="fld">
               <label>Cuenta contable</label>
               <div style="position:relative">
-                <input type="text" id="aux-cuenta-input" placeholder="Buscar por código o nombre..." autocomplete="off" onfocus="openAuxCuentaDD()" oninput="filterAuxCuentas(this.value)">
+                <input type="text" id="aux-cuenta-input" placeholder="Buscar por código o nombre..." autocomplete="off" onfocus="this.select();openAuxCuentaDD()" oninput="filterAuxCuentas(this.value)" onkeydown="navAuxCuentaDD(event)">
                 <div id="aux-cuenta-dd" class="cuenta-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:250px;overflow-y:auto;z-index:100"></div>
               </div>
               <input type="hidden" id="aux-cuenta-id">
