@@ -177,13 +177,32 @@ window.abrirLiquidacion = async (codigo) => {
   // ── Buscar abonos vía partidas contables (créditos que mencionan el código de unidad) ──
   const codigoStr = String(codigo).trim()
   const codigoSinCero = codigoStr.replace(/^0+/, '') // "03989" → "3989"
+  // Usar prefijos exactos para evitar falsos positivos (ej: "25" matcheando fechas/montos)
+  const prefijosAbono = [
+    `descripcion.ilike.%TAXI ${codigoSinCero}%`,
+    `descripcion.ilike.%TAXI_${codigoSinCero}%`,
+    `descripcion.ilike.%TAXI  ${codigoSinCero}%`,
+    `descripcion.ilike.%VIP ${codigoSinCero}%`,
+    `descripcion.ilike.%VIP_${codigoSinCero}%`,
+    `descripcion.ilike.%VIP  ${codigoSinCero}%`,
+    `descripcion.ilike.%T_${codigoSinCero}%`,
+    `descripcion.ilike.%TAXI VIP ${codigoSinCero}%`,
+    `descripcion.ilike.%TAXI VIP  ${codigoSinCero}%`,
+  ]
+  // Also search with leading zeros if codigo has them
+  if (codigoStr !== codigoSinCero) {
+    prefijosAbono.push(
+      `descripcion.ilike.%TAXI ${codigoStr}%`,
+      `descripcion.ilike.%VIP ${codigoStr}%`,
+      `descripcion.ilike.%T_${codigoStr}%`,
+    )
+  }
   let abonosValidos = []
   try {
-    // Buscar por código con y sin ceros iniciales
     const { data: abonosPartida, error: apErr } = await getSb().from('lineas_partida')
       .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, usado_en_recibo, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
       .eq('tipo', 'credito')
-      .ilike('descripcion', `%${codigoSinCero}%`)
+      .or(prefijosAbono.join(','))
 
     if (!apErr && abonosPartida?.length) {
       abonosValidos = abonosPartida.filter(a => 
@@ -355,11 +374,24 @@ window.reimprimirRecibo = async (reciboId) => {
   let abonosPartida = []
   try {
     const codigoSinCero = String(r.registro).replace(/^0+/, '')
+    const codigoStr = String(r.registro).trim()
+    const prefijos = [
+      `descripcion.ilike.%TAXI ${codigoSinCero}%`,
+      `descripcion.ilike.%TAXI_${codigoSinCero}%`,
+      `descripcion.ilike.%VIP ${codigoSinCero}%`,
+      `descripcion.ilike.%VIP_${codigoSinCero}%`,
+      `descripcion.ilike.%T_${codigoSinCero}%`,
+      `descripcion.ilike.%VIP  ${codigoSinCero}%`,
+      `descripcion.ilike.%TAXI  ${codigoSinCero}%`,
+    ]
+    if (codigoStr !== codigoSinCero) {
+      prefijos.push(`descripcion.ilike.%TAXI ${codigoStr}%`, `descripcion.ilike.%VIP ${codigoStr}%`, `descripcion.ilike.%T_${codigoStr}%`)
+    }
     const { data: lineas } = await getSb().from('lineas_partida')
       .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
       .eq('tipo', 'credito')
       .eq('usado_en_recibo', true)
-      .ilike('descripcion', `%${codigoSinCero}%`)
+      .or(prefijos.join(','))
     abonosPartida = lineas || []
   } catch(e) {}
 
