@@ -212,7 +212,7 @@ window.generarAuxiliar = async () => {
         <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
       </tr></thead>
       <tbody id="aux-tbody">${movimientos.map((m, i) => `
-        <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" onclick="editarPartida('${m.partidaId}')">
+        <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" onclick="verPartida('${m.partidaId}')">
           <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
           <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
           <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion}</td>
