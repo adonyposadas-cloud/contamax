@@ -2353,6 +2353,7 @@ window.guardarPartida = async (estado) => {
   if (window._importVentasData) {
     const vd = window._importVentasData
     const registros = []
+    const isvW = vd.isvWarnings || {}
 
     // Tecnimax fiscal
     if (vd.tecnimax_fiscal?.facturas?.length) {
@@ -2376,6 +2377,7 @@ window.guardarPartida = async (estado) => {
           numero_documento: documento || null,
           origen: 'import_alpha',
           partida_id: partidaId,
+          observaciones: isvW[f.factura_electronica] || null,
         })
       }
     }
@@ -3462,12 +3464,15 @@ window.procesarImport = async () => {
     }
 
     // ISV en Tecnimax (fiscal e interno)
+    const isvWarnings = {} // factura_electronica → warning text
+    window._isvWarnings = isvWarnings
     for (const r of [tecnimax_fiscal, tecnimax_interno]) {
       if (!r) continue
       const errISV = validarISV(r.facturas)
       if (errISV.length) {
         for (const e of errISV) {
           alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw} Fact. ${e.factura}: ISV ${e.isv.toFixed(2)} ≠ esperado ${e.esperado.toFixed(2)} (diff: ${e.diff.toFixed(2)})` })
+          isvWarnings[e.factura] = `ISV ${e.isv.toFixed(2)} ≠ esperado ${e.esperado.toFixed(2)} (diff: ${e.diff.toFixed(2)})`
         }
       } else if (r.facturas.length) {
         alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: ISV cuadra al 15% en todas las facturas` })
@@ -3930,6 +3935,7 @@ window.guardarImportPartida = async () => {
     fecha,
     ccTecniId: ccTecni?.id || null,
     ccYonkerId: ccYonker?.id || null,
+    isvWarnings: window._isvWarnings || {},
   }
 
   toast('Créditos cargados. Completá los débitos con las formas de pago.', 'info')
