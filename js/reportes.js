@@ -59,7 +59,17 @@ window.initAuxiliar = function() {
 window.openAuxCuentaDD = () => {
   const dd = document.getElementById('aux-cuenta-dd')
   dd.style.display = 'block'
-  filterAuxCuentas('')
+  // Check if current value is a group code
+  const inputVal = document.getElementById('aux-cuenta-input').value.trim()
+  const codigoActual = inputVal.split(' ')[0]
+  if (codigoActual.length === 6 && !codigoActual.includes('-')) {
+    const catalogo = getCatalogo()
+    const grupo = catalogo.find(c => c.codigo === codigoActual && !c.es_detalle && c.activa)
+    if (grupo && catalogo.some(h => h.es_detalle && h.activa && h.codigo.startsWith(codigoActual + '-'))) {
+      selectAuxCuenta(grupo.id, grupo.codigo, grupo.nombre, true)
+    }
+  }
+  filterAuxCuentas(inputVal)
 }
 
 window.filterAuxCuentas = (val) => {
@@ -90,7 +100,6 @@ window.filterAuxCuentas = (val) => {
 }
 
 window.selectAuxCuenta = (id, codigo, nombre, isGroup) => {
-  console.log('[AUX] selectAuxCuenta', { id, codigo, nombre, isGroup })
   document.getElementById('aux-cuenta-input').value = `${codigo} ${nombre}`
   document.getElementById('aux-cuenta-id').value = id
   document.getElementById('aux-cuenta-dd').style.display = 'none'
@@ -99,7 +108,6 @@ window.selectAuxCuenta = (id, codigo, nombre, isGroup) => {
 
   const rangoDiv = document.getElementById('aux-rango-sub')
   if (isGroup) {
-    console.log('[AUX] Showing range fields')
     rangoDiv.style.display = 'grid'
     const hijas = getCatalogo().filter(c => c.es_detalle && c.activa && c.codigo.startsWith(codigo + '-'))
     const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
