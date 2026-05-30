@@ -172,6 +172,12 @@
           <div class="nav-item" id="nav-prestamos-emp" onclick="showView('prestamos-emp','Préstamos a empleados')">
             <span class="nav-dot"></span>Préstamos
           </div>
+          <div class="nav-item" id="nav-asistencia" onclick="showView('asistencia','Asistencia');loadAsistencia()">
+            <span class="nav-dot"></span>Asistencia
+          </div>
+          <div class="nav-item" id="nav-config-planilla" onclick="showView('config-planilla','Configuración planilla');loadConfigPlanilla()">
+            <span class="nav-dot"></span>Config. planilla
+          </div>
         </div>
       </div>
 
@@ -1427,6 +1433,75 @@
       </div>
 
       <!-- ═══════════════ CUENTAS POR PAGAR ═══════════════ -->
+      <div class="view" id="view-asistencia">
+        <div class="page-header">
+          <div>
+            <div class="page-title">⏱️ Asistencia · Reloj marcador</div>
+            <div class="page-sub">Importa el archivo del reloj, calcula HE, tardes y permisos</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div class="form-card">
+            <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">Archivo del reloj marcador (.xls)</label>
+            <input type="file" accept=".xls,.xlsx" onchange="importarReloj(this)" style="margin-top:8px">
+          </div>
+          <div class="form-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">Permisos registrados</label>
+              <button class="btn btn-ghost" onclick="openPermisoEmpleado()" style="font-size:11px;padding:4px 12px">+ Permiso</button>
+            </div>
+            <div style="max-height:200px;overflow-y:auto">
+              <table style="font-size:12px"><thead><tr><th>Fecha</th><th>Empleado</th><th>Hora</th><th>Tipo</th><th>Motivo</th><th>Aprobó</th><th></th></tr></thead>
+              <tbody id="tbody-permisos"></tbody></table>
+            </div>
+          </div>
+        </div>
+        <div id="asistencia-resultado" class="hidden">
+          <div id="ast-stats"></div>
+          <div id="ast-empleados" style="margin-top:16px"></div>
+          <div id="ast-acciones" class="hidden" style="display:flex;gap:10px;margin-top:16px">
+            <button class="btn btn-gold" onclick="guardarAsistencia()">💾 Guardar asistencia</button>
+            <button class="btn btn-ghost" onclick="aplicarAsistenciaAPlanilla()" style="color:var(--blue)">📋 Aplicar a planilla</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="view" id="view-config-planilla">
+        <div class="page-header">
+          <div>
+            <div class="page-title">⚙️ Configuración de planilla</div>
+            <div class="page-sub">IHSS, gracia de tardes, bloques de horas extra</div>
+          </div>
+        </div>
+        <div class="form-card" style="max-width:500px">
+          <div id="config-planilla-fields"></div>
+          <div id="config-ihss-calc" style="margin:12px 0;padding:10px;background:var(--bg3);border-radius:var(--radius);font-size:13px"></div>
+          <button class="btn btn-gold" onclick="guardarConfigPlanilla()">Guardar configuración</button>
+        </div>
+      </div>
+
+      <!-- Modal Permiso Empleado -->
+      <div class="modal-backdrop" id="modal-permiso-emp">
+        <div class="modal" style="width:450px">
+          <div class="modal-title">📋 Registrar permiso</div>
+          <div class="fld"><label>Empleado</label><input type="text" id="perm-nombre" placeholder="Nombre del empleado" style="text-transform:uppercase"></div>
+          <div class="fld"><label>Fecha</label><input type="date" id="perm-fecha"></div>
+          <div class="fld"><label>Hora de salida</label><input type="time" id="perm-hora"></div>
+          <div class="fld"><label>Tipo</label>
+            <select id="perm-tipo">
+              <option value="salida_anticipada">Salida anticipada</option>
+              <option value="falta_justificada">Falta justificada</option>
+              <option value="permiso_dia">Permiso día completo</option>
+            </select>
+          </div>
+          <div class="fld"><label>Motivo</label><input type="text" id="perm-motivo" placeholder="Razón del permiso..."></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-ghost" onclick="closeModal('modal-permiso-emp')">Cancelar</button>
+            <button class="btn btn-gold" onclick="guardarPermiso()">Guardar permiso</button>
+          </div>
+        </div>
+      </div>
+
       <div class="view" id="view-cxp">
         <div class="page-header">
           <div>
@@ -2640,6 +2715,7 @@
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js"></script>
 <script defer src="js/rrhh.js"></script>
+<script defer src="js/asistencia.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})

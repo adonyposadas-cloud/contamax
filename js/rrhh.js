@@ -64,9 +64,19 @@ const CUENTAS_SECCION = {
 }
 
 // IHSS constants (Honduras 2026)
-const IHSS_TECHO_MENSUAL = 11000   // techo cotización IHSS
-const IHSS_PCT_LABORAL = 0.025     // 2.5% obrero
-const IHSS_PCT_PATRONAL = 0.05     // ~5% patronal (aprox, ajustar si es diferente)
+const IHSS_TECHO_MENSUAL = 11903.16  // default, overridden by config_planilla
+const IHSS_PCT_LABORAL = 0.025       // default 2.5%
+const IHSS_PCT_PATRONAL = 0.05       // default ~5%
+
+function getIHSSConfig() {
+  // Try to get from config_planilla (loaded by asistencia module)
+  const cfg = window._configPlanilla || {}
+  return {
+    techo: cfg.ihss_techo_mensual || IHSS_TECHO_MENSUAL,
+    pctLaboral: cfg.ihss_pct_laboral || IHSS_PCT_LABORAL,
+    pctPatronal: cfg.ihss_pct_patronal || IHSS_PCT_PATRONAL
+  }
+}
 
 // ══════════════════════════════════════════════
 // ═══  1. EXPEDIENTE DE EMPLEADOS  ═══
@@ -302,7 +312,17 @@ window.importarEmpleadosExcel = async () => {
 // ═══  2. PLANILLA QUINCENAL  ═══
 // ══════════════════════════════════════════════
 
-window.initPlanilla = () => {
+window.initPlanilla = async () => {
+  // Load IHSS config from DB
+  try {
+    const { data } = await getSb().from('config_planilla').select('*')
+    if (data) {
+      const cfg = {}
+      for (const c of data) cfg[c.clave] = parseFloat(c.valor)
+      window._configPlanilla = cfg
+    }
+  } catch(e) {}
+  
   // Set default year/month
   const now = new Date()
   const selAnio = document.getElementById('pl-anio')
@@ -366,7 +386,24 @@ window.generarPlanilla = async () => {
   currentPlanilla = planilla
 
   // Generate detail for each employee
-  const detalles = activos.map(e => calcularDetalleEmpleado(e, planilla.id))
+  // Check for attendance data
+  const asistencia = window._asistenciaResumen || []
+  
+  const detalles = activos.map(e => {
+    const overrides = {}
+    // Match attendance data
+    const ast = asistencia.find(a => a.empleado_id === e.id)
+    if (ast) {
+      overrides.horas_extra = Math.round(ast.heNeto / 60 * 100) / 100 // convert min to hours
+      overrides.dias_trabajados = ast.diasTrabajados
+      // Tardes: convert minutes to money deduction
+      if (ast.tardeDeducir > 0) {
+        const valorMinuto = (e.sueldo_mensual || 0) / 30 / 8 / 60
+        overrides.otras_deducciones = Math.round(ast.tardeDeducir * valorMinuto * 100) / 100
+      }
+    }
+    return calcularDetalleEmpleado(e, planilla.id, overrides)
+  })
 
   // Insert all details
   const { error: dErr } = await getSb().from('detalle_planilla').insert(detalles)
@@ -408,10 +445,11 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
 
   if (!emp.es_socio) {
     // IHSS laboral: 2.5% del sueldo, techo L.11,000 mensual → techo quincenal 5,500
-    const baseIHSS = Math.min(sueldoMensual, IHSS_TECHO_MENSUAL)
-    ihssLaboral = Math.round((baseIHSS * IHSS_PCT_LABORAL / 2) * 100) / 100  // quincenal
+    // IHSS laboral: quincenal = techo × porcentaje (ya es quincenal, no dividir por 2)
+    const ihssCfg = getIHSSConfig()
+    ihssLaboral = Math.round(ihssCfg.techo * ihssCfg.pctLaboral * 100) / 100
     // IHSS patronal
-    ihssPatronal = Math.round((baseIHSS * IHSS_PCT_PATRONAL / 2) * 100) / 100
+    ihssPatronal = Math.round(ihssCfg.techo * ihssCfg.pctPatronal * 100) / 100
     // Impuesto vecinal (placeholder - se calcula con tabla cuando esté disponible)
     // Por ahora usar proporción del sueldo similar al Excel
     impVecinal = overrides.imp_vecinal ?? 0
