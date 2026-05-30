@@ -8092,6 +8092,7 @@ let cxpMovimientos = []
 let cxpFiltrados = []
 let cxpSeleccionados = new Set() // persists across filter changes
 let cxpMontos = {} // id → monto for persistent sum calculation
+let cxpSeleccionActiva = null // {id, nombre, fecha_pago, notas} when editing a saved selection
 
 // Restore selections from localStorage
 function restaurarCxPSeleccion() {
@@ -8344,6 +8345,7 @@ window.limpiarSelCxP = () => {
   if (!confirm('¿Limpiar toda la selección?')) return
   cxpSeleccionados = new Set()
   cxpMontos = {}
+  cxpSeleccionActiva = null
   guardarCxPSeleccion()
   document.querySelectorAll('.cxp-check').forEach(cb => cb.checked = false)
   updateSumaCxP()
@@ -8368,7 +8370,7 @@ window.updateSumaCxP = () => {
   }
   suma = Math.round(suma * 100) / 100
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  document.getElementById('cxp-suma-sel').textContent = `Seleccionados: L. ${fmt(suma)} (${count})`
+  document.getElementById('cxp-suma-sel').innerHTML = `Seleccionados: L. ${fmt(suma)} (${count})${cxpSeleccionActiva ? ` · <span style="color:var(--blue);font-size:11px">📂 ${cxpSeleccionActiva.nombre}</span>` : ''}`
   document.getElementById('btn-generar-pago').style.display = count > 0 ? 'inline-flex' : 'none'
   const btnLimpiar = document.getElementById('btn-limpiar-sel-cxp')
   if (btnLimpiar) btnLimpiar.style.display = count > 0 ? 'inline-flex' : 'none'
@@ -8459,10 +8461,11 @@ window.openGuardarSelCxP = () => {
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   let suma = 0
   cxpSeleccionados.forEach(id => { suma += cxpMontos[id] || 0 })
-  document.getElementById('gs-nombre').value = ''
-  document.getElementById('gs-fecha-pago').value = ''
-  document.getElementById('gs-notas').value = ''
-  document.getElementById('gs-resumen').innerHTML = `<strong>${cxpSeleccionados.size}</strong> movimientos · <strong style="color:var(--gold)">L. ${fmt(suma)}</strong>`
+  // Pre-fill with active selection if editing
+  document.getElementById('gs-nombre').value = cxpSeleccionActiva?.nombre || ''
+  document.getElementById('gs-fecha-pago').value = cxpSeleccionActiva?.fecha_pago || ''
+  document.getElementById('gs-notas').value = cxpSeleccionActiva?.notas || ''
+  document.getElementById('gs-resumen').innerHTML = `<strong>${cxpSeleccionados.size}</strong> movimientos · <strong style="color:var(--gold)">L. ${fmt(suma)}</strong>${cxpSeleccionActiva ? ' · <span style="color:var(--blue)">Editando selección existente</span>' : ''}`
   document.getElementById('modal-guardar-sel-cxp').classList.add('open')
 }
 
@@ -8476,7 +8479,7 @@ window.guardarSelCxP = async () => {
   let suma = 0
   cxpSeleccionados.forEach(id => { suma += cxpMontos[id] || 0 })
 
-  const { error } = await getSb().from('cxp_selecciones').insert({
+  const payload = {
     nombre,
     fecha_pago: fechaPago,
     notas,
@@ -8486,11 +8489,26 @@ window.guardarSelCxP = async () => {
     cantidad: cxpSeleccionados.size,
     creado_por: window._currentProfile()?.nombre || '',
     estado: 'pendiente'
-  })
+  }
+
+  let error
+  if (cxpSeleccionActiva?.id) {
+    // Update existing
+    const res = await getSb().from('cxp_selecciones').update(payload).eq('id', cxpSeleccionActiva.id)
+    error = res.error
+  } else {
+    // Create new
+    const res = await getSb().from('cxp_selecciones').insert(payload)
+    error = res.error
+  }
+
   if (error) { toast('Error: ' + error.message, 'error'); return }
+  // Update active selection reference
+  cxpSeleccionActiva = { ...(cxpSeleccionActiva || {}), id: cxpSeleccionActiva?.id, nombre, fecha_pago: fechaPago, notas }
   closeModal('modal-guardar-sel-cxp')
-  toast(`Selección "${nombre}" guardada · Pago: ${fechaPago}`, 'success')
-  logActividad('cxp_seleccion_guardada', 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
+  const accion = cxpSeleccionActiva?.id ? 'actualizada' : 'guardada'
+  toast(`Selección "${nombre}" ${accion} · Pago: ${fechaPago}`, 'success')
+  logActividad(`cxp_seleccion_${accion}`, 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
 }
 
 window.verSeleccionesCxP = async () => {
@@ -8545,6 +8563,7 @@ window.cargarSelCxP = async (selId) => {
   if (!sel) { toast('Selección no encontrada', 'error'); return }
   cxpSeleccionados = new Set(sel.linea_ids || [])
   cxpMontos = sel.montos || {}
+  cxpSeleccionActiva = { id: sel.id, nombre: sel.nombre, fecha_pago: sel.fecha_pago, notas: sel.notas || '' }
   guardarCxPSeleccion()
   closeModal('modal-selecciones-cxp')
   toast(`Selección "${sel.nombre}" cargada · ${sel.cantidad} items`, 'success')
