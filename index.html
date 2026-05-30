@@ -1435,27 +1435,32 @@
           </div>
         </div>
         <div class="form-card">
-          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-            <div class="fld" style="flex:1;min-width:250px">
-              <label>Cuentas por pagar (buscá tarjeta, proveedor, etc.)</label>
-              <div class="ac-wrap">
-                <input type="text" id="cxp-cuenta-buscar" placeholder="Ej: tarjeta, 210701..." oninput="buscarCuentasCxP(this.value)" onfocus="buscarCuentasCxP(this.value)">
-                <div class="ac-list hidden" id="cxp-cuenta-list" style="max-height:250px;overflow-y:auto"></div>
-              </div>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap" id="cxp-cuentas-sel"></div>
-          </div>
-          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
-            <div class="fld"><label>Desde</label><input type="date" id="cxp-desde"></div>
-            <div class="fld"><label>Hasta</label><input type="date" id="cxp-hasta"></div>
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px">
             <div class="fld">
-              <label>Estado</label>
+              <label>Cuenta por pagar (buscá tarjeta, proveedor, etc.)</label>
+              <div style="position:relative">
+                <input type="text" id="cxp-cuenta-buscar" placeholder="Ej: tarjeta, 210701..." autocomplete="off" onfocus="this.select();buscarCuentasCxP(this.value)" oninput="buscarCuentasCxP(this.value)" onkeydown="navCxPCuentaDD(event)">
+                <div class="ac-list hidden" id="cxp-cuenta-list" style="max-height:250px;overflow-y:auto;position:absolute;top:100%;left:0;right:0;z-index:100"></div>
+              </div>
+              <input type="hidden" id="cxp-cuenta-id">
+              <input type="hidden" id="cxp-cuenta-es-grupo" value="">
+            </div>
+            <div class="fld"><label>Estado</label>
               <select id="cxp-estado-filtro">
                 <option value="pendiente">Pendientes de pago</option>
                 <option value="pagado">Ya pagados</option>
                 <option value="todos">Todos</option>
               </select>
             </div>
+          </div>
+          <div id="cxp-rango-sub" style="display:none;grid-template-columns:1fr 1fr 2fr;gap:14px;margin-top:12px">
+            <div class="fld"><label>Desde (subcuenta)</label><input type="text" id="cxp-sub-desde" placeholder="001" style="font-family:var(--mono)"></div>
+            <div class="fld"><label>Hasta (subcuenta)</label><input type="text" id="cxp-sub-hasta" placeholder="999" style="font-family:var(--mono)"></div>
+            <div class="fld"><label>&nbsp;</label><div style="font-size:12px;color:var(--text3);padding-top:8px" id="cxp-rango-info"></div></div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:12px">
+            <div class="fld"><label>Desde</label><input type="date" id="cxp-desde"></div>
+            <div class="fld"><label>Hasta</label><input type="date" id="cxp-hasta"></div>
             <button class="btn btn-gold" onclick="consultarCxP()">Consultar →</button>
           </div>
         </div>

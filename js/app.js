@@ -8088,7 +8088,6 @@ window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
 // ═══  CUENTAS POR PAGAR (CxP)  ═══
 // ══════════════════════════════════════════════
 
-let cxpCuentasSel = [] // [{id, codigo, nombre}]
 let cxpMovimientos = []
 let cxpFiltrados = []
 let cxpSeleccionados = new Set() // persists across filter changes
@@ -8107,89 +8106,134 @@ function guardarCxPSeleccion() {
 }
 
 window.loadCxP = () => {
-  cxpCuentasSel = []
   cxpMovimientos = []
   restaurarCxPSeleccion()
-  renderCxPCuentasSel()
   const now = new Date()
   document.getElementById('cxp-desde').value = localDateStr(new Date(now.getFullYear(), now.getMonth(), 1))
   document.getElementById('cxp-hasta').value = localDateStr()
 }
 
+let cxpDDIndex = -1
+
 window.buscarCuentasCxP = (val) => {
+  cxpDDIndex = -1
   const list = document.getElementById('cxp-cuenta-list')
-  if (!val || val.length < 2) { list.classList.add('hidden'); return }
-  const term = val.toLowerCase()
+  list.classList.remove('hidden')
+  const term = (val || '').toLowerCase().trim()
   const catalogo = window.catalogoCuentas || []
-  
-  // Helper: does this code have subcuentas?
   const tieneHijas = (codigo) => catalogo.some(c => c.activa !== false && c.codigo.startsWith(codigo + '-'))
-  
-  // Show both groups (6 digits with children) and detail accounts
+  const esGrupo = (c) => c.codigo.length === 6 && !c.codigo.includes('-') && tieneHijas(c.codigo)
+
   const matches = catalogo.filter(c => {
-    if (!c.codigo.toLowerCase().includes(term) && !c.nombre.toLowerCase().includes(term)) return false
-    // Detail accounts (have dash)
-    if (c.codigo.includes('-')) return true
-    // Group accounts (6 digits, have children)
-    if (c.codigo.length === 6 && !c.codigo.includes('-') && tieneHijas(c.codigo)) return true
+    if (!term || c.codigo.toLowerCase().includes(term) || c.nombre.toLowerCase().includes(term)) {
+      if (c.codigo.includes('-')) return true
+      if (esGrupo(c)) return true
+    }
     return false
-  }).slice(0, 20)
-  
-  if (!matches.length) { list.classList.add('hidden'); return }
+  }).slice(0, 30)
+
+  if (!matches.length) { list.innerHTML = '<div style="padding:10px;color:var(--text3);font-size:12px">No se encontraron cuentas</div>'; return }
   list.innerHTML = matches.map(c => {
-    const isGroup = c.codigo.length === 6 && !c.codigo.includes('-') && tieneHijas(c.codigo)
-    const hijasCount = isGroup ? catalogo.filter(h => h.codigo.startsWith(c.codigo + '-')).length : 0
-    return `<div class="ac-item" onmousedown="${isGroup ? `selGrupoCxP('${c.codigo}')` : `selCuentaCxP('${c.id}','${c.codigo}','${c.nombre.replace(/'/g,"&#39;")}')`}" style="display:flex;gap:8px;align-items:center;${isGroup ? 'background:var(--bg3);font-weight:600' : ''}">
+    const isGrp = esGrupo(c)
+    const hijasCount = isGrp ? catalogo.filter(h => h.codigo.startsWith(c.codigo + '-')).length : 0
+    return `<div class="ac-item cxp-dd-opt" onmousedown="selCuentaCxP('${c.id}','${c.codigo}','${c.nombre.replace(/'/g,"&#39;")}',${isGrp})" style="${isGrp ? 'background:var(--bg3);font-weight:600' : ''}">
       <span style="font-family:var(--mono);font-size:11px;color:var(--gold);min-width:90px">${c.codigo}</span>
-      <span style="font-size:12px">${c.nombre} ${isGroup ? `<span style="color:var(--text3);font-size:10px">(${hijasCount} subcuentas)</span>` : ''}</span>
+      <span style="font-size:12px">${c.nombre} ${isGrp ? `<span style="color:var(--text3);font-size:10px">(${hijasCount} subcuentas)</span>` : ''}</span>
     </div>`
   }).join('')
-  list.classList.remove('hidden')
-}
 
-window.selGrupoCxP = (grupoCodigo) => {
-  const catalogo = window.catalogoCuentas || []
-  const hijas = catalogo.filter(c => c.codigo.startsWith(grupoCodigo + '-'))
-  for (const h of hijas) {
-    if (!cxpCuentasSel.some(c => c.id === h.id)) {
-      cxpCuentasSel.push({ id: h.id, codigo: h.codigo, nombre: h.nombre })
+  // Auto-detect group from typed value
+  const codigoTyped = term.split(' ')[0]
+  const rangoDiv = document.getElementById('cxp-rango-sub')
+  if (codigoTyped.length === 6 && !codigoTyped.includes('-')) {
+    const grupo = matches.find(c => c.codigo.toLowerCase() === codigoTyped && esGrupo(c))
+    if (grupo) {
+      document.getElementById('cxp-cuenta-id').value = grupo.id
+      document.getElementById('cxp-cuenta-es-grupo').value = grupo.codigo
+      const hijas = catalogo.filter(c => c.codigo.startsWith(grupo.codigo + '-'))
+      const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
+      document.getElementById('cxp-sub-desde').value = sufijos[0] || '001'
+      document.getElementById('cxp-sub-hasta').value = sufijos[sufijos.length - 1] || '999'
+      document.getElementById('cxp-rango-info').textContent = `${hijas.length} subcuentas (${sufijos[0] || '?'} a ${sufijos[sufijos.length - 1] || '?'})`
+      rangoDiv.style.display = 'grid'
+      return
     }
   }
-  document.getElementById('cxp-cuenta-buscar').value = ''
+  if (codigoTyped.includes('-') || codigoTyped.length < 6 || codigoTyped.length > 6) {
+    rangoDiv.style.display = 'none'
+    document.getElementById('cxp-cuenta-es-grupo').value = ''
+  }
+}
+
+window.selCuentaCxP = (id, codigo, nombre, isGroup) => {
+  document.getElementById('cxp-cuenta-buscar').value = `${codigo} ${nombre}`
+  document.getElementById('cxp-cuenta-id').value = id
   document.getElementById('cxp-cuenta-list').classList.add('hidden')
-  renderCxPCuentasSel()
-  toast(`${hijas.length} subcuentas de ${grupoCodigo} agregadas`, 'success')
+  document.getElementById('cxp-cuenta-es-grupo').value = isGroup ? codigo : ''
+  cxpDDIndex = -1
+
+  const rangoDiv = document.getElementById('cxp-rango-sub')
+  if (isGroup) {
+    rangoDiv.style.display = 'grid'
+    const catalogo = window.catalogoCuentas || []
+    const hijas = catalogo.filter(c => c.codigo.startsWith(codigo + '-'))
+    const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
+    document.getElementById('cxp-sub-desde').value = sufijos[0] || '001'
+    document.getElementById('cxp-sub-hasta').value = sufijos[sufijos.length - 1] || '999'
+    document.getElementById('cxp-rango-info').textContent = `${hijas.length} subcuentas (${sufijos[0] || '?'} a ${sufijos[sufijos.length - 1] || '?'})`
+  } else {
+    rangoDiv.style.display = 'none'
+  }
 }
 
-window.selCuentaCxP = (id, codigo, nombre) => {
-  if (cxpCuentasSel.some(c => c.id === id)) return // already selected
-  cxpCuentasSel.push({ id, codigo, nombre })
-  document.getElementById('cxp-cuenta-buscar').value = ''
-  document.getElementById('cxp-cuenta-list').classList.add('hidden')
-  renderCxPCuentasSel()
+window.navCxPCuentaDD = (e) => {
+  const list = document.getElementById('cxp-cuenta-list')
+  if (list.classList.contains('hidden')) return
+  const opts = list.querySelectorAll('.cxp-dd-opt')
+  if (!opts.length) return
+  if (e.key === 'ArrowDown') { e.preventDefault(); cxpDDIndex = Math.min(cxpDDIndex + 1, opts.length - 1); opts.forEach((o, i) => o.style.background = i === cxpDDIndex ? 'var(--bg3)' : ''); opts[cxpDDIndex].scrollIntoView({ block: 'nearest' }) }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); cxpDDIndex = Math.max(cxpDDIndex - 1, 0); opts.forEach((o, i) => o.style.background = i === cxpDDIndex ? 'var(--bg3)' : ''); opts[cxpDDIndex].scrollIntoView({ block: 'nearest' }) }
+  else if (e.key === 'Enter') { e.preventDefault(); if (cxpDDIndex >= 0 && opts[cxpDDIndex]) opts[cxpDDIndex].dispatchEvent(new Event('mousedown')) }
+  else if (e.key === 'Escape') { list.classList.add('hidden'); cxpDDIndex = -1 }
+  else { cxpDDIndex = -1 }
 }
 
-function renderCxPCuentasSel() {
-  const div = document.getElementById('cxp-cuentas-sel')
-  div.innerHTML = cxpCuentasSel.map(c =>
-    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;font-family:var(--mono)">
-      ${c.codigo}
-      <button onclick="remCuentaCxP('${c.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 2px">✕</button>
-    </span>`
-  ).join('')
-}
-
-window.remCuentaCxP = (id) => {
-  cxpCuentasSel = cxpCuentasSel.filter(c => c.id !== id)
-  renderCxPCuentasSel()
-}
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#cxp-cuenta-buscar') && !e.target.closest('#cxp-cuenta-list')) {
+    document.getElementById('cxp-cuenta-list')?.classList.add('hidden')
+  }
+})
 
 window.consultarCxP = async () => {
-  if (!cxpCuentasSel.length) { toast('Seleccioná al menos una cuenta', 'error'); return }
+  const cuentaId = document.getElementById('cxp-cuenta-id').value
+  const grupoCodigo = document.getElementById('cxp-cuenta-es-grupo').value
+  const cuentaInput = document.getElementById('cxp-cuenta-buscar').value.trim()
+  const codigoCuenta = cuentaInput.split(' ')[0]
+
+  if (!cuentaId && !grupoCodigo) { toast('Seleccioná una cuenta contable', 'error'); return }
+
+  // Determine which account codes to query
+  let codigos = []
+  if (grupoCodigo) {
+    const subDesde = document.getElementById('cxp-sub-desde').value.trim()
+    const subHasta = document.getElementById('cxp-sub-hasta').value.trim()
+    const catalogo = window.catalogoCuentas || []
+    codigos = catalogo
+      .filter(c => c.codigo.startsWith(grupoCodigo + '-'))
+      .filter(c => {
+        const sufijo = c.codigo.split('-').pop()
+        return (!subDesde || sufijo >= subDesde) && (!subHasta || sufijo <= subHasta)
+      })
+      .map(c => c.codigo)
+    if (!codigos.length) { toast('No hay subcuentas en ese rango', 'error'); return }
+  } else {
+    codigos = [codigoCuenta]
+  }
+
   const desde = document.getElementById('cxp-desde').value
   const hasta = document.getElementById('cxp-hasta').value
   const estadoFiltro = document.getElementById('cxp-estado-filtro').value
-  const codigos = cxpCuentasSel.map(c => c.codigo)
 
   const tbody = document.getElementById('tbody-cxp')
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
@@ -8198,7 +8242,7 @@ window.consultarCxP = async () => {
   let query = sb.from('lineas_partida')
     .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
     .in('cuenta_codigo', codigos)
-    .eq('tipo', 'credito') // Credits to passivo = cargos a la tarjeta
+    .eq('tipo', 'credito')
     .order('id', { ascending: true })
 
   const { data, error } = await query
