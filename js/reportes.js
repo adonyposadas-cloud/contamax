@@ -66,13 +66,23 @@ window.filterAuxCuentas = (val) => {
   auxCuentaDDIndex = -1
   const dd = document.getElementById('aux-cuenta-dd')
   const term = (val || '').toLowerCase()
-  const filtered = getCatalogo()
+  const catalogo = getCatalogo()
+  const filtered = catalogo
     .filter(c => c.activa)
+    .filter(c => {
+      // Show detail accounts (level 5, with dash)
+      if (c.es_detalle) return true
+      // Show only level 4 subgroups (6-digit codes that have detail children)
+      if (!c.es_detalle && c.codigo.length === 6 && !c.codigo.includes('-')) {
+        return catalogo.some(h => h.es_detalle && h.activa && h.codigo.startsWith(c.codigo + '-'))
+      }
+      return false
+    })
     .filter(c => !term || c.codigo.toLowerCase().includes(term) || c.nombre.toLowerCase().includes(term))
     .slice(0, 40)
 
   dd.innerHTML = filtered.length ? filtered.map(c => {
-    const isGroup = !c.es_detalle
+    const isGroup = !c.es_detalle && c.codigo.length === 6 && !c.codigo.includes('-')
     return `<div class="cuenta-opt" onclick="selectAuxCuenta('${c.id}','${c.codigo}','${c.nombre.replace(/'/g, '')}',${isGroup})" style="${isGroup ? 'background:var(--bg3);font-weight:600' : ''}">
       <span style="color:var(--gold);font-family:var(--mono)">${c.codigo}</span> ${c.nombre} ${isGroup ? '<span style="font-size:10px;color:var(--text3)">(grupo)</span>' : ''}
     </div>`
