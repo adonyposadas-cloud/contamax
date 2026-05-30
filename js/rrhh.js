@@ -337,6 +337,22 @@ window.initPlanilla = async () => {
   if (allEmpleados.length === 0) loadEmpleados()
 }
 
+window.regenerarPlanilla = async () => {
+  if (!confirm('¿Regenerar la planilla? Se borrarán los datos actuales y se recalculará todo.')) return
+  if (!currentPlanilla) return
+  
+  // Delete existing details and header
+  await getSb().from('detalle_planilla').delete().eq('planilla_id', currentPlanilla.id)
+  await getSb().from('planillas').delete().eq('id', currentPlanilla.id)
+  currentPlanilla = null
+  currentDetalle = []
+  document.getElementById('pl-existing').classList.add('hidden')
+  document.getElementById('planilla-resultado').classList.add('hidden')
+  
+  // Re-generate
+  await generarPlanilla()
+}
+
 window.generarPlanilla = async () => {
   const anio = parseInt(document.getElementById('pl-anio').value)
   const mes = parseInt(document.getElementById('pl-mes').value)

@@ -1348,8 +1348,9 @@
               <button class="btn btn-gold" onclick="generarPlanilla()" style="width:100%">Generar planilla →</button>
             </div>
           </div>
-          <div id="pl-existing" class="hidden" style="padding:10px 14px;background:var(--bg1);border-radius:var(--radius);border:1px solid var(--gold);margin-top:8px">
-            <span style="color:var(--gold)">⚠️</span> <span id="pl-existing-msg"></span>
+          <div id="pl-existing" class="hidden" style="padding:10px 14px;background:var(--bg1);border-radius:var(--radius);border:1px solid var(--gold);margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <div><span style="color:var(--gold)">⚠️</span> <span id="pl-existing-msg"></span></div>
+            <button class="btn btn-ghost" onclick="regenerarPlanilla()" style="font-size:11px;padding:4px 12px;color:var(--red)">🔄 Regenerar planilla</button>
           </div>
         </div>
 
