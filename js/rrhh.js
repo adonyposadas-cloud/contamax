@@ -404,18 +404,61 @@ window.generarPlanilla = async () => {
   // Generate detail for each employee
   // Check for attendance data
   const asistencia = window._asistenciaResumen || []
-  
+
+  // ── Cargar anticipos y trucha de cuentas 110301-XXX ──
+  const { data: lineasCxC } = await getSb().from('lineas_partida')
+    .select('monto, tipo, cuenta_codigo, descripcion, partida:partidas_contables(fecha_partida, estado)')
+    .like('cuenta_codigo', '110301-%')
+    .eq('tipo', 'debito')
+
+  const ini = fechaInicio.toISOString().slice(0, 10)
+  const fin = fechaFin.toISOString().slice(0, 10)
+  const cxcFiltradas = (lineasCxC || []).filter(l =>
+    l.partida?.estado === 'aprobada' && l.partida.fecha_partida >= ini && l.partida.fecha_partida <= fin
+  )
+
+  const cxcPorCuenta = {}
+  for (const l of cxcFiltradas) {
+    const cc = l.cuenta_codigo
+    if (!cxcPorCuenta[cc]) cxcPorCuenta[cc] = { anticipos: 0, trucha: 0 }
+    const desc = (l.descripcion || '').toUpperCase()
+    if (desc.includes('TRUCHA')) {
+      cxcPorCuenta[cc].trucha += parseFloat(l.monto) || 0
+    } else if (desc.includes('PRESTAMO') || desc.includes('PRÉSTAMO')) {
+      // Préstamos se deducen por cuota, no como anticipo
+    } else {
+      cxcPorCuenta[cc].anticipos += parseFloat(l.monto) || 0
+    }
+  }
+
+  // Cargar préstamos activos
+  const { data: prestamosActivos } = await getSb().from('prestamos_empleados')
+    .select('empleado_id, cuota_quincenal, saldo, activo, fecha_primera_deduccion')
+    .eq('activo', true).eq('tipo', 'prestamo')
+
   const detalles = activos.map(e => {
     const overrides = {}
-    // Match attendance data
+    // Asistencia
     const ast = asistencia.find(a => a.empleado_id === e.id)
     if (ast) {
-      overrides.horas_extra = Math.round(ast.heNeto / 60 * 100) / 100 // convert min to hours
+      overrides.horas_extra = Math.round(ast.heNeto / 60 * 100) / 100
       overrides.dias_trabajados = ast.diasTrabajados
-      // Tardes: convert minutes to money deduction
       if (ast.tardeDeducir > 0) {
         const valorMinuto = (e.sueldo_mensual || 0) / 30 / 8 / 60
         overrides.otras_deducciones = Math.round(ast.tardeDeducir * valorMinuto * 100) / 100
+      }
+    }
+    // Anticipos y trucha desde CXC
+    if (e.cuenta_cxc && cxcPorCuenta[e.cuenta_cxc]) {
+      const cxc = cxcPorCuenta[e.cuenta_cxc]
+      overrides.anticipos = Math.round(cxc.anticipos * 100) / 100
+      overrides.trucha = Math.round(cxc.trucha * 100) / 100
+    }
+    // Préstamos: deducir cuota
+    const prestamo = (prestamosActivos || []).find(p => p.empleado_id === e.id)
+    if (prestamo) {
+      if (!prestamo.fecha_primera_deduccion || prestamo.fecha_primera_deduccion <= ini) {
+        overrides.cxc = Math.round(Math.min(prestamo.cuota_quincenal || 0, prestamo.saldo || 0) * 100) / 100
       }
     }
     return calcularDetalleEmpleado(e, planilla.id, overrides)
