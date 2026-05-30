@@ -145,6 +145,123 @@ window.procesarReloj = async () => {
   window.toast?.(`${dayRecords.length} registros · ${asistenciaResumen.length} empleados · ${quincena}`, 'success')
 }
 
+// ── CALCULATE ATTENDANCE PER DAY ──
+function calcularAsistencia(dayRecords, permisos) {
+  const HORA_ENTRADA = 8 * 60
+  const HORA_SALIDA_LV = 17 * 60
+  const HORA_SALIDA_SAB = 13 * 60
+  const GRACIA_HE_LV = configPlanilla.he_gracia_lv_min || 30
+  const BLOQUE_HE = configPlanilla.he_bloque_min || 30
+
+  return dayRecords.map(d => {
+    const result = { ...d, minutos_tarde: 0, minutos_he: 0, minutos_negativos: 0,
+      sin_salida: false, tiene_permiso: false, permiso_id: null, notas: [] }
+    const esSabado = d.weekday === 6
+    const esDomingo = d.weekday === 0
+    const esLaboral = d.weekday >= 1 && d.weekday <= 5
+
+    if (esDomingo) return result
+
+    const permiso = permisos.find(p =>
+      p.empleado_nombre?.toUpperCase() === d.nombre?.toUpperCase() && p.fecha === d.fecha)
+    if (permiso) { result.tiene_permiso = true; result.permiso_id = permiso.id }
+
+    if (d.entrada && !d.salida) {
+      result.sin_salida = true
+      result.notas.push('⚠️ Sin salida registrada')
+      return result
+    }
+    if (!d.entrada) return result
+
+    if (d.entradaMin > HORA_ENTRADA) {
+      result.minutos_tarde = d.entradaMin - HORA_ENTRADA
+      result.notas.push(`Tarde: ${result.minutos_tarde}min`)
+    }
+    if (!d.salida) return result
+
+    if (esSabado) {
+      if (d.salidaMin > HORA_SALIDA_SAB) {
+        const extraMin = d.salidaMin - HORA_SALIDA_SAB
+        result.minutos_he = Math.floor(extraMin / BLOQUE_HE) * BLOQUE_HE
+        if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
+      }
+    } else if (esLaboral) {
+      const inicioHE = HORA_SALIDA_LV + GRACIA_HE_LV
+      if (d.salidaMin > inicioHE) {
+        const extraMin = d.salidaMin - HORA_SALIDA_LV
+        result.minutos_he = Math.floor(extraMin / BLOQUE_HE) * BLOQUE_HE
+        if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
+      }
+      if (d.salidaMin < HORA_SALIDA_LV && !result.tiene_permiso) {
+        result.minutos_negativos = HORA_SALIDA_LV - d.salidaMin
+        result.notas.push(`Negativo: ${result.minutos_negativos}min`)
+      }
+    }
+    return result
+  })
+}
+
+// ── SUMMARY PER EMPLOYEE ──
+function calcularResumenQuincenal(dayRecords, empleados) {
+  const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
+  const byEmpleado = {}
+
+  for (const d of dayRecords) {
+    if (!byEmpleado[d.nombre]) {
+      byEmpleado[d.nombre] = { nombre: d.nombre, empleado_id: null, dias: [],
+        totalTarde: 0, totalHE: 0, totalNegativo: 0, diasTrabajados: 0, diasFalta: 0,
+        alertas: [], sinSalida: [] }
+    }
+    byEmpleado[d.nombre].dias.push(d)
+  }
+
+  for (const [nombre, r] of Object.entries(byEmpleado)) {
+    const emp = empleados.find(e => {
+      const en = e.nombre.toUpperCase().trim()
+      const rn = nombre.toUpperCase().trim()
+      // Match: exact, contains, or first name + last name partial
+      if (en === rn) return true
+      if (en.includes(rn) || rn.includes(en)) return true
+      // Try first word match (primer nombre)
+      const enFirst = en.split(' ')[0]
+      const rnFirst = rn.split(' ')[0]
+      const enLast = en.split(' ').slice(-1)[0]
+      const rnLast = rn.split(' ').slice(-1)[0]
+      if (enFirst === rnFirst && enLast === rnLast) return true
+      return false
+    })
+    if (emp) {
+      r.empleado_id = emp.id
+      r.sueldo_mensual = emp.sueldo_mensual
+      r.es_socio = emp.es_socio
+    } else {
+      r.alertas.push(`⚠️ No se encontró "${nombre}" en empleados`)
+    }
+
+    for (const d of r.dias) {
+      if (d.entrada) r.diasTrabajados++
+      r.totalTarde += d.minutos_tarde
+      r.totalHE += d.minutos_he
+      r.totalNegativo += d.minutos_negativos
+      if (d.sin_salida) r.sinSalida.push(d.fecha)
+    }
+
+    if (r.totalTarde > GRACIA_TARDE) {
+      r.tardeDeducir = r.totalTarde
+      r.alertas.push(`⏰ Tardes: ${r.totalTarde}min excede ${GRACIA_TARDE}min → deducir todo`)
+    } else {
+      r.tardeDeducir = 0
+    }
+
+    r.heNeto = Math.max(0, r.totalHE - r.totalNegativo)
+    r.negativoArrastre = Math.max(0, r.totalNegativo - r.totalHE)
+    if (r.negativoArrastre > 0) r.alertas.push(`📉 Negativo: ${r.negativoArrastre}min para siguiente quincena`)
+    if (r.sinSalida.length) r.alertas.push(`❌ Sin salida: ${r.sinSalida.join(', ')}`)
+  }
+
+  return Object.values(byEmpleado).sort((a, b) => a.nombre.localeCompare(b.nombre))
+}
+
 function renderAsistencia(fechaMin, fechaMax) {
   const container = document.getElementById('asistencia-resultado')
   if (!container) return
