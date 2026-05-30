@@ -189,6 +189,9 @@
           <div class="nav-item" id="nav-estado-resultados" onclick="showView('estado-resultados','Estado de resultados')">
             <span class="nav-dot"></span>Estado de resultados
           </div>
+          <div class="nav-item" id="nav-actividad" onclick="showView('actividad','Actividad de usuarios')">
+            <span class="nav-dot"></span>Actividad
+          </div>
         </div>
       </div>
     </div>
@@ -1232,6 +1235,21 @@
       </div>
 
       <!-- ═══════════════ RRHH: EMPLEADOS ═══════════════ -->
+      <div class="view" id="view-actividad">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div class="page-title">📊 Actividad de usuarios</div>
+          <button class="btn btn-ghost" onclick="loadActividad()">↻ Actualizar</button>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+          <input type="date" id="act-fecha-ini" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font)">
+          <input type="date" id="act-fecha-fin" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font)">
+          <select id="act-usuario" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font)"><option value="">Todos</option></select>
+          <button class="btn btn-gold" onclick="loadActividad()" style="padding:8px 16px">Consultar</button>
+        </div>
+        <div id="act-stats" style="margin-bottom:16px"></div>
+        <div id="act-tabla"></div>
+      </div>
+
       <div class="view" id="view-empleados">
         <div class="page-header">
           <div>

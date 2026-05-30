@@ -26,6 +26,22 @@ window._empresas = () => empresas
 window._currentProfile = () => currentProfile
 window._allCentros = () => allCentros
 
+// ── LOG DE ACTIVIDAD ──
+window.logActividad = async (accion, modulo, detalle, referencia_id) => {
+  try {
+    const p = currentProfile
+    await sb.from('actividad_log').insert({
+      usuario_id: p?.id || null,
+      usuario_nombre: p?.nombre || 'desconocido',
+      usuario_rol: p?.rol || '',
+      accion,
+      modulo: modulo || null,
+      detalle: detalle || null,
+      referencia_id: referencia_id ? String(referencia_id) : null
+    })
+  } catch(e) { /* silent */ }
+}
+
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
   const { data: { session } } = await sb.auth.getSession()
@@ -52,6 +68,7 @@ async function initSession(user) {
     return
   }
   await sb.from('usuarios').update({ ultimo_acceso: new Date().toISOString() }).eq('auth_user_id', user.id)
+  logActividad('login', 'auth', `Inicio de sesión · ${profile.rol}`)
   hideOverlay()
   setupUI()
   showScreen('main-screen')
@@ -86,7 +103,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-actividad'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
@@ -94,7 +111,7 @@ function setupUI() {
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-actividad']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -197,6 +214,7 @@ window.showView = (id, label) => {
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
   if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
+  if (id === 'actividad') loadActividad()
   if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
   if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
   // Ajustar botones según rol
@@ -829,6 +847,7 @@ window.guardarCompra = async () => {
   btn.disabled = false; btn.textContent = 'Enviar solicitud →'
   if (error) { toast('Error al guardar: ' + error.message, 'error'); return }
   toast('Solicitud enviada a contabilidad ✓', 'success')
+  logActividad('compra_registrada', 'compras', `${descripcion} · L. ${monto}`, null)
   resetForm()
   setTimeout(() => showView('pendientes', 'Facturas pendientes'), 1000)
 }
@@ -1663,6 +1682,7 @@ window.eliminarPartida = async () => {
       if (error) { toast('Error: ' + error.message, 'error'); return }
       await limpiarDatosImportacion(editingPartidaId)
       toast('Partida anulada ✓ (correlativo preservado)', 'success')
+    logActividad('partida_anulada', 'partidas', `Partida #${partida.numero_partida} anulada`, partida.id)
     } else {
       // Otros roles: solicitar anulación al super_admin
       if (!confirm('Esta partida afecta Caja General.\n\n¿Solicitar anulación?\nUn Super Admin deberá aprobar la anulación.')) return
@@ -2348,6 +2368,7 @@ window.guardarPartida = async (estado) => {
     toast(`Borrador ${accion}`, 'success')
   }
   editingPartidaId = null
+  logActividad(estadoFinal === 'aprobada' ? 'partida_aprobada' : 'partida_borrador', 'partidas', `${descripcion} · L. ${Math.round(debitos*100)/100}`, partidaId)
 
   // ── Insertar en LIBRO DE VENTAS (solo ventas fiscales) ──
   if (window._importVentasData) {
@@ -5170,6 +5191,7 @@ window.guardarImportCompras = async () => {
   btn.disabled = false
   btn.textContent = 'Guardar partidas de crédito →'
   toast(`${creadas} partidas crédito + ${contCreadas} facturas contado registradas`, 'ok')
+  logActividad('import_ventas_alpha', 'importaciones', `${creadas} partidas crédito + ${contCreadas} contado`, null)
 }
 
 // ══════════════════════════════════════════════
@@ -7951,6 +7973,7 @@ window.aprobarMovCajaChica = async (partidaId) => {
       }).eq('id', partidaId)
       if (error) { toast('Error: ' + error.message, 'error'); return }
       toast('Movimiento de Caja Chica aprobado ✓', 'success')
+      logActividad('caja_chica_aprobada', 'caja_chica', `Partida aprobada`, partidaId)
       loadCajaChica()
     },
     existingBilletes
@@ -8275,4 +8298,97 @@ window.generarPagoCxP = async () => {
 
   toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala para agregar la forma de pago.`, 'success')
   consultarCxP()
+}
+
+// ══════════════════════════════════════════════
+// ── ACTIVIDAD DE USUARIOS ──
+// ══════════════════════════════════════════════
+
+window.loadActividad = async () => {
+  const hoy = new Date().toISOString().split('T')[0]
+  const iniEl = document.getElementById('act-fecha-ini')
+  const finEl = document.getElementById('act-fecha-fin')
+  if (!iniEl.value) iniEl.value = hoy
+  if (!finEl.value) finEl.value = hoy
+  const desde = iniEl.value + 'T00:00:00'
+  const hasta = finEl.value + 'T23:59:59'
+  const userFilter = document.getElementById('act-usuario').value
+
+  let query = getSb().from('actividad_log')
+    .select('*')
+    .gte('created_at', desde)
+    .lte('created_at', hasta)
+    .order('created_at', { ascending: false })
+    .limit(500)
+
+  if (userFilter) query = query.eq('usuario_nombre', userFilter)
+  const { data, error } = await query
+  if (error) { toast(error.message, 'error'); return }
+
+  const logs = data || []
+
+  // Populate user filter
+  const userSelect = document.getElementById('act-usuario')
+  const usuarios = [...new Set(logs.map(l => l.usuario_nombre).filter(Boolean))]
+  const currentVal = userSelect.value
+  userSelect.innerHTML = '<option value="">Todos</option>' + usuarios.map(u => `<option value="${u}" ${u === currentVal ? 'selected' : ''}>${u}</option>`).join('')
+
+  // Stats by user
+  const byUser = {}
+  logs.forEach(l => {
+    const u = l.usuario_nombre || 'desconocido'
+    if (!byUser[u]) byUser[u] = { nombre: u, rol: l.usuario_rol, total: 0, acciones: {} }
+    byUser[u].total++
+    byUser[u].acciones[l.accion] = (byUser[u].acciones[l.accion] || 0) + 1
+  })
+
+  const accionLabels = {
+    login: '🔑 Login',
+    partida_aprobada: '✅ Partidas aprobadas',
+    partida_borrador: '📝 Borradores guardados',
+    partida_anulada: '🚫 Partidas anuladas',
+    compra_registrada: '🛒 Compras registradas',
+    import_ventas_alpha: '📥 Import ventas',
+    recibo_generado: '🧾 Recibos generados',
+    prestamo_creado: '🆕 Préstamos creados',
+    prestamo_editado: '✏️ Préstamos editados',
+    prestamo_baja: '⏹ Préstamos baja',
+    caja_chica_aprobada: '💰 Caja chica aprobada'
+  }
+
+  const fmtL = v => v.toLocaleString('es-HN', {minimumFractionDigits:2, maximumFractionDigits:2})
+
+  // Stats cards
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+      ${Object.values(byUser).map(u => `
+        <div class="stat-card" style="padding:14px">
+          <div style="font-weight:600;margin-bottom:6px">${u.nombre} <span class="badge badge-blue" style="font-size:10px">${u.rol}</span></div>
+          <div style="font-size:24px;font-weight:700;color:var(--gold)">${u.total}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">${Object.entries(u.acciones).map(([a, n]) => `${accionLabels[a] || a}: ${n}`).join(' · ')}</div>
+        </div>
+      `).join('')}
+    </div>`
+  document.getElementById('act-stats').innerHTML = statsHtml
+
+  // Activity table
+  const tablaHtml = `
+    <table>
+      <thead><tr>
+        <th>Hora</th><th>Usuario</th><th>Rol</th><th>Acción</th><th>Módulo</th><th>Detalle</th>
+      </tr></thead>
+      <tbody>${logs.map(l => {
+        const hora = new Date(l.created_at).toLocaleString('es-HN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+        const fecha = new Date(l.created_at).toLocaleDateString('es-HN')
+        return `<tr>
+          <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fecha} ${hora}</td>
+          <td style="font-weight:500">${l.usuario_nombre || '—'}</td>
+          <td><span class="badge badge-blue" style="font-size:10px">${l.usuario_rol || ''}</span></td>
+          <td><span class="badge badge-amber" style="font-size:10px">${accionLabels[l.accion] || l.accion}</span></td>
+          <td style="font-size:12px;color:var(--text3)">${l.modulo || '—'}</td>
+          <td style="font-size:12px;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.detalle || ''}">${l.detalle || '—'}</td>
+        </tr>`
+      }).join('')}</tbody>
+    </table>`
+  document.getElementById('act-tabla').innerHTML = logs.length ? tablaHtml : '<div style="text-align:center;padding:40px;color:var(--text3)">No hay actividad en este período</div>'
 }

@@ -628,6 +628,7 @@ window.confirmarRecibo = async () => {
 
   btn.disabled = false; btn.textContent = 'Confirmar y generar recibo →'
   window.toast(`Recibo #${d.numRecibo} generado · Capital: L.${getFmt(d.abonoCapital)} · Saldo: L.${getFmt(d.nuevoSaldoPrestamo)}`, 'success')
+  window.logActividad('recibo_generado', 'financiamiento', `Recibo #${d.numRecibo} · ${d.motorista} · Capital: L.${getFmt(d.abonoCapital)}`, d.codigo)
 
   // 5. Abrir recibo para imprimir
   imprimirRecibo(d, recibo.id)
@@ -867,6 +868,7 @@ window.guardarPrestamo = async () => {
   if (error) { showError(err, error.message); return }
   window.closeModal('modal-edit-prestamo')
   window.toast(editingPrestamoCode ? `#${codigo} actualizado ✓` : `#${codigo} creado ✓`, 'success')
+  window.logActividad(editingPrestamoCode ? 'prestamo_editado' : 'prestamo_creado', 'financiamiento', `${motorista} · L.${monto || saldo}`, codigo)
   editingPrestamoCode = null; loadFinanciamiento()
 }
 
@@ -879,6 +881,7 @@ window.inactivarPrestamo = async () => {
   if (error) { window.toast(error.message, 'error'); return }
   window.closeModal('modal-detalle-prestamo')
   window.toast(`Préstamo #${currentDetalleCodigo} dado de baja ✓`, 'success')
+  window.logActividad('prestamo_baja', 'financiamiento', `${p.motorista} dado de baja`, currentDetalleCodigo)
   currentDetalleCodigo = null
   loadFinanciamiento()
 }
