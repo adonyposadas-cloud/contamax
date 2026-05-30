@@ -75,14 +75,12 @@ window.openAuxCuentaDD = () => {
 window.filterAuxCuentas = (val) => {
   auxCuentaDDIndex = -1
   const dd = document.getElementById('aux-cuenta-dd')
-  const term = (val || '').toLowerCase()
+  const term = (val || '').toLowerCase().trim()
   const catalogo = getCatalogo()
   const filtered = catalogo
     .filter(c => c.activa)
     .filter(c => {
-      // Show detail accounts (level 5, with dash)
       if (c.es_detalle) return true
-      // Show only level 4 subgroups (6-digit codes that have detail children)
       if (!c.es_detalle && c.codigo.length === 6 && !c.codigo.includes('-')) {
         return catalogo.some(h => h.es_detalle && h.activa && h.codigo.startsWith(c.codigo + '-'))
       }
@@ -97,6 +95,29 @@ window.filterAuxCuentas = (val) => {
       <span style="color:var(--gold);font-family:var(--mono)">${c.codigo}</span> ${c.nombre} ${isGroup ? '<span style="font-size:10px;color:var(--text3)">(grupo)</span>' : ''}
     </div>`
   }).join('') : '<div style="padding:10px;color:var(--text3);font-size:12px">No se encontraron cuentas</div>'
+
+  // Auto-detect: update range fields visibility based on typed value
+  const codigoTyped = term.split(' ')[0]
+  const rangoDiv = document.getElementById('aux-rango-sub')
+  if (codigoTyped.length === 6 && !codigoTyped.includes('-')) {
+    const grupo = filtered.find(c => !c.es_detalle && c.codigo.toLowerCase() === codigoTyped)
+    if (grupo) {
+      document.getElementById('aux-cuenta-id').value = grupo.id
+      document.getElementById('aux-cuenta-es-grupo').value = grupo.codigo
+      const hijas = catalogo.filter(c => c.es_detalle && c.activa && c.codigo.startsWith(grupo.codigo + '-'))
+      const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
+      document.getElementById('aux-sub-desde').value = sufijos[0] || '001'
+      document.getElementById('aux-sub-hasta').value = sufijos[sufijos.length - 1] || '999'
+      document.getElementById('aux-rango-info').textContent = `${hijas.length} subcuentas (${sufijos[0] || '?'} a ${sufijos[sufijos.length - 1] || '?'})`
+      rangoDiv.style.display = 'grid'
+      return
+    }
+  }
+  // If a detail account code is being typed, hide range
+  if (codigoTyped.includes('-') || codigoTyped.length > 6) {
+    rangoDiv.style.display = 'none'
+    document.getElementById('aux-cuenta-es-grupo').value = ''
+  }
 }
 
 window.selectAuxCuenta = (id, codigo, nombre, isGroup) => {
