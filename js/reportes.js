@@ -59,13 +59,12 @@ window.initAuxiliar = function() {
 window.openAuxCuentaDD = () => {
   const dd = document.getElementById('aux-cuenta-dd')
   dd.style.display = 'block'
-  // Check if current value is a group code
   const inputVal = document.getElementById('aux-cuenta-input').value.trim()
   const codigoActual = inputVal.split(' ')[0]
   if (codigoActual.length === 6 && !codigoActual.includes('-')) {
     const catalogo = getCatalogo()
-    const grupo = catalogo.find(c => c.codigo === codigoActual && !c.es_detalle && c.activa)
-    if (grupo && catalogo.some(h => h.es_detalle && h.activa && h.codigo.startsWith(codigoActual + '-'))) {
+    const grupo = catalogo.find(c => c.codigo === codigoActual && c.activa)
+    if (grupo && catalogo.some(h => h.activa && h.codigo.startsWith(codigoActual + '-'))) {
       selectAuxCuenta(grupo.id, grupo.codigo, grupo.nombre, true)
     }
   }
@@ -77,34 +76,39 @@ window.filterAuxCuentas = (val) => {
   const dd = document.getElementById('aux-cuenta-dd')
   const term = (val || '').toLowerCase().trim()
   const catalogo = getCatalogo()
+
+  // Helper: is this code a group? (has children with codigo + '-XXX')
+  const tieneHijas = (codigo) => catalogo.some(h => h.activa && h.codigo.startsWith(codigo + '-'))
+  const esGrupo = (c) => c.codigo.length === 6 && !c.codigo.includes('-') && tieneHijas(c.codigo)
+
   const filtered = catalogo
     .filter(c => c.activa)
     .filter(c => {
-      if (c.es_detalle) return true
-      if (!c.es_detalle && c.codigo.length === 6 && !c.codigo.includes('-')) {
-        return catalogo.some(h => h.es_detalle && h.activa && h.codigo.startsWith(c.codigo + '-'))
-      }
+      // Show accounts with dash (detail subcuentas)
+      if (c.codigo.includes('-')) return true
+      // Show level 4 groups that have children
+      if (esGrupo(c)) return true
       return false
     })
     .filter(c => !term || c.codigo.toLowerCase().includes(term) || c.nombre.toLowerCase().includes(term))
     .slice(0, 40)
 
   dd.innerHTML = filtered.length ? filtered.map(c => {
-    const isGroup = !c.es_detalle && c.codigo.length === 6 && !c.codigo.includes('-')
-    return `<div class="cuenta-opt" onclick="selectAuxCuenta('${c.id}','${c.codigo}','${c.nombre.replace(/'/g, '')}',${isGroup})" style="${isGroup ? 'background:var(--bg3);font-weight:600' : ''}">
-      <span style="color:var(--gold);font-family:var(--mono)">${c.codigo}</span> ${c.nombre} ${isGroup ? '<span style="font-size:10px;color:var(--text3)">(grupo)</span>' : ''}
+    const isGrp = esGrupo(c)
+    return `<div class="cuenta-opt" onclick="selectAuxCuenta('${c.id}','${c.codigo}','${c.nombre.replace(/'/g, '')}',${isGrp})" style="${isGrp ? 'background:var(--bg3);font-weight:600' : ''}">
+      <span style="color:var(--gold);font-family:var(--mono)">${c.codigo}</span> ${c.nombre} ${isGrp ? '<span style="font-size:10px;color:var(--text3)">(grupo)</span>' : ''}
     </div>`
   }).join('') : '<div style="padding:10px;color:var(--text3);font-size:12px">No se encontraron cuentas</div>'
 
-  // Auto-detect: update range fields visibility based on typed value
+  // Auto-detect group from typed value
   const codigoTyped = term.split(' ')[0]
   const rangoDiv = document.getElementById('aux-rango-sub')
   if (codigoTyped.length === 6 && !codigoTyped.includes('-')) {
-    const grupo = filtered.find(c => !c.es_detalle && c.codigo.toLowerCase() === codigoTyped)
+    const grupo = filtered.find(c => c.codigo.toLowerCase() === codigoTyped && esGrupo(c))
     if (grupo) {
       document.getElementById('aux-cuenta-id').value = grupo.id
       document.getElementById('aux-cuenta-es-grupo').value = grupo.codigo
-      const hijas = catalogo.filter(c => c.es_detalle && c.activa && c.codigo.startsWith(grupo.codigo + '-'))
+      const hijas = catalogo.filter(c => c.activa && c.codigo.startsWith(grupo.codigo + '-'))
       const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
       document.getElementById('aux-sub-desde').value = sufijos[0] || '001'
       document.getElementById('aux-sub-hasta').value = sufijos[sufijos.length - 1] || '999'
@@ -113,7 +117,6 @@ window.filterAuxCuentas = (val) => {
       return
     }
   }
-  // If a detail account code is being typed, hide range
   if (codigoTyped.includes('-') || codigoTyped.length > 6) {
     rangoDiv.style.display = 'none'
     document.getElementById('aux-cuenta-es-grupo').value = ''
@@ -130,7 +133,7 @@ window.selectAuxCuenta = (id, codigo, nombre, isGroup) => {
   const rangoDiv = document.getElementById('aux-rango-sub')
   if (isGroup) {
     rangoDiv.style.display = 'grid'
-    const hijas = getCatalogo().filter(c => c.es_detalle && c.activa && c.codigo.startsWith(codigo + '-'))
+    const hijas = getCatalogo().filter(c => c.activa && c.codigo.includes('-') && c.codigo.startsWith(codigo + '-'))
     const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
     document.getElementById('aux-sub-desde').value = sufijos[0] || '001'
     document.getElementById('aux-sub-hasta').value = sufijos[sufijos.length - 1] || '999'
@@ -210,7 +213,7 @@ window.generarAuxiliar = async () => {
     const subDesde = document.getElementById('aux-sub-desde').value.trim()
     const subHasta = document.getElementById('aux-sub-hasta').value.trim()
     cuentasConsultar = getCatalogo()
-      .filter(c => c.es_detalle && c.activa && c.codigo.startsWith(grupoCodigo + '-'))
+      .filter(c => c.activa && c.codigo.includes('-') && c.codigo.startsWith(grupoCodigo + '-'))
       .filter(c => {
         const sufijo = c.codigo.split('-').pop()
         return (!subDesde || sufijo >= subDesde) && (!subHasta || sufijo <= subHasta)
