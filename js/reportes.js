@@ -67,21 +67,36 @@ window.filterAuxCuentas = (val) => {
   const dd = document.getElementById('aux-cuenta-dd')
   const term = (val || '').toLowerCase()
   const filtered = getCatalogo()
-    .filter(c => c.es_detalle && c.activa)
+    .filter(c => c.activa)
     .filter(c => !term || c.codigo.toLowerCase().includes(term) || c.nombre.toLowerCase().includes(term))
-    .slice(0, 30)
+    .slice(0, 40)
 
-  dd.innerHTML = filtered.length ? filtered.map(c => `
-    <div class="cuenta-opt" onclick="selectAuxCuenta('${c.id}','${c.codigo}','${c.nombre.replace(/'/g, '')}')">
-      <span style="color:var(--gold);font-family:var(--mono)">${c.codigo}</span> ${c.nombre}
-    </div>`).join('') : '<div style="padding:10px;color:var(--text3);font-size:12px">No se encontraron cuentas</div>'
+  dd.innerHTML = filtered.length ? filtered.map(c => {
+    const isGroup = !c.es_detalle
+    return `<div class="cuenta-opt" onclick="selectAuxCuenta('${c.id}','${c.codigo}','${c.nombre.replace(/'/g, '')}',${isGroup})" style="${isGroup ? 'background:var(--bg3);font-weight:600' : ''}">
+      <span style="color:var(--gold);font-family:var(--mono)">${c.codigo}</span> ${c.nombre} ${isGroup ? '<span style="font-size:10px;color:var(--text3)">(grupo)</span>' : ''}
+    </div>`
+  }).join('') : '<div style="padding:10px;color:var(--text3);font-size:12px">No se encontraron cuentas</div>'
 }
 
-window.selectAuxCuenta = (id, codigo, nombre) => {
+window.selectAuxCuenta = (id, codigo, nombre, isGroup) => {
   document.getElementById('aux-cuenta-input').value = `${codigo} ${nombre}`
   document.getElementById('aux-cuenta-id').value = id
   document.getElementById('aux-cuenta-dd').style.display = 'none'
+  document.getElementById('aux-cuenta-es-grupo').value = isGroup ? codigo : ''
   auxCuentaDDIndex = -1
+
+  const rangoDiv = document.getElementById('aux-rango-sub')
+  if (isGroup) {
+    rangoDiv.style.display = 'grid'
+    const hijas = getCatalogo().filter(c => c.es_detalle && c.activa && c.codigo.startsWith(codigo + '-'))
+    const sufijos = hijas.map(c => c.codigo.split('-').pop()).sort()
+    document.getElementById('aux-sub-desde').value = sufijos[0] || '001'
+    document.getElementById('aux-sub-hasta').value = sufijos[sufijos.length - 1] || '999'
+    document.getElementById('aux-rango-info').textContent = `${hijas.length} subcuentas disponibles (${sufijos[0] || '?'} a ${sufijos[sufijos.length - 1] || '?'})`
+  } else {
+    rangoDiv.style.display = 'none'
+  }
 }
 
 let auxCuentaDDIndex = -1
@@ -130,95 +145,114 @@ window.generarAuxiliar = async () => {
   const centroId = document.getElementById('aux-centro').value
   const libro = document.getElementById('aux-libro').value
   const estadoFiltro = document.getElementById('aux-estado').value
+  const grupoCodigo = document.getElementById('aux-cuenta-es-grupo').value
 
   if (!fechaIni || !fechaFin) { toast('Selecciona rango de fechas', 'error'); return }
-  if (!cuentaId) { toast('Selecciona una cuenta contable', 'error'); return }
+  if (!cuentaId && !grupoCodigo) { toast('Selecciona una cuenta contable', 'error'); return }
 
-  // ── Privacidad: bloquear cuentas de caja/banco para no super_admin ──
   const cuentaInput = document.getElementById('aux-cuenta-input').value || ''
   const codigoCuenta = cuentaInput.split(' ')[0]
   if (esCuentaSensible(codigoCuenta) && !puedeVerSensibles()) {
-    toast('Solo el Super Admin puede consultar saldos de caja y bancos', 'error')
-    return
+    toast('Solo el Super Admin puede consultar saldos de caja y bancos', 'error'); return
   }
-
-  // ── Privacidad: bloquear auxiliar filtrado por centro privado si no es super_admin ──
   if (centroId && !esSuperAdmin()) {
     const idsPriv = getIdsPrivados()
-    if (idsPriv.has(centroId)) {
-      toast('No tienes acceso al detalle de este centro de costo', 'error')
-      return
-    }
+    if (idsPriv.has(centroId)) { toast('No tienes acceso al detalle de este centro de costo', 'error'); return }
   }
 
   const btn = document.getElementById('btn-auxiliar')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
-  // Consultar líneas de partida para la cuenta seleccionada
-  let query = getSb().from('lineas_partida')
-    .select('*, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado, tipo_origen)')
-    .eq('cuenta_id', cuentaId)
-    .gte('partida.fecha_partida', fechaIni)
-    .lte('partida.fecha_partida', fechaFin)
-    .order('id', { ascending: true })
-
-  if (centroId) query = query.eq('centro_costo_id', centroId)
-  if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
-  if (libro === 'interno') query = query.eq('aplica_fiscal', false)
-
-  const { data: lineas, error } = await query.limit(5000)
-  if (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Consultar →'; return }
-
-  // Filtrar por estado de partida y eliminar registros sin partida válida
-  let filtered = (lineas || []).filter(l => l.partida && l.partida.fecha_partida)
-  if (estadoFiltro !== 'todos') {
-    filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
+  // Determinar cuentas a consultar
+  let cuentasConsultar = []
+  if (grupoCodigo) {
+    const subDesde = document.getElementById('aux-sub-desde').value.trim()
+    const subHasta = document.getElementById('aux-sub-hasta').value.trim()
+    cuentasConsultar = getCatalogo()
+      .filter(c => c.es_detalle && c.activa && c.codigo.startsWith(grupoCodigo + '-'))
+      .filter(c => {
+        const sufijo = c.codigo.split('-').pop()
+        return (!subDesde || sufijo >= subDesde) && (!subHasta || sufijo <= subHasta)
+      })
+      .sort((a, b) => a.codigo.localeCompare(b.codigo))
+    if (!cuentasConsultar.length) { toast('No hay subcuentas en ese rango', 'error'); btn.disabled = false; btn.textContent = 'Consultar →'; return }
+  } else {
+    const cuenta = getCatalogo().find(c => c.id === cuentaId)
+    if (cuenta) cuentasConsultar = [cuenta]
   }
 
-  // ── Privacidad: si consulta es "Todos" y no es super_admin, excluir líneas de centros privados ──
-  if (!centroId && !esSuperAdmin()) {
-    const idsPriv = getIdsPrivados()
-    filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
-  }
+  // Consultar cada cuenta
+  const bloques = []
+  let grandTotalDebe = 0, grandTotalHaber = 0
 
-  // Ordenar por fecha
-  filtered.sort((a, b) => {
-    const da = a.partida.fecha_partida
-    const db = b.partida.fecha_partida
-    if (da !== db) return da.localeCompare(db)
-    return (a.partida.numero_partida || 0) - (b.partida.numero_partida || 0)
-  })
+  for (const cuenta of cuentasConsultar) {
+    if (esCuentaSensible(cuenta.codigo) && !puedeVerSensibles()) continue
 
-  // Obtener info de la cuenta
-  const cuenta = getCatalogo().find(c => c.id === cuentaId)
-  const naturaleza = cuenta?.naturaleza || 'deudora'
+    let query = getSb().from('lineas_partida')
+      .select('*, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado, tipo_origen)')
+      .eq('cuenta_id', cuenta.id)
+      .gte('partida.fecha_partida', fechaIni)
+      .lte('partida.fecha_partida', fechaFin)
+      .order('id', { ascending: true })
 
-  // Calcular saldo progresivo
-  let saldo = 0
-  const movimientos = filtered.map(l => {
-    const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
-    const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
-    if (naturaleza === 'deudora') { saldo += debe - haber }
-    else { saldo += haber - debe }
-    return {
-      fecha: l.partida.fecha_partida,
-      partida: l.partida.numero_partida || '—',
-      partidaId: l.partida.id,
-      descripcion: l.descripcion || l.partida.descripcion || '',
-      origen: l.partida.tipo_origen || '',
-      documento: l.numero_documento || '',
-      debe,
-      haber,
-      saldo: Math.round(saldo * 100) / 100,
-      fiscal: l.aplica_fiscal,
-      estado: l.partida.estado
+    if (centroId) query = query.eq('centro_costo_id', centroId)
+    if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
+    if (libro === 'interno') query = query.eq('aplica_fiscal', false)
+
+    const { data: lineas } = await query.limit(5000)
+    let filtered = (lineas || []).filter(l => l.partida && l.partida.fecha_partida)
+    if (estadoFiltro !== 'todos') filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
+    if (!centroId && !esSuperAdmin()) {
+      const idsPriv = getIdsPrivados()
+      filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
     }
-  })
+    filtered.sort((a, b) => {
+      const da = a.partida.fecha_partida, db = b.partida.fecha_partida
+      if (da !== db) return da.localeCompare(db)
+      return (a.partida.numero_partida || 0) - (b.partida.numero_partida || 0)
+    })
 
-  const totalDebe = movimientos.reduce((s, m) => s + m.debe, 0)
-  const totalHaber = movimientos.reduce((s, m) => s + m.haber, 0)
+    const naturaleza = cuenta.naturaleza || 'deudora'
+    let saldo = 0
+    const movimientos = filtered.map(l => {
+      const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
+      const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
+      if (naturaleza === 'deudora') saldo += debe - haber
+      else saldo += haber - debe
+      return { fecha: l.partida.fecha_partida, partida: l.partida.numero_partida || '—', partidaId: l.partida.id, descripcion: l.descripcion || l.partida.descripcion || '', origen: l.partida.tipo_origen || '', debe, haber, saldo: Math.round(saldo * 100) / 100, fiscal: l.aplica_fiscal, estado: l.partida.estado }
+    })
+    const totalDebe = movimientos.reduce((s, m) => s + m.debe, 0)
+    const totalHaber = movimientos.reduce((s, m) => s + m.haber, 0)
+    grandTotalDebe += totalDebe
+    grandTotalHaber += totalHaber
+    bloques.push({ cuenta, movimientos, totalDebe, totalHaber, saldoFinal: saldo, naturaleza })
+  }
 
-  auxData = { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal: saldo }
+  // Para compatibilidad con exportar Excel (cuenta única)
+  if (bloques.length === 1) {
+    const b = bloques[0]
+    auxData = { movimientos: b.movimientos, cuenta: b.cuenta, fechaIni, fechaFin, totalDebe: b.totalDebe, totalHaber: b.totalHaber, saldoFinal: b.saldoFinal }
+  } else {
+    auxData = { bloques, fechaIni, fechaFin, grandTotalDebe, grandTotalHaber, grupoCodigo }
+  }
+
+  // Render
+  if (bloques.length === 1) {
+    // Render single account (unchanged)
+    const b = bloques[0]
+    renderAuxiliarSingle(b, fechaIni, fechaFin)
+  } else {
+    // Render multi-account
+    renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandTotalHaber, grupoCodigo)
+  }
+
+  btn.disabled = false; btn.textContent = 'Consultar →'
+  document.getElementById('btn-auxiliar-xlsx').style.display = 'inline-flex'
+}
+
+function renderAuxiliarSingle(b, fechaIni, fechaFin) {
+  const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
+  const saldo = saldoFinal
 
   // Render resumen
   document.getElementById('aux-resumen').innerHTML = `
@@ -280,28 +314,111 @@ window.generarAuxiliar = async () => {
 
   document.getElementById('aux-resultado').classList.remove('hidden')
   document.getElementById('btn-auxiliar-xlsx').style.display = ''
-  btn.disabled = false; btn.textContent = 'Consultar →'
+}
+
+function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandTotalHaber, grupoCodigo) {
+  const totalMovs = bloques.reduce((s, b) => s + b.movimientos.length, 0)
+  document.getElementById('aux-resumen').innerHTML = `
+    <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">${grupoCodigo} — Reporte de ${bloques.length} subcuentas</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Período: ${fechaIni} al ${fechaFin} · ${totalMovs} movimientos totales</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div class="stat-card"><div class="stat-num" style="color:var(--green)">L. ${fmtL(grandTotalDebe)}</div><div class="stat-label">Total débitos</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--red)">L. ${fmtL(grandTotalHaber)}</div><div class="stat-label">Total créditos</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--gold)">${bloques.length}</div><div class="stat-label">Subcuentas</div></div>
+      </div>
+    </div>`
+
+  let tablaHTML = ''
+  for (const b of bloques) {
+    const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
+    if (!movimientos.length) continue
+    tablaHTML += `
+    <div style="margin-bottom:24px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="padding:10px 14px;background:var(--bg3);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
+        <span><span style="color:var(--gold);font-family:var(--mono)">${cuenta.codigo}</span> ${cuenta.nombre}</span>
+        <span style="font-size:12px;color:var(--text3)">${movimientos.length} mov. · Saldo: <span style="color:var(--gold)">L. ${fmtL(Math.abs(saldoFinal))}</span></span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Fecha</th><th>N° Part.</th><th>Descripción</th><th>Origen</th>
+          <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
+        </tr></thead>
+        <tbody>${movimientos.map(m => `
+          <tr style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
+            <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
+            <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion}</td>
+            <td><span class="badge" style="font-size:10px">${m.origen}</span></td>
+            <td style="text-align:right;font-family:var(--mono);color:${m.debe ? 'var(--green)' : 'var(--text3)'}">${m.debe ? fmtL(m.debe) : '—'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:${m.haber ? 'var(--red)' : 'var(--text3)'}">${m.haber ? fmtL(m.haber) : '—'}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:500">${fmtL(m.saldo)}</td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr style="background:var(--bg3);font-weight:600">
+          <td colspan="4" style="text-align:right">TOTALES ${cuenta.codigo}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(totalDebe)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totalHaber)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--gold)">L. ${fmtL(Math.abs(saldoFinal))}</td>
+        </tr></tfoot>
+      </table>
+    </div>`
+  }
+
+  document.getElementById('aux-tabla').innerHTML = tablaHTML
+  document.getElementById('aux-resultado').classList.remove('hidden')
+  document.getElementById('btn-auxiliar-xlsx').style.display = ''
 }
 
 window.exportarAuxiliarXLSX = () => {
   if (!auxData) return
-  const { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal } = auxData
-  const rows = [
-    ['AUXILIAR DE CUENTAS — CONTAMAX'],
-    [`Cuenta: ${cuenta.codigo} — ${cuenta.nombre}`],
-    [`Período: ${fechaIni} al ${fechaFin}`],
-    [],
-    ['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'],
-    ...movimientos.map(m => [m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo]),
-    [],
-    ['', '', '', 'TOTALES', totalDebe, totalHaber, Math.abs(saldoFinal)]
-  ]
-  const ws = window.XLSX.utils.aoa_to_sheet(rows)
-  ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 45 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]
-  const wb = window.XLSX.utils.book_new()
-  window.XLSX.utils.book_append_sheet(wb, ws, 'Auxiliar')
-  window.XLSX.writeFile(wb, `Auxiliar_${cuenta.codigo}_${fechaIni}_${fechaFin}.xlsx`)
-  toast('Excel exportado ✓', 'success')
+
+  if (auxData.bloques) {
+    // Multi-account export
+    const { bloques, fechaIni, fechaFin, grandTotalDebe, grandTotalHaber, grupoCodigo } = auxData
+    const rows = [
+      ['AUXILIAR DE CUENTAS — CONTAMAX'],
+      [`Grupo: ${grupoCodigo} — ${bloques.length} subcuentas`],
+      [`Período: ${fechaIni} al ${fechaFin}`],
+      []
+    ]
+    for (const b of bloques) {
+      if (!b.movimientos.length) continue
+      rows.push([`${b.cuenta.codigo} — ${b.cuenta.nombre}`])
+      rows.push(['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'])
+      for (const m of b.movimientos) {
+        rows.push([m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo])
+      }
+      rows.push(['', '', '', `TOTALES ${b.cuenta.codigo}`, b.totalDebe, b.totalHaber, Math.abs(b.saldoFinal)])
+      rows.push([])
+    }
+    rows.push(['', '', '', 'GRAN TOTAL', grandTotalDebe, grandTotalHaber, Math.abs(grandTotalDebe - grandTotalHaber)])
+    const ws = window.XLSX.utils.aoa_to_sheet(rows)
+    ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 45 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]
+    const wb = window.XLSX.utils.book_new()
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Auxiliar')
+    window.XLSX.writeFile(wb, `Auxiliar_${grupoCodigo}_${fechaIni}_${fechaFin}.xlsx`)
+    toast(`Excel con ${bloques.length} cuentas exportado ✓`, 'success')
+  } else {
+    // Single account export
+    const { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal } = auxData
+    const rows = [
+      ['AUXILIAR DE CUENTAS — CONTAMAX'],
+      [`Cuenta: ${cuenta.codigo} — ${cuenta.nombre}`],
+      [`Período: ${fechaIni} al ${fechaFin}`],
+      [],
+      ['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'],
+      ...movimientos.map(m => [m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo]),
+      [],
+      ['', '', '', 'TOTALES', totalDebe, totalHaber, Math.abs(saldoFinal)]
+    ]
+    const ws = window.XLSX.utils.aoa_to_sheet(rows)
+    ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 45 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]
+    const wb = window.XLSX.utils.book_new()
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Auxiliar')
+    window.XLSX.writeFile(wb, `Auxiliar_${cuenta.codigo}_${fechaIni}_${fechaFin}.xlsx`)
+    toast('Excel exportado ✓', 'success')
+  }
 }
 
 // ── BALANCE DE COMPROBACIÓN ──

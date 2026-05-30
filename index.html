@@ -1100,6 +1100,7 @@
                 <div id="aux-cuenta-dd" class="cuenta-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:250px;overflow-y:auto;z-index:100"></div>
               </div>
               <input type="hidden" id="aux-cuenta-id">
+              <input type="hidden" id="aux-cuenta-es-grupo" value="">
             </div>
             <div class="fld">
               <label>Centro de costo</label>
@@ -1107,6 +1108,11 @@
                 <option value="">Todos</option>
               </select>
             </div>
+          </div>
+          <div id="aux-rango-sub" style="display:none;display:grid;grid-template-columns:1fr 1fr 2fr;gap:14px;margin-bottom:14px;display:none">
+            <div class="fld"><label>Desde (subcuenta)</label><input type="text" id="aux-sub-desde" placeholder="001" style="font-family:var(--mono)"></div>
+            <div class="fld"><label>Hasta (subcuenta)</label><input type="text" id="aux-sub-hasta" placeholder="038" style="font-family:var(--mono)"></div>
+            <div class="fld"><label>&nbsp;</label><div style="font-size:12px;color:var(--text3);padding-top:8px" id="aux-rango-info"></div></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
             <div class="fld">
