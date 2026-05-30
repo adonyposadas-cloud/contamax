@@ -8093,10 +8093,23 @@ let cxpMovimientos = []
 let cxpFiltrados = []
 let cxpSeleccionados = new Set() // persists across filter changes
 
+// Restore selections from localStorage
+function restaurarCxPSeleccion() {
+  try {
+    const saved = localStorage.getItem('cxp_seleccionados')
+    if (saved) cxpSeleccionados = new Set(JSON.parse(saved))
+  } catch(e) {}
+}
+function guardarCxPSeleccion() {
+  try {
+    localStorage.setItem('cxp_seleccionados', JSON.stringify([...cxpSeleccionados]))
+  } catch(e) {}
+}
+
 window.loadCxP = () => {
   cxpCuentasSel = []
   cxpMovimientos = []
-  cxpSeleccionados = new Set()
+  restaurarCxPSeleccion()
   renderCxPCuentasSel()
   const now = new Date()
   document.getElementById('cxp-desde').value = localDateStr(new Date(now.getFullYear(), now.getMonth(), 1))
@@ -8107,18 +8120,45 @@ window.buscarCuentasCxP = (val) => {
   const list = document.getElementById('cxp-cuenta-list')
   if (!val || val.length < 2) { list.classList.add('hidden'); return }
   const term = val.toLowerCase()
-  // Filter accounts that are "detalle" and match search - focus on passivo accounts (2xxxxx)
-  const matches = (window.catalogoCuentas || []).filter(c =>
-    c.es_detalle && (c.codigo.toLowerCase().includes(term) || c.nombre.toLowerCase().includes(term))
-  ).slice(0, 15)
+  const catalogo = window.catalogoCuentas || []
+  
+  // Helper: does this code have subcuentas?
+  const tieneHijas = (codigo) => catalogo.some(c => c.activa !== false && c.codigo.startsWith(codigo + '-'))
+  
+  // Show both groups (6 digits with children) and detail accounts
+  const matches = catalogo.filter(c => {
+    if (!c.codigo.toLowerCase().includes(term) && !c.nombre.toLowerCase().includes(term)) return false
+    // Detail accounts (have dash)
+    if (c.codigo.includes('-')) return true
+    // Group accounts (6 digits, have children)
+    if (c.codigo.length === 6 && !c.codigo.includes('-') && tieneHijas(c.codigo)) return true
+    return false
+  }).slice(0, 20)
+  
   if (!matches.length) { list.classList.add('hidden'); return }
-  list.innerHTML = matches.map(c =>
-    `<div class="ac-item" onmousedown="selCuentaCxP('${c.id}','${c.codigo}','${c.nombre.replace(/'/g,"&#39;")}')" style="display:flex;gap:8px;align-items:center">
+  list.innerHTML = matches.map(c => {
+    const isGroup = c.codigo.length === 6 && !c.codigo.includes('-') && tieneHijas(c.codigo)
+    const hijasCount = isGroup ? catalogo.filter(h => h.codigo.startsWith(c.codigo + '-')).length : 0
+    return `<div class="ac-item" onmousedown="${isGroup ? `selGrupoCxP('${c.codigo}')` : `selCuentaCxP('${c.id}','${c.codigo}','${c.nombre.replace(/'/g,"&#39;")}')`}" style="display:flex;gap:8px;align-items:center;${isGroup ? 'background:var(--bg3);font-weight:600' : ''}">
       <span style="font-family:var(--mono);font-size:11px;color:var(--gold);min-width:90px">${c.codigo}</span>
-      <span style="font-size:12px">${c.nombre}</span>
+      <span style="font-size:12px">${c.nombre} ${isGroup ? `<span style="color:var(--text3);font-size:10px">(${hijasCount} subcuentas)</span>` : ''}</span>
     </div>`
-  ).join('')
+  }).join('')
   list.classList.remove('hidden')
+}
+
+window.selGrupoCxP = (grupoCodigo) => {
+  const catalogo = window.catalogoCuentas || []
+  const hijas = catalogo.filter(c => c.codigo.startsWith(grupoCodigo + '-'))
+  for (const h of hijas) {
+    if (!cxpCuentasSel.some(c => c.id === h.id)) {
+      cxpCuentasSel.push({ id: h.id, codigo: h.codigo, nombre: h.nombre })
+    }
+  }
+  document.getElementById('cxp-cuenta-buscar').value = ''
+  document.getElementById('cxp-cuenta-list').classList.add('hidden')
+  renderCxPCuentasSel()
+  toast(`${hijas.length} subcuentas de ${grupoCodigo} agregadas`, 'success')
 }
 
 window.selCuentaCxP = (id, codigo, nombre) => {
@@ -8175,7 +8215,7 @@ window.consultarCxP = async () => {
   })
 
   document.getElementById('cxp-filtro-rapido').classList.remove('hidden')
-  cxpSeleccionados = new Set()
+  restaurarCxPSeleccion()
   cxpFiltrados = [...cxpMovimientos]
   renderCxPTabla()
 }
@@ -8228,6 +8268,7 @@ window.toggleCxPCheck = (cb) => {
   } else {
     cxpSeleccionados.delete(id)
   }
+  guardarCxPSeleccion()
   updateSumaCxP()
 }
 
@@ -8241,6 +8282,15 @@ window.toggleAllCxP = (checked) => {
       cxpSeleccionados.delete(id)
     }
   })
+  guardarCxPSeleccion()
+  updateSumaCxP()
+}
+
+window.limpiarSelCxP = () => {
+  if (!confirm('¿Limpiar toda la selección?')) return
+  cxpSeleccionados = new Set()
+  guardarCxPSeleccion()
+  document.querySelectorAll('.cxp-check').forEach(cb => cb.checked = false)
   updateSumaCxP()
 }
 
@@ -8257,6 +8307,8 @@ window.updateSumaCxP = () => {
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   document.getElementById('cxp-suma-sel').textContent = `Seleccionados: L. ${fmt(suma)} (${count})`
   document.getElementById('btn-generar-pago').style.display = count > 0 ? 'inline-flex' : 'none'
+  const btnLimpiar = document.getElementById('btn-limpiar-sel-cxp')
+  if (btnLimpiar) btnLimpiar.style.display = count > 0 ? 'inline-flex' : 'none'
 }
 
 window.generarPagoCxP = async () => {
@@ -8331,6 +8383,8 @@ window.generarPagoCxP = async () => {
   await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString() }).in('id', ids)
 
   toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala para agregar la forma de pago.`, 'success')
+  cxpSeleccionados = new Set()
+  guardarCxPSeleccion()
   consultarCxP()
 }
 

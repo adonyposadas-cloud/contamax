@@ -1463,7 +1463,10 @@
         <div style="display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap" id="cxp-filtro-rapido" class="hidden">
           <input type="text" id="cxp-filtro-texto" placeholder="Filtrar por descripción o monto..." oninput="filtrarCxPTexto()" style="flex:1;min-width:200px;padding:8px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;outline:none">
           <div style="font-family:var(--mono);font-size:14px;color:var(--gold);font-weight:600" id="cxp-suma-sel">Seleccionados: L. 0.00</div>
-          <button class="btn btn-gold" id="btn-generar-pago" onclick="generarPagoCxP()" style="display:none">💰 Generar pago</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" id="btn-limpiar-sel-cxp" onclick="limpiarSelCxP()" style="display:none;font-size:12px;padding:6px 12px">✕ Limpiar selección</button>
+            <button class="btn btn-gold" id="btn-generar-pago" onclick="generarPagoCxP()" style="display:none">💰 Generar pago</button>
+          </div>
         </div>
         <!-- Tabla de movimientos -->
         <div class="table-wrap">
