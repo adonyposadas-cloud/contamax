@@ -488,9 +488,129 @@ window.eliminarPermiso = async (id) => {
 
 window.loadAsistencia = async () => {
   await cargarPermisos()
-  // Auto-select quincena
   const q = document.getElementById('reloj-quincena')
   if (q) q.value = new Date().getDate() <= 15 ? 'Q1' : 'Q2'
+  // Load available periods
+  await cargarPeriodosHistorial()
+}
+
+async function cargarPeriodosHistorial() {
+  const { data } = await getSb().from('asistencia_reloj')
+    .select('periodo').order('periodo', { ascending: false })
+  if (!data?.length) return
+  const periodos = [...new Set(data.map(d => d.periodo))].sort().reverse()
+  const sel = document.getElementById('hist-periodo')
+  if (!sel) return
+  sel.innerHTML = periodos.map(p => `<option value="${p}">${p}</option>`).join('')
+}
+
+window.cargarHistorialAsistencia = async () => {
+  const periodo = document.getElementById('hist-periodo').value
+  if (!periodo) { window.toast?.('Seleccioná un período', 'error'); return }
+
+  const { data, error } = await getSb().from('asistencia_reloj')
+    .select('*')
+    .eq('periodo', periodo)
+    .order('empleado_nombre').order('fecha')
+  if (error) { window.toast?.(error.message, 'error'); return }
+  if (!data?.length) {
+    document.getElementById('hist-resultado').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3)">No hay datos para este período</div>'
+    return
+  }
+
+  await loadConfig()
+  const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
+
+  // Group by employee
+  const byEmp = {}
+  for (const r of data) {
+    if (!byEmp[r.empleado_nombre]) {
+      byEmp[r.empleado_nombre] = { nombre: r.empleado_nombre, empleado_id: r.empleado_id, dias: [],
+        totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], alertas: [] }
+    }
+    const e = byEmp[r.empleado_nombre]
+    e.dias.push(r)
+    if (r.hora_entrada) e.diasTrabajados++
+    e.totalTarde += r.minutos_tarde || 0
+    e.totalHE += r.minutos_he || 0
+    e.totalNeg += r.minutos_negativos || 0
+    if (r.sin_salida) e.sinSalida.push(r.fecha)
+  }
+
+  // Calc alerts
+  for (const e of Object.values(byEmp)) {
+    if (e.totalTarde > GRACIA_TARDE) {
+      e.tardeDeducir = e.totalTarde
+      e.alertas.push(`⏰ Tardes: ${e.totalTarde}min excede ${GRACIA_TARDE}min → deducir todo`)
+    } else {
+      e.tardeDeducir = 0
+    }
+    e.heNeto = Math.max(0, e.totalHE - e.totalNeg)
+    e.negArrastre = Math.max(0, e.totalNeg - e.totalHE)
+    if (e.negArrastre > 0) e.alertas.push(`📉 Negativo: ${e.negArrastre}min para siguiente quincena`)
+    if (e.sinSalida.length) e.alertas.push(`❌ Sin salida: ${e.sinSalida.join(', ')}`)
+    if (!e.empleado_id) e.alertas.push(`⚠️ No vinculado a empleado`)
+  }
+
+  const empleados = Object.values(byEmp).sort((a, b) => a.nombre.localeCompare(b.nombre))
+  const totalEmps = empleados.length
+  const totalAlertas = empleados.reduce((s, e) => s + e.alertas.length, 0)
+  const totalHE = empleados.reduce((s, e) => s + e.heNeto, 0)
+  const totalTardes = empleados.reduce((s, e) => s + e.tardeDeducir, 0)
+  const sinSalidaCount = empleados.reduce((s, e) => s + e.sinSalida.length, 0)
+
+  let html = `
+    <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+      <div class="stat-card"><div class="stat-num">${totalEmps}</div><div class="stat-label">Empleados</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green)">${Math.round(totalHE / 60 * 10) / 10}h</div><div class="stat-label">HE Netas</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red)">${totalTardes}min</div><div class="stat-label">Tardes a deducir</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:${sinSalidaCount ? 'var(--red)' : 'var(--green)'}">${sinSalidaCount}</div><div class="stat-label">Sin salida</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:${totalAlertas ? 'var(--amber)' : 'var(--green)'}">${totalAlertas}</div><div class="stat-label">Alertas</div></div>
+    </div>`
+
+  for (const e of empleados) {
+    const matched = e.empleado_id ? '✅' : '⚠️'
+    const heH = Math.round(e.heNeto / 60 * 10) / 10
+
+    html += `
+    <div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;overflow:hidden">
+      <div style="padding:10px 14px;background:var(--bg3);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
+        <div>
+          <span style="font-weight:600">${matched} ${e.nombre}</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:8px">${e.diasTrabajados} días</span>
+        </div>
+        <div style="display:flex;gap:14px;font-size:12px;font-family:var(--mono)">
+          <span style="color:var(--green)">↑ ${heH}h</span>
+          <span style="color:${e.tardeDeducir > 0 ? 'var(--red)' : e.totalTarde > 0 ? 'var(--amber)' : 'var(--text3)'}">⏰ ${e.totalTarde}min${e.tardeDeducir > 0 ? ' ✗' : e.totalTarde > 0 ? ' ✓' : ''}</span>
+          <span style="color:${e.totalNeg > 0 ? 'var(--red)' : 'var(--text3)'}">↓ ${e.totalNeg}min</span>
+          ${e.sinSalida.length ? `<span style="color:var(--red)">❌ ${e.sinSalida.length}</span>` : ''}
+        </div>
+      </div>
+      <div style="display:none">
+        ${e.alertas.length ? `<div style="padding:6px 14px;background:var(--bg2);border-top:1px solid var(--border)">
+          ${e.alertas.map(a => `<div style="font-size:11px;color:var(--amber);margin:2px 0">${a}</div>`).join('')}
+        </div>` : ''}
+        <table style="font-size:12px">
+          <thead><tr><th>Fecha</th><th>Día</th><th>Entrada</th><th>Salida</th><th style="text-align:right">Tarde</th><th style="text-align:right">HE</th><th style="text-align:right">Neg.</th><th>Notas</th></tr></thead>
+          <tbody>${e.dias.map(d => {
+            const dow = ['Dom','Lun','Mar','Mie','Jue','Vie','Sáb'][d.dia_semana]
+            return `<tr style="${d.sin_salida ? 'background:#ff000015' : d.tiene_permiso ? 'background:#3b82f615' : ''}">
+              <td style="font-family:var(--mono)">${d.fecha}</td>
+              <td style="${d.dia_semana === 6 ? 'color:var(--gold)' : ''}">${dow}</td>
+              <td style="font-family:var(--mono);color:${d.minutos_tarde > 0 ? 'var(--red)' : 'var(--green)'}">${d.hora_entrada || '—'}</td>
+              <td style="font-family:var(--mono);color:${d.sin_salida ? 'var(--red)' : d.minutos_negativos > 0 ? 'var(--amber)' : ''}">${d.hora_salida || (d.sin_salida ? '❌' : '—')}</td>
+              <td style="text-align:right;color:${d.minutos_tarde > 0 ? 'var(--red)' : ''}">${d.minutos_tarde || ''}</td>
+              <td style="text-align:right;color:${d.minutos_he > 0 ? 'var(--green)' : ''}">${d.minutos_he || ''}</td>
+              <td style="text-align:right;color:${d.minutos_negativos > 0 ? 'var(--red)' : ''}">${d.minutos_negativos || ''}</td>
+              <td style="font-size:11px;color:var(--text3)">${d.tiene_permiso ? '🔓 Permiso' : ''} ${d.notas || ''}</td>
+            </tr>`
+          }).join('')}</tbody>
+        </table>
+      </div>
+    </div>`
+  }
+
+  document.getElementById('hist-resultado').innerHTML = html
 }
 
 // ── CONFIG IHSS ──

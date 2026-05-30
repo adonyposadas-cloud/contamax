@@ -1475,6 +1475,17 @@
             <button class="btn btn-ghost" onclick="aplicarAsistenciaAPlanilla()" style="color:var(--blue)">📋 Aplicar a planilla</button>
           </div>
         </div>
+
+        <div class="form-card" style="margin-top:20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">📂 Historial de asistencia guardada</label>
+            <div style="display:flex;gap:10px;align-items:center">
+              <select id="hist-periodo" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font);font-size:13px"></select>
+              <button class="btn btn-ghost" onclick="cargarHistorialAsistencia()" style="font-size:12px;padding:6px 12px">Consultar</button>
+            </div>
+          </div>
+          <div id="hist-resultado"></div>
+        </div>
       </div>
 
       <div class="view" id="view-config-planilla">
