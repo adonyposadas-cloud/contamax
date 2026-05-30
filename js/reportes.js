@@ -74,6 +74,7 @@ window.openAuxCuentaDD = () => {
 window.filterAuxCuentas = (val) => {
   auxCuentaDDIndex = -1
   const dd = document.getElementById('aux-cuenta-dd')
+  dd.style.display = 'block'
   const term = (val || '').toLowerCase().trim()
   const catalogo = getCatalogo()
 
@@ -117,7 +118,7 @@ window.filterAuxCuentas = (val) => {
       return
     }
   }
-  if (codigoTyped.includes('-') || codigoTyped.length > 6) {
+  if (codigoTyped.includes('-') || codigoTyped.length > 6 || codigoTyped.length < 6) {
     rangoDiv.style.display = 'none'
     document.getElementById('aux-cuenta-es-grupo').value = ''
   }
