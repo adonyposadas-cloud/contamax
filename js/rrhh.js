@@ -783,6 +783,8 @@ window.loadPrestamosEmp = async () => {
       <td style="text-align:right">L. ${fmt(p.monto_original)}</td>
       <td style="text-align:right;font-weight:600;color:${p.saldo > 0 ? 'var(--gold)' : 'var(--green)'}">L. ${fmt(p.saldo)}</td>
       <td style="text-align:right">L. ${fmt(p.cuota_quincenal)}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.fecha_prestamo || '—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.fecha_primera_deduccion || '—'}</td>
       <td>${p.activo ? '<span style="color:var(--gold)">● Activo</span>' : '<span style="color:var(--green)">● Pagado</span>'}</td>
       <td>
         ${p.activo ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="liquidarPrestamoEmp('${p.id}')">💰 Liquidar</button>` : ''}
@@ -802,6 +804,8 @@ window.openModalPrestamoEmp = () => {
   document.getElementById('pe-descripcion').value = ''
   document.getElementById('pe-tipo').value = 'prestamo'
   document.getElementById('pe-empleado').value = ''
+  document.getElementById('pe-fecha-prestamo').value = new Date().toISOString().split('T')[0]
+  document.getElementById('pe-fecha-deduccion').value = ''
   openModal('modal-prestamo-emp')
 }
 
@@ -809,23 +813,86 @@ window.guardarPrestamoEmp = async () => {
   const empleadoId = document.getElementById('pe-empleado').value
   const monto = parseFloat(document.getElementById('pe-monto').value) || 0
   const cuota = parseFloat(document.getElementById('pe-cuota').value) || 0
+  const fechaPrestamo = document.getElementById('pe-fecha-prestamo').value
+  const fechaDeduccion = document.getElementById('pe-fecha-deduccion').value
+  const descripcion = document.getElementById('pe-descripcion').value.trim() || null
+  const tipo = document.getElementById('pe-tipo').value
 
   if (!empleadoId) { window.toast?.('Seleccioná un empleado', 'error'); return }
   if (monto <= 0) { window.toast?.('Ingresá un monto válido', 'error'); return }
+  if (!fechaPrestamo) { window.toast?.('Ingresá la fecha del préstamo', 'error'); return }
 
-  const { error } = await getSb().from('prestamos_empleados').insert({
+  const { data: prestamo, error } = await getSb().from('prestamos_empleados').insert({
     empleado_id: empleadoId,
-    descripcion: document.getElementById('pe-descripcion').value.trim() || null,
-    tipo: document.getElementById('pe-tipo').value,
+    descripcion,
+    tipo,
     monto_original: monto,
     saldo: monto,
     cuota_quincenal: cuota,
+    fecha_prestamo: fechaPrestamo,
+    fecha_primera_deduccion: fechaDeduccion || null,
     activo: true
-  })
+  }).select().single()
 
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
+
+  // Generar partida contable automática
+  const emp = allEmpleados.find(e => e.id === empleadoId)
+  if (emp?.cuenta_cxc && tipo === 'prestamo') {
+    try {
+      const sb = getSb()
+      // Buscar cuenta CXC del empleado
+      const { data: cuentaCxC } = await sb.from('catalogo_cuentas')
+        .select('id, codigo, nombre').eq('codigo', emp.cuenta_cxc).single()
+
+      if (cuentaCxC) {
+        // Obtener siguiente número de partida
+        const { data: lastP } = await sb.from('partidas_contables')
+          .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+        const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+
+        const descPartida = `PRESTAMO ${emp.nombre} - ${descripcion || 'EFVO'}`.toUpperCase()
+
+        // Crear partida borrador
+        const { data: partida } = await sb.from('partidas_contables').insert({
+          fecha_partida: fechaPrestamo,
+          numero_partida: numPartida,
+          descripcion: descPartida,
+          tipo_origen: 'otro',
+          estado: 'borrador',
+          total: monto
+        }).select().single()
+
+        if (partida) {
+          // Línea débito: CXC empleado
+          // Línea crédito: pendiente (forma de pago)
+          await sb.from('lineas_partida').insert([
+            {
+              partida_id: partida.id,
+              cuenta_id: cuentaCxC.id,
+              cuenta_codigo: cuentaCxC.codigo,
+              cuenta_nombre: cuentaCxC.nombre,
+              tipo: 'debito',
+              monto,
+              descripcion: descPartida,
+              aplica_fiscal: false
+            }
+          ])
+          window.toast?.(`Préstamo guardado + Partida #${numPartida} creada como borrador (falta forma de pago)`, 'success')
+        }
+      } else {
+        window.toast?.('Préstamo guardado. No se encontró cuenta CXC para generar partida.', 'info')
+      }
+    } catch(e) {
+      console.error('Error generando partida:', e)
+      window.toast?.('Préstamo guardado pero hubo error al generar partida', 'error')
+    }
+  } else {
+    window.toast?.('Préstamo registrado ✓', 'ok')
+  }
+
   closeModal('modal-prestamo-emp')
-  window.toast?.('Préstamo registrado', 'ok')
+  window.logActividad?.('prestamo_emp_creado', 'rrhh', `${emp?.nombre || ''} · L.${monto} · ${tipo}`)
   await loadPrestamosEmp()
 }
 
