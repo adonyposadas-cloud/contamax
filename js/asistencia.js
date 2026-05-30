@@ -219,15 +219,18 @@ function calcularResumenQuincenal(dayRecords, empleados) {
     const emp = empleados.find(e => {
       const en = e.nombre.toUpperCase().trim()
       const rn = nombre.toUpperCase().trim()
-      // Match: exact, contains, or first name + last name partial
+      // 1. Exact match
       if (en === rn) return true
+      // 2. Contains (either direction)
       if (en.includes(rn) || rn.includes(en)) return true
-      // Try first word match (primer nombre)
-      const enFirst = en.split(' ')[0]
-      const rnFirst = rn.split(' ')[0]
-      const enLast = en.split(' ').slice(-1)[0]
-      const rnLast = rn.split(' ').slice(-1)[0]
-      if (enFirst === rnFirst && enLast === rnLast) return true
+      // 3. All words from clock name exist in employee name
+      const rnWords = rn.split(/\s+/)
+      if (rnWords.length >= 2 && rnWords.every(w => en.includes(w))) return true
+      // 4. All words from employee name exist in clock name
+      const enWords = en.split(/\s+/)
+      if (enWords.length >= 2 && enWords.every(w => rn.includes(w))) return true
+      // 5. First name + any shared surname
+      if (rnWords[0] === enWords[0] && rnWords.some(w => enWords.includes(w) && w !== rnWords[0])) return true
       return false
     })
     if (emp) {
@@ -371,7 +374,12 @@ window.guardarAsistencia = async () => {
     const emp = (empleados || []).find(e => {
       const en = e.nombre.toUpperCase().trim()
       const dn = d.nombre.toUpperCase().trim()
-      return en === dn || en.includes(dn) || dn.includes(en)
+      if (en === dn || en.includes(dn) || dn.includes(en)) return true
+      const dnWords = dn.split(/\s+/)
+      if (dnWords.length >= 2 && dnWords.every(w => en.includes(w))) return true
+      const enWords = en.split(/\s+/)
+      if (enWords.length >= 2 && enWords.every(w => dn.includes(w))) return true
+      return false
     })
     return {
       empleado_id: emp?.id || null,
