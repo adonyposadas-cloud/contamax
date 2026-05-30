@@ -373,12 +373,15 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
       </div>
     </div>`
 
-  let tablaHTML = ''
+  let tablaHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+    <input type="text" id="aux-multi-buscar" placeholder="🔍 Buscar en descripción..." oninput="filtrarAuxMulti(this.value)" style="flex:1;max-width:400px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
+    <span id="aux-multi-count" style="font-size:12px;color:var(--text3)"></span>
+  </div>`
   for (const b of bloques) {
     const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
     if (!movimientos.length) continue
     tablaHTML += `
-    <div style="margin-bottom:24px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+    <div class="aux-multi-bloque" style="margin-bottom:24px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
       <div style="padding:10px 14px;background:var(--bg3);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
         <span><span style="color:var(--gold);font-family:var(--mono)">${cuenta.codigo}</span> ${cuenta.nombre}</span>
         <span style="font-size:12px;color:var(--text3)">${movimientos.length} mov. · Saldo: <span style="color:var(--gold)">L. ${fmtL(Math.abs(saldoFinal))}</span></span>
@@ -389,7 +392,7 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
           <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
         </tr></thead>
         <tbody>${movimientos.map(m => `
-          <tr style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
+          <tr class="aux-multi-row" data-desc="${(m.descripcion||'').toLowerCase()}" style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
             <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
             <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
             <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion}</td>
@@ -412,6 +415,24 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
   document.getElementById('aux-tabla').innerHTML = tablaHTML
   document.getElementById('aux-resultado').classList.remove('hidden')
   document.getElementById('btn-auxiliar-xlsx').style.display = ''
+}
+
+window.filtrarAuxMulti = (val) => {
+  const term = val.toLowerCase().trim()
+  const rows = document.querySelectorAll('.aux-multi-row')
+  let shown = 0
+  rows.forEach(tr => {
+    const match = !term || (tr.getAttribute('data-desc') || '').includes(term)
+    tr.style.display = match ? '' : 'none'
+    if (match) shown++
+  })
+  // Hide empty blocks
+  document.querySelectorAll('.aux-multi-bloque').forEach(bloque => {
+    const visibleRows = bloque.querySelectorAll('.aux-multi-row:not([style*="display: none"])')
+    bloque.style.display = visibleRows.length || !term ? '' : 'none'
+  })
+  const countEl = document.getElementById('aux-multi-count')
+  if (countEl) countEl.textContent = term ? `${shown} de ${rows.length} registros` : ''
 }
 
 window.exportarAuxiliarXLSX = () => {
