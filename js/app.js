@@ -2244,6 +2244,40 @@ window.guardarPartida = async (estado) => {
     const { error: pErr } = await sb.from('partidas_contables').update(updateData).eq('id', editingPartidaId)
     if (pErr) { toast('Error: ' + pErr.message, 'error'); return }
 
+    // ── BITÁCORA: detectar cambios antes de borrar líneas viejas ──
+    try {
+      const { data: lineasAntes } = await sb.from('lineas_partida').select('cuenta_codigo, cuenta_nombre, monto, tipo, descripcion').eq('partida_id', editingPartidaId)
+      if (lineasAntes?.length) {
+        const cambios = []
+        const antes = (lineasAntes || []).map(l => ({ key: `${l.cuenta_codigo}_${l.tipo}`, codigo: l.cuenta_codigo, nombre: l.cuenta_nombre, monto: parseFloat(l.monto) || 0, tipo: l.tipo, desc: l.descripcion || '' }))
+        const despues = lineasValidas.map(l => ({ key: `${l.cuenta_codigo}_${l.tipo}`, codigo: l.cuenta_codigo, nombre: l.cuenta_nombre, monto: l.monto, tipo: l.tipo, desc: l.descripcion || '' }))
+        // Eliminadas
+        const despuesKeys = despues.map(d => d.key)
+        antes.filter(a => !despuesKeys.includes(a.key)).forEach(a => {
+          cambios.push(`(-) ${a.codigo} ${a.tipo === 'debito' ? 'D' : 'H'} L.${a.monto.toFixed(2)}`)
+        })
+        // Agregadas
+        const antesKeys = antes.map(a => a.key)
+        despues.filter(d => !antesKeys.includes(d.key)).forEach(d => {
+          cambios.push(`(+) ${d.codigo} ${d.tipo === 'debito' ? 'D' : 'H'} L.${d.monto.toFixed(2)}`)
+        })
+        // Montos cambiados
+        antes.forEach(a => {
+          const d = despues.find(x => x.key === a.key)
+          if (d && Math.abs(a.monto - d.monto) > 0.01) {
+            cambios.push(`(~) ${a.codigo} ${a.tipo === 'debito' ? 'D' : 'H'} L.${a.monto.toFixed(2)} → L.${d.monto.toFixed(2)}`)
+          }
+        })
+        // Cambio de encabezado
+        if (originalPartida && originalPartida.descripcion !== descripcion) {
+          cambios.push(`Desc: "${originalPartida.descripcion}" → "${descripcion}"`)
+        }
+        if (cambios.length) {
+          logActividad('partida_modificada', 'partidas', `Partida #${originalPartida?.numero_partida || '?'}: ${cambios.join(' | ')}`, editingPartidaId)
+        }
+      }
+    } catch(e) { /* silent */ }
+
     // Borrar líneas viejas y crear nuevas
     const { error: delErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
     if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
