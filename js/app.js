@@ -8091,17 +8091,21 @@ window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
 let cxpMovimientos = []
 let cxpFiltrados = []
 let cxpSeleccionados = new Set() // persists across filter changes
+let cxpMontos = {} // id → monto for persistent sum calculation
 
 // Restore selections from localStorage
 function restaurarCxPSeleccion() {
   try {
     const saved = localStorage.getItem('cxp_seleccionados')
     if (saved) cxpSeleccionados = new Set(JSON.parse(saved))
+    const montos = localStorage.getItem('cxp_montos')
+    if (montos) cxpMontos = JSON.parse(montos)
   } catch(e) {}
 }
 function guardarCxPSeleccion() {
   try {
     localStorage.setItem('cxp_seleccionados', JSON.stringify([...cxpSeleccionados]))
+    localStorage.setItem('cxp_montos', JSON.stringify(cxpMontos))
   } catch(e) {}
 }
 
@@ -8307,10 +8311,13 @@ function renderCxPTabla() {
 
 window.toggleCxPCheck = (cb) => {
   const id = cb.dataset.id
+  const monto = parseFloat(cb.dataset.monto) || 0
   if (cb.checked) {
     cxpSeleccionados.add(id)
+    cxpMontos[id] = monto
   } else {
     cxpSeleccionados.delete(id)
+    delete cxpMontos[id]
   }
   guardarCxPSeleccion()
   updateSumaCxP()
@@ -8320,10 +8327,13 @@ window.toggleAllCxP = (checked) => {
   document.querySelectorAll('.cxp-check:not(:disabled)').forEach(cb => {
     cb.checked = checked
     const id = cb.dataset.id
+    const monto = parseFloat(cb.dataset.monto) || 0
     if (checked) {
       cxpSeleccionados.add(id)
+      cxpMontos[id] = monto
     } else {
       cxpSeleccionados.delete(id)
+      delete cxpMontos[id]
     }
   })
   guardarCxPSeleccion()
@@ -8333,26 +8343,37 @@ window.toggleAllCxP = (checked) => {
 window.limpiarSelCxP = () => {
   if (!confirm('¿Limpiar toda la selección?')) return
   cxpSeleccionados = new Set()
+  cxpMontos = {}
   guardarCxPSeleccion()
   document.querySelectorAll('.cxp-check').forEach(cb => cb.checked = false)
   updateSumaCxP()
 }
 
 window.updateSumaCxP = () => {
-  // Sum from ALL selected across all movimientos, not just visible filtered ones
   let suma = 0
   let count = cxpSeleccionados.size
-  cxpMovimientos.forEach(l => {
-    if (cxpSeleccionados.has(l.id)) {
-      suma += parseFloat(l.monto) || 0
-    }
-  })
+  // Try from loaded movimientos first, fallback to stored montos
+  if (cxpMovimientos.length) {
+    cxpMovimientos.forEach(l => {
+      if (cxpSeleccionados.has(l.id)) {
+        suma += parseFloat(l.monto) || 0
+        cxpMontos[l.id] = parseFloat(l.monto) || 0
+      }
+    })
+  } else {
+    // Use stored montos when movimientos not loaded
+    cxpSeleccionados.forEach(id => {
+      suma += cxpMontos[id] || 0
+    })
+  }
   suma = Math.round(suma * 100) / 100
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   document.getElementById('cxp-suma-sel').textContent = `Seleccionados: L. ${fmt(suma)} (${count})`
   document.getElementById('btn-generar-pago').style.display = count > 0 ? 'inline-flex' : 'none'
   const btnLimpiar = document.getElementById('btn-limpiar-sel-cxp')
   if (btnLimpiar) btnLimpiar.style.display = count > 0 ? 'inline-flex' : 'none'
+  const btnGuardar = document.getElementById('btn-guardar-sel-cxp')
+  if (btnGuardar) btnGuardar.style.display = count > 0 ? 'inline-flex' : 'none'
 }
 
 window.generarPagoCxP = async () => {
@@ -8428,8 +8449,48 @@ window.generarPagoCxP = async () => {
 
   toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala para agregar la forma de pago.`, 'success')
   cxpSeleccionados = new Set()
+  cxpMontos = {}
   guardarCxPSeleccion()
   consultarCxP()
+}
+
+window.openGuardarSelCxP = () => {
+  if (!cxpSeleccionados.size) return
+  const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  let suma = 0
+  cxpSeleccionados.forEach(id => { suma += cxpMontos[id] || 0 })
+  document.getElementById('gs-nombre').value = ''
+  document.getElementById('gs-fecha-pago').value = ''
+  document.getElementById('gs-notas').value = ''
+  document.getElementById('gs-resumen').innerHTML = `<strong>${cxpSeleccionados.size}</strong> movimientos · <strong style="color:var(--gold)">L. ${fmt(suma)}</strong>`
+  document.getElementById('modal-guardar-sel-cxp').classList.add('open')
+}
+
+window.guardarSelCxP = async () => {
+  const nombre = document.getElementById('gs-nombre').value.trim()
+  const fechaPago = document.getElementById('gs-fecha-pago').value
+  const notas = document.getElementById('gs-notas').value.trim()
+  if (!nombre) { toast('Ingresá un nombre', 'error'); return }
+  if (!fechaPago) { toast('Ingresá la fecha de pago', 'error'); return }
+
+  let suma = 0
+  cxpSeleccionados.forEach(id => { suma += cxpMontos[id] || 0 })
+
+  const { error } = await getSb().from('cxp_selecciones').insert({
+    nombre,
+    fecha_pago: fechaPago,
+    notas,
+    linea_ids: [...cxpSeleccionados],
+    montos: cxpMontos,
+    total: Math.round(suma * 100) / 100,
+    cantidad: cxpSeleccionados.size,
+    creado_por: window._currentProfile()?.nombre || '',
+    estado: 'pendiente'
+  })
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  closeModal('modal-guardar-sel-cxp')
+  toast(`Selección "${nombre}" guardada · Pago: ${fechaPago}`, 'success')
+  logActividad('cxp_seleccion_guardada', 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
 }
 
 // ══════════════════════════════════════════════

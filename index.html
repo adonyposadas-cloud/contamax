@@ -1468,8 +1468,9 @@
         <div style="display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap" id="cxp-filtro-rapido" class="hidden">
           <input type="text" id="cxp-filtro-texto" placeholder="Filtrar por descripción o monto..." oninput="filtrarCxPTexto()" style="flex:1;min-width:200px;padding:8px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;outline:none">
           <div style="font-family:var(--mono);font-size:14px;color:var(--gold);font-weight:600" id="cxp-suma-sel">Seleccionados: L. 0.00</div>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost" id="btn-limpiar-sel-cxp" onclick="limpiarSelCxP()" style="display:none;font-size:12px;padding:6px 12px">✕ Limpiar selección</button>
+            <button class="btn btn-ghost" id="btn-guardar-sel-cxp" onclick="openGuardarSelCxP()" style="display:none;font-size:12px;padding:6px 12px;color:var(--blue)">💾 Guardar selección</button>
             <button class="btn btn-gold" id="btn-generar-pago" onclick="generarPagoCxP()" style="display:none">💰 Generar pago</button>
           </div>
         </div>
@@ -2643,6 +2644,19 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})
 }
 </script>
+<div class="modal-backdrop" id="modal-guardar-sel-cxp">
+  <div class="modal" style="width:500px">
+    <div class="modal-title">💾 Guardar selección de pagos</div>
+    <div class="fld"><label>Nombre de la selección</label><input type="text" id="gs-nombre" placeholder="Ej: Pago tarjeta Adony Mayo 2026"></div>
+    <div class="fld"><label>Fecha de pago programada</label><input type="date" id="gs-fecha-pago"></div>
+    <div class="fld"><label>Notas (opcional)</label><input type="text" id="gs-notas" placeholder="Observaciones..."></div>
+    <div id="gs-resumen" style="margin:12px 0;padding:10px;background:var(--bg3);border-radius:var(--radius);font-size:13px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('modal-guardar-sel-cxp')">Cancelar</button>
+      <button class="btn btn-gold" onclick="guardarSelCxP()">Guardar</button>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="modal-ver-partida">
   <div class="modal" style="width:1050px;max-height:90vh;overflow-y:auto">
     <div class="modal-title" id="mvp-title">Partida #—</div>
