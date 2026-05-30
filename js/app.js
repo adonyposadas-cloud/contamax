@@ -6841,14 +6841,14 @@ window.verDetalleVin = async (vinId) => {
     .eq('registro', regNum)
     .order('fecha')
 
-  // 2. Buscar en lineas_partida donde la descripción menciona el VIN
-  // Build OR filter with all VIN search variants
+  // 2. Buscar en lineas_partida donde la descripción menciona el VIN con prefijo
+  // Only search with proper VIN prefix to avoid false positives (e.g. 1180 matching 11800)
   const lineaFilters = searchVariants.flatMap(s => [
     `descripcion.ilike.%VIN ${s}%`,
-    `descripcion.ilike.%VIN${s}%`,
-    `descripcion.ilike.%${s}%`
+    `descripcion.ilike.%VIN_${s}%`,
+    `descripcion.ilike.%VIN  ${s}%`
   ])
-  lineaFilters.push(`descripcion.ilike.%${v.vin}%`)
+  lineaFilters.push(`descripcion.ilike.%${v.vin}%`) // full VIN always safe
   const orFilter = [...new Set(lineaFilters)].join(',')
 
   const { data: lineasVin } = await sb.from('lineas_partida')
