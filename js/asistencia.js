@@ -23,281 +23,126 @@ async function loadConfig() {
 }
 
 // ── PARSE TIME CLOCK XLS ──
-function parseDateTime(str) {
+
+// ── PARSE TIME CLOCK - MULTIPLE FORMATS ──
+function parseDateTimeStr(str) {
   if (!str) return null
-  // Format: "04/05/2026 07:45 a. m." or "04/05/2026 05:16 p. m."
-  const s = str.trim()
-    .replace(/a\.\s*m\./i, 'AM')
-    .replace(/p\.\s*m\./i, 'PM')
-    .replace(/\s+/g, ' ')
-  
-  const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i)
-  if (!m) return null
-  
-  let [, dd, mm, yyyy, hh, min, ampm] = m
-  hh = parseInt(hh)
-  if (ampm.toUpperCase() === 'PM' && hh < 12) hh += 12
-  if (ampm.toUpperCase() === 'AM' && hh === 12) hh = 0
-  
+  const s = String(str).trim()
+  // Format A: "04/05/2026 07:45 a. m."
+  const sA = s.replace(/a\.\s*m\./i, 'AM').replace(/p\.\s*m\./i, 'PM').replace(/\s+/g, ' ')
+  const mA = sA.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+  if (mA) {
+    let [, dd, mm, yyyy, hh, min, ampm] = mA
+    hh = parseInt(hh)
+    if (ampm.toUpperCase() === 'PM' && hh < 12) hh += 12
+    if (ampm.toUpperCase() === 'AM' && hh === 12) hh = 0
+    return buildResult(yyyy, mm, dd, hh, parseInt(min))
+  }
+  // Format B: "16/5/2026 07:14:19" (24h)
+  const mB = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/)
+  if (mB) {
+    return buildResult(mB[3], mB[2], mB[1], parseInt(mB[4]), parseInt(mB[5]))
+  }
+  // Format C: ISO
+  const mC = s.match(/(\d{4})-(\d{2})-(\d{2})[\sT](\d{2}):(\d{2})/)
+  if (mC) {
+    return buildResult(mC[1], mC[2], mC[3], parseInt(mC[4]), parseInt(mC[5]))
+  }
+  return null
+}
+
+function buildResult(yyyy, mm, dd, hh, min) {
+  const y = parseInt(yyyy), m = parseInt(mm) - 1, d = parseInt(dd)
   return {
-    date: `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`,
+    date: `${yyyy}-${String(parseInt(mm)).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
     time: `${String(hh).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
-    hours: hh,
-    minutes: parseInt(min),
-    totalMinutes: hh * 60 + parseInt(min),
-    weekday: new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd)).getDay()
-    // JS: 0=Sun, 1=Mon, ..., 6=Sat
+    hours: hh, minutes: min,
+    totalMinutes: hh * 60 + min,
+    weekday: new Date(y, m, d).getDay(),
+    day: d
   }
 }
 
-function processTimeClock(rows) {
-  // Build per-employee, per-day: first entry, last exit
-  const empDays = {}
-  
-  for (const row of rows) {
-    const name = (row[2] || '').toString().trim()
-    const horaStr = (row[3] || '').toString().trim()
-    const estado = (row[4] || '').toString().trim()
-    
-    if (!name || !horaStr) continue
-    
-    const parsed = parseDateTime(horaStr)
-    if (!parsed) continue
-    
-    const key = `${name}|${parsed.date}`
-    if (!empDays[key]) {
-      empDays[key] = {
-        nombre: name,
-        fecha: parsed.date,
-        weekday: parsed.weekday, // 0=Sun, 1=Mon, ..., 6=Sat
-        entrada: null,
-        salida: null,
-        entradaMin: null,
-        salidaMin: null
-      }
-    }
-    
-    const d = empDays[key]
-    if (estado.includes('Entrada')) {
-      if (d.entradaMin === null || parsed.totalMinutes < d.entradaMin) {
-        d.entrada = parsed.time
-        d.entradaMin = parsed.totalMinutes
-      }
-    }
-    if (estado.includes('Salida')) {
-      if (d.salidaMin === null || parsed.totalMinutes > d.salidaMin) {
-        d.salida = parsed.time
-        d.salidaMin = parsed.totalMinutes
-      }
+function detectFormat(rows) {
+  if (rows[0]?.length >= 5) {
+    for (let i = 0; i < Math.min(10, rows.length); i++) {
+      const val = String(rows[i]?.[4] || '').toLowerCase()
+      if (val.includes('estado') || val.includes('entrada') || val.includes('salida')) return 'RELOJ_ESTADO'
     }
   }
-  
+  return 'RELOJ_SIMPLE'
+}
+
+function processTimeClock(rows, quincena) {
+  const format = detectFormat(rows)
+  const empDays = {}
+  const dataRows = rows.slice(1).filter(r => r && (r[0] || r[2]))
+
+  for (const row of dataRows) {
+    let name, horaStr, isEntrada, isSalida
+    if (format === 'RELOJ_ESTADO') {
+      name = (row[2] || '').toString().trim().toUpperCase()
+      horaStr = (row[3] || '').toString().trim()
+      const estado = (row[4] || '').toString()
+      isEntrada = estado.includes('Entrada')
+      isSalida = estado.includes('Salida')
+    } else {
+      name = (row[0] || '').toString().trim().toUpperCase()
+      horaStr = (row[2] || '').toString().trim()
+    }
+    if (!name || !horaStr) continue
+    const parsed = parseDateTimeStr(horaStr)
+    if (!parsed) continue
+    // Filter by quincena
+    if (quincena === 'Q1' && parsed.day > 15) continue
+    if (quincena === 'Q2' && parsed.day <= 15) continue
+    // Simple format: determine by time
+    if (format === 'RELOJ_SIMPLE') {
+      isEntrada = parsed.totalMinutes < 720
+      isSalida = parsed.totalMinutes >= 720
+    }
+    const key = `${name}|${parsed.date}`
+    if (!empDays[key]) {
+      empDays[key] = { nombre: name, fecha: parsed.date, weekday: parsed.weekday,
+        entrada: null, salida: null, entradaMin: null, salidaMin: null }
+    }
+    const d = empDays[key]
+    if (isEntrada && (d.entradaMin === null || parsed.totalMinutes < d.entradaMin)) {
+      d.entrada = parsed.time; d.entradaMin = parsed.totalMinutes
+    }
+    if (isSalida && (d.salidaMin === null || parsed.totalMinutes > d.salidaMin)) {
+      d.salida = parsed.time; d.salidaMin = parsed.totalMinutes
+    }
+  }
   return Object.values(empDays).sort((a, b) => a.nombre.localeCompare(b.nombre) || a.fecha.localeCompare(b.fecha))
 }
 
-// ── CALCULATE ATTENDANCE ──
-function calcularAsistencia(dayRecords, permisos) {
-  const HORA_ENTRADA = 8 * 60       // 8:00 AM = 480 min
-  const HORA_SALIDA_LV = 17 * 60    // 5:00 PM = 1020 min
-  const HORA_SALIDA_SAB = 13 * 60   // 1:00 PM = 780 min
-  const GRACIA_HE_LV = configPlanilla.he_gracia_lv_min || 30    // 30 min gracia L-V
-  const BLOQUE_HE = configPlanilla.he_bloque_min || 30           // bloques de 30 min
-  
-  return dayRecords.map(d => {
-    const result = {
-      ...d,
-      minutos_tarde: 0,
-      minutos_he: 0,
-      minutos_negativos: 0,
-      sin_salida: false,
-      tiene_permiso: false,
-      permiso_id: null,
-      notas: []
-    }
-    
-    const esSabado = d.weekday === 6 // JS: 6=Sat
-    const esDomingo = d.weekday === 0
-    const esLaboral = d.weekday >= 1 && d.weekday <= 5 // Mon-Fri
-    
-    if (esDomingo) return result // No se procesa domingo
-    
-    // Check permisos for this day
-    const permiso = permisos.find(p => 
-      p.empleado_nombre === d.nombre && p.fecha === d.fecha
-    )
-    if (permiso) {
-      result.tiene_permiso = true
-      result.permiso_id = permiso.id
-    }
-    
-    // Sin salida
-    if (d.entrada && !d.salida) {
-      result.sin_salida = true
-      result.notas.push('⚠️ Sin salida registrada')
-      return result
-    }
-    
-    if (!d.entrada) return result
-    
-    // Llegada tarde (después de 8:00 AM)
-    if (d.entradaMin > HORA_ENTRADA) {
-      result.minutos_tarde = d.entradaMin - HORA_ENTRADA
-      result.notas.push(`Tarde: ${result.minutos_tarde}min`)
-    }
-    
-    if (!d.salida) return result
-    
-    const horaSalidaNormal = esSabado ? HORA_SALIDA_SAB : HORA_SALIDA_LV
-    
-    // Horas extra
-    if (esSabado) {
-      // Sábado: HE después de 1:00 PM SIN gracia
-      if (d.salidaMin > HORA_SALIDA_SAB) {
-        const extraMin = d.salidaMin - HORA_SALIDA_SAB
-        result.minutos_he = Math.floor(extraMin / BLOQUE_HE) * BLOQUE_HE
-        if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
-      }
-    } else if (esLaboral) {
-      // L-V: HE después de 5:00 PM + 30min gracia (desde 5:30 PM)
-      const inicioHE = HORA_SALIDA_LV + GRACIA_HE_LV
-      if (d.salidaMin > inicioHE) {
-        const extraMin = d.salidaMin - HORA_SALIDA_LV
-        result.minutos_he = Math.floor(extraMin / BLOQUE_HE) * BLOQUE_HE
-        if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
-      }
-      
-      // Salida anticipada (antes de 5:00 PM, sin permiso)
-      if (d.salidaMin < HORA_SALIDA_LV && !result.tiene_permiso) {
-        result.minutos_negativos = HORA_SALIDA_LV - d.salidaMin
-        result.notas.push(`Negativo: ${result.minutos_negativos}min`)
-      }
-    }
-    
-    return result
-  })
-}
-
-function calcularResumenQuincenal(dayRecords, empleados) {
-  const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
-  
-  // Group by employee
-  const byEmpleado = {}
-  for (const d of dayRecords) {
-    if (!byEmpleado[d.nombre]) {
-      byEmpleado[d.nombre] = {
-        nombre: d.nombre,
-        empleado_id: null,
-        dias: [],
-        totalTarde: 0,
-        totalHE: 0,
-        totalNegativo: 0,
-        diasTrabajados: 0,
-        diasFalta: 0,
-        alertas: [],
-        sinSalida: []
-      }
-    }
-    byEmpleado[d.nombre].dias.push(d)
-  }
-  
-  // Match with empleados table
-  for (const [nombre, r] of Object.entries(byEmpleado)) {
-    const emp = empleados.find(e => {
-      const empNombre = e.nombre.toUpperCase().trim()
-      const relojNombre = nombre.toUpperCase().trim()
-      return empNombre === relojNombre || empNombre.includes(relojNombre) || relojNombre.includes(empNombre)
-    })
-    if (emp) {
-      r.empleado_id = emp.id
-      r.sueldo_mensual = emp.sueldo_mensual
-      r.es_socio = emp.es_socio
-    } else {
-      r.alertas.push(`⚠️ No se encontró empleado "${nombre}" en la tabla de empleados`)
-    }
-  }
-  
-  // Calculate summaries
-  for (const r of Object.values(byEmpleado)) {
-    for (const d of r.dias) {
-      if (d.entrada) r.diasTrabajados++
-      r.totalTarde += d.minutos_tarde
-      r.totalHE += d.minutos_he
-      r.totalNegativo += d.minutos_negativos
-      if (d.sin_salida) r.sinSalida.push(d.fecha)
-    }
-    
-    // Apply tardiness rule
-    if (r.totalTarde > GRACIA_TARDE) {
-      r.tardeDeducir = r.totalTarde  // deducir TODO si excede gracia
-      r.alertas.push(`⏰ Tardes: ${r.totalTarde}min excede ${GRACIA_TARDE}min gracia → deducir ${r.totalTarde}min`)
-    } else {
-      r.tardeDeducir = 0 // dentro de gracia, no se cobra
-    }
-    
-    // Net overtime
-    r.heNeto = Math.max(0, r.totalHE - r.totalNegativo)
-    r.negativoArrastre = Math.max(0, r.totalNegativo - r.totalHE) // negativo para siguiente quincena
-    
-    if (r.negativoArrastre > 0) {
-      r.alertas.push(`📉 Negativo arrastre: ${r.negativoArrastre}min para siguiente quincena`)
-    }
-    
-    if (r.sinSalida.length > 0) {
-      r.alertas.push(`❌ Sin salida: ${r.sinSalida.join(', ')}`)
-    }
-  }
-  
-  return Object.values(byEmpleado).sort((a, b) => a.nombre.localeCompare(b.nombre))
-}
-
 // ── IMPORT UI ──
-window.importarReloj = async (input) => {
-  if (!input.files?.length) return
+window.procesarReloj = async () => {
+  const input = document.getElementById('reloj-file')
+  if (!input.files?.length) { window.toast?.('Seleccioná un archivo', 'error'); return }
   const file = input.files[0]
-  
+  const quincena = document.getElementById('reloj-quincena').value
   await loadConfig()
-  
-  // Load empleados
   const { data: empleados } = await getSb().from('empleados').select('*').eq('activo', true)
-  
-  // Load permisos for the date range (we'll determine dates from the file)
-  
-  // Read XLS
   const data = await file.arrayBuffer()
   const wb = XLSX.read(data, { type: 'array' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false })
-  
-  // Skip header row
-  const dataRows = rows.slice(1).filter(r => r && r[2])
-  
-  // Process time clock
-  const dayRecords = processTimeClock(dataRows)
-  
+  if (rows.length < 2) { window.toast?.('Archivo vacío', 'error'); return }
+  const dayRecords = processTimeClock(rows, quincena)
   if (!dayRecords.length) {
-    window.toast?.('No se encontraron registros en el archivo', 'error')
-    return
+    window.toast?.('No se encontraron registros para la quincena seleccionada', 'error'); return
   }
-  
-  // Determine date range
   const fechas = dayRecords.map(d => d.fecha).sort()
-  const fechaMin = fechas[0]
-  const fechaMax = fechas[fechas.length - 1]
-  
-  // Load permisos for this range
+  const fechaMin = fechas[0], fechaMax = fechas[fechas.length - 1]
   const { data: permisos } = await getSb().from('permisos_empleados')
-    .select('*')
-    .gte('fecha', fechaMin)
-    .lte('fecha', fechaMax)
+    .select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
   permisosCache = permisos || []
-  
-  // Calculate attendance
   asistenciaData = calcularAsistencia(dayRecords, permisosCache)
   asistenciaResumen = calcularResumenQuincenal(asistenciaData, empleados || [])
-  
-  // Render results
   renderAsistencia(fechaMin, fechaMax)
-  window.toast?.(`${dayRecords.length} registros procesados · ${asistenciaResumen.length} empleados`, 'success')
+  window.toast?.(`${dayRecords.length} registros · ${asistenciaResumen.length} empleados · ${quincena}`, 'success')
 }
 
 function renderAsistencia(fechaMin, fechaMax) {
@@ -518,6 +363,9 @@ window.eliminarPermiso = async (id) => {
 
 window.loadAsistencia = async () => {
   await cargarPermisos()
+  // Auto-select quincena
+  const q = document.getElementById('reloj-quincena')
+  if (q) q.value = new Date().getDate() <= 15 ? 'Q1' : 'Q2'
 }
 
 // ── CONFIG IHSS ──

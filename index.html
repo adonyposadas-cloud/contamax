@@ -1444,8 +1444,16 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           <div class="form-card">
-            <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">Archivo del reloj marcador (.xls)</label>
-            <input type="file" accept=".xls,.xlsx" onchange="importarReloj(this)" style="margin-top:8px">
+            <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">Archivo del reloj marcador (.xls / .xlsx)</label>
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:8px">
+              <input type="file" id="reloj-file" accept=".xls,.xlsx" style="flex:1">
+              <select id="reloj-quincena" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:8px 12px;color:var(--text);font-family:var(--font);font-size:13px">
+                <option value="Q1">1ra Quincena (1-15)</option>
+                <option value="Q2">2da Quincena (16-fin)</option>
+                <option value="TODO">Todo el mes</option>
+              </select>
+              <button class="btn btn-gold" onclick="procesarReloj()" style="padding:8px 16px">Procesar →</button>
+            </div>
           </div>
           <div class="form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
