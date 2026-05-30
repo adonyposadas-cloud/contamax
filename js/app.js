@@ -8387,6 +8387,7 @@ window.loadActividad = async () => {
     prestamo_creado: '🆕 Préstamos creados',
     prestamo_editado: '✏️ Préstamos editados',
     prestamo_baja: '⏹ Préstamos baja',
+    partida_modificada: '🔄 Partidas modificadas',
     caja_chica_aprobada: '💰 Caja chica aprobada'
   }
 
