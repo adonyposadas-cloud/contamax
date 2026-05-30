@@ -1471,6 +1471,7 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-ghost" id="btn-limpiar-sel-cxp" onclick="limpiarSelCxP()" style="display:none;font-size:12px;padding:6px 12px">✕ Limpiar selección</button>
             <button class="btn btn-ghost" id="btn-guardar-sel-cxp" onclick="openGuardarSelCxP()" style="display:none;font-size:12px;padding:6px 12px;color:var(--blue)">💾 Guardar selección</button>
+            <button class="btn btn-ghost" onclick="verSeleccionesCxP()" style="font-size:12px;padding:6px 12px;color:var(--green)">📂 Selecciones guardadas</button>
             <button class="btn btn-gold" id="btn-generar-pago" onclick="generarPagoCxP()" style="display:none">💰 Generar pago</button>
           </div>
         </div>
@@ -2644,6 +2645,15 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})
 }
 </script>
+<div class="modal-backdrop" id="modal-selecciones-cxp">
+  <div class="modal" style="width:750px;max-height:85vh;overflow-y:auto">
+    <div class="modal-title">📂 Selecciones guardadas</div>
+    <div id="selecciones-cxp-list" style="font-size:13px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-selecciones-cxp')">Cerrar</button>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="modal-guardar-sel-cxp">
   <div class="modal" style="width:500px">
     <div class="modal-title">💾 Guardar selección de pagos</div>

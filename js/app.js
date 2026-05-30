@@ -8493,6 +8493,75 @@ window.guardarSelCxP = async () => {
   logActividad('cxp_seleccion_guardada', 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
 }
 
+window.verSeleccionesCxP = async () => {
+  const { data, error } = await getSb().from('cxp_selecciones')
+    .select('*')
+    .order('fecha_pago', { ascending: true })
+  if (error) { toast(error.message, 'error'); return }
+  const list = document.getElementById('selecciones-cxp-list')
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  if (!data?.length) {
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">No hay selecciones guardadas</div>'
+  } else {
+    const estadoBadge = { pendiente: 'badge-amber', pagado: 'badge-on', cancelado: 'badge-off' }
+    list.innerHTML = data.map(s => {
+      const fechaPago = new Date(s.fecha_pago + 'T12:00:00').toLocaleDateString('es-HN')
+      const diasFaltan = Math.ceil((new Date(s.fecha_pago + 'T12:00:00') - new Date()) / (1000 * 60 * 60 * 24))
+      const diasLabel = diasFaltan < 0 ? `<span style="color:var(--red)">${Math.abs(diasFaltan)}d vencido</span>` : diasFaltan === 0 ? '<span style="color:var(--red)">Hoy</span>' : `${diasFaltan}d`
+      return `
+      <div style="padding:14px;background:var(--bg3);border-radius:var(--radius);margin-bottom:10px;border-left:3px solid ${s.estado === 'pagado' ? 'var(--green)' : diasFaltan < 3 ? 'var(--red)' : 'var(--gold)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <div style="font-weight:600">${s.nombre}</div>
+            <div style="font-size:11px;color:var(--text3)">${s.creado_por} · ${new Date(s.created_at).toLocaleDateString('es-HN')}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--mono);font-weight:600;color:var(--gold)">L. ${fmt(s.total)}</div>
+            <div style="font-size:11px">${s.cantidad} items</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:12px">
+            📅 Pago: <strong>${fechaPago}</strong> · ${diasLabel}
+            <span class="badge ${estadoBadge[s.estado] || 'badge-amber'}" style="font-size:10px;margin-left:6px">${s.estado}</span>
+            ${s.notas ? `<span style="color:var(--text3);margin-left:8px">${s.notas}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:6px">
+            ${s.estado === 'pendiente' ? `
+              <button class="btn btn-ghost" onclick="cargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--blue)">📥 Cargar</button>
+              <button class="btn btn-ghost" onclick="eliminarSelCxP('${s.id}','${s.nombre.replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 10px;color:var(--red)">🗑️</button>
+            ` : ''}
+          </div>
+        </div>
+      </div>`
+    }).join('')
+  }
+  document.getElementById('modal-selecciones-cxp').classList.add('open')
+}
+
+window.cargarSelCxP = async (selId) => {
+  const { data: sel } = await getSb().from('cxp_selecciones').select('*').eq('id', selId).single()
+  if (!sel) { toast('Selección no encontrada', 'error'); return }
+  cxpSeleccionados = new Set(sel.linea_ids || [])
+  cxpMontos = sel.montos || {}
+  guardarCxPSeleccion()
+  closeModal('modal-selecciones-cxp')
+  toast(`Selección "${sel.nombre}" cargada · ${sel.cantidad} items`, 'success')
+  // Update checkboxes if table is visible
+  document.querySelectorAll('.cxp-check').forEach(cb => {
+    cb.checked = cxpSeleccionados.has(cb.dataset.id)
+  })
+  updateSumaCxP()
+}
+
+window.eliminarSelCxP = async (selId, nombre) => {
+  if (!confirm(`¿Eliminar la selección "${nombre}"?`)) return
+  await getSb().from('cxp_selecciones').delete().eq('id', selId)
+  toast('Selección eliminada', 'success')
+  verSeleccionesCxP()
+}
+
 // ══════════════════════════════════════════════
 // ── ACTIVIDAD DE USUARIOS ──
 // ══════════════════════════════════════════════
