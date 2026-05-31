@@ -774,22 +774,67 @@ async function actualizarTotalesPlanilla() {
   }).eq('id', currentPlanilla.id)
 }
 
-// ── Aprobar planilla y generar partida contable ──
+// ── Aprobar planilla: rebaja saldo de vacaciones usado + (futuro) partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
-  if (!confirm('¿Aprobar esta planilla y generar la partida contable automáticamente?')) return
+  if (!confirm('¿Aprobar esta planilla? Se rebajará del saldo de vacaciones los días cubiertos en esta quincena.')) return
+
+  const sb = getSb()
+  const periodo = currentPlanilla.periodo
+  const fechaMov = currentPlanilla.fecha_fin || new Date().toISOString().slice(0, 10)
+  const quienId = window._currentProfile?.()?.nombre || null
+
+  // Candado anti doble-rebaja: ¿ya hay movimientos 'permiso' de esta planilla?
+  const { data: yaAplicado } = await sb.from('vacaciones_movimientos')
+    .select('id').eq('tipo', 'permiso').eq('periodo', periodo).limit(1)
+  const yaSeAplico = (yaAplicado || []).length > 0
 
   // Update status
-  const { error } = await getSb().from('planillas').update({
+  const { error } = await sb.from('planillas').update({
     estado: 'aprobada',
     aprobada_at: new Date().toISOString()
   }).eq('id', currentPlanilla.id)
 
   if (error) { window.toast?.('Error aprobando: ' + error.message, 'error'); return }
 
+  // Rebajar saldo de vacaciones por los días cubiertos (una sola vez por período)
+  let rebajados = 0
+  if (!yaSeAplico) {
+    const conVac = currentDetalle.filter(d => (d.vacaciones || 0) > 0 && d.empleado_id)
+    for (const d of conVac) {
+      const rate = (d.sueldo_mensual || 0) / 30
+      if (rate <= 0) continue
+      const diasCubiertos = Math.round((d.vacaciones / rate) * 1000) / 1000  // se recupera del monto guardado
+      if (diasCubiertos <= 0) continue
+      const { data: emp } = await sb.from('empleados')
+        .select('vacaciones_saldo_dias').eq('id', d.empleado_id).maybeSingle()
+      const saldoActual = parseFloat(emp?.vacaciones_saldo_dias) || 0
+      const saldoNuevo = Math.round((saldoActual - diasCubiertos) * 1000) / 1000
+      await sb.from('empleados').update({ vacaciones_saldo_dias: saldoNuevo }).eq('id', d.empleado_id)
+      await sb.from('vacaciones_movimientos').insert({
+        empleado_id: d.empleado_id,
+        empleado_nombre: d.nombre,
+        fecha: fechaMov,
+        tipo: 'permiso',
+        dias: -diasCubiertos,
+        monto: d.vacaciones,
+        saldo_resultante: saldoNuevo,
+        referencia: `PLANILLA ${periodo}`,
+        motivo: 'Permiso a cuenta de vacaciones (planilla)',
+        periodo,
+        created_by: quienId
+      })
+      rebajados++
+    }
+  }
+
   currentPlanilla.estado = 'aprobada'
   renderPlanilla()
-  window.toast?.('✅ Planilla aprobada. Partida contable lista para revisión.', 'ok')
+  let msg = '✅ Planilla aprobada.'
+  if (yaSeAplico) msg += ' Las vacaciones de este período ya estaban aplicadas (no se rebajó de nuevo).'
+  else if (rebajados > 0) msg += ` Saldo de vacaciones rebajado a ${rebajados} empleado(s).`
+  window.toast?.(msg, 'ok')
+  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · vac rebajada: ${rebajados}`)
 }
 
 // ── Exportar a Excel ──
