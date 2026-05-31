@@ -23,42 +23,42 @@ const CUENTAS_SECCION = {
     sueldos: '610101-001', he: '610101-002', vacaciones: '610101-005',
     bonificaciones: '610101-007', incapacidades: '610101-036',
     otros: '610101-037', ihss_laboral: '210303-001', ihss_patronal_gasto: '610101-009',
-    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301', trucha: '210404-001',
+    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301-001', trucha: '210404-001',
     chequera: '110103-001'
   },
   'GV Taller': {
     sueldos: '610102-001', he: '610102-002', vacaciones: '610102-005',
     bonificaciones: '610102-007', incapacidades: '610102-039',
     otros: '610102-040', ihss_laboral: '210303-001', ihss_patronal_gasto: '610102-009',
-    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301', trucha: '210404-001',
+    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301-001', trucha: '210404-001',
     chequera: '110103-001'
   },
   'GA Taller': {
     sueldos: '610103-001', he: '610103-002', vacaciones: '610103-005',
     bonificaciones: '610103-031', incapacidades: '610103-029',
     otros: '610103-030', ihss_laboral: '210303-001', ihss_patronal_gasto: '610103-009',
-    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301', trucha: '210404-001',
+    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301-001', trucha: '210404-001',
     chequera: '110103-001'
   },
   'GO Yonker': {
     sueldos: '610101-001', he: '610101-002', vacaciones: '610101-005',
     bonificaciones: '610101-007', incapacidades: '610101-036',
     otros: '610101-037', ihss_laboral: '210303-001', ihss_patronal_gasto: '610101-009',
-    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301', trucha: '410305-002',
+    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301-002', trucha: '410305-002',
     chequera: '110103-001'
   },
   'GV Yonker': {
     sueldos: '610102-001', he: '610102-002', vacaciones: '610102-005',
     bonificaciones: '610102-007', incapacidades: '610102-039',
     otros: '610102-040', ihss_laboral: '210303-001', ihss_patronal_gasto: '610102-009',
-    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301', trucha: '410305-002',
+    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301-002', trucha: '410305-002',
     chequera: '110103-001'
   },
   'GA Yonker': {
     sueldos: '610103-001', he: '610103-002', vacaciones: '610103-005',
     bonificaciones: '610103-031', incapacidades: '610103-029',
     otros: '610103-030', ihss_laboral: '210303-001', ihss_patronal_gasto: '610103-009',
-    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301', trucha: '410305-002',
+    ihss_patronal_cxp: '210303-002', imp_vecinal: '210301-002', trucha: '410305-002',
     chequera: '110103-001'
   }
 }
@@ -774,7 +774,107 @@ async function actualizarTotalesPlanilla() {
   }).eq('id', currentPlanilla.id)
 }
 
-// ── Aprobar planilla: rebaja saldo de vacaciones usado + (futuro) partida ──
+// ── Genera la partida contable de la planilla (agrega por código de cuenta) ──
+// Devuelve { ok, skipped, numero, error }. Valida TODO antes de escribir nada.
+async function generarPartidaPlanilla(periodo, fechaPartida) {
+  const sb = getSb()
+
+  // Candado anti-duplicado: ¿ya hay partida de esta planilla?
+  const { data: existe, error: exErr } = await sb.from('partidas_contables')
+    .select('numero_partida').ilike('descripcion', `PLANILLA ${periodo}%`).limit(1)
+  if (exErr) return { ok: false, error: 'No se pudo verificar partidas: ' + exErr.message }
+  if ((existe || []).length) return { ok: true, skipped: true, numero: existe[0].numero_partida }
+
+  // Acumular montos por código de cuenta
+  const deb = {}, cre = {}
+  const addD = (cod, m) => { if (cod && m) deb[cod] = (deb[cod] || 0) + m }
+  const addC = (cod, m) => { if (cod && m) cre[cod] = (cre[cod] || 0) + m }
+  const faltantes = new Set(), sinCxc = []
+
+  for (const d of currentDetalle) {
+    const C = CUENTAS_SECCION[d.seccion]
+    if (!C) { faltantes.add(d.seccion || `(sin sección: ${d.nombre})`); continue }
+    // Débitos (gastos). "Otras deducciones" (tardanza) reduce el gasto de sueldo.
+    addD(C.sueldos, (d.sueldo_quincenal || 0) - (d.otras_deducciones || 0))
+    addD(C.he, d.monto_he || 0)
+    addD(C.vacaciones, d.vacaciones || 0)
+    addD(C.incapacidades, d.incapacidad || 0)
+    addD(C.bonificaciones, d.bonificaciones || 0)
+    addD(C.otros, (d.otros_ingresos || 0) + (d.ajuste_sueldo || 0) + (d.comisiones_venta || 0))
+    addD(C.ihss_patronal_gasto, d.ihss_patronal || 0)
+    // Créditos (por pagar / banco)
+    addC(C.ihss_laboral, d.ihss_laboral || 0)
+    addC(C.ihss_patronal_cxp, d.ihss_patronal || 0)
+    addC(C.imp_vecinal, d.imp_vecinal || 0)
+    addC(C.trucha, d.trucha || 0)
+    const antCxc = (d.anticipos || 0) + (d.cxc || 0)
+    if (antCxc > 0) {
+      if (!d.cuenta_cxc) sinCxc.push(d.nombre)
+      else addC(d.cuenta_cxc, antCxc)
+    }
+    addC(C.chequera, d.sueldo_neto || 0)
+  }
+
+  if (faltantes.size) return { ok: false, error: `Secciones sin cuentas mapeadas: ${[...faltantes].join(', ')}` }
+  if (sinCxc.length) return { ok: false, error: `Empleados con anticipo/CXC sin cuenta_cxc: ${sinCxc.join(', ')}` }
+
+  // Traer cuentas del catálogo
+  const codigos = [...new Set([...Object.keys(deb), ...Object.keys(cre)])]
+  const { data: cuentas, error: cErr } = await sb.from('catalogo_cuentas')
+    .select('id, codigo, nombre').in('codigo', codigos)
+  if (cErr) return { ok: false, error: 'Error leyendo catálogo: ' + cErr.message }
+  const mapC = {}; for (const c of (cuentas || [])) mapC[c.codigo] = c
+  const noEnCatalogo = codigos.filter(c => !mapC[c])
+  if (noEnCatalogo.length) return { ok: false, error: `Cuentas inexistentes en el catálogo: ${noEnCatalogo.join(', ')}` }
+
+  // Construir líneas (redondeo a 2 decimales)
+  const r2 = x => Math.round(x * 100) / 100
+  const lineas = []
+  let totalDeb = 0, totalCre = 0
+  for (const [cod, m] of Object.entries(deb)) {
+    const monto = r2(m); if (monto <= 0) continue
+    const c = mapC[cod]
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'debito', monto, descripcion: `PLANILLA ${periodo}`, aplica_fiscal: false })
+    totalDeb = r2(totalDeb + monto)
+  }
+  for (const [cod, m] of Object.entries(cre)) {
+    const monto = r2(m); if (monto <= 0) continue
+    const c = mapC[cod]
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'credito', monto, descripcion: `PLANILLA ${periodo}`, aplica_fiscal: false })
+    totalCre = r2(totalCre + monto)
+  }
+
+  // Ajuste de centavos por redondeo: cuadrar contra la línea de banco (neto)
+  const dif = r2(totalDeb - totalCre)
+  if (dif !== 0) {
+    const banco = lineas.find(l => l.tipo === 'credito' && l.cuenta_codigo === '110103-001')
+    if (banco) { banco.monto = r2(banco.monto + dif); totalCre = r2(totalCre + dif) }
+  }
+  if (r2(totalDeb - totalCre) !== 0) {
+    return { ok: false, error: `La partida no cuadra (D ${totalDeb} ≠ C ${totalCre}). No se generó.` }
+  }
+
+  // Insertar partida + líneas
+  const { data: lastP } = await sb.from('partidas_contables')
+    .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+  const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+  const desc = `PLANILLA ${periodo} (NÓMINA ${currentDetalle.length} EMPLEADOS)`
+
+  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+    centro_costo_id: null, fecha_partida: fechaPartida, numero_partida: numPartida,
+    descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: totalDeb,
+    generada_por: window._currentProfile?.()?.id || null
+  }).select().single()
+  if (pErr || !partida) return { ok: false, error: 'Error creando partida: ' + (pErr?.message || '') }
+
+  const filas = lineas.map(l => ({ partida_id: partida.id, ...l }))
+  const { error: lErr } = await sb.from('lineas_partida').insert(filas)
+  if (lErr) return { ok: false, error: 'Error en líneas: ' + lErr.message }
+
+  return { ok: true, numero: numPartida, total: totalDeb }
+}
+
+// ── Aprobar planilla: rebaja saldo de vacaciones usado + genera partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
   if (!confirm('¿Aprobar esta planilla? Se rebajará del saldo de vacaciones los días cubiertos en esta quincena.')) return
@@ -836,6 +936,13 @@ window.aprobarPlanilla = async () => {
     return
   }
 
+  // Generar la partida contable (cuadrada; idempotente por período). Si falla, no aprueba.
+  const part = await generarPartidaPlanilla(periodo, fechaMov)
+  if (!part.ok) {
+    window.toast?.('No se aprobó: ' + part.error, 'error')
+    return
+  }
+
   // Aprobar la planilla
   const { error } = await sb.from('planillas').update({
     estado: 'aprobada',
@@ -846,10 +953,12 @@ window.aprobarPlanilla = async () => {
   currentPlanilla.estado = 'aprobada'
   renderPlanilla()
   let msg = '✅ Planilla aprobada.'
-  if (yaSeAplico) msg += ' Las vacaciones de este período ya estaban aplicadas (no se rebajó de nuevo).'
-  else if (rebajados > 0) msg += ` Saldo de vacaciones rebajado a ${rebajados} empleado(s).`
+  if (part.skipped) msg += ` Partida #${part.numero} ya existía.`
+  else msg += ` Partida #${part.numero} generada (borrador).`
+  if (yaSeAplico) msg += ' Vacaciones ya estaban aplicadas.'
+  else if (rebajados > 0) msg += ` Vacaciones rebajadas a ${rebajados} empleado(s).`
   window.toast?.(msg, 'ok')
-  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · vac rebajada: ${rebajados}`)
+  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · partida #${part.numero} · vac: ${rebajados}`)
 }
 
 // ── Exportar a Excel ──
