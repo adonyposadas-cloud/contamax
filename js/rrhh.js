@@ -457,13 +457,16 @@ window.generarPlanilla = async () => {
       } else {
         const vacTotal = ast.diasPermisoVac || 0                 // días de permiso a cuenta de vacaciones
         const noTrabajados = (ast.minNoTrabajados || 0) / 60 / 8 // salidas tempranas sin permiso
+        const incapDias = ast.diasIncapacidad || 0               // días calendario de incapacidad en el período
+        const incapEmpresa = ast.diasIncapEmpresa || 0           // días-equivalentes que paga la empresa (100%/34%)
         const saldoVac = parseFloat(e.vacaciones_saldo_dias) || 0
         const diasCubiertos = Math.min(vacTotal, saldoVac)       // lo que alcanza a pagar vacaciones
-        // Días trabajados (base) = pagados − permiso vacaciones − no trabajados.
-        // La parte cubierta vuelve como ingreso Vacaciones (neutro); la no cubierta y las
-        // horas sin permiso reducen el neto.
-        overrides.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - noTrabajados) * 100) / 100)
+        // Días trabajados (base) = pagados − permiso vacaciones − no trabajados − incapacidad.
+        // La parte de vacaciones cubierta vuelve como ingreso Vacaciones (neutro); la incapacidad
+        // vuelve (total o parcial) en la columna Incapacidad; lo no cubierto reduce el neto.
+        overrides.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - noTrabajados - incapDias) * 100) / 100)
         if (diasCubiertos > 0) overrides.vacaciones = Math.round(diasCubiertos * rate * 100) / 100
+        if (incapEmpresa > 0) overrides.incapacidad = Math.round(incapEmpresa * rate * 100) / 100
       }
       if (ast.tardeDeducir > 0) {
         const valorMinuto = (e.sueldo_mensual || 0) / 30 / 8 / 60

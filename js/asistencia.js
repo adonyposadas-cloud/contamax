@@ -12,6 +12,7 @@ let asistenciaData = []   // processed attendance per employee per day
 let asistenciaResumen = [] // summary per employee for the period
 let configPlanilla = {}    // editable config values
 let permisosCache = []
+let incapacidadesCache = []
 
 // ── LOAD CONFIG ──
 async function loadConfig() {
@@ -139,6 +140,8 @@ window.procesarReloj = async () => {
   const { data: permisos } = await getSb().from('permisos_empleados')
     .select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
   permisosCache = permisos || []
+  const { data: incapsAll } = await getSb().from('permisos_empleados').select('*').eq('tipo', 'incapacidad')
+  incapacidadesCache = incapsAll || []
   asistenciaData = calcularAsistencia(dayRecords, permisosCache)
   // Límites reales del período (no los del archivo) para evaluar el séptimo día
   const refFecha = dayRecords[0].fecha
@@ -282,22 +285,91 @@ function _diasPermisoVac(empleadoId, nombre, permisos) {
   return Math.round(dias * 1000) / 1000
 }
 
+// Suma n días calendario a un 'YYYY-MM-DD' (local, sin desfase de zona horaria).
+function _addDaysYMD(ymd, n) {
+  const [y, m, d] = String(ymd).split('-').map(Number)
+  const dt = new Date(y, (m || 1) - 1, (d || 1) + n)
+  const pad = x => String(x).padStart(2, '0')
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+}
+
+// ¿La fecha cae dentro del rango de alguna incapacidad del empleado? (justifica la ausencia)
+function _diaEnIncapacidad(empleadoId, nombre, fechaYMD, incapacidades) {
+  const n = (nombre || '').toUpperCase().trim()
+  for (const p of (incapacidades || [])) {
+    if (p.tipo !== 'incapacidad') continue
+    const match = (empleadoId && p.empleado_id) ? p.empleado_id === empleadoId
+                                                : (p.empleado_nombre || '').toUpperCase().trim() === n
+    if (!match) continue
+    const total = parseInt(p.dias) || 0
+    if (total < 1 || !p.fecha) continue
+    if (fechaYMD >= p.fecha && fechaYMD < _addDaysYMD(p.fecha, total)) return true
+  }
+  return false
+}
+
+// Días de incapacidad que caen en el período y el pago de la EMPRESA en días-equivalentes.
+//  · día 1-3 del EPISODIO → 100% (empresa)   · día 4+ → 34% (empresa; IHSS cubre 66%)
+//  · el "episodio" acumula días por la cadena continua_de cuando es_continuacion = true.
+// Devuelve { dias: <días calendario en el período>, empresa: <días-equivalentes a pagar> }.
+function _incapacidadEnPeriodo(empleadoId, nombre, incapacidades, inicio, fin) {
+  const n = (nombre || '').toUpperCase().trim()
+  const mine = (incapacidades || []).filter(p => {
+    if (p.tipo !== 'incapacidad') return false
+    return (empleadoId && p.empleado_id) ? p.empleado_id === empleadoId
+                                         : (p.empleado_nombre || '').toUpperCase().trim() === n
+  })
+  if (!mine.length) return { dias: 0, empresa: 0 }
+  const byId = {}; for (const p of mine) byId[p.id] = p
+  const cache = {}
+  const offsetOf = (rec, seen) => {
+    if (!rec) return 0
+    if (cache[rec.id] != null) return cache[rec.id]
+    seen = seen || {}
+    if (seen[rec.id]) return 0                         // guarda contra ciclos
+    seen[rec.id] = true
+    let off = 0
+    if (rec.es_continuacion && rec.continua_de && byId[rec.continua_de]) {
+      const parent = byId[rec.continua_de]
+      off = offsetOf(parent, seen) + (parseInt(parent.dias) || 0)
+    }
+    cache[rec.id] = off
+    return off
+  }
+  let dias = 0, empresa = 0
+  for (const rec of mine) {
+    const total = parseInt(rec.dias) || 0
+    if (total < 1 || !rec.fecha) continue
+    const off = offsetOf(rec)
+    for (let i = 0; i < total; i++) {
+      const dayYMD = _addDaysYMD(rec.fecha, i)
+      if (dayYMD < inicio || dayYMD > fin) continue    // solo los días dentro de la quincena
+      const episodeDay = off + i + 1                   // posición 1-based en el episodio
+      dias += 1
+      empresa += (episodeDay <= 3 ? 1.0 : 0.34)
+    }
+  }
+  return { dias, empresa: Math.round(empresa * 1000) / 1000 }
+}
+
 // Calcula faltas injustificadas (agrupadas por semana) y días pagados.
 // Regla: día Lun-Sáb sin entrada y sin permiso = falta injustificada (−1 día).
 // Cada semana con ≥1 falta pierde además su domingo (−1 día por semana, no por falta).
 // diasPagados = base − faltas − semanasConFalta. Socios: siempre base, sin deducción.
-function _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias, permisos) {
+function _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias, permisos, incapacidades) {
   r.faltasDetalle = []
   if (r.es_socio) {
     r.faltasInjustificadas = 0; r.semanasConFalta = 0; r.diasPagados = baseDias
     return
   }
+  const incaps = incapacidades || (permisos || []).filter(p => p.tipo === 'incapacidad')
   const esperados = _diasLaborablesEnRango(fechaInicio, fechaFin)
   const semanas = new Set()
   let faltas = 0
   for (const f of esperados) {
     if (presentes.has(f)) continue
     if (_tienePermisoDiaCompleto(r.empleado_id, r.nombre, f, permisos)) continue
+    if (_diaEnIncapacidad(r.empleado_id, r.nombre, f, incaps)) continue   // incapacidad justifica
     faltas++
     r.faltasDetalle.push(f)
     semanas.add(_lunesDeLaSemana(f))
@@ -377,11 +449,16 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
 
     // Séptimo día: días pagados según faltas injustificadas (Lun-Sáb sin entrada y sin permiso)
     if (fechaInicio && fechaFin) {
-      _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias || 15, permisosCache)
+      _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias || 15, permisosCache, incapacidadesCache)
     } else {
       r.diasPagados = r.diasTrabajados // sin rango no se puede evaluar el séptimo (compat.)
     }
     r.diasPermisoVac = _diasPermisoVac(r.empleado_id, r.nombre, permisosCache)
+    if (fechaInicio && fechaFin) {
+      const incap = _incapacidadEnPeriodo(r.empleado_id, r.nombre, incapacidadesCache, fechaInicio, fechaFin)
+      r.diasIncapacidad = incap.dias
+      r.diasIncapEmpresa = incap.empresa
+    } else { r.diasIncapacidad = 0; r.diasIncapEmpresa = 0 }
   }
 
   return Object.values(byEmpleado).sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -558,6 +635,11 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
   const { data: permisos } = await getSb().from('permisos_empleados')
     .select('*').gte('fecha', bounds.inicio).lte('fecha', bounds.fin)
 
+  // Incapacidades: se traen TODAS (sin filtro de fecha) porque un episodio puede
+  // empezar en otra quincena y/o encadenarse (continua_de) para el conteo 100%/34%.
+  const { data: incapacidades } = await getSb().from('permisos_empleados')
+    .select('*').eq('tipo', 'incapacidad')
+
   // es_socio por empleado (socios no sufren deducción de días)
   const empIds = [...new Set(data.map(r => r.empleado_id).filter(Boolean))]
   const sociosMap = {}
@@ -586,8 +668,11 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     e.tardeDeducir = e.totalTarde > GRACIA_TARDE ? e.totalTarde : 0
     e.heNeto = e.totalHE                              // HE en bruto (sin neteo)
     e.minNoTrabajados = e.totalNeg                    // salidas tempranas SIN permiso → descuento de sueldo
-    _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [])
+    _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [], incapacidades || [])
     e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisos || [])
+    const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapacidades || [], bounds.inicio, bounds.fin)
+    e.diasIncapacidad = incap.dias
+    e.diasIncapEmpresa = incap.empresa
     out.push(e)
   }
   return out
@@ -812,10 +897,15 @@ window.cargarHistorialAsistencia = async () => {
   }
   const { data: permisosPeriodo } = await getSb().from('permisos_empleados')
     .select('*').gte('fecha', histBounds.inicio).lte('fecha', histBounds.fin)
+  const { data: incapsHist } = await getSb().from('permisos_empleados')
+    .select('*').eq('tipo', 'incapacidad')
   for (const e of Object.values(byEmp)) {
     e.es_socio = !!sociosMap[e.empleado_id]
-    _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [])
+    _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [], incapsHist || [])
     e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisosPeriodo || [])
+    const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapsHist || [], histBounds.inicio, histBounds.fin)
+    e.diasIncapacidad = incap.dias
+    e.diasIncapEmpresa = incap.empresa
   }
 
   const empleados = Object.values(byEmp).sort((a, b) => a.nombre.localeCompare(b.nombre))
