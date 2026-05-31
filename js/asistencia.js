@@ -560,30 +560,37 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
 }
 
 // ── PERMISOS ──
-window.openPermisoEmpleado = () => {
-  document.getElementById('perm-nombre').value = ''
+window.openPermisoEmpleado = async () => {
+  const sel = document.getElementById('perm-nombre')
+  sel.innerHTML = '<option value="">— Seleccionar empleado —</option>'
+  const { data: emps } = await getSb().from('empleados')
+    .select('id, nombre').eq('activo', true).order('nombre')
+  for (const e of (emps || [])) {
+    const o = document.createElement('option')
+    o.value = e.id
+    o.textContent = e.nombre
+    sel.appendChild(o)
+  }
   document.getElementById('perm-fecha').value = ''
   document.getElementById('perm-hora').value = ''
   document.getElementById('perm-motivo').value = ''
   document.getElementById('perm-tipo').value = 'salida_anticipada'
-  openModal('modal-permiso-emp')
+  document.getElementById('modal-permiso-emp').classList.add('open')
 }
 
 window.guardarPermiso = async () => {
-  const nombre = document.getElementById('perm-nombre').value.trim()
+  const sel = document.getElementById('perm-nombre')
+  const empleadoId = sel.value
+  const nombre = empleadoId ? sel.options[sel.selectedIndex].text : ''
   const fecha = document.getElementById('perm-fecha').value
   const horaSalida = document.getElementById('perm-hora').value
   const motivo = document.getElementById('perm-motivo').value.trim()
   const tipo = document.getElementById('perm-tipo').value
-  
-  if (!nombre || !fecha) { window.toast?.('Nombre y fecha son obligatorios', 'error'); return }
-  
-  // Match employee
-  const { data: emps } = await getSb().from('empleados').select('id, nombre')
-    .ilike('nombre', `%${nombre}%`).limit(1)
-  
+
+  if (!empleadoId || !fecha) { window.toast?.('Seleccioná el empleado y la fecha', 'error'); return }
+
   const { error } = await getSb().from('permisos_empleados').insert({
-    empleado_id: emps?.[0]?.id || null,
+    empleado_id: empleadoId,
     empleado_nombre: nombre.toUpperCase(),
     fecha,
     hora_salida: horaSalida || null,
@@ -591,9 +598,9 @@ window.guardarPermiso = async () => {
     tipo,
     aprobado_por: window._currentProfile?.()?.nombre || ''
   })
-  
+
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
-  closeModal('modal-permiso-emp')
+  window.closeModal('modal-permiso-emp')
   window.toast?.('Permiso registrado ✓', 'success')
   cargarPermisos()
 }

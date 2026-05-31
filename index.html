@@ -178,6 +178,9 @@
           <div class="nav-item" id="nav-config-planilla" onclick="showView('config-planilla','Configuración planilla');loadConfigPlanilla()">
             <span class="nav-dot"></span>Config. planilla
           </div>
+          <div class="nav-item" id="nav-vacaciones" onclick="showView('vacaciones','Vacaciones');loadVacaciones()">
+            <span class="nav-dot"></span>Vacaciones
+          </div>
         </div>
       </div>
 
@@ -1435,6 +1438,35 @@
         </div>
       </div>
 
+      <!-- ═══════════════ RRHH: VACACIONES ═══════════════ -->
+      <div class="view" id="view-vacaciones">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🏖️ Vacaciones</div>
+            <div class="page-sub">Saldo de días por empleado y pago en efectivo (egreso de Caja General)</div>
+          </div>
+          <button class="btn btn-gold" onclick="openPagoVacaciones()">💵 Pagar vacaciones</button>
+        </div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-num" id="stat-vac-empleados">—</div><div class="stat-label">Empleados con saldo</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-vac-dias">—</div><div class="stat-label">Días acumulados</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Empleado</th>
+                <th>Sección</th>
+                <th style="text-align:right">Sueldo mensual</th>
+                <th style="text-align:right">Saldo (días)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-vacaciones"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- ═══════════════ CUENTAS POR PAGAR ═══════════════ -->
       <div class="view" id="view-asistencia">
         <div class="page-header">
@@ -1506,7 +1538,7 @@
       <div class="modal-backdrop" id="modal-permiso-emp">
         <div class="modal" style="width:450px">
           <div class="modal-title">📋 Registrar permiso</div>
-          <div class="fld"><label>Empleado</label><input type="text" id="perm-nombre" placeholder="Nombre del empleado" style="text-transform:uppercase"></div>
+          <div class="fld"><label>Empleado</label><select id="perm-nombre"></select></div>
           <div class="fld"><label>Fecha</label><input type="date" id="perm-fecha"></div>
           <div class="fld"><label>Hora de salida</label><input type="time" id="perm-hora"></div>
           <div class="fld"><label>Tipo</label>
@@ -1520,6 +1552,25 @@
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" onclick="closeModal('modal-permiso-emp')">Cancelar</button>
             <button class="btn btn-gold" onclick="guardarPermiso()">Guardar permiso</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-backdrop" id="modal-pago-vacaciones">
+        <div class="modal" style="width:460px">
+          <div class="modal-title">💵 Pagar vacaciones en efectivo</div>
+          <div class="fld"><label>Empleado</label><select id="pagovac-empleado" onchange="recalcPagoVac()"></select></div>
+          <div class="fld"><label>Saldo disponible</label><div id="pagovac-saldo" style="padding:6px 0;font-weight:600;color:var(--green)">— días</div></div>
+          <div class="fld"><label>Días a pagar</label><input type="number" id="pagovac-dias" min="0" step="0.5" placeholder="0" oninput="recalcPagoVac()"></div>
+          <div style="display:flex;gap:16px;margin:8px 0">
+            <div style="flex:1"><label style="font-size:11px;color:var(--text3)">Monto a pagar</label><div id="pagovac-monto" style="font-weight:600;font-size:16px;color:var(--gold)">L. 0.00</div></div>
+            <div style="flex:1"><label style="font-size:11px;color:var(--text3)">Saldo resultante</label><div id="pagovac-resultante" style="font-weight:600;font-size:16px">— días</div></div>
+          </div>
+          <div class="fld"><label>Referencia (solicitud escrita)</label><input type="text" id="pagovac-referencia" placeholder="Nº o nota de la solicitud"></div>
+          <div class="fld"><label>Motivo (opcional)</label><input type="text" id="pagovac-motivo" placeholder="Detalle..."></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-ghost" onclick="closeModal('modal-pago-vacaciones')">Cancelar</button>
+            <button class="btn btn-gold" id="btn-aplicar-pagovac" onclick="aplicarPagoVacaciones()">Aplicar y generar partida</button>
           </div>
         </div>
       </div>
@@ -2740,6 +2791,7 @@
 <script defer src="js/financiamiento.js"></script>
 <script defer src="js/rrhh.js"></script>
 <script defer src="js/asistencia.js"></script>
+<script defer src="js/vacaciones.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})
