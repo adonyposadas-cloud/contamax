@@ -403,7 +403,15 @@ window.generarPlanilla = async () => {
 
   // Generate detail for each employee
   // Check for attendance data
-  const asistencia = window._asistenciaResumen || []
+  // Asistencia: preferir la base de datos (independiente de pestaña/refresh),
+  // con respaldo a la variable en memoria si no hay datos guardados para el período.
+  let asistencia = []
+  try {
+    if (window.resumenAsistenciaDesdeDB) {
+      asistencia = await window.resumenAsistenciaDesdeDB(anio, mes, quincena) || []
+    }
+  } catch (e) { console.error('resumenAsistenciaDesdeDB:', e) }
+  if (!asistencia.length) asistencia = window._asistenciaResumen || []
 
   // ── Cargar anticipos y trucha de cuentas 110301-XXX ──
   const { data: lineasCxC } = await getSb().from('lineas_partida')

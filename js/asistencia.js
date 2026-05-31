@@ -508,6 +508,57 @@ window.aplicarAsistenciaAPlanilla = () => {
   window.toast?.('Datos de asistencia listos. Generá la planilla para aplicarlos automáticamente.', 'info')
 }
 
+// Resumen de asistencia (con séptimo) leído desde la tabla asistencia_reloj.
+// La planilla usa esto para no depender de la variable en memoria, que no se comparte
+// entre pestañas/ventanas ni sobrevive a un refresh. Requiere haber guardado la asistencia.
+window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
+  const pad = n => String(n).padStart(2, '0')
+  const periodo = `${anio}-${pad(mes)}-${quincena}`
+  const { data, error } = await getSb().from('asistencia_reloj')
+    .select('*').eq('periodo', periodo).order('empleado_nombre').order('fecha')
+  if (error || !data?.length) return []
+
+  await loadConfig()
+  const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
+  const bounds = _periodoBounds(parseInt(anio), parseInt(mes), quincena)
+
+  // Permisos del período (justifican faltas → conservan el domingo)
+  const { data: permisos } = await getSb().from('permisos_empleados')
+    .select('*').gte('fecha', bounds.inicio).lte('fecha', bounds.fin)
+
+  // es_socio por empleado (socios no sufren deducción de días)
+  const empIds = [...new Set(data.map(r => r.empleado_id).filter(Boolean))]
+  const sociosMap = {}
+  if (empIds.length) {
+    const { data: emps } = await getSb().from('empleados').select('id, es_socio').in('id', empIds)
+    for (const em of (emps || [])) sociosMap[em.id] = em.es_socio
+  }
+
+  const byEmp = {}
+  for (const r of data) {
+    if (!byEmp[r.empleado_nombre]) {
+      byEmp[r.empleado_nombre] = { nombre: r.empleado_nombre, empleado_id: r.empleado_id,
+        totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], alertas: [],
+        presentes: new Set(), es_socio: !!sociosMap[r.empleado_id] }
+    }
+    const e = byEmp[r.empleado_nombre]
+    if (r.hora_entrada) { e.diasTrabajados++; e.presentes.add(r.fecha) }
+    e.totalTarde += r.minutos_tarde || 0
+    e.totalHE += r.minutos_he || 0
+    e.totalNeg += r.minutos_negativos || 0
+    if (r.sin_salida) e.sinSalida.push(r.fecha)
+  }
+
+  const out = []
+  for (const e of Object.values(byEmp)) {
+    e.tardeDeducir = e.totalTarde > GRACIA_TARDE ? e.totalTarde : 0
+    e.heNeto = Math.max(0, e.totalHE - e.totalNeg)
+    _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [])
+    out.push(e)
+  }
+  return out
+}
+
 // ── PERMISOS ──
 window.openPermisoEmpleado = () => {
   document.getElementById('perm-nombre').value = ''
