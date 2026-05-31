@@ -442,7 +442,7 @@ window.generarPlanilla = async () => {
     const ast = asistencia.find(a => a.empleado_id === e.id)
     if (ast) {
       overrides.horas_extra = Math.round(ast.heNeto / 60 * 100) / 100
-      overrides.dias_trabajados = ast.diasTrabajados
+      overrides.dias_trabajados = ast.diasPagados ?? ast.diasTrabajados
       if (ast.tardeDeducir > 0) {
         const valorMinuto = (e.sueldo_mensual || 0) / 30 / 8 / 60
         overrides.otras_deducciones = Math.round(ast.tardeDeducir * valorMinuto * 100) / 100

@@ -140,7 +140,11 @@ window.procesarReloj = async () => {
     .select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
   permisosCache = permisos || []
   asistenciaData = calcularAsistencia(dayRecords, permisosCache)
-  asistenciaResumen = calcularResumenQuincenal(asistenciaData, empleados || [])
+  // Límites reales del período (no los del archivo) para evaluar el séptimo día
+  const refFecha = dayRecords[0].fecha
+  const [refY, refM] = refFecha.split('-').map(Number)
+  const bounds = _periodoBounds(refY, refM, quincena)
+  asistenciaResumen = calcularResumenQuincenal(asistenciaData, empleados || [], bounds.inicio, bounds.fin, bounds.base)
   renderAsistencia(fechaMin, fechaMax)
   window.toast?.(`${dayRecords.length} registros · ${asistenciaResumen.length} empleados · ${quincena}`, 'success')
 }
@@ -201,8 +205,85 @@ function calcularAsistencia(dayRecords, permisos) {
   })
 }
 
+// ── HELPERS SÉPTIMO DÍA / FALTAS ──
+function _localYMD(dt) {
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
+// Límites del período según quincena. Quincena completa = 15 días (mes = 30); "Todo" = 30.
+function _periodoBounds(anio, mes, quincena) {
+  const ultimoDia = new Date(anio, mes, 0).getDate() // mes 1-based: día 0 del mes siguiente
+  let ini, fin, base
+  if (quincena === 'Q1') { ini = 1; fin = 15; base = 15 }
+  else if (quincena === 'Q2') { ini = 16; fin = ultimoDia; base = 15 }
+  else { ini = 1; fin = ultimoDia; base = 30 }
+  const pad = n => String(n).padStart(2, '0')
+  return { inicio: `${anio}-${pad(mes)}-${pad(ini)}`, fin: `${anio}-${pad(mes)}-${pad(fin)}`, base }
+}
+
+// Días laborables (Lun-Sáb) dentro del rango [inicioStr, finStr] inclusive.
+function _diasLaborablesEnRango(inicioStr, finStr) {
+  const out = []
+  const [yi, mi, di] = inicioStr.split('-').map(Number)
+  const [yf, mf, df] = finStr.split('-').map(Number)
+  const dt = new Date(yi, mi - 1, di), end = new Date(yf, mf - 1, df)
+  while (dt <= end) {
+    const dow = dt.getDay()
+    if (dow >= 1 && dow <= 6) out.push(_localYMD(dt)) // Lun(1)..Sáb(6)
+    dt.setDate(dt.getDate() + 1)
+  }
+  return out
+}
+
+// Lunes de la semana a la que pertenece una fecha (para agrupar faltas por semana).
+function _lunesDeLaSemana(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  const dow = dt.getDay()
+  dt.setDate(dt.getDate() + (dow === 0 ? -6 : 1 - dow)) // retrocede al lunes
+  return _localYMD(dt)
+}
+
+// ¿Hay permiso de día completo (justifica la falta, conserva el domingo)?
+function _tienePermisoDiaCompleto(nombre, fecha, permisos) {
+  const n = (nombre || '').toUpperCase().trim()
+  return (permisos || []).some(p =>
+    (p.empleado_nombre || '').toUpperCase().trim() === n &&
+    p.fecha === fecha &&
+    (p.tipo === 'falta_justificada' || p.tipo === 'permiso_dia'))
+}
+
+// Calcula faltas injustificadas (agrupadas por semana) y días pagados.
+// Regla: día Lun-Sáb sin entrada y sin permiso = falta injustificada (−1 día).
+// Cada semana con ≥1 falta pierde además su domingo (−1 día por semana, no por falta).
+// diasPagados = base − faltas − semanasConFalta. Socios: siempre base, sin deducción.
+function _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias, permisos) {
+  r.faltasDetalle = []
+  if (r.es_socio) {
+    r.faltasInjustificadas = 0; r.semanasConFalta = 0; r.diasPagados = baseDias
+    return
+  }
+  const esperados = _diasLaborablesEnRango(fechaInicio, fechaFin)
+  const semanas = new Set()
+  let faltas = 0
+  for (const f of esperados) {
+    if (presentes.has(f)) continue
+    if (_tienePermisoDiaCompleto(r.nombre, f, permisos)) continue
+    faltas++
+    r.faltasDetalle.push(f)
+    semanas.add(_lunesDeLaSemana(f))
+  }
+  r.faltasInjustificadas = faltas
+  r.semanasConFalta = semanas.size
+  r.diasPagados = Math.max(0, baseDias - faltas - semanas.size)
+  if (faltas > 0) {
+    const dom = semanas.size
+    r.alertas.push(`🚫 ${faltas} falta(s) injustificada(s)${dom ? ` + ${dom} domingo(s)` : ''} → ${baseDias - faltas - dom} días pagados`)
+  }
+}
+
 // ── SUMMARY PER EMPLOYEE ──
-function calcularResumenQuincenal(dayRecords, empleados) {
+function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, baseDias) {
   const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
   const byEmpleado = {}
 
@@ -210,6 +291,7 @@ function calcularResumenQuincenal(dayRecords, empleados) {
     if (!byEmpleado[d.nombre]) {
       byEmpleado[d.nombre] = { nombre: d.nombre, empleado_id: null, dias: [],
         totalTarde: 0, totalHE: 0, totalNegativo: 0, diasTrabajados: 0, diasFalta: 0,
+        diasPagados: baseDias, faltasInjustificadas: 0, semanasConFalta: 0, faltasDetalle: [],
         alertas: [], sinSalida: [] }
     }
     byEmpleado[d.nombre].dias.push(d)
@@ -241,8 +323,9 @@ function calcularResumenQuincenal(dayRecords, empleados) {
       r.alertas.push(`⚠️ No se encontró "${nombre}" en empleados`)
     }
 
+    const presentes = new Set()
     for (const d of r.dias) {
-      if (d.entrada) r.diasTrabajados++
+      if (d.entrada) { r.diasTrabajados++; presentes.add(d.fecha) }
       r.totalTarde += d.minutos_tarde
       r.totalHE += d.minutos_he
       r.totalNegativo += d.minutos_negativos
@@ -260,6 +343,13 @@ function calcularResumenQuincenal(dayRecords, empleados) {
     r.negativoArrastre = Math.max(0, r.totalNegativo - r.totalHE)
     if (r.negativoArrastre > 0) r.alertas.push(`📉 Negativo: ${r.negativoArrastre}min para siguiente quincena`)
     if (r.sinSalida.length) r.alertas.push(`❌ Sin salida: ${r.sinSalida.join(', ')}`)
+
+    // Séptimo día: días pagados según faltas injustificadas (Lun-Sáb sin entrada y sin permiso)
+    if (fechaInicio && fechaFin) {
+      _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias || 15, permisosCache)
+    } else {
+      r.diasPagados = r.diasTrabajados // sin rango no se puede evaluar el séptimo (compat.)
+    }
   }
 
   return Object.values(byEmpleado).sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -298,7 +388,7 @@ function renderAsistencia(fechaMin, fechaMax) {
       <div style="padding:12px 16px;background:var(--bg3);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleAstDetalle('${r.nombre.replace(/'/g, "\\'")}')">
         <div>
           <span style="font-weight:600">${matched} ${r.nombre}</span>
-          <span style="font-size:11px;color:var(--text3);margin-left:8px">${r.diasTrabajados} días · ${r.dias.length} registros</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:8px">${r.diasTrabajados} presentes · <strong style="color:var(--green)">${r.diasPagados ?? r.diasTrabajados} pagados</strong>${r.faltasInjustificadas ? ` · <span style="color:var(--red)">${r.faltasInjustificadas} falta(s)${r.semanasConFalta ? ` +${r.semanasConFalta} dom` : ''}</span>` : ''}</span>
         </div>
         <div style="display:flex;gap:16px;font-size:12px;font-family:var(--mono)">
           <span style="color:var(--green)" title="HE netas">↑ ${heHoras}h</span>
@@ -526,11 +616,12 @@ window.cargarHistorialAsistencia = async () => {
   for (const r of data) {
     if (!byEmp[r.empleado_nombre]) {
       byEmp[r.empleado_nombre] = { nombre: r.empleado_nombre, empleado_id: r.empleado_id, dias: [],
-        totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], alertas: [] }
+        totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], alertas: [],
+        presentes: new Set(), diasPagados: 0, faltasInjustificadas: 0, semanasConFalta: 0, faltasDetalle: [] }
     }
     const e = byEmp[r.empleado_nombre]
     e.dias.push(r)
-    if (r.hora_entrada) e.diasTrabajados++
+    if (r.hora_entrada) { e.diasTrabajados++; e.presentes.add(r.fecha) }
     e.totalTarde += r.minutos_tarde || 0
     e.totalHE += r.minutos_he || 0
     e.totalNeg += r.minutos_negativos || 0
@@ -550,6 +641,23 @@ window.cargarHistorialAsistencia = async () => {
     if (e.negArrastre > 0) e.alertas.push(`📉 Negativo: ${e.negArrastre}min para siguiente quincena`)
     if (e.sinSalida.length) e.alertas.push(`❌ Sin salida: ${e.sinSalida.join(', ')}`)
     if (!e.empleado_id) e.alertas.push(`⚠️ No vinculado a empleado`)
+  }
+
+  // ── Séptimo día / días pagados (a partir del período guardado) ──
+  const partsP = periodo.split('-') // "YYYY-MM-Q1"
+  const histAnio = parseInt(partsP[0]), histMes = parseInt(partsP[1]), histQ = partsP[2]
+  const histBounds = _periodoBounds(histAnio, histMes, histQ)
+  const empIds = [...new Set(Object.values(byEmp).map(e => e.empleado_id).filter(Boolean))]
+  const sociosMap = {}
+  if (empIds.length) {
+    const { data: emps } = await getSb().from('empleados').select('id, es_socio').in('id', empIds)
+    for (const em of (emps || [])) sociosMap[em.id] = em.es_socio
+  }
+  const { data: permisosPeriodo } = await getSb().from('permisos_empleados')
+    .select('*').gte('fecha', histBounds.inicio).lte('fecha', histBounds.fin)
+  for (const e of Object.values(byEmp)) {
+    e.es_socio = !!sociosMap[e.empleado_id]
+    _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [])
   }
 
   const empleados = Object.values(byEmp).sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -577,7 +685,7 @@ window.cargarHistorialAsistencia = async () => {
       <div style="padding:10px 14px;background:var(--bg3);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none'">
         <div>
           <span style="font-weight:600">${matched} ${e.nombre}</span>
-          <span style="font-size:11px;color:var(--text3);margin-left:8px">${e.diasTrabajados} días</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:8px">${e.diasTrabajados} presentes · <strong style="color:var(--green)">${e.diasPagados ?? e.diasTrabajados} pagados</strong>${e.faltasInjustificadas ? ` · <span style="color:var(--red)">${e.faltasInjustificadas} falta(s)${e.semanasConFalta ? ` +${e.semanasConFalta} dom` : ''}</span>` : ''}</span>
         </div>
         <div style="display:flex;gap:14px;font-size:12px;font-family:var(--mono)">
           <span style="color:var(--green)">↑ ${heH}h</span>
