@@ -950,6 +950,37 @@ window.aprobarPlanilla = async () => {
     return
   }
 
+  // Rebajar el saldo de los préstamos por la cuota deducida (abono primero, luego saldo).
+  // Candado por préstamo+período (no rebaja dos veces); inactiva el préstamo al llegar a 0.
+  let prestAbonados = 0
+  const { data: prestActivos } = await sb.from('prestamos_empleados')
+    .select('id, empleado_id, saldo').eq('activo', true).eq('tipo', 'prestamo')
+  const { data: abonosPrev, error: abErr } = await sb.from('abonos_prestamo_emp')
+    .select('prestamo_id').eq('periodo', periodo)
+  if (abErr) { window.toast?.('No se aprobó: no se pudo verificar abonos de préstamo → ' + abErr.message, 'error'); return }
+  const yaAbonado = new Set((abonosPrev || []).map(a => a.prestamo_id))
+  const errP = []
+  for (const d of currentDetalle) {
+    const cuota = d.cxc || 0
+    if (cuota <= 0 || !d.empleado_id) continue
+    const prest = (prestActivos || []).find(p => p.empleado_id === d.empleado_id)
+    if (!prest || yaAbonado.has(prest.id)) continue
+    const saldoActual = parseFloat(prest.saldo) || 0
+    const abono = Math.round(Math.min(cuota, saldoActual) * 100) / 100
+    if (abono <= 0) continue
+    const saldoNuevo = Math.round((saldoActual - abono) * 100) / 100
+    // 1) Abono primero (traza). 2) Solo si grabó, se rebaja el saldo.
+    const { error: aErr } = await sb.from('abonos_prestamo_emp').insert({
+      prestamo_id: prest.id, empleado_id: d.empleado_id, empleado_nombre: d.nombre,
+      fecha: fechaMov, monto: abono, saldo_resultante: saldoNuevo,
+      periodo, origen: 'planilla', created_by: quienId
+    })
+    if (aErr) { errP.push(`${d.nombre}: ${aErr.message}`); continue }
+    await sb.from('prestamos_empleados').update({ saldo: saldoNuevo, activo: saldoNuevo > 0 }).eq('id', prest.id)
+    prestAbonados++
+  }
+  if (errP.length) { window.toast?.('No se aprobó: error abonando préstamos → ' + errP[0], 'error'); return }
+
   // Aprobar la planilla
   const { error } = await sb.from('planillas').update({
     estado: 'aprobada',
@@ -964,8 +995,9 @@ window.aprobarPlanilla = async () => {
   else msg += ` Partida #${part.numero} generada (borrador).`
   if (yaSeAplico) msg += ' Vacaciones ya estaban aplicadas.'
   else if (rebajados > 0) msg += ` Vacaciones rebajadas a ${rebajados} empleado(s).`
+  if (prestAbonados > 0) msg += ` Préstamos abonados: ${prestAbonados}.`
   window.toast?.(msg, 'ok')
-  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · partida #${part.numero} · vac: ${rebajados}`)
+  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · partida #${part.numero} · vac: ${rebajados} · prest: ${prestAbonados}`)
 }
 
 // ── Exportar a Excel ──
