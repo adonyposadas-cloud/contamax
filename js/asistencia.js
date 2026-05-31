@@ -247,14 +247,26 @@ function _lunesDeLaSemana(dateStr) {
   return _localYMD(dt)
 }
 
+// Cruce robusto registro↔empleado: por id si ambos lo tienen; si no, por nombre
+// (igualdad, contención, o subconjunto de palabras) para tolerar nombres cortos del reloj.
+function _matchEmpleado(empleadoId, nombre, p) {
+  if (empleadoId && p.empleado_id) return p.empleado_id === empleadoId
+  const a = (nombre || '').toUpperCase().trim()
+  const b = (p.empleado_nombre || '').toUpperCase().trim()
+  if (!a || !b) return false
+  if (a === b || a.includes(b) || b.includes(a)) return true
+  const aw = a.split(/\s+/), bw = b.split(/\s+/)
+  if (aw.length >= 2 && aw.every(w => b.includes(w))) return true
+  if (bw.length >= 2 && bw.every(w => a.includes(w))) return true
+  return false
+}
+
 // ¿Hay permiso de día completo (justifica la falta, conserva el domingo)?
 function _tienePermisoDiaCompleto(empleadoId, nombre, fecha, permisos) {
-  const n = (nombre || '').toUpperCase().trim()
   return (permisos || []).some(p => {
     if (p.fecha !== fecha) return false
     if (p.tipo !== 'falta_justificada' && p.tipo !== 'permiso_dia') return false
-    if (empleadoId && p.empleado_id) return p.empleado_id === empleadoId  // cruce robusto por id
-    return (p.empleado_nombre || '').toUpperCase().trim() === n            // respaldo por nombre
+    return _matchEmpleado(empleadoId, nombre, p)
   })
 }
 
@@ -263,13 +275,10 @@ function _tienePermisoDiaCompleto(empleadoId, nombre, fecha, permisos) {
 //  · salida_anticipada con hora → (fin de jornada − hora salida)/8  (fin: 17:00 L-V, 13:00 Sáb)
 // Cruce por empleado_id (robusto) con respaldo por nombre.
 function _diasPermisoVac(empleadoId, nombre, permisos) {
-  const n = (nombre || '').toUpperCase().trim()
   let dias = 0
   for (const p of (permisos || [])) {
     if (!p.a_cuenta_vacaciones) continue
-    const match = (empleadoId && p.empleado_id) ? p.empleado_id === empleadoId
-                                                : (p.empleado_nombre || '').toUpperCase().trim() === n
-    if (!match) continue
+    if (!_matchEmpleado(empleadoId, nombre, p)) continue
     if (p.tipo === 'permiso_dia' || p.tipo === 'falta_justificada') {
       dias += 1
     } else if (p.tipo === 'salida_anticipada' && p.hora_salida) {
@@ -295,12 +304,9 @@ function _addDaysYMD(ymd, n) {
 
 // ¿La fecha cae dentro del rango de alguna incapacidad del empleado? (justifica la ausencia)
 function _diaEnIncapacidad(empleadoId, nombre, fechaYMD, incapacidades) {
-  const n = (nombre || '').toUpperCase().trim()
   for (const p of (incapacidades || [])) {
     if (p.tipo !== 'incapacidad') continue
-    const match = (empleadoId && p.empleado_id) ? p.empleado_id === empleadoId
-                                                : (p.empleado_nombre || '').toUpperCase().trim() === n
-    if (!match) continue
+    if (!_matchEmpleado(empleadoId, nombre, p)) continue
     const total = parseInt(p.dias) || 0
     if (total < 1 || !p.fecha) continue
     if (fechaYMD >= p.fecha && fechaYMD < _addDaysYMD(p.fecha, total)) return true
@@ -313,11 +319,9 @@ function _diaEnIncapacidad(empleadoId, nombre, fechaYMD, incapacidades) {
 //  · el "episodio" acumula días por la cadena continua_de cuando es_continuacion = true.
 // Devuelve { dias: <días calendario en el período>, empresa: <días-equivalentes a pagar> }.
 function _incapacidadEnPeriodo(empleadoId, nombre, incapacidades, inicio, fin) {
-  const n = (nombre || '').toUpperCase().trim()
   const mine = (incapacidades || []).filter(p => {
     if (p.tipo !== 'incapacidad') return false
-    return (empleadoId && p.empleado_id) ? p.empleado_id === empleadoId
-                                         : (p.empleado_nombre || '').toUpperCase().trim() === n
+    return _matchEmpleado(empleadoId, nombre, p)
   })
   if (!mine.length) return { dias: 0, empresa: 0 }
   const byId = {}; for (const p of mine) byId[p.id] = p

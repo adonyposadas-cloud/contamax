@@ -1370,8 +1370,12 @@
           <!-- Tabs por sección -->
           <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap" id="pl-tabs"></div>
 
+          <style>
+            #tbl-planilla thead th{position:sticky;top:0;z-index:3}
+            #tbl-planilla tfoot td,#tbl-planilla tfoot th{position:sticky;bottom:0;z-index:3;background:var(--bg3)}
+          </style>
           <div class="table-wrap" style="max-height:600px;overflow-y:auto">
-            <table>
+            <table id="tbl-planilla">
               <thead>
                 <tr>
                   <th>#</th>
