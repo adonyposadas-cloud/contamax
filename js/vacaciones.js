@@ -122,8 +122,10 @@ window.aplicarPagoVacaciones = async () => {
     const desc = `PAGO VACACIONES ${emp.nombre} - ${fmtDias(dias)} DIA(S)${referencia ? ' REF ' + referencia : ''}`.toUpperCase()
 
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+      centro_costo_id: null,
       fecha_partida: hoy, numero_partida: numPartida, descripcion: desc,
-      tipo_origen: 'otro', estado: 'borrador', total: monto
+      tipo_origen: 'otro', estado: 'borrador', total: monto,
+      generada_por: window._currentProfile?.()?.id || null
     }).select().single()
     if (pErr || !partida) { window.toast?.('Error creando partida: ' + (pErr?.message || ''), 'error'); throw new Error('partida') }
 

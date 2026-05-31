@@ -245,12 +245,14 @@ function _lunesDeLaSemana(dateStr) {
 }
 
 // ¿Hay permiso de día completo (justifica la falta, conserva el domingo)?
-function _tienePermisoDiaCompleto(nombre, fecha, permisos) {
+function _tienePermisoDiaCompleto(empleadoId, nombre, fecha, permisos) {
   const n = (nombre || '').toUpperCase().trim()
-  return (permisos || []).some(p =>
-    (p.empleado_nombre || '').toUpperCase().trim() === n &&
-    p.fecha === fecha &&
-    (p.tipo === 'falta_justificada' || p.tipo === 'permiso_dia'))
+  return (permisos || []).some(p => {
+    if (p.fecha !== fecha) return false
+    if (p.tipo !== 'falta_justificada' && p.tipo !== 'permiso_dia') return false
+    if (empleadoId && p.empleado_id) return p.empleado_id === empleadoId  // cruce robusto por id
+    return (p.empleado_nombre || '').toUpperCase().trim() === n            // respaldo por nombre
+  })
 }
 
 // Calcula faltas injustificadas (agrupadas por semana) y días pagados.
@@ -268,7 +270,7 @@ function _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias, permisos
   let faltas = 0
   for (const f of esperados) {
     if (presentes.has(f)) continue
-    if (_tienePermisoDiaCompleto(r.nombre, f, permisos)) continue
+    if (_tienePermisoDiaCompleto(r.empleado_id, r.nombre, f, permisos)) continue
     faltas++
     r.faltasDetalle.push(f)
     semanas.add(_lunesDeLaSemana(f))
