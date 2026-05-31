@@ -1840,6 +1840,37 @@
         </div>
       </div>
 
+      <!-- LIQUIDAR PRÉSTAMO -->
+      <div class="modal-backdrop" id="modal-liquidar-prestamo">
+        <div class="modal" style="width:440px">
+          <div class="modal-header">
+            <div class="modal-title">💰 Liquidar préstamo</div>
+            <button class="modal-close" onclick="closeModal('modal-liquidar-prestamo')">✕</button>
+          </div>
+          <div style="padding:4px 0 12px">
+            <div style="font-size:13px;color:var(--text2)">Empleado: <strong id="liq-nombre" style="color:var(--text)"></strong></div>
+            <div style="font-size:13px;color:var(--text2);margin-top:4px">Saldo a liquidar: <strong id="liq-saldo" style="color:var(--gold)"></strong></div>
+          </div>
+          <div class="fld">
+            <label>¿Cómo paga el empleado el saldo?</label>
+            <select id="liq-forma" onchange="onLiqFormaChange()">
+              <option value="efectivo">Efectivo (entra a Caja General)</option>
+              <option value="banco">Banco / BAC (entra a Chequera)</option>
+              <option value="condonado">Condonado / sin pago (gasto de la empresa)</option>
+              <option value="ninguna">No generar partida (solo registrar abono)</option>
+            </select>
+          </div>
+          <div class="fld" id="liq-fld-condon" style="display:none">
+            <label>Cuenta de gasto para condonación</label>
+            <input type="text" id="liq-cuenta-gasto" placeholder="Código de cuenta de gasto (ej. 610101-037)">
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('modal-liquidar-prestamo')">Cancelar</button>
+            <button class="btn btn-gold" onclick="confirmarLiquidacion()">Liquidar</button>
+          </div>
+        </div>
+      </div>
+
       <!-- IMPORTAR FACTURAS TAXIS -->
       <div class="view" id="view-importar-fact-taxis">
         <div class="page-header">

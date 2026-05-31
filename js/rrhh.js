@@ -1195,33 +1195,95 @@ window.guardarPrestamoEmp = async () => {
   await loadPrestamosEmp()
 }
 
+let _liqCtx = null  // contexto de la liquidación en curso
+
+window.onLiqFormaChange = () => {
+  const f = document.getElementById('liq-forma').value
+  document.getElementById('liq-fld-condon').style.display = f === 'condonado' ? '' : 'none'
+}
+
 window.liquidarPrestamoEmp = async (id) => {
   const sb = getSb()
-  // Traer saldo y nombre actuales (frescos)
   const { data: prest } = await sb.from('prestamos_empleados')
-    .select('id, empleado_id, saldo, empleado:empleados(nombre)').eq('id', id).maybeSingle()
+    .select('id, empleado_id, saldo, empleado:empleados(nombre, cuenta_cxc)').eq('id', id).maybeSingle()
   if (!prest) { window.toast?.('No se encontró el préstamo', 'error'); return }
-  const saldo = parseFloat(prest.saldo) || 0
-  const nombre = prest.empleado?.nombre || ''
-  if (!confirm(`¿Liquidar el préstamo de ${nombre}? Se registrará un abono por el saldo restante (L. ${saldo.toFixed(2)}) y quedará en 0.`)) return
+  _liqCtx = {
+    id, empleado_id: prest.empleado_id,
+    nombre: prest.empleado?.nombre || '',
+    cuenta_cxc: prest.empleado?.cuenta_cxc || null,
+    saldo: parseFloat(prest.saldo) || 0
+  }
+  document.getElementById('liq-nombre').textContent = _liqCtx.nombre
+  document.getElementById('liq-saldo').textContent = 'L. ' + _liqCtx.saldo.toFixed(2)
+  document.getElementById('liq-forma').value = 'efectivo'
+  document.getElementById('liq-cuenta-gasto').value = ''
+  document.getElementById('liq-fld-condon').style.display = 'none'
+  openModal('modal-liquidar-prestamo')
+}
 
+window.confirmarLiquidacion = async () => {
+  if (!_liqCtx) return
+  const sb = getSb()
+  const { id, empleado_id, nombre, cuenta_cxc, saldo } = _liqCtx
+  const forma = document.getElementById('liq-forma').value
   const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD local
+  const quienNombre = window._currentProfile?.()?.nombre || null
 
-  // 1) Abono primero (traza). 2) Solo si grabó, se pone el saldo en 0.
-  if (saldo > 0) {
-    const { error: aErr } = await sb.from('abonos_prestamo_emp').insert({
-      prestamo_id: id, empleado_id: prest.empleado_id, empleado_nombre: nombre,
-      fecha: hoy, monto: saldo, saldo_resultante: 0,
-      periodo: null, origen: 'liquidacion',
-      created_by: window._currentProfile?.()?.nombre || null
-    })
-    if (aErr) { window.toast?.('No se liquidó: error grabando el abono → ' + aErr.message, 'error'); return }
+  // Candado anti-duplicado: ¿ya hay abono de liquidación para este préstamo?
+  const { data: yaLiq } = await sb.from('abonos_prestamo_emp')
+    .select('id').eq('prestamo_id', id).eq('origen', 'liquidacion').limit(1)
+  const yaLiquidado = (yaLiq || []).length > 0
+
+  // Cuenta de débito (contrapartida) según forma de pago
+  let codDebito = null, etiqueta = ''
+  if (forma === 'efectivo') { codDebito = '110102-001'; etiqueta = 'EFECTIVO/CAJA' }
+  else if (forma === 'banco') { codDebito = '110103-001'; etiqueta = 'BANCO/CHEQUERA' }
+  else if (forma === 'condonado') {
+    codDebito = (document.getElementById('liq-cuenta-gasto').value || '').trim()
+    if (!codDebito) { window.toast?.('Ingresá la cuenta de gasto para la condonación', 'error'); return }
+    etiqueta = 'CONDONADO'
   }
 
+  // Partida (Débito caja/banco/gasto / Crédito CXC empleado) — solo si aplica y no se hizo antes
+  if (!yaLiquidado && forma !== 'ninguna' && saldo > 0) {
+    if (!cuenta_cxc) { window.toast?.('El empleado no tiene cuenta CXC; no se puede contabilizar', 'error'); return }
+    const { data: cuentas } = await sb.from('catalogo_cuentas').select('id, codigo, nombre').in('codigo', [cuenta_cxc, codDebito])
+    const cCxc = (cuentas || []).find(c => c.codigo === cuenta_cxc)
+    const cDeb = (cuentas || []).find(c => c.codigo === codDebito)
+    if (!cCxc || !cDeb) { window.toast?.(`No se encontró la cuenta ${!cCxc ? cuenta_cxc : codDebito} en el catálogo`, 'error'); return }
+    const { data: lastP } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+    const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+    const desc = `LIQUIDACION PRESTAMO ${nombre} - ${etiqueta}`.toUpperCase()
+    const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+      centro_costo_id: null, fecha_partida: hoy, numero_partida: numPartida, descripcion: desc,
+      tipo_origen: 'otro', estado: 'borrador', total: saldo, generada_por: window._currentProfile?.()?.id || null
+    }).select().single()
+    if (pErr || !partida) { window.toast?.('Error creando partida: ' + (pErr?.message || ''), 'error'); return }
+    const { error: lErr } = await sb.from('lineas_partida').insert([
+      { partida_id: partida.id, cuenta_id: cDeb.id, cuenta_codigo: cDeb.codigo, cuenta_nombre: cDeb.nombre, tipo: 'debito', monto: saldo, descripcion: desc, aplica_fiscal: false },
+      { partida_id: partida.id, cuenta_id: cCxc.id, cuenta_codigo: cCxc.codigo, cuenta_nombre: cCxc.nombre, tipo: 'credito', monto: saldo, descripcion: desc, aplica_fiscal: false }
+    ])
+    if (lErr) { window.toast?.('Error en líneas de partida: ' + lErr.message, 'error'); return }
+  }
+
+  // Abono (traza) — solo si no se hizo antes
+  if (!yaLiquidado && saldo > 0) {
+    const { error: aErr } = await sb.from('abonos_prestamo_emp').insert({
+      prestamo_id: id, empleado_id, empleado_nombre: nombre, fecha: hoy, monto: saldo,
+      saldo_resultante: 0, periodo: null, origen: 'liquidacion', created_by: quienNombre
+    })
+    if (aErr) { window.toast?.('Error grabando el abono: ' + aErr.message, 'error'); return }
+  }
+
+  // Cerrar el préstamo
   const { error } = await sb.from('prestamos_empleados').update({ saldo: 0, activo: false }).eq('id', id)
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
-  window.toast?.('Préstamo liquidado y abono registrado ✓', 'ok')
-  window.logActividad?.('prestamo_liquidado', 'rrhh', `${nombre} · abono L.${saldo.toFixed(2)}`)
+
+  closeModal('modal-liquidar-prestamo')
+  const conPartida = !yaLiquidado && forma !== 'ninguna' && saldo > 0
+  window.toast?.('Préstamo liquidado ✓' + (conPartida ? ' + partida (borrador)' : ''), 'ok')
+  window.logActividad?.('prestamo_liquidado', 'rrhh', `${nombre} · L.${saldo.toFixed(2)} · ${forma}`)
+  _liqCtx = null
   await loadPrestamosEmp()
 }
 
