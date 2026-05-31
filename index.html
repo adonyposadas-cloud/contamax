@@ -1537,28 +1537,41 @@
       <!-- Modal Permiso Empleado -->
       <div class="modal-backdrop" id="modal-permiso-emp">
         <div class="modal" style="width:450px">
-          <div class="modal-title">📋 Registrar permiso</div>
+          <div class="modal-title">📋 Registrar permiso / incapacidad</div>
           <div class="fld"><label>Empleado</label><select id="perm-nombre"></select></div>
-          <div class="fld"><label>Fecha</label><input type="date" id="perm-fecha"></div>
-          <div class="fld"><label>Hora de salida</label><input type="time" id="perm-hora"></div>
           <div class="fld"><label>Tipo</label>
-            <select id="perm-tipo">
+            <select id="perm-tipo" onchange="onPermTipoChange()">
               <option value="salida_anticipada">Salida anticipada</option>
               <option value="falta_justificada">Falta justificada</option>
               <option value="permiso_dia">Permiso día completo</option>
+              <option value="incapacidad">Incapacidad (IHSS)</option>
             </select>
           </div>
+          <div class="fld"><label id="perm-fecha-label">Fecha</label><input type="date" id="perm-fecha"></div>
+          <div class="fld" id="fld-perm-hora"><label>Hora de salida</label><input type="time" id="perm-hora"></div>
+
+          <div id="fld-perm-incap" style="display:none">
+            <div class="fld"><label>Días de incapacidad (calendario)</label><input type="number" id="perm-dias" min="1" step="1" placeholder="Ej. 3"></div>
+            <div class="fld"><label>Diagnóstico (auditoría)</label><input type="text" id="perm-diagnostico" placeholder="Opcional..."></div>
+            <div class="fld" style="display:flex;align-items:center;gap:8px">
+              <input type="checkbox" id="perm-continuacion" onchange="onPermContinuacionChange()" style="width:auto;margin:0">
+              <label for="perm-continuacion" style="margin:0;cursor:pointer;text-transform:none;font-size:13px">Continuación / prórroga declarada por el IHSS</label>
+            </div>
+            <div class="fld" id="fld-perm-continua-de" style="display:none"><label>Continúa de</label><select id="perm-continua-de"></select></div>
+          </div>
+
           <div class="fld"><label>Motivo</label><input type="text" id="perm-motivo" placeholder="Razón del permiso..."></div>
-          <div class="fld" style="display:flex;align-items:center;gap:8px">
+          <div class="fld" id="fld-perm-acuenta" style="display:flex;align-items:center;gap:8px">
             <input type="checkbox" id="perm-acuenta-vac" checked style="width:auto;margin:0">
             <label for="perm-acuenta-vac" style="margin:0;cursor:pointer;text-transform:none;font-size:13px">A cuenta de vacaciones (descuenta del saldo y se paga como vacación)</label>
           </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" onclick="closeModal('modal-permiso-emp')">Cancelar</button>
-            <button class="btn btn-gold" onclick="guardarPermiso()">Guardar permiso</button>
+            <button class="btn btn-gold" onclick="guardarPermiso()">Guardar</button>
           </div>
         </div>
       </div>
+
 
       <div class="modal-backdrop" id="modal-pago-vacaciones">
         <div class="modal" style="width:460px">

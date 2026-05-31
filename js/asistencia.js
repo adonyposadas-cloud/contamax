@@ -593,7 +593,7 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
   return out
 }
 
-// ── PERMISOS ──
+// ── PERMISOS / INCAPACIDADES ──
 window.openPermisoEmpleado = async () => {
   const sel = document.getElementById('perm-nombre')
   sel.innerHTML = '<option value="">— Seleccionar empleado —</option>'
@@ -610,7 +610,53 @@ window.openPermisoEmpleado = async () => {
   document.getElementById('perm-motivo').value = ''
   document.getElementById('perm-tipo').value = 'salida_anticipada'
   document.getElementById('perm-acuenta-vac').checked = true
+  document.getElementById('perm-dias').value = ''
+  document.getElementById('perm-diagnostico').value = ''
+  document.getElementById('perm-continuacion').checked = false
+  document.getElementById('perm-continua-de').innerHTML = ''
+  onPermTipoChange()
   document.getElementById('modal-permiso-emp').classList.add('open')
+}
+
+// Muestra/oculta campos según el tipo seleccionado.
+window.onPermTipoChange = () => {
+  const tipo = document.getElementById('perm-tipo').value
+  const esIncap = tipo === 'incapacidad'
+  document.getElementById('fld-perm-incap').style.display = esIncap ? '' : 'none'
+  document.getElementById('fld-perm-hora').style.display = esIncap ? 'none' : ''
+  document.getElementById('fld-perm-acuenta').style.display = esIncap ? 'none' : 'flex'
+  document.getElementById('perm-fecha-label').textContent = esIncap ? 'Fecha de inicio' : 'Fecha'
+  if (esIncap) onPermContinuacionChange()
+}
+
+// Al marcar "continuación", carga las incapacidades previas de ese empleado para enlazar.
+window.onPermContinuacionChange = async () => {
+  const chk = document.getElementById('perm-continuacion').checked
+  const cont = document.getElementById('fld-perm-continua-de')
+  cont.style.display = chk ? '' : 'none'
+  if (!chk) return
+  const empleadoId = document.getElementById('perm-nombre').value
+  const selDe = document.getElementById('perm-continua-de')
+  selDe.innerHTML = ''
+  if (!empleadoId) {
+    selDe.innerHTML = '<option value="">— Seleccioná primero el empleado —</option>'
+    return
+  }
+  const { data: previas } = await getSb().from('permisos_empleados')
+    .select('id, fecha, dias, diagnostico')
+    .eq('empleado_id', empleadoId).eq('tipo', 'incapacidad')
+    .order('fecha', { ascending: false }).limit(20)
+  if (!previas?.length) {
+    selDe.innerHTML = '<option value="">— No hay incapacidades previas —</option>'
+    return
+  }
+  selDe.innerHTML = '<option value="">— Seleccionar incapacidad previa —</option>'
+  for (const p of previas) {
+    const o = document.createElement('option')
+    o.value = p.id
+    o.textContent = `${p.fecha} · ${p.dias || '?'} día(s)${p.diagnostico ? ' · ' + p.diagnostico : ''}`
+    selDe.appendChild(o)
+  }
 }
 
 window.guardarPermiso = async () => {
@@ -621,24 +667,40 @@ window.guardarPermiso = async () => {
   const horaSalida = document.getElementById('perm-hora').value
   const motivo = document.getElementById('perm-motivo').value.trim()
   const tipo = document.getElementById('perm-tipo').value
-  const aCuentaVac = document.getElementById('perm-acuenta-vac').checked
 
   if (!empleadoId || !fecha) { window.toast?.('Seleccioná el empleado y la fecha', 'error'); return }
 
-  const { error } = await getSb().from('permisos_empleados').insert({
+  const reg = {
     empleado_id: empleadoId,
     empleado_nombre: nombre.toUpperCase(),
     fecha,
-    hora_salida: horaSalida || null,
     motivo,
     tipo,
-    a_cuenta_vacaciones: aCuentaVac,
     aprobado_por: window._currentProfile?.()?.nombre || ''
-  })
+  }
+
+  if (tipo === 'incapacidad') {
+    const dias = parseInt(document.getElementById('perm-dias').value) || 0
+    if (dias < 1) { window.toast?.('Ingresá los días de incapacidad', 'error'); return }
+    const esCont = document.getElementById('perm-continuacion').checked
+    const continuaDe = document.getElementById('perm-continua-de').value || null
+    if (esCont && !continuaDe) { window.toast?.('Seleccioná de cuál incapacidad continúa', 'error'); return }
+    reg.dias = dias
+    reg.diagnostico = document.getElementById('perm-diagnostico').value.trim() || null
+    reg.es_continuacion = esCont
+    reg.continua_de = esCont ? continuaDe : null
+    reg.hora_salida = null
+    reg.a_cuenta_vacaciones = false   // la incapacidad nunca toca vacaciones
+  } else {
+    reg.hora_salida = horaSalida || null
+    reg.a_cuenta_vacaciones = document.getElementById('perm-acuenta-vac').checked
+  }
+
+  const { error } = await getSb().from('permisos_empleados').insert(reg)
 
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
   window.closeModal('modal-permiso-emp')
-  window.toast?.('Permiso registrado ✓', 'success')
+  window.toast?.(tipo === 'incapacidad' ? 'Incapacidad registrada ✓' : 'Permiso registrado ✓', 'success')
   cargarPermisos()
 }
 
@@ -649,15 +711,15 @@ async function cargarPermisos() {
   const tbody = document.getElementById('tbody-permisos')
   if (!tbody) return
   
-  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo' }
-  
+  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)' }
+
   tbody.innerHTML = (data || []).map(p => `
     <tr>
       <td>${p.fecha}</td>
       <td><strong>${p.empleado_nombre}</strong></td>
-      <td>${p.hora_salida || '—'}</td>
-      <td><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.motivo || '—'}</td>
+      <td>${p.tipo === 'incapacidad' ? (p.dias ? p.dias + ' día(s)' : '—') : (p.hora_salida || '—')}</td>
+      <td><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}${p.tipo === 'incapacidad' ? ' 🏥' : ''}${p.es_continuacion ? ' <span title="Continuación/prórroga IHSS">🔗</span>' : ''}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.tipo === 'incapacidad' && p.diagnostico ? p.diagnostico : (p.motivo || '—')}</td>
       <td style="font-size:11px;color:var(--text3)">${p.aprobado_por || '—'}</td>
       <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="eliminarPermiso('${p.id}')">✕</button></td>
     </tr>
