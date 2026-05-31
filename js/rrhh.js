@@ -785,20 +785,16 @@ window.aprobarPlanilla = async () => {
   const quienId = window._currentProfile?.()?.nombre || null
 
   // Candado anti doble-rebaja: ¿ya hay movimientos 'permiso' de esta planilla?
-  const { data: yaAplicado } = await sb.from('vacaciones_movimientos')
+  const { data: yaAplicado, error: gErr } = await sb.from('vacaciones_movimientos')
     .select('id').eq('tipo', 'permiso').eq('periodo', periodo).limit(1)
+  if (gErr) { window.toast?.('No se pudo verificar movimientos de vacaciones: ' + gErr.message, 'error'); return }
   const yaSeAplico = (yaAplicado || []).length > 0
 
-  // Update status
-  const { error } = await sb.from('planillas').update({
-    estado: 'aprobada',
-    aprobada_at: new Date().toISOString()
-  }).eq('id', currentPlanilla.id)
-
-  if (error) { window.toast?.('Error aprobando: ' + error.message, 'error'); return }
-
-  // Rebajar saldo de vacaciones por los días cubiertos (una sola vez por período)
+  // Rebajar saldo de vacaciones por los días cubiertos (una sola vez por período).
+  // IMPORTANTE: primero se inserta el movimiento (y se valida); SOLO si grabó, se rebaja
+  // el saldo. Así nunca se rebaja sin dejar rastro ni se duplica al regenerar/reaprobar.
   let rebajados = 0
+  const errores = []
   if (!yaSeAplico) {
     const conVac = currentDetalle.filter(d => (d.vacaciones || 0) > 0 && d.empleado_id)
     for (const d of conVac) {
@@ -810,8 +806,9 @@ window.aprobarPlanilla = async () => {
         .select('vacaciones_saldo_dias').eq('id', d.empleado_id).maybeSingle()
       const saldoActual = parseFloat(emp?.vacaciones_saldo_dias) || 0
       const saldoNuevo = Math.round((saldoActual - diasCubiertos) * 1000) / 1000
-      await sb.from('empleados').update({ vacaciones_saldo_dias: saldoNuevo }).eq('id', d.empleado_id)
-      await sb.from('vacaciones_movimientos').insert({
+
+      // 1) Movimiento primero (con verificación de error)
+      const { error: mErr } = await sb.from('vacaciones_movimientos').insert({
         empleado_id: d.empleado_id,
         empleado_nombre: d.nombre,
         fecha: fechaMov,
@@ -822,11 +819,29 @@ window.aprobarPlanilla = async () => {
         referencia: `PLANILLA ${periodo}`,
         motivo: 'Permiso a cuenta de vacaciones (planilla)',
         periodo,
+        partida_numero: null,
         created_by: quienId
       })
+      if (mErr) { errores.push(`${d.nombre}: ${mErr.message}`); continue }  // NO rebaja si no grabó
+
+      // 2) Solo si el movimiento grabó, se rebaja el saldo
+      await sb.from('empleados').update({ vacaciones_saldo_dias: saldoNuevo }).eq('id', d.empleado_id)
       rebajados++
     }
   }
+
+  // Si hubo errores grabando movimientos, NO se aprueba (evita rebajas sin rastro).
+  if (errores.length) {
+    window.toast?.('No se aprobó: error grabando vacaciones → ' + errores[0], 'error')
+    return
+  }
+
+  // Aprobar la planilla
+  const { error } = await sb.from('planillas').update({
+    estado: 'aprobada',
+    aprobada_at: new Date().toISOString()
+  }).eq('id', currentPlanilla.id)
+  if (error) { window.toast?.('Error aprobando: ' + error.message, 'error'); return }
 
   currentPlanilla.estado = 'aprobada'
   renderPlanilla()
