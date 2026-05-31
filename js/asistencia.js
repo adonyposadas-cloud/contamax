@@ -255,6 +255,33 @@ function _tienePermisoDiaCompleto(empleadoId, nombre, fecha, permisos) {
   })
 }
 
+// Suma los DÍAS de permiso marcados "a cuenta de vacaciones" en el período.
+//  · permiso_dia / falta_justificada → 1 día completo
+//  · salida_anticipada con hora → (fin de jornada − hora salida)/8  (fin: 17:00 L-V, 13:00 Sáb)
+// Cruce por empleado_id (robusto) con respaldo por nombre.
+function _diasPermisoVac(empleadoId, nombre, permisos) {
+  const n = (nombre || '').toUpperCase().trim()
+  let dias = 0
+  for (const p of (permisos || [])) {
+    if (!p.a_cuenta_vacaciones) continue
+    const match = (empleadoId && p.empleado_id) ? p.empleado_id === empleadoId
+                                                : (p.empleado_nombre || '').toUpperCase().trim() === n
+    if (!match) continue
+    if (p.tipo === 'permiso_dia' || p.tipo === 'falta_justificada') {
+      dias += 1
+    } else if (p.tipo === 'salida_anticipada' && p.hora_salida) {
+      const [hh, mm] = String(p.hora_salida).split(':').map(Number)
+      const salidaMin = (hh || 0) * 60 + (mm || 0)
+      const [y, m, d] = String(p.fecha).split('-').map(Number)
+      const dow = new Date(y, (m || 1) - 1, d || 1).getDay()  // 0=Dom … 6=Sáb
+      const finJornada = dow === 6 ? 13 * 60 : 17 * 60        // 13:00 sábado, 17:00 L-V
+      const horas = Math.max(0, (finJornada - salidaMin) / 60)
+      dias += horas / 8
+    }
+  }
+  return Math.round(dias * 1000) / 1000
+}
+
 // Calcula faltas injustificadas (agrupadas por semana) y días pagados.
 // Regla: día Lun-Sáb sin entrada y sin permiso = falta injustificada (−1 día).
 // Cada semana con ≥1 falta pierde además su domingo (−1 día por semana, no por falta).
@@ -341,9 +368,11 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
       r.tardeDeducir = 0
     }
 
-    r.heNeto = Math.max(0, r.totalHE - r.totalNegativo)
-    r.negativoArrastre = Math.max(0, r.totalNegativo - r.totalHE)
-    if (r.negativoArrastre > 0) r.alertas.push(`📉 Negativo: ${r.negativoArrastre}min para siguiente quincena`)
+    // HE en bruto (NO se netea contra negativo). Las horas no trabajadas sin permiso
+    // se descuentan del sueldo en la planilla; ya no hay arrastre entre quincenas.
+    r.heNeto = r.totalHE
+    r.minNoTrabajados = r.totalNegativo            // salidas tempranas SIN permiso → descuento de sueldo
+    if (r.totalNegativo > 0) r.alertas.push(`📉 ${r.totalNegativo}min no trabajados (descuento de sueldo)`)
     if (r.sinSalida.length) r.alertas.push(`❌ Sin salida: ${r.sinSalida.join(', ')}`)
 
     // Séptimo día: días pagados según faltas injustificadas (Lun-Sáb sin entrada y sin permiso)
@@ -352,6 +381,7 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
     } else {
       r.diasPagados = r.diasTrabajados // sin rango no se puede evaluar el séptimo (compat.)
     }
+    r.diasPermisoVac = _diasPermisoVac(r.empleado_id, r.nombre, permisosCache)
   }
 
   return Object.values(byEmpleado).sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -554,8 +584,10 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
   const out = []
   for (const e of Object.values(byEmp)) {
     e.tardeDeducir = e.totalTarde > GRACIA_TARDE ? e.totalTarde : 0
-    e.heNeto = Math.max(0, e.totalHE - e.totalNeg)
+    e.heNeto = e.totalHE                              // HE en bruto (sin neteo)
+    e.minNoTrabajados = e.totalNeg                    // salidas tempranas SIN permiso → descuento de sueldo
     _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [])
+    e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisos || [])
     out.push(e)
   }
   return out
@@ -699,9 +731,9 @@ window.cargarHistorialAsistencia = async () => {
     } else {
       e.tardeDeducir = 0
     }
-    e.heNeto = Math.max(0, e.totalHE - e.totalNeg)
-    e.negArrastre = Math.max(0, e.totalNeg - e.totalHE)
-    if (e.negArrastre > 0) e.alertas.push(`📉 Negativo: ${e.negArrastre}min para siguiente quincena`)
+    e.heNeto = e.totalHE                              // HE en bruto (sin neteo)
+    e.minNoTrabajados = e.totalNeg
+    if (e.totalNeg > 0) e.alertas.push(`📉 ${e.totalNeg}min no trabajados (descuento de sueldo)`)
     if (e.sinSalida.length) e.alertas.push(`❌ Sin salida: ${e.sinSalida.join(', ')}`)
     if (!e.empleado_id) e.alertas.push(`⚠️ No vinculado a empleado`)
   }
@@ -721,6 +753,7 @@ window.cargarHistorialAsistencia = async () => {
   for (const e of Object.values(byEmp)) {
     e.es_socio = !!sociosMap[e.empleado_id]
     _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [])
+    e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisosPeriodo || [])
   }
 
   const empleados = Object.values(byEmp).sort((a, b) => a.nombre.localeCompare(b.nombre))

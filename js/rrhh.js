@@ -450,7 +450,21 @@ window.generarPlanilla = async () => {
     const ast = asistencia.find(a => a.empleado_id === e.id)
     if (ast) {
       overrides.horas_extra = Math.round(ast.heNeto / 60 * 100) / 100
-      overrides.dias_trabajados = ast.diasPagados ?? ast.diasTrabajados
+      const rate = (e.sueldo_mensual || 0) / 30
+      const diasPagados = ast.diasPagados ?? ast.diasTrabajados ?? 15
+      if (e.es_socio) {
+        overrides.dias_trabajados = diasPagados
+      } else {
+        const vacTotal = ast.diasPermisoVac || 0                 // días de permiso a cuenta de vacaciones
+        const noTrabajados = (ast.minNoTrabajados || 0) / 60 / 8 // salidas tempranas sin permiso
+        const saldoVac = parseFloat(e.vacaciones_saldo_dias) || 0
+        const diasCubiertos = Math.min(vacTotal, saldoVac)       // lo que alcanza a pagar vacaciones
+        // Días trabajados (base) = pagados − permiso vacaciones − no trabajados.
+        // La parte cubierta vuelve como ingreso Vacaciones (neutro); la no cubierta y las
+        // horas sin permiso reducen el neto.
+        overrides.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - noTrabajados) * 100) / 100)
+        if (diasCubiertos > 0) overrides.vacaciones = Math.round(diasCubiertos * rate * 100) / 100
+      }
       if (ast.tardeDeducir > 0) {
         const valorMinuto = (e.sueldo_mensual || 0) / 30 / 8 / 60
         overrides.otras_deducciones = Math.round(ast.tardeDeducir * valorMinuto * 100) / 100
