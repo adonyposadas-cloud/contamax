@@ -577,6 +577,7 @@ window.openPermisoEmpleado = async () => {
   document.getElementById('perm-hora').value = ''
   document.getElementById('perm-motivo').value = ''
   document.getElementById('perm-tipo').value = 'salida_anticipada'
+  document.getElementById('perm-acuenta-vac').checked = true
   document.getElementById('modal-permiso-emp').classList.add('open')
 }
 
@@ -588,6 +589,7 @@ window.guardarPermiso = async () => {
   const horaSalida = document.getElementById('perm-hora').value
   const motivo = document.getElementById('perm-motivo').value.trim()
   const tipo = document.getElementById('perm-tipo').value
+  const aCuentaVac = document.getElementById('perm-acuenta-vac').checked
 
   if (!empleadoId || !fecha) { window.toast?.('Seleccioná el empleado y la fecha', 'error'); return }
 
@@ -598,6 +600,7 @@ window.guardarPermiso = async () => {
     hora_salida: horaSalida || null,
     motivo,
     tipo,
+    a_cuenta_vacaciones: aCuentaVac,
     aprobado_por: window._currentProfile?.()?.nombre || ''
   })
 
@@ -621,7 +624,7 @@ async function cargarPermisos() {
       <td>${p.fecha}</td>
       <td><strong>${p.empleado_nombre}</strong></td>
       <td>${p.hora_salida || '—'}</td>
-      <td><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span></td>
+      <td><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}</td>
       <td style="font-size:12px;color:var(--text3)">${p.motivo || '—'}</td>
       <td style="font-size:11px;color:var(--text3)">${p.aprobado_por || '—'}</td>
       <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="eliminarPermiso('${p.id}')">✕</button></td>

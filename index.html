@@ -1549,6 +1549,10 @@
             </select>
           </div>
           <div class="fld"><label>Motivo</label><input type="text" id="perm-motivo" placeholder="Razón del permiso..."></div>
+          <div class="fld" style="display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="perm-acuenta-vac" checked style="width:auto;margin:0">
+            <label for="perm-acuenta-vac" style="margin:0;cursor:pointer;text-transform:none;font-size:13px">A cuenta de vacaciones (descuenta del saldo y se paga como vacación)</label>
+          </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" onclick="closeModal('modal-permiso-emp')">Cancelar</button>
             <button class="btn btn-gold" onclick="guardarPermiso()">Guardar permiso</button>
