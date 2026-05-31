@@ -440,9 +440,10 @@ window.generarPlanilla = async () => {
   }
 
   // Cargar préstamos activos
-  const { data: prestamosActivos } = await getSb().from('prestamos_empleados')
+  const { data: prestamosActivos, error: prestErr } = await getSb().from('prestamos_empleados')
     .select('empleado_id, cuota_quincenal, saldo, activo, fecha_primera_deduccion')
     .eq('activo', true).eq('tipo', 'prestamo')
+  if (prestErr) { console.warn('Error leyendo préstamos:', prestErr.message); window.toast?.('Aviso: no se pudieron leer préstamos → ' + prestErr.message, 'error') }
 
   const detalles = activos.map(e => {
     const overrides = {}
@@ -479,11 +480,14 @@ window.generarPlanilla = async () => {
       overrides.anticipos = Math.round(cxc.anticipos * 100) / 100
       overrides.trucha = Math.round(cxc.trucha * 100) / 100
     }
-    // Préstamos: deducir cuota
+    // Préstamos: deducir cuota si la 1ª deducción ya cae dentro de este período (≤ fin)
     const prestamo = (prestamosActivos || []).find(p => p.empleado_id === e.id)
     if (prestamo) {
-      if (!prestamo.fecha_primera_deduccion || prestamo.fecha_primera_deduccion <= ini) {
-        overrides.cxc = Math.round(Math.min(prestamo.cuota_quincenal || 0, prestamo.saldo || 0) * 100) / 100
+      const fpd = (prestamo.fecha_primera_deduccion || '').slice(0, 10)  // normaliza por si trae hora
+      if (!fpd || fpd <= fin) {
+        const cuota = parseFloat(prestamo.cuota_quincenal) || 0
+        const saldoPrest = parseFloat(prestamo.saldo) || 0
+        overrides.cxc = Math.round(Math.min(cuota, saldoPrest) * 100) / 100
       }
     }
     return calcularDetalleEmpleado(e, planilla.id, overrides)
@@ -646,6 +650,7 @@ function renderPlanillaTable(seccionFilter) {
       <td style="text-align:right">${fmt(d.ihss_laboral)}</td>
       <td style="text-align:right">${d.imp_vecinal > 0 ? fmt(d.imp_vecinal) : '—'}</td>
       <td style="text-align:right">${d.anticipos > 0 ? fmt(d.anticipos) : '—'}</td>
+      <td style="text-align:right">${(d.cxc || 0) > 0 ? fmt(d.cxc) : '—'}</td>
       <td style="text-align:right">${d.trucha > 0 ? fmt(d.trucha) : '—'}</td>
       <td style="text-align:right">${d.otras_deducciones > 0 ? fmt(d.otras_deducciones) : '—'}</td>
       <td style="text-align:right;color:var(--red)">${fmt(d.total_deducciones)}</td>
@@ -662,13 +667,14 @@ function renderPlanillaTable(seccionFilter) {
     acc.devengado += d.total_devengado || 0
     acc.ihss += d.ihss_laboral || 0
     acc.vecinal += d.imp_vecinal || 0
-    acc.anticipos += d.anticipos || 0
+    acc.anticipos += (d.anticipos || 0)
+    acc.prestamo += (d.cxc || 0)
     acc.trucha += d.trucha || 0
     acc.otras_ded += d.otras_deducciones || 0
     acc.deducciones += d.total_deducciones || 0
     acc.neto += d.sueldo_neto || 0
     return acc
-  }, { quincenal: 0, he: 0, devengado: 0, ihss: 0, vecinal: 0, anticipos: 0, trucha: 0, otras_ded: 0, deducciones: 0, neto: 0 })
+  }, { quincenal: 0, he: 0, devengado: 0, ihss: 0, vecinal: 0, anticipos: 0, prestamo: 0, trucha: 0, otras_ded: 0, deducciones: 0, neto: 0 })
 
   tfoot.innerHTML = `
     <tr style="font-weight:600;border-top:2px solid var(--border)">
@@ -680,6 +686,7 @@ function renderPlanillaTable(seccionFilter) {
       <td style="text-align:right">${fmt(totals.ihss)}</td>
       <td style="text-align:right">${fmt(totals.vecinal)}</td>
       <td style="text-align:right">${fmt(totals.anticipos)}</td>
+      <td style="text-align:right">${fmt(totals.prestamo)}</td>
       <td style="text-align:right">${fmt(totals.trucha)}</td>
       <td style="text-align:right">${fmt(totals.otras_ded)}</td>
       <td style="text-align:right;color:var(--red)">${fmt(totals.deducciones)}</td>
@@ -971,7 +978,7 @@ window.exportarPlanillaExcel = () => {
     'Días', 'Sueldo Quincenal', 'Horas Extra', 'Monto H/E',
     'Ajuste Sueldo', 'Vacaciones', 'Incapacidad', 'Bonificaciones',
     'Otros Ingresos', 'Comisiones', 'Total Devengado',
-    'Imp. Vecinal', 'Anticipos', 'CXC', 'Trucha', 'Otras Ded.',
+    'Imp. Vecinal', 'Anticipos', 'Préstamo', 'Trucha', 'Otras Ded.',
     'IHSS Laboral', 'Total Deducciones', 'Sueldo Neto', 'IHSS Patronal',
     'Banco', 'Cuenta', 'Forma Pago'
   ]
@@ -1056,6 +1063,7 @@ window.openModalPrestamoEmp = () => {
   document.getElementById('pe-cuota').value = ''
   document.getElementById('pe-descripcion').value = ''
   document.getElementById('pe-tipo').value = 'prestamo'
+  document.getElementById('pe-forma-entrega').value = 'efectivo'
   document.getElementById('pe-empleado').value = ''
   document.getElementById('pe-fecha-prestamo').value = new Date().toISOString().split('T')[0]
   document.getElementById('pe-fecha-deduccion').value = ''
@@ -1070,6 +1078,7 @@ window.guardarPrestamoEmp = async () => {
   const fechaDeduccion = document.getElementById('pe-fecha-deduccion').value
   const descripcion = document.getElementById('pe-descripcion').value.trim() || null
   const tipo = document.getElementById('pe-tipo').value
+  const formaEntrega = document.getElementById('pe-forma-entrega').value  // efectivo | banco
 
   if (!empleadoId) { window.toast?.('Seleccioná un empleado', 'error'); return }
   if (monto <= 0) { window.toast?.('Ingresá un monto válido', 'error'); return }
@@ -1089,56 +1098,61 @@ window.guardarPrestamoEmp = async () => {
 
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
 
-  // Generar partida contable automática
+  // Generar partida contable automática (cuadrada: Débito CXC / Crédito Caja o Banco)
   const emp = allEmpleados.find(e => e.id === empleadoId)
   if (emp?.cuenta_cxc && tipo === 'prestamo') {
     try {
       const sb = getSb()
-      // Buscar cuenta CXC del empleado
-      const { data: cuentaCxC } = await sb.from('catalogo_cuentas')
-        .select('id, codigo, nombre').eq('codigo', emp.cuenta_cxc).single()
+      const codCredito = formaEntrega === 'banco' ? '110103-001' : '110102-001'
+      const nombreOrigen = formaEntrega === 'banco' ? 'BANCO/CHEQUERA' : 'EFECTIVO/CAJA GENERAL'
+      // Buscar cuenta CXC del empleado y la cuenta de origen (caja/banco)
+      const { data: cuentas } = await sb.from('catalogo_cuentas')
+        .select('id, codigo, nombre').in('codigo', [emp.cuenta_cxc, codCredito])
+      const cuentaCxC = (cuentas || []).find(c => c.codigo === emp.cuenta_cxc)
+      const cuentaOrigen = (cuentas || []).find(c => c.codigo === codCredito)
 
-      if (cuentaCxC) {
+      if (cuentaCxC && cuentaOrigen) {
         // Obtener siguiente número de partida
         const { data: lastP } = await sb.from('partidas_contables')
           .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
         const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
 
-        const descPartida = `PRESTAMO ${emp.nombre} - ${descripcion || 'EFVO'}`.toUpperCase()
+        const descPartida = `PRESTAMO ${emp.nombre} - ${descripcion || nombreOrigen}`.toUpperCase()
 
         // Crear partida borrador
-        const { data: partida } = await sb.from('partidas_contables').insert({
+        const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+          centro_costo_id: null,
           fecha_partida: fechaPrestamo,
           numero_partida: numPartida,
           descripcion: descPartida,
           tipo_origen: 'otro',
           estado: 'borrador',
-          total: monto
+          total: monto,
+          generada_por: window._currentProfile?.()?.id || null
         }).select().single()
+        if (pErr || !partida) throw new Error(pErr?.message || 'No se creó la partida')
 
-        if (partida) {
-          // Línea débito: CXC empleado
-          // Línea crédito: pendiente (forma de pago)
-          await sb.from('lineas_partida').insert([
-            {
-              partida_id: partida.id,
-              cuenta_id: cuentaCxC.id,
-              cuenta_codigo: cuentaCxC.codigo,
-              cuenta_nombre: cuentaCxC.nombre,
-              tipo: 'debito',
-              monto,
-              descripcion: descPartida,
-              aplica_fiscal: false
-            }
-          ])
-          window.toast?.(`Préstamo guardado + Partida #${numPartida} creada como borrador (falta forma de pago)`, 'success')
-        }
+        // Líneas: Débito CXC empleado / Crédito Caja o Banco (CUADRADA)
+        const { error: lErr } = await sb.from('lineas_partida').insert([
+          {
+            partida_id: partida.id,
+            cuenta_id: cuentaCxC.id, cuenta_codigo: cuentaCxC.codigo, cuenta_nombre: cuentaCxC.nombre,
+            tipo: 'debito', monto, descripcion: descPartida, aplica_fiscal: false
+          },
+          {
+            partida_id: partida.id,
+            cuenta_id: cuentaOrigen.id, cuenta_codigo: cuentaOrigen.codigo, cuenta_nombre: cuentaOrigen.nombre,
+            tipo: 'credito', monto, descripcion: descPartida, aplica_fiscal: false
+          }
+        ])
+        if (lErr) throw new Error(lErr.message)
+        window.toast?.(`Préstamo guardado + Partida #${numPartida} (borrador) — entrega por ${nombreOrigen}`, 'success')
       } else {
-        window.toast?.('Préstamo guardado. No se encontró cuenta CXC para generar partida.', 'info')
+        window.toast?.('Préstamo guardado. No se encontró la cuenta CXC o la de origen para la partida.', 'info')
       }
     } catch(e) {
       console.error('Error generando partida:', e)
-      window.toast?.('Préstamo guardado pero hubo error al generar partida', 'error')
+      window.toast?.('Préstamo guardado, pero hubo error al generar la partida: ' + e.message, 'error')
     }
   } else {
     window.toast?.('Préstamo registrado ✓', 'ok')

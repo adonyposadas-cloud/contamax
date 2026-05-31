@@ -1389,6 +1389,7 @@
                   <th style="text-align:right">IHSS</th>
                   <th style="text-align:right">Imp.Vec.</th>
                   <th style="text-align:right">Anticipos</th>
+                  <th style="text-align:right">Préstamo</th>
                   <th style="text-align:right">Trucha</th>
                   <th style="text-align:right">Otras ded.</th>
                   <th style="text-align:right">Tot.deduc.</th>
@@ -1821,6 +1822,13 @@
             </div>
             <div class="fld"><label>Monto</label><input type="number" id="pe-monto" step="0.01"></div>
             <div class="fld"><label>Cuota quincenal</label><input type="number" id="pe-cuota" step="0.01"></div>
+            <div class="fld">
+              <label>Forma de entrega</label>
+              <select id="pe-forma-entrega">
+                <option value="efectivo">Efectivo (Caja General)</option>
+                <option value="banco">Banco / BAC (Chequera)</option>
+              </select>
+            </div>
             <div class="fld"><label>Fecha del préstamo</label><input type="date" id="pe-fecha-prestamo"></div>
             <div class="fld"><label>Fecha 1ra deducción</label><input type="date" id="pe-fecha-deduccion"></div>
             <div class="fld" style="grid-column:span 2"><label>Descripción</label><input type="text" id="pe-descripcion"></div>
