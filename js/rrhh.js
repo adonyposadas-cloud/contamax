@@ -1196,10 +1196,32 @@ window.guardarPrestamoEmp = async () => {
 }
 
 window.liquidarPrestamoEmp = async (id) => {
-  if (!confirm('¿Marcar este préstamo como liquidado (saldo = 0)?')) return
-  const { error } = await getSb().from('prestamos_empleados').update({ saldo: 0, activo: false }).eq('id', id)
+  const sb = getSb()
+  // Traer saldo y nombre actuales (frescos)
+  const { data: prest } = await sb.from('prestamos_empleados')
+    .select('id, empleado_id, saldo, empleado:empleados(nombre)').eq('id', id).maybeSingle()
+  if (!prest) { window.toast?.('No se encontró el préstamo', 'error'); return }
+  const saldo = parseFloat(prest.saldo) || 0
+  const nombre = prest.empleado?.nombre || ''
+  if (!confirm(`¿Liquidar el préstamo de ${nombre}? Se registrará un abono por el saldo restante (L. ${saldo.toFixed(2)}) y quedará en 0.`)) return
+
+  const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD local
+
+  // 1) Abono primero (traza). 2) Solo si grabó, se pone el saldo en 0.
+  if (saldo > 0) {
+    const { error: aErr } = await sb.from('abonos_prestamo_emp').insert({
+      prestamo_id: id, empleado_id: prest.empleado_id, empleado_nombre: nombre,
+      fecha: hoy, monto: saldo, saldo_resultante: 0,
+      periodo: null, origen: 'liquidacion',
+      created_by: window._currentProfile?.()?.nombre || null
+    })
+    if (aErr) { window.toast?.('No se liquidó: error grabando el abono → ' + aErr.message, 'error'); return }
+  }
+
+  const { error } = await sb.from('prestamos_empleados').update({ saldo: 0, activo: false }).eq('id', id)
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
-  window.toast?.('Préstamo liquidado', 'ok')
+  window.toast?.('Préstamo liquidado y abono registrado ✓', 'ok')
+  window.logActividad?.('prestamo_liquidado', 'rrhh', `${nombre} · abono L.${saldo.toFixed(2)}`)
   await loadPrestamosEmp()
 }
 
