@@ -22,6 +22,7 @@ function cuentaVacGasto(seccion) {
 
 // ── Cargar lista de empleados con su saldo ──
 window.loadVacaciones = async () => {
+  ensureSumarDiasUI()  // inyecta botón "Sumar días" + modal (idempotente)
   const { data } = await getSb().from('empleados')
     .select('id, nombre, seccion, sueldo_mensual, vacaciones_saldo_dias, es_socio')
     .eq('activo', true).order('nombre')
@@ -154,6 +155,176 @@ window.aplicarPagoVacaciones = async () => {
     console.error('aplicarPagoVacaciones:', e)
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Aplicar y generar partida' }
+  }
+}
+
+// ══════════════════════════════════════════════
+// ── SUMAR DÍAS (ajuste de saldo · solo super_admin)
+// ── Acredita días al saldo de uno o varios empleados.
+// ── No genera partida: solo movimiento tipo 'ajuste' + saldo.
+// ══════════════════════════════════════════════
+
+let sumarDiasSel = new Set()
+
+// Inyecta el botón en el header y el modal en el body (idempotente)
+function ensureSumarDiasUI() {
+  const header = document.querySelector('#view-vacaciones .page-header')
+  if (header && !document.getElementById('btn-sumar-dias-vac')) {
+    const pagarBtn = header.querySelector('button.btn-gold') || header.querySelector('button')
+    const group = document.createElement('div')
+    group.style.display = 'flex'
+    group.style.gap = '8px'
+    const sumarBtn = document.createElement('button')
+    sumarBtn.id = 'btn-sumar-dias-vac'
+    sumarBtn.className = 'btn btn-ghost'
+    sumarBtn.textContent = '➕ Sumar días'
+    sumarBtn.onclick = () => window.openSumarDiasVac()
+    if (pagarBtn) {
+      header.insertBefore(group, pagarBtn)
+      group.appendChild(sumarBtn)
+      group.appendChild(pagarBtn)   // agrupa ambos botones a la derecha
+    } else {
+      header.appendChild(group)
+      group.appendChild(sumarBtn)
+    }
+  }
+
+  if (!document.getElementById('modal-sumar-dias-vac')) {
+    const html = `
+    <div class="modal-backdrop" id="modal-sumar-dias-vac">
+      <div class="modal" style="width:520px">
+        <div class="modal-title">➕ Sumar días de vacaciones</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+          Acredita días al saldo de los empleados seleccionados. No genera partida — solo afecta el saldo.
+        </div>
+        <div style="display:flex;gap:16px;margin-bottom:6px">
+          <div class="fld" style="flex:0 0 140px">
+            <label>Días a sumar</label>
+            <input type="number" id="sumardias-dias" min="0" step="0.5" placeholder="0">
+          </div>
+          <div class="fld" style="flex:1">
+            <label>Descripción / motivo</label>
+            <input type="text" id="sumardias-motivo" placeholder="Ej: Día compensatorio — feriado trabajado 01/06/2026">
+          </div>
+        </div>
+        <div class="fld">
+          <label>Empleados</label>
+          <input type="text" id="sumardias-buscar" placeholder="Buscar empleado..." oninput="renderSumarDiasLista()">
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:4px 0 6px">
+          <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;text-transform:none;font-size:12px">
+            <input type="checkbox" id="sumardias-all" style="width:auto;margin:0" onchange="toggleAllSumarDias()"> Seleccionar todos
+          </label>
+          <span id="sumardias-count" style="font-size:12px;color:var(--text3)">0 seleccionados</span>
+        </div>
+        <div id="sumardias-lista" style="max-height:280px;overflow-y:auto;border:1px solid var(--bg1);border-radius:6px;padding:4px"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+          <button class="btn btn-ghost" onclick="closeModal('modal-sumar-dias-vac')">Cancelar</button>
+          <button class="btn btn-gold" id="btn-aplicar-sumardias" onclick="aplicarSumarDias()">Aplicar</button>
+        </div>
+      </div>
+    </div>`
+    const wrap = document.createElement('div')
+    wrap.innerHTML = html.trim()
+    document.body.appendChild(wrap.firstElementChild)
+  }
+}
+
+window.openSumarDiasVac = () => {
+  sumarDiasSel = new Set()
+  const d = document.getElementById('sumardias-dias'); if (d) d.value = ''
+  const m = document.getElementById('sumardias-motivo'); if (m) m.value = ''
+  const b = document.getElementById('sumardias-buscar'); if (b) b.value = ''
+  const a = document.getElementById('sumardias-all'); if (a) a.checked = false
+  renderSumarDiasLista()
+  document.getElementById('modal-sumar-dias-vac').classList.add('open')
+}
+
+window.renderSumarDiasLista = () => {
+  const q = (document.getElementById('sumardias-buscar')?.value || '').trim().toUpperCase()
+  const cont = document.getElementById('sumardias-lista')
+  if (!cont) return
+  const filtrados = vacEmpleados.filter(e => !q || (e.nombre || '').toUpperCase().includes(q))
+  cont.innerHTML = filtrados.map(e => {
+    const saldo = parseFloat(e.vacaciones_saldo_dias) || 0
+    const checked = sumarDiasSel.has(e.id) ? 'checked' : ''
+    return `<label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer">
+      <input type="checkbox" value="${e.id}" ${checked} style="width:auto;margin:0" onchange="onSumarDiasCheck('${e.id}', this.checked)">
+      <span style="flex:1">${e.nombre}</span>
+      <span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion || ''}</span>
+      <span style="font-size:11px;color:${saldo > 0 ? 'var(--green)' : 'var(--text3)'};min-width:64px;text-align:right">${fmtDias(saldo)} días</span>
+    </label>`
+  }).join('') || '<div style="text-align:center;padding:16px;color:var(--text3)">Sin coincidencias</div>'
+  updateSumarDiasCount()
+}
+
+window.onSumarDiasCheck = (id, checked) => {
+  if (checked) sumarDiasSel.add(id); else sumarDiasSel.delete(id)
+  updateSumarDiasCount()
+}
+
+function updateSumarDiasCount() {
+  const c = document.getElementById('sumardias-count')
+  if (c) c.textContent = sumarDiasSel.size + ' seleccionado' + (sumarDiasSel.size === 1 ? '' : 's')
+}
+
+window.toggleAllSumarDias = () => {
+  const all = document.getElementById('sumardias-all')?.checked
+  const q = (document.getElementById('sumardias-buscar')?.value || '').trim().toUpperCase()
+  const visibles = vacEmpleados.filter(e => !q || (e.nombre || '').toUpperCase().includes(q))
+  for (const e of visibles) { if (all) sumarDiasSel.add(e.id); else sumarDiasSel.delete(e.id) }
+  renderSumarDiasLista()
+}
+
+window.aplicarSumarDias = async () => {
+  const dias = parseFloat(document.getElementById('sumardias-dias').value) || 0
+  if (dias <= 0) { window.toast?.('Ingresá los días a sumar (mayor que 0)', 'error'); return }
+  const motivo = document.getElementById('sumardias-motivo').value.trim()
+  if (!motivo) { window.toast?.('Escribí la descripción / motivo', 'error'); return }
+  const seleccionados = vacEmpleados.filter(e => sumarDiasSel.has(e.id))
+  if (seleccionados.length === 0) { window.toast?.('Seleccioná al menos un empleado', 'error'); return }
+
+  if (!confirm(`Vas a sumar ${fmtDias(dias)} día(s) a ${seleccionados.length} empleado(s).\nMotivo: ${motivo}\n\n¿Continuar?`)) return
+
+  const sb = getSb()
+  const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD local (evita off-by-one)
+  const btn = document.getElementById('btn-aplicar-sumardias')
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando...' }
+
+  try {
+    // 1) Insertar un movimiento 'ajuste' por empleado (sin partida)
+    const movimientos = seleccionados.map(emp => {
+      const saldo = parseFloat(emp.vacaciones_saldo_dias) || 0
+      const resultante = Math.round((saldo + dias) * 100) / 100
+      return {
+        empleado_id: emp.id, empleado_nombre: emp.nombre, fecha: hoy,
+        tipo: 'ajuste', dias: Math.abs(dias), monto: 0,
+        saldo_resultante: resultante, referencia: null,
+        motivo, partida_numero: null,
+        created_by: window._currentProfile?.()?.nombre || null
+      }
+    })
+    const { error: mErr } = await sb.from('vacaciones_movimientos').insert(movimientos)
+    if (mErr) { window.toast?.('Error registrando movimientos: ' + mErr.message, 'error'); throw new Error('mov') }
+
+    // 2) Actualizar el saldo de cada empleado
+    let ok = 0
+    for (const emp of seleccionados) {
+      const saldo = parseFloat(emp.vacaciones_saldo_dias) || 0
+      const resultante = Math.round((saldo + dias) * 100) / 100
+      const { error: uErr } = await sb.from('empleados').update({ vacaciones_saldo_dias: resultante }).eq('id', emp.id)
+      if (uErr) { window.toast?.(`Error actualizando saldo de ${emp.nombre}: ${uErr.message}`, 'error') }
+      else ok++
+    }
+
+    window.logActividad?.('vacaciones_ajuste', 'rrhh', `+${fmtDias(dias)} días a ${ok} empleado(s) · ${motivo}`)
+    window.toast?.(`Sumados ${fmtDias(dias)} día(s) a ${ok} empleado(s)`, 'success')
+    window.closeModal('modal-sumar-dias-vac')
+    await window.loadVacaciones()
+  } catch (e) {
+    console.error('aplicarSumarDias:', e)
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Aplicar' }
   }
 }
 
