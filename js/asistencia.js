@@ -683,17 +683,41 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
 }
 
 // ── PERMISOS / INCAPACIDADES ──
-window.openPermisoEmpleado = async () => {
+// ── Filtro de búsqueda para el desplegable de empleados del permiso ──
+let permEmpleados = []
+
+function renderPermEmpleadosOptions(q) {
   const sel = document.getElementById('perm-nombre')
-  sel.innerHTML = '<option value="">— Seleccionar empleado —</option>'
+  if (!sel) return
+  const query = (q || '').trim().toUpperCase()
+  const prev = sel.value
+  const lista = permEmpleados.filter(e => !query || (e.nombre || '').toUpperCase().includes(query))
+  sel.innerHTML = '<option value="">— Seleccionar empleado —</option>' +
+    lista.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('')
+  if (prev && lista.some(e => String(e.id) === String(prev))) sel.value = prev
+}
+
+function ensurePermBuscador() {
+  if (document.getElementById('perm-buscar')) return
+  const sel = document.getElementById('perm-nombre')
+  if (!sel) return
+  const inp = document.createElement('input')
+  inp.type = 'text'
+  inp.id = 'perm-buscar'
+  inp.placeholder = 'Buscar empleado...'
+  inp.autocomplete = 'off'
+  inp.style.marginBottom = '6px'
+  inp.addEventListener('input', () => renderPermEmpleadosOptions(inp.value))
+  sel.parentNode.insertBefore(inp, sel)
+}
+
+window.openPermisoEmpleado = async () => {
   const { data: emps } = await getSb().from('empleados')
     .select('id, nombre').eq('activo', true).order('nombre')
-  for (const e of (emps || [])) {
-    const o = document.createElement('option')
-    o.value = e.id
-    o.textContent = e.nombre
-    sel.appendChild(o)
-  }
+  permEmpleados = emps || []
+  ensurePermBuscador()
+  const bq = document.getElementById('perm-buscar'); if (bq) bq.value = ''
+  renderPermEmpleadosOptions('')
   document.getElementById('perm-fecha').value = ''
   document.getElementById('perm-hora').value = ''
   document.getElementById('perm-motivo').value = ''
