@@ -119,9 +119,9 @@
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
-          Contabilidad <span class="toggle-arrow" id="arrow-contab-items">▾</span>
+          Contabilidad <span class="toggle-arrow collapsed" id="arrow-contab-items">▾</span>
         </div>
-        <div class="sidebar-group" id="contab-items">
+        <div class="sidebar-group collapsed" id="contab-items">
           <div class="nav-item" id="nav-catalogo" onclick="showView('catalogo','Catálogo de cuentas')">
             <span class="nav-dot"></span>Catálogo de cuentas
           </div>
@@ -135,9 +135,9 @@
       </div>
       <div class="sidebar-section" id="section-importar">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('import-items')">
-          Importaciones <span class="toggle-arrow" id="arrow-import-items">▾</span>
+          Importaciones <span class="toggle-arrow collapsed" id="arrow-import-items">▾</span>
         </div>
-        <div class="sidebar-group" id="import-items">
+        <div class="sidebar-group collapsed" id="import-items">
           <div class="nav-item" id="nav-importar" onclick="showView('importar','Importar reportes')">
             <span class="nav-dot"></span>Ventas Alpha
           </div>
@@ -160,9 +160,9 @@
       </div>
       <div class="sidebar-section" id="section-rrhh">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('rrhh-items')">
-          RRHH <span class="toggle-arrow" id="arrow-rrhh-items">▾</span>
+          RRHH <span class="toggle-arrow collapsed" id="arrow-rrhh-items">▾</span>
         </div>
-        <div class="sidebar-group" id="rrhh-items">
+        <div class="sidebar-group collapsed" id="rrhh-items">
           <div class="nav-item" id="nav-empleados" onclick="showView('empleados','Expediente de empleados')">
             <span class="nav-dot"></span>Empleados
           </div>
@@ -186,9 +186,9 @@
 
       <div class="sidebar-section" id="section-reportes">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('report-items')">
-          Reportes <span class="toggle-arrow" id="arrow-report-items">▾</span>
+          Reportes <span class="toggle-arrow collapsed" id="arrow-report-items">▾</span>
         </div>
-        <div class="sidebar-group" id="report-items">
+        <div class="sidebar-group collapsed" id="report-items">
           <div class="nav-item" id="nav-auxiliar" onclick="showView('auxiliar','Auxiliar de cuentas')">
             <span class="nav-dot"></span>Auxiliar de cuentas
           </div>
@@ -2144,9 +2144,68 @@
     const group = document.getElementById(groupId)
     const arrow = document.getElementById('arrow-' + groupId)
     if (!group) return
-    group.classList.toggle('collapsed')
-    if (arrow) arrow.classList.toggle('collapsed')
+    const nowCollapsed = group.classList.toggle('collapsed')
+    if (arrow) arrow.classList.toggle('collapsed', nowCollapsed)
+    saveSidebarState()
   }
+
+  // Guarda qué secciones están colapsadas
+  function saveSidebarState() {
+    try {
+      const state = {}
+      document.querySelectorAll('.sidebar-group').forEach(g => {
+        if (g.id) state[g.id] = g.classList.contains('collapsed')
+      })
+      localStorage.setItem('contamax_sidebar', JSON.stringify(state))
+    } catch (e) {}
+  }
+
+  // Restaura el estado guardado (por defecto: colapsadas)
+  function applySidebarState() {
+    let state = null
+    try { state = JSON.parse(localStorage.getItem('contamax_sidebar') || 'null') } catch (e) {}
+    document.querySelectorAll('.sidebar-group').forEach(g => {
+      if (!g.id) return
+      const collapsed = (state && Object.prototype.hasOwnProperty.call(state, g.id)) ? state[g.id] : true
+      g.classList.toggle('collapsed', collapsed)
+      const arrow = document.getElementById('arrow-' + g.id)
+      if (arrow) arrow.classList.toggle('collapsed', collapsed)
+    })
+  }
+
+  // Abre la sección que contiene un nav-item (si está cerrada)
+  function openSectionOf(navItem) {
+    const group = navItem && navItem.closest ? navItem.closest('.sidebar-group') : null
+    if (group && group.classList.contains('collapsed')) {
+      group.classList.remove('collapsed')
+      const arrow = document.getElementById('arrow-' + group.id)
+      if (arrow) arrow.classList.remove('collapsed')
+      saveSidebarState()
+    }
+  }
+
+  // Inicialización del menú plegable
+  function initSidebarSections() {
+    applySidebarState()
+    // Al hacer clic en un módulo, su sección se abre
+    document.querySelectorAll('.sidebar-group .nav-item').forEach(it => {
+      it.addEventListener('click', () => openSectionOf(it))
+    })
+    // Abre la sección del módulo activo (al cargar)
+    const abrirActivo = () => {
+      const act = document.querySelector('.sidebar-group .nav-item.active')
+      if (act) openSectionOf(act)
+    }
+    abrirActivo()
+    setTimeout(abrirActivo, 400)  // reintento por si la vista activa se marca tras el arranque
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSidebarSections)
+  } else {
+    initSidebarSections()
+  }
+
 </script>
 
 <!-- MODAL NUEVO/EDITAR CENTRO DE COSTO -->
