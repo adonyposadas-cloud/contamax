@@ -116,7 +116,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
@@ -124,7 +124,7 @@ function setupUI() {
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -5066,12 +5066,14 @@ window.guardarImportCompras = async () => {
     const descripcion = `${factura.proveedor} · ${productosDesc || 'Sin detalle'} [IMP-COMPRA]`
 
     // Crear partida
+    const numPartidaImp = await window.siguienteNumeroPartida()
     const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
       centro_costo_id: centroCostoId,
       generada_por: currentProfile.id,
       tipo_origen: 'compra',
       descripcion: descripcion,
       fecha_partida: fechaISO,
+      numero_partida: numPartidaImp,
       numero_documento: factura.no_factura !== 'S/F' ? factura.no_factura : null,
       estado: 'aprobada',
       total: Math.round(factura.total * 100) / 100,
@@ -5640,9 +5642,11 @@ window.guardarImportCostos = async () => {
 
     } else {
       // ── CREAR ──
+      const numPartidaImp = await window.siguienteNumeroPartida()
       const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
         centro_costo_id: centroCostoId, generada_por: currentProfile.id,
         tipo_origen: 'compra', descripcion, fecha_partida: fecha,
+        numero_partida: numPartidaImp,
         numero_documento: null, estado: 'aprobada', total: costoTotal,
       }).select().single()
 
@@ -6301,12 +6305,14 @@ window.generarPartidasTaxis = async () => {
     const estadoPartida = tocaCajaGeneral ? 'pendiente_caja' : 'aprobada'
 
     // Crear partida
+    const numPartidaImp = await window.siguienteNumeroPartida()
     const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
       centro_costo_id: centroCostoId,
       generada_por: currentProfile.id,
       tipo_origen: 'entrega_taxi',
       descripcion,
       fecha_partida: dia.fecha,
+      numero_partida: numPartidaImp,
       numero_documento: null,
       estado: estadoPartida,
       total: Math.round(total * 100) / 100,
@@ -7234,7 +7240,7 @@ window.cargarDetalleUnidad = async () => {
     // Buscar en descripción de LINEAS
     for (const pat of patterns) {
       const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
         .in('partida_id', partidaIds)
         .ilike('descripcion', pat)
       if (data?.length) partidasGastos.push(...data)
@@ -7251,7 +7257,7 @@ window.cargarDetalleUnidad = async () => {
     if (partidasHeader.length) {
       const headerIds = partidasHeader.map(p => p.id)
       const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
         .in('partida_id', headerIds)
       if (data?.length) partidasGastos.push(...data)
     }
@@ -7264,6 +7270,9 @@ window.cargarDetalleUnidad = async () => {
     seenKeys.add(key)
     return true
   })
+  // Solo cuentan las líneas CON centro de costo. Las de bancos/caja (contrapartida)
+  // van sin centro de costo, así que quedan excluidas automáticamente.
+  partidasGastos = partidasGastos.filter(g => g.centro_costo_id)
   const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
   const gastosPartidas = partidasGastos.map(g => ({
     fecha: partidaMap[g.partida_id]?.fecha_partida || '',
@@ -7278,16 +7287,22 @@ window.cargarDetalleUnidad = async () => {
   // Combinar facturas importadas + gastos de partidas manuales
   const todasFacturas = [...(facturas || []), ...gastosPartidas].sort((a, b) => a.fecha?.localeCompare(b.fecha))
 
+  // Una línea de partida es INGRESO si es crédito a una cuenta de ingreso (código que inicia en 4)
+  const esIngresoLinea = (f) => f._fromPartida && f._tipo === 'credito' && String(f._cuenta || '').startsWith('4')
+
   const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
-  const totalFacturas = todasFacturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
-  const totalMO = todasFacturas.filter(f => f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const ingresosPartidas = todasFacturas.filter(esIngresoLinea).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalIngresos = totalEntregas + ingresosPartidas
+  // Gastos = facturas importadas + líneas de partida que NO son ingreso
+  const totalFacturas = todasFacturas.filter(f => !esIngresoLinea(f)).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalMO = todasFacturas.filter(f => !esIngresoLinea(f) && f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
   const totalRepuestos = totalFacturas - totalMO
-  const neto = totalEntregas - totalFacturas
+  const neto = totalIngresos - totalFacturas
 
   // Resumen
   document.getElementById('du-resumen').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:16px">L. ${fmtL(totalEntregas)}</div><div class="stat-label">Entregas</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:16px">L. ${fmtL(totalIngresos)}</div><div class="stat-label">Ingresos</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:16px">L. ${fmtL(totalFacturas)}</div><div class="stat-label">Facturas (gasto)</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--amber);font-size:16px">L. ${fmtL(totalMO)}</div><div class="stat-label">Mano de obra</div></div>
       <div class="stat-card"><div class="stat-num" style="color:${neto >= 0 ? 'var(--green)' : 'var(--red)'};font-size:16px">L. ${fmtL(neto)}</div><div class="stat-label">${neto >= 0 ? 'Utilidad' : 'Pérdida'}</div></div>
@@ -7324,6 +7339,7 @@ window.cargarDetalleUnidad = async () => {
           </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">No hay facturas en este período</td></tr>'}
         </tbody>
         <tfoot>
+          ${ingresosPartidas > 0 ? `<tr style="background:var(--bg3)"><td colspan="3" style="text-align:right;color:var(--green)">Ingresos (partidas)</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(ingresosPartidas)}</td></tr>` : ''}
           <tr style="background:var(--bg3)"><td colspan="3" style="text-align:right">Repuestos</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalRepuestos)}</td></tr>
           <tr style="background:var(--bg3)"><td colspan="3" style="text-align:right">Mano de obra</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalMO)}</td></tr>
           <tr style="background:var(--bg3);font-weight:600"><td colspan="3" style="text-align:right">Total facturas</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totalFacturas)}</td></tr>

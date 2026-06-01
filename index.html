@@ -100,6 +100,9 @@
         <div class="nav-item hidden" id="nav-cxp" onclick="showView('cxp','Conciliación Cuentas por Pagar')">
           <span class="nav-dot"></span>Cuentas x Pagar
         </div>
+        <div class="nav-item hidden" id="nav-cuentas-cobrar" onclick="showView('cuentas-cobrar','Cuentas por Cobrar');loadCuentasCobrar()">
+          <span class="nav-dot"></span>Cuentas x Cobrar
+        </div>
         <div class="nav-item hidden" id="nav-aprobaciones" onclick="showView('aprobaciones','Pendientes de aprobación')">
           <span class="nav-dot"></span>Aprobaciones
           <span class="nav-badge hidden" id="badge-aprobaciones">0</span>
@@ -2912,6 +2915,7 @@
 <script defer src="js/rrhh.js"></script>
 <script defer src="js/asistencia.js"></script>
 <script defer src="js/vacaciones.js"></script>
+<script defer src="js/cuentas-cobrar.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})
