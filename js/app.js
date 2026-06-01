@@ -4160,9 +4160,10 @@ window.verArqueo = async () => {
   const { data: allConteos, error } = await sb.from('conteo_billetes').select('*, partida:partidas_contables(estado)')
   if (error) { toast('Error al cargar arqueo: ' + error.message, 'error'); return }
 
-  // Filtrar: solo conteos de partidas aprobadas que NO sean de caja chica (110101-001)
-  const conteos = (allConteos || []).filter(c => 
-    c.partida?.estado === 'aprobada' && 
+  // Filtrar: conteos de partidas aprobadas + cambios de denominaciones (sin partida),
+  // excluyendo siempre los de caja chica (110101-001)
+  const conteos = (allConteos || []).filter(c =>
+    (c.partida?.estado === 'aprobada' || c.partida_id === null) &&
     c.cuenta_codigo !== '110101-001'
   )
 
@@ -4444,8 +4445,10 @@ window.ejecutarCambioUSD = async () => {
 
 let cambioDenomIn = {}
 let cambioDenomOut = {}
+let cambioDenomCuenta = '110102-001'   // caja a la que pertenece el cambio (general por defecto)
 
-window.openModalCambioDenoms = () => {
+window.openModalCambioDenoms = (cajaCodigo = '110102-001') => {
+  cambioDenomCuenta = cajaCodigo || '110102-001'
   cambioDenomIn = {}
   cambioDenomOut = {}
   DENOMINACIONES.forEach(d => { cambioDenomIn[d] = 0; cambioDenomOut[d] = 0 })
@@ -4529,10 +4532,12 @@ window.ejecutarCambioDenoms = async () => {
   // Registrar ingreso de denominaciones
   const hasIn = DENOMINACIONES.some(d => cambioDenomIn[d] > 0)
   const hasOut = DENOMINACIONES.some(d => cambioDenomOut[d] > 0)
+  let errIns = null
 
   if (hasIn) {
-    await sb.from('conteo_billetes').insert({
+    const { error: e } = await sb.from('conteo_billetes').insert({
       partida_id: null,
+      cuenta_codigo: cambioDenomCuenta,
       tipo: 'ingreso',
       den_500: cambioDenomIn[500] || 0, den_200: cambioDenomIn[200] || 0, den_100: cambioDenomIn[100] || 0,
       den_50: cambioDenomIn[50] || 0, den_20: cambioDenomIn[20] || 0, den_10: cambioDenomIn[10] || 0,
@@ -4542,11 +4547,13 @@ window.ejecutarCambioDenoms = async () => {
       total_monto: totIn,
       registrado_por: currentProfile.id
     })
+    if (e) errIns = e
   }
 
-  if (hasOut) {
-    await sb.from('conteo_billetes').insert({
+  if (!errIns && hasOut) {
+    const { error: e } = await sb.from('conteo_billetes').insert({
       partida_id: null,
+      cuenta_codigo: cambioDenomCuenta,
       tipo: 'egreso',
       den_500: cambioDenomOut[500] || 0, den_200: cambioDenomOut[200] || 0, den_100: cambioDenomOut[100] || 0,
       den_50: cambioDenomOut[50] || 0, den_20: cambioDenomOut[20] || 0, den_10: cambioDenomOut[10] || 0,
@@ -4556,7 +4563,10 @@ window.ejecutarCambioDenoms = async () => {
       total_monto: totOut,
       registrado_por: currentProfile.id
     })
+    if (e) errIns = e
   }
+
+  if (errIns) { showError(err, 'No se pudo registrar el cambio: ' + errIns.message); return }
 
   closeModal('modal-cambio-denoms')
   toast(`Cambio de denominaciones aplicado · L. ${totIn.toLocaleString('es-HN',{minimumFractionDigits:2})} ✓`, 'success')
@@ -8106,7 +8116,7 @@ window.verArqueoCajaChica = async () => {
 
 // Cambio de denominaciones caja chica — reutiliza el modal de caja general
 window.cambioDenomsCajaChica = () => {
-  openModalCambioDenoms()
+  openModalCambioDenoms('110101-001')
 }
 
 window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
