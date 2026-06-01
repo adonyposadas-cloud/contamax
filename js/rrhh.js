@@ -613,12 +613,19 @@ function renderPlanilla() {
 
   // Disable approve button if already approved
   const btnAprobar = document.getElementById('btn-aprobar-planilla')
-  if (currentPlanilla?.estado === 'aprobada' || currentPlanilla?.estado === 'pagada') {
+  const esAprobada = currentPlanilla?.estado === 'aprobada' || currentPlanilla?.estado === 'pagada'
+  if (esAprobada) {
     btnAprobar.disabled = true
     btnAprobar.textContent = '✅ Planilla ya aprobada'
   } else {
     btnAprobar.disabled = false
     btnAprobar.textContent = '✅ Aprobar y generar partida'
+  }
+  // Botón Reabrir: solo super_admin y solo si está aprobada
+  const btnReabrir = document.getElementById('btn-reabrir-planilla')
+  if (btnReabrir) {
+    const esSuper = window._currentProfile?.()?.rol === 'super_admin'
+    btnReabrir.style.display = (esAprobada && esSuper) ? '' : 'none'
   }
 }
 
@@ -998,6 +1005,88 @@ window.aprobarPlanilla = async () => {
   if (prestAbonados > 0) msg += ` Préstamos abonados: ${prestAbonados}.`
   window.toast?.(msg, 'ok')
   window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · partida #${part.numero} · vac: ${rebajados} · prest: ${prestAbonados}`)
+}
+
+// ── Reabrir planilla: revierte TODO lo de aprobar (super_admin) ──
+window.reabrirPlanilla = async () => {
+  if (!currentPlanilla) return
+  if (window._currentProfile?.()?.rol !== 'super_admin') {
+    window.toast?.('Solo un Super Admin puede reabrir una planilla', 'error'); return
+  }
+  if (currentPlanilla.estado !== 'aprobada' && currentPlanilla.estado !== 'pagada') {
+    window.toast?.('La planilla no está aprobada', 'error'); return
+  }
+  const resp = prompt('Esto REVERTIRÁ la partida, repondrá el saldo de vacaciones y de préstamos, y dejará la planilla en borrador.\n\nEscribí REABRIR para confirmar:')
+  if ((resp || '').trim().toUpperCase() !== 'REABRIR') { window.toast?.('Cancelado', 'info'); return }
+
+  const sb = getSb()
+  const periodo = currentPlanilla.periodo
+  const hoy = new Date().toLocaleDateString('en-CA')
+  const quienId = window._currentProfile?.()?.id || null
+
+  try {
+    // 1) PARTIDA: borrar si está en borrador; contra-asiento si ya estaba aprobada
+    const { data: partidas } = await sb.from('partidas_contables')
+      .select('id, numero_partida, estado, total').ilike('descripcion', `PLANILLA ${periodo}%`)
+    for (const p of (partidas || [])) {
+      if (p.estado === 'borrador') {
+        await sb.from('lineas_partida').delete().eq('partida_id', p.id)
+        await sb.from('partidas_contables').delete().eq('id', p.id)
+      } else {
+        // Contra-asiento: mismas líneas con débito/crédito invertidos
+        const { data: lineas } = await sb.from('lineas_partida').select('*').eq('partida_id', p.id)
+        const { data: lastP } = await sb.from('partidas_contables')
+          .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+        const numRev = (lastP?.[0]?.numero_partida || 0) + 1
+        const descRev = `REVERSION PLANILLA ${periodo} (ANULA PARTIDA #${p.numero_partida})`
+        const { data: partidaRev } = await sb.from('partidas_contables').insert({
+          centro_costo_id: null, fecha_partida: hoy, numero_partida: numRev, descripcion: descRev,
+          tipo_origen: 'otro', estado: 'borrador', total: p.total, generada_por: quienId
+        }).select().single()
+        if (partidaRev && lineas?.length) {
+          await sb.from('lineas_partida').insert(lineas.map(l => ({
+            partida_id: partidaRev.id, cuenta_id: l.cuenta_id, cuenta_codigo: l.cuenta_codigo,
+            cuenta_nombre: l.cuenta_nombre, tipo: l.tipo === 'debito' ? 'credito' : 'debito',
+            monto: l.monto, descripcion: descRev, aplica_fiscal: l.aplica_fiscal
+          })))
+        }
+      }
+    }
+
+    // 2) VACACIONES: reponer saldo y borrar movimientos del período
+    const { data: movVac } = await sb.from('vacaciones_movimientos')
+      .select('id, empleado_id, dias').eq('tipo', 'permiso').eq('periodo', periodo)
+    for (const m of (movVac || [])) {
+      const { data: emp } = await sb.from('empleados')
+        .select('vacaciones_saldo_dias').eq('id', m.empleado_id).maybeSingle()
+      const saldo = parseFloat(emp?.vacaciones_saldo_dias) || 0
+      const repuesto = Math.round((saldo + Math.abs(parseFloat(m.dias) || 0)) * 1000) / 1000  // dias venían negativos
+      await sb.from('empleados').update({ vacaciones_saldo_dias: repuesto }).eq('id', m.empleado_id)
+      await sb.from('vacaciones_movimientos').delete().eq('id', m.id)
+    }
+
+    // 3) PRÉSTAMOS: reponer saldo, reactivar y borrar abonos del período
+    const { data: abonos } = await sb.from('abonos_prestamo_emp')
+      .select('id, prestamo_id, monto').eq('periodo', periodo).eq('origen', 'planilla')
+    for (const a of (abonos || [])) {
+      const { data: prest } = await sb.from('prestamos_empleados')
+        .select('saldo').eq('id', a.prestamo_id).maybeSingle()
+      const saldo = parseFloat(prest?.saldo) || 0
+      const repuesto = Math.round((saldo + (parseFloat(a.monto) || 0)) * 100) / 100
+      await sb.from('prestamos_empleados').update({ saldo: repuesto, activo: true }).eq('id', a.prestamo_id)
+      await sb.from('abonos_prestamo_emp').delete().eq('id', a.id)
+    }
+
+    // 4) PLANILLA: de vuelta a borrador
+    await sb.from('planillas').update({ estado: 'borrador', aprobada_at: null }).eq('id', currentPlanilla.id)
+    currentPlanilla.estado = 'borrador'
+    renderPlanilla()
+    window.toast?.('↩️ Planilla reabierta: partida revertida, vacaciones y préstamos repuestos.', 'ok')
+    window.logActividad?.('planilla_reabierta', 'rrhh', `${periodo} · vac repuestas: ${(movVac||[]).length} · prest repuestos: ${(abonos||[]).length}`)
+  } catch (e) {
+    console.error('Error reabriendo planilla:', e)
+    window.toast?.('Error al reabrir: ' + e.message, 'error')
+  }
 }
 
 // ── Exportar a Excel ──
