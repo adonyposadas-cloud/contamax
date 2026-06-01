@@ -117,8 +117,7 @@ window.aplicarPagoVacaciones = async () => {
     const { data: cc } = await sb.from('catalogo_cuentas').select('id, codigo, nombre').eq('codigo', CAJA_GENERAL).single()
     if (!cg || !cc) { window.toast?.('No se encontraron las cuentas contables (gasto o caja)', 'error'); throw new Error('cuentas') }
 
-    const { data: lastP } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-    const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+    const numPartida = await window.siguienteNumeroPartida()
     const desc = `PAGO VACACIONES ${emp.nombre} - ${fmtDias(dias)} DIA(S)${referencia ? ' REF ' + referencia : ''}`.toUpperCase()
 
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({

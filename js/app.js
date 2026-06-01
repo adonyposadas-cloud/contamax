@@ -15,6 +15,19 @@ function localDateStr(d) {
   return dt.toLocaleDateString('en-CA') // en-CA returns YYYY-MM-DD format
 }
 
+// Correlativo de partida ATÓMICO: lo genera la BD (función siguiente_numero_partida).
+// Evita los duplicados que producía el viejo "último + 1" en el cliente.
+// Fallback: si la función no existe aún (BD sin migrar), usa el método viejo.
+window.siguienteNumeroPartida = async () => {
+  try {
+    const { data, error } = await sb.rpc('siguiente_numero_partida')
+    if (!error && Number.isInteger(data)) return data
+  } catch (e) { /* cae al fallback */ }
+  const { data: lastPN } = await sb.from('partidas_contables')
+    .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+  return (lastPN?.[0]?.numero_partida || 0) + 1
+}
+
 // ── STATE ──
 let currentUser = null
 let currentProfile = null
@@ -2283,9 +2296,8 @@ window.guardarPartida = async (estado) => {
     if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
   } else {
     // ── CREAR partida nueva ──
-    // Auto-increment numero_partida
-    const { data: lastPN } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-    const nuevoNumero = (lastPN?.[0]?.numero_partida || 0) + 1
+    // Correlativo atómico (evita duplicados por concurrencia)
+    const nuevoNumero = await window.siguienteNumeroPartida()
 
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
       centro_costo_id: null,
@@ -7680,9 +7692,8 @@ window.importarFacturasTaxis = async () => {
     console.log(`[FACT-TAXIS] Procesando día ${dia.fecha}: ${dia.lineas.length} líneas, ${dia.resumen.length} resumen`)
     if (!dia.lineas.length) { console.log('[FACT-TAXIS] Día sin líneas, saltando'); continue }
 
-    // Obtener siguiente número de partida
-    const { data: lastP } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-    const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+    // Obtener siguiente número de partida (atómico)
+    const numPartida = await window.siguienteNumeroPartida()
 
     const totalDebitos = dia.lineas.reduce((s, l) => s + l.monto, 0)
     const totalMO = dia.resumen.filter(r => r.concepto === 'MANO DE OBRA').reduce((s, r) => s + r.monto, 0)
@@ -8399,9 +8410,8 @@ window.generarPagoCxP = async () => {
 
   if (!confirm(`¿Generar partida de pago en borrador?\n\nCuentas:\n${cuentasDetalle}\n\nTotal: L. ${fmt(suma)}\n\nSe creará una partida borrador con los débitos. Vos cargás la forma de pago (crédito).`)) return
 
-  // Get next partida number
-  const { data: lastPN } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-  const nuevoNumero = (lastPN?.[0]?.numero_partida || 0) + 1
+  // Get next partida number (atómico)
+  const nuevoNumero = await window.siguienteNumeroPartida()
 
   // Build description
   const cuentasStr = Object.values(porCuenta).map(c => c.codigo).join(', ')

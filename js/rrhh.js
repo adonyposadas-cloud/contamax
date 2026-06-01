@@ -869,9 +869,7 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
   }
 
   // Insertar partida + líneas
-  const { data: lastP } = await sb.from('partidas_contables')
-    .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-  const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+  const numPartida = await window.siguienteNumeroPartida()
   const desc = `PLANILLA ${periodo} (NÓMINA ${currentDetalle.length} EMPLEADOS)`
 
   const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
@@ -1035,9 +1033,7 @@ window.reabrirPlanilla = async () => {
       } else {
         // Contra-asiento: mismas líneas con débito/crédito invertidos
         const { data: lineas } = await sb.from('lineas_partida').select('*').eq('partida_id', p.id)
-        const { data: lastP } = await sb.from('partidas_contables')
-          .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-        const numRev = (lastP?.[0]?.numero_partida || 0) + 1
+        const numRev = await window.siguienteNumeroPartida()
         const descRev = `REVERSION PLANILLA ${periodo} (ANULA PARTIDA #${p.numero_partida})`
         const { data: partidaRev } = await sb.from('partidas_contables').insert({
           centro_costo_id: null, fecha_partida: hoy, numero_partida: numRev, descripcion: descRev,
@@ -1233,10 +1229,8 @@ window.guardarPrestamoEmp = async () => {
       const cuentaOrigen = (cuentas || []).find(c => c.codigo === codCredito)
 
       if (cuentaCxC && cuentaOrigen) {
-        // Obtener siguiente número de partida
-        const { data: lastP } = await sb.from('partidas_contables')
-          .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-        const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+        // Obtener siguiente número de partida (atómico)
+        const numPartida = await window.siguienteNumeroPartida()
 
         const descPartida = `PRESTAMO ${emp.nombre} - ${descripcion || nombreOrigen}`.toUpperCase()
 
@@ -1340,8 +1334,7 @@ window.confirmarLiquidacion = async () => {
     const cCxc = (cuentas || []).find(c => c.codigo === cuenta_cxc)
     const cDeb = (cuentas || []).find(c => c.codigo === codDebito)
     if (!cCxc || !cDeb) { window.toast?.(`No se encontró la cuenta ${!cCxc ? cuenta_cxc : codDebito} en el catálogo`, 'error'); return }
-    const { data: lastP } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-    const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+    const numPartida = await window.siguienteNumeroPartida()
     const desc = `LIQUIDACION PRESTAMO ${nombre} - ${etiqueta}`.toUpperCase()
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
       centro_costo_id: null, fecha_partida: hoy, numero_partida: numPartida, descripcion: desc,
