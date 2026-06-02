@@ -7257,7 +7257,7 @@ window.calcularRentabilidadUnidad = async (registro, desde, hasta) => {
   return { totalIngresos, totalEgresos, neto: totalIngresos - totalEgresos, entregasCount: (entregas || []).length, facturasCount: todasFacturas.length }
 }
 
-window.verDetalleUnidad = async (registro) => {
+window.verDetalleUnidad = async (registro, desde = null, hasta = null) => {
   detalleRegistro = registro
   let u = allUnidades.find(x => x.registro === registro)
   if (!u) {
@@ -7265,10 +7265,10 @@ window.verDetalleUnidad = async (registro) => {
     u = data || null
   }
   document.getElementById('modal-du-title').textContent = `🚕 Detalle unidad #${registro}${u ? ' · ' + u.modalidad + (u.propietario !== 'TAXIS' ? ' · ' + u.propietario : '') : ''}`
-  // Default: mes actual
+  // Rango: usa el recibido (desde el reporte) o, si no, el mes actual
   const hoy = new Date()
-  document.getElementById('du-desde').value = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
-  document.getElementById('du-hasta').value = localDateStr(hoy)
+  document.getElementById('du-desde').value = desde || new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
+  document.getElementById('du-hasta').value = hasta || localDateStr(hoy)
   document.getElementById('du-resumen').innerHTML = ''
   document.getElementById('du-contenido').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Selecciona un rango de fechas y consulta</div>'
   document.getElementById('modal-detalle-unidad').classList.add('open')

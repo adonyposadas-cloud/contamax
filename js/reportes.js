@@ -902,6 +902,18 @@ window.exportarERXLSX = () => {
 // ── REPORTE: RENTABILIDAD POR UNIDAD (TAXIS) · vista autoinyectada
 // ══════════════════════════════════════════════
 let rentUnidades = []
+let rentSort = { col: 'neto', dir: 'desc' }
+
+window.ordenarRentabilidad = (col) => {
+  if (rentSort.col === col) {
+    rentSort.dir = rentSort.dir === 'asc' ? 'desc' : 'asc'
+  } else {
+    rentSort.col = col
+    // por defecto: texto asc, números desc
+    rentSort.dir = (col === 'registro' || col === 'modalidad') ? 'asc' : 'desc'
+  }
+  renderRentabilidad()
+}
 
 function ensureRentabilidadView() {
   if (document.getElementById('view-rentabilidad-taxis')) return
@@ -979,18 +991,87 @@ window.consultarRentabilidad = async function () {
   tabla.innerHTML = '<div style="text-align:center;padding:24px"><div class="spinner"></div></div>'
 
   try {
-    let q = getSb().from('unidades_taxis').select('registro, modalidad, propietario, motorista').eq('activo', true)
+    const sb = getSb()
+    // 1) Unidades filtradas
+    let q = sb.from('unidades_taxis').select('registro, modalidad, propietario, motorista').eq('activo', true)
     if (propFilter) q = q.eq('propietario', propFilter)
     if (modFilter) q = q.eq('modalidad', modFilter)
     const { data: unidades } = await q.order('registro')
+    const regs = new Set((unidades || []).map(u => u.registro))
 
-    rentUnidades = []
-    for (const u of (unidades || [])) {
-      const r = await window.calcularRentabilidadUnidad(u.registro, desde, hasta)
-      rentUnidades.push({ ...u, ...r })
+    // Helper: traer TODAS las filas paginando (Supabase corta en 1000 por defecto)
+    const fetchAll = async (build) => {
+      let all = [], from = 0, size = 1000
+      while (true) {
+        const { data, error } = await build().range(from, from + size - 1)
+        if (error || !data || !data.length) break
+        all.push(...data)
+        if (data.length < size) break
+        from += size
+      }
+      return all
     }
-    // Ordenar por neto descendente
-    rentUnidades.sort((a, b) => b.neto - a.neto)
+
+    // 2) TODAS las entregas del rango (paginado)
+    const entregas = await fetchAll(() => sb.from('entregas_taxis')
+      .select('unidad, monto').gte('fecha_deposito', desde).lte('fecha_deposito', hasta))
+
+    // 3) TODAS las facturas (gasto) del rango (paginado)
+    const facturas = await fetchAll(() => sb.from('facturas_taxis')
+      .select('registro, monto').gte('fecha', desde).lte('fecha', hasta))
+
+    // 4) TODAS las líneas de partidas aprobadas del rango que tengan centro de costo
+    const partidasRango = await fetchAll(() => sb.from('partidas_contables')
+      .select('id, descripcion').eq('estado', 'aprobada')
+      .gte('fecha_partida', desde).lte('fecha_partida', hasta))
+    const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
+    const pIds = (partidasRango || []).map(p => p.id)
+    let lineas = []
+    // Traer en lotes de 200 ids para no exceder límites de URL
+    for (let i = 0; i < pIds.length; i += 200) {
+      const chunk = pIds.slice(i, i + 200)
+      const data = await fetchAll(() => sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
+        .in('partida_id', chunk))
+      if (data?.length) lineas.push(...data)
+    }
+    // Solo líneas con centro de costo (excluye bancos/caja)
+    lineas = lineas.filter(l => l.centro_costo_id)
+
+    // ── Acumular por unidad ──
+    // Normalizamos la clave a solo dígitos para que coincida sin importar
+    // si viene como número, texto, con espacios o ceros (ej. 7036, "7036", " 7036").
+    const keyOf = (v) => String(v ?? '').replace(/\D/g, '')
+    const acc = {}
+    for (const u of (unidades || [])) acc[keyOf(u.registro)] = { ingresos: 0, egresos: 0 }
+
+    for (const e of (entregas || [])) {
+      const k = keyOf(e.unidad)
+      if (acc[k]) acc[k].ingresos += parseFloat(e.monto) || 0
+    }
+    for (const f of (facturas || [])) {
+      const k = keyOf(f.registro)
+      if (acc[k]) acc[k].egresos += parseFloat(f.monto) || 0
+    }
+    // Líneas de partida: emparejar la unidad por su número en la descripción
+    const esIngreso = (l) => l.tipo === 'credito' && String(l.cuenta_codigo || '').startsWith('4')
+    for (const l of lineas) {
+      const texto = ((l.descripcion || '') + ' ' + (partidaMap[l.partida_id]?.descripcion || '')).toUpperCase()
+      // Detectar registro: "TAXI 1234", "VIP 1234", "T_1234", etc.
+      const m = texto.match(/(?:TAXI|VIP|T_)\s*[_ ]?\s*(\d{3,5})/)
+      if (!m) continue
+      const k = keyOf(m[1])
+      if (!acc[k]) continue
+      const monto = parseFloat(l.monto) || 0
+      if (esIngreso(l)) acc[k].ingresos += monto
+      else acc[k].egresos += monto
+    }
+
+    rentUnidades = (unidades || []).map(u => {
+      const a = acc[keyOf(u.registro)] || { ingresos: 0, egresos: 0 }
+      return { ...u, totalIngresos: a.ingresos, totalEgresos: a.egresos, neto: a.ingresos - a.egresos }
+    }).sort((x, y) => y.neto - x.neto)
+
     renderRentabilidad()
   } catch (e) {
     console.error('consultarRentabilidad:', e)
@@ -1021,15 +1102,36 @@ function renderRentabilidad() {
   }
   document.getElementById('btn-rent-xlsx').style.display = ''
 
+  // Ordenar según la columna/dirección seleccionada
+  const { col, dir } = rentSort
+  const mult = dir === 'asc' ? 1 : -1
+  const ordenadas = [...rentUnidades].sort((a, b) => {
+    let va, vb
+    if (col === 'registro') { va = a.registro; vb = b.registro }
+    else if (col === 'modalidad') { va = a.modalidad || ''; vb = b.modalidad || '' }
+    else if (col === 'ingresos') { va = a.totalIngresos; vb = b.totalIngresos }
+    else if (col === 'egresos') { va = a.totalEgresos; vb = b.totalEgresos }
+    else { va = a.neto; vb = b.neto }
+    if (typeof va === 'string') return va.localeCompare(vb) * mult
+    return (va - vb) * mult
+  })
+
+  const flecha = (c) => rentSort.col === c ? (rentSort.dir === 'asc' ? ' ▲' : ' ▼') : ''
+  const th = (c, label, align) => `<th style="cursor:pointer;user-select:none;${align ? 'text-align:' + align : ''}" onclick="ordenarRentabilidad('${c}')">${label}${flecha(c)}</th>`
+
   tabla.innerHTML = `
     <table style="width:100%">
       <thead><tr>
-        <th>Unidad</th><th>Modalidad</th><th>Propietario</th><th>Motorista</th>
-        <th style="text-align:right">Ingresos</th><th style="text-align:right">Egresos</th><th style="text-align:right">Total</th>
+        ${th('registro', 'Unidad')}
+        ${th('modalidad', 'Modalidad')}
+        <th>Propietario</th><th>Motorista</th>
+        ${th('ingresos', 'Ingresos', 'right')}
+        ${th('egresos', 'Egresos', 'right')}
+        ${th('neto', 'Total', 'right')}
       </tr></thead>
       <tbody>
-        ${rentUnidades.map(u => `
-          <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro})">
+        ${ordenadas.map(u => `
+          <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro}, document.getElementById('rent-desde').value, document.getElementById('rent-hasta').value)">
             <td style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--gold)">${u.registro}</td>
             <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : u.modalidad === 'BUS' ? 'badge-green' : u.modalidad === 'PARTICULAR' ? 'badge-red' : 'badge-amber'}">${u.modalidad}</span></td>
             <td style="font-size:13px">${u.propietario || '—'}</td>
@@ -1048,7 +1150,7 @@ function renderRentabilidad() {
         </tr>
       </tfoot>
     </table>
-    <div style="font-size:11px;color:var(--text3);padding:8px 4px">Hacé clic en una unidad para ver el detalle de entregas y facturas.</div>`
+    <div style="font-size:11px;color:var(--text3);padding:8px 4px">Hacé clic en un encabezado para ordenar · clic en una unidad para ver el detalle.</div>`
 }
 
 window.exportRentabilidadXlsx = function () {
