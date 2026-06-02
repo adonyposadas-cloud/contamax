@@ -119,6 +119,9 @@
         <div class="nav-item hidden" id="nav-cierre-recibos" onclick="showView('cierre-recibos','Cierre mensual recibos')">
           <span class="nav-dot"></span>Cierre Recibos
         </div>
+        <div class="nav-item hidden" id="nav-conciliacion" onclick="showView('conciliacion','Conciliación bancaria');initConciliacion()">
+          <span class="nav-dot"></span>Conciliación Bancaria
+        </div>
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
@@ -2939,14 +2942,36 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260602b"></script>
-<script type="module" src="js/reportes.js?v=20260602b"></script>
+<script type="module" src="js/app.js?v=20260602c"></script>
+<script type="module" src="js/reportes.js?v=20260602c"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js"></script>
 <script defer src="js/rrhh.js"></script>
 <script defer src="js/asistencia.js"></script>
 <script defer src="js/vacaciones.js"></script>
 <script defer src="js/cuentas-cobrar.js"></script>
+<script defer src="js/conciliacion.js"></script>
+
+<!-- MODAL: crear partida desde conciliación (paso 7) -->
+<div class="modal-backdrop" id="modal-cb-partida">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header"><h3>Registrar movimiento del banco</h3><button class="modal-close" onclick="closeModal('modal-cb-partida')">✕</button></div>
+    <div class="modal-body">
+      <div id="cb-cp-info" style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px"></div>
+      <div class="fld">
+        <label>Contracuenta (gasto / ingreso)</label>
+        <select id="cb-cp-cuenta"></select>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:12px;margin-top:10px">
+        <input type="checkbox" id="cb-cp-fiscal" style="width:auto;margin:0"> Aplica al libro fiscal
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cb-partida')">Cancelar</button>
+      <button class="btn btn-gold" id="cb-cp-btn" onclick="window._cbGuardarPartida()">Crear partida</button>
+    </div>
+  </div>
+</div>
 <script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})
