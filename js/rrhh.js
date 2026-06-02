@@ -335,6 +335,7 @@ window.initPlanilla = async () => {
 
   // Load employees if not loaded
   if (allEmpleados.length === 0) loadEmpleados()
+  ensureBonoLauncher()
 }
 
 window.regenerarPlanilla = async () => {
@@ -1166,7 +1167,10 @@ function renderPrestamosEmpTable(lista) {
     tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text3)">Sin préstamos</td></tr>'
     return
   }
-  const tipoLabel = (t) => t === 'prestaciones' ? 'Cargo a prestaciones' : t
+  const tipoLabel = (t) => t === 'prestaciones' ? 'Cargo a prestaciones'
+    : t === 'adelanto_aguinaldo' ? 'Adelanto aguinaldo'
+    : t === 'adelanto_catorceavo' ? 'Adelanto catorceavo' : t
+  const sinCuota = (t) => t === 'prestaciones' || t === 'adelanto_aguinaldo' || t === 'adelanto_catorceavo'
   tbody.innerHTML = lista.map(p => `
     <tr style="${!p.activo ? 'opacity:0.5' : ''}">
       <td><strong>${p.empleado?.nombre || '—'}</strong></td>
@@ -1174,9 +1178,9 @@ function renderPrestamosEmpTable(lista) {
       <td><span style="font-size:11px;padding:2px 8px;background:${p.tipo === 'prestaciones' ? 'rgba(245,158,11,0.15)' : 'var(--bg1)'};border-radius:4px">${tipoLabel(p.tipo)}</span></td>
       <td style="text-align:right">L. ${fmt(p.monto_original)}</td>
       <td style="text-align:right;font-weight:600;color:${p.saldo > 0 ? 'var(--gold)' : 'var(--green)'}">L. ${fmt(p.saldo)}</td>
-      <td style="text-align:right">${p.tipo === 'prestaciones' ? '—' : 'L. ' + fmt(p.cuota_quincenal)}</td>
+      <td style="text-align:right">${sinCuota(p.tipo) ? '—' : 'L. ' + fmt(p.cuota_quincenal)}</td>
       <td style="font-size:12px;color:var(--text3)">${p.fecha_prestamo || '—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.tipo === 'prestaciones' ? '— (al liquidar)' : (p.fecha_primera_deduccion || '—')}</td>
+      <td style="font-size:12px;color:var(--text3)">${sinCuota(p.tipo) ? '— (en planilla bono)' : (p.fecha_primera_deduccion || '—')}</td>
       <td>${p.activo ? '<span style="color:var(--gold)">● Activo</span>' : '<span style="color:var(--green)">● Pagado</span>'}</td>
       <td>
         ${p.activo ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="liquidarPrestamoEmp('${p.id}')">💰 Liquidar</button>` : ''}
@@ -1194,7 +1198,7 @@ window.filtrarPrestamosEmp = () => {
 // Mostrar/ocultar cuota y fecha de deducción según el tipo
 window.onPrestamoTipoChange = () => {
   const tipo = document.getElementById('pe-tipo').value
-  const esPrestaciones = tipo === 'prestaciones'
+  const esPrestaciones = (tipo === 'prestaciones' || tipo === 'adelanto_aguinaldo' || tipo === 'adelanto_catorceavo')
   const cuotaWrap = document.getElementById('pe-cuota-wrap')
   const fechaWrap = document.getElementById('pe-fecha-deduccion-wrap')
   if (cuotaWrap) cuotaWrap.style.display = esPrestaciones ? 'none' : ''
@@ -1223,6 +1227,7 @@ window.openModalPrestamoEmp = () => {
   document.getElementById('pe-fecha-prestamo').value = new Date().toLocaleDateString('en-CA')
   document.getElementById('pe-fecha-deduccion').value = ''
   const ga = document.getElementById('pe-generar-asiento'); if (ga) ga.checked = (window._peGenerarAsiento !== false)
+  ensureAdelantoOptions()
   onPrestamoTipoChange()
   openModal('modal-prestamo-emp')
 }
@@ -1346,6 +1351,42 @@ window.guardarPrestamoEmp = async () => {
       console.error('Error generando partida prestaciones:', e)
       window.toast?.('Guardado, pero hubo error al generar la partida: ' + e.message, 'error')
     }
+  } else if (tipo === 'adelanto_aguinaldo' || tipo === 'adelanto_catorceavo') {
+    // Adelanto de bono: Débito gasto décimo tercer/cuarto (por sección) / Crédito caja o banco
+    // (mismo patrón que 'prestaciones'; el gasto del bono se reconoce al pagar el adelanto).
+    try {
+      const sb = getSb()
+      const tipoBono = tipo === 'adelanto_aguinaldo' ? 'aguinaldo' : 'catorceavo'
+      const codGasto = cuentaBono(emp?.seccion, tipoBono)
+      const codCredito = formaEntrega === 'banco' ? '110103-001' : '110102-001'
+      const nombreOrigen = formaEntrega === 'banco' ? 'BANCO/CHEQUERA' : 'EFECTIVO/CAJA GENERAL'
+      const { data: cuentas } = await sb.from('catalogo_cuentas')
+        .select('id, codigo, nombre').in('codigo', [codGasto, codCredito])
+      const cuentaGasto = (cuentas || []).find(c => c.codigo === codGasto)
+      const cuentaOrigen = (cuentas || []).find(c => c.codigo === codCredito)
+      if (cuentaGasto && cuentaOrigen) {
+        const numPartida = await window.siguienteNumeroPartida()
+        const etiqueta = tipoBono === 'aguinaldo' ? 'ADELANTO AGUINALDO' : 'ADELANTO CATORCEAVO'
+        const descPartida = `${etiqueta} ${emp?.nombre || ''} - ${descripcion || nombreOrigen}`.toUpperCase()
+        const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+          centro_costo_id: null, fecha_partida: fechaPrestamo, numero_partida: numPartida,
+          descripcion: descPartida, tipo_origen: 'otro', estado: 'borrador', total: monto,
+          generada_por: window._currentProfile?.()?.id || null
+        }).select().single()
+        if (pErr || !partida) throw new Error(pErr?.message || 'No se creó la partida')
+        const { error: lErr } = await sb.from('lineas_partida').insert([
+          { partida_id: partida.id, cuenta_id: cuentaGasto.id, cuenta_codigo: cuentaGasto.codigo, cuenta_nombre: cuentaGasto.nombre, tipo: 'debito', monto, descripcion: descPartida, aplica_fiscal: false },
+          { partida_id: partida.id, cuenta_id: cuentaOrigen.id, cuenta_codigo: cuentaOrigen.codigo, cuenta_nombre: cuentaOrigen.nombre, tipo: 'credito', monto, descripcion: descPartida, aplica_fiscal: false }
+        ])
+        if (lErr) throw new Error(lErr.message)
+        window.toast?.(`${etiqueta} guardado + Partida #${numPartida} (borrador) — entrega por ${nombreOrigen}`, 'success')
+      } else {
+        window.toast?.(`Guardado, pero no se encontró la cuenta ${codGasto} o ${codCredito} en el catálogo.`, 'info')
+      }
+    } catch(e) {
+      console.error('Error generando partida adelanto bono:', e)
+      window.toast?.('Guardado, pero hubo error al generar la partida: ' + e.message, 'error')
+    }
   } else {
     window.toast?.('Préstamo registrado ✓', 'ok')
   }
@@ -1454,6 +1495,295 @@ function openModal(id) {
 function closeModal(id) {
   const m = document.getElementById(id)
   if (m) m.classList.remove('open')
+}
+
+// ══════════════════════════════════════════════
+// ═══  PLANILLA DE BONO (AGUINALDO / CATORCEAVO)  ═══
+//  Proporcional por fecha_ingreso (base 30/360). Exenta de IHSS/ISR/vecinal.
+//  Deduce solo adelantos del MISMO concepto. Autoinyecta su vista y modal.
+// ══════════════════════════════════════════════
+
+// Cuenta de gasto del bono por sección: GO=610101, GV=610102, GA=610103; 003=aguinaldo, 004=catorceavo
+function cuentaBono(seccion, tipoBono) {
+  const p = (seccion || '').trim().toUpperCase().split(/\s+/)[0]
+  const suf = tipoBono === 'aguinaldo' ? '003' : '004'
+  if (p === 'GV') return `610102-${suf}`
+  if (p === 'GA') return `610103-${suf}`
+  return `610101-${suf}` // GO (default)
+}
+
+// Diferencia de días en base 30/360 (método US/NASD), como en los ejemplos de la ley
+function dias360(d1, d2) {
+  let y1 = d1.getFullYear(), m1 = d1.getMonth() + 1, dd1 = d1.getDate()
+  let y2 = d2.getFullYear(), m2 = d2.getMonth() + 1, dd2 = d2.getDate()
+  if (dd1 === 31) dd1 = 30
+  if (dd2 === 31 && dd1 >= 30) dd2 = 30
+  return (y2 - y1) * 360 + (m2 - m1) * 30 + (dd2 - dd1)
+}
+
+// Días trabajados dentro del período del bono (360 = completó el año → 100%)
+function diasBono(fechaIngreso, desde, hasta) {
+  const dDesde = new Date(desde + 'T00:00:00'), dHasta = new Date(hasta + 'T00:00:00')
+  if (!fechaIngreso) return 360
+  const ing = new Date(String(fechaIngreso).slice(0, 10) + 'T00:00:00')
+  if (isNaN(ing)) return 360
+  if (ing <= dDesde) return 360       // trabajó todo el período
+  if (ing > dHasta) return 0          // ingresó después del período
+  return Math.min(360, Math.max(0, dias360(ing, dHasta)))
+}
+
+function periodoBono(tipoBono, anio) {
+  if (tipoBono === 'catorceavo') return { desde: `${anio - 1}-07-01`, hasta: `${anio}-06-30`, label: `CATORCEAVO ${anio}` }
+  return { desde: `${anio}-01-01`, hasta: `${anio}-12-31`, label: `AGUINALDO ${anio}` }
+}
+
+let _bonoCtx = null  // { tipo, anio, desde, hasta, label, filas, existe }
+
+// Agrega las opciones de adelanto al <select id="pe-tipo"> del modal de préstamos (sin tocar index.html)
+function ensureAdelantoOptions() {
+  const sel = document.getElementById('pe-tipo')
+  if (!sel) return
+  const vals = [...sel.options].map(o => o.value)
+  if (!vals.includes('adelanto_aguinaldo')) sel.insertAdjacentHTML('beforeend', '<option value="adelanto_aguinaldo">Adelanto de aguinaldo</option>')
+  if (!vals.includes('adelanto_catorceavo')) sel.insertAdjacentHTML('beforeend', '<option value="adelanto_catorceavo">Adelanto de catorceavo</option>')
+}
+
+// Botón lanzador dentro de la vista de planilla quincenal
+function ensureBonoLauncher() {
+  if (document.getElementById('btn-planilla-bono')) return
+  const anchor = document.getElementById('planilla-resultado')
+  if (!anchor || !anchor.parentNode) return
+  const btn = document.createElement('button')
+  btn.id = 'btn-planilla-bono'; btn.type = 'button'
+  btn.className = 'btn btn-ghost'; btn.style.margin = '0 0 12px'
+  btn.textContent = '🎁 Planilla de aguinaldo / catorceavo'
+  btn.onclick = () => window.abrirPlanillaBono()
+  anchor.parentNode.insertBefore(btn, anchor)
+}
+
+function ensureBonoModal() {
+  if (document.getElementById('modal-planilla-bono')) return
+  const div = document.createElement('div')
+  div.className = 'modal-backdrop'; div.id = 'modal-planilla-bono'
+  const now = new Date()
+  let opts = ''
+  for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 1; y++) opts += `<option value="${y}" ${y === now.getFullYear() ? 'selected' : ''}>${y}</option>`
+  div.innerHTML = `
+    <div class="modal" style="width:min(960px,94vw);max-width:960px;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>🎁 Planilla de aguinaldo / catorceavo</h3><button class="modal-close" onclick="closeModalBono()">✕</button></div>
+      <div class="modal-body" style="flex:1;min-height:0;overflow-y:auto">
+        <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+          <div class="fld"><label>Tipo</label><select id="pb-tipo">
+            <option value="catorceavo">Catorceavo (14.º · jul–jun · pago junio)</option>
+            <option value="aguinaldo">Aguinaldo (13.º · ene–dic · pago diciembre)</option>
+          </select></div>
+          <div class="fld"><label>Año de pago</label><select id="pb-anio">${opts}</select></div>
+          <div class="fld"><label>Fecha de pago</label><input type="date" id="pb-fecha-pago" value="${now.toLocaleDateString('en-CA')}"></div>
+          <button class="btn btn-gold" type="button" onclick="window.calcularPlanillaBono()">Calcular →</button>
+        </div>
+        <div id="pb-periodo" style="font-size:12px;color:var(--text3);margin-bottom:8px"></div>
+        <div id="pb-resultado"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" onclick="closeModalBono()">Cerrar</button>
+        <button class="btn btn-gold" id="pb-btn-partida" type="button" onclick="window.generarPartidaBono()" style="display:none">Generar partida (borrador) + liquidar adelantos</button>
+      </div>
+    </div>`
+  document.body.appendChild(div)
+}
+
+window.closeModalBono = () => { const m = document.getElementById('modal-planilla-bono'); if (m) m.classList.remove('open') }
+
+window.abrirPlanillaBono = () => {
+  ensureBonoModal()
+  _bonoCtx = null
+  document.getElementById('pb-resultado').innerHTML = ''
+  document.getElementById('pb-periodo').textContent = ''
+  document.getElementById('pb-btn-partida').style.display = 'none'
+  document.getElementById('modal-planilla-bono').classList.add('open')
+}
+
+window.calcularPlanillaBono = async () => {
+  const tipo = document.getElementById('pb-tipo').value
+  const anio = parseInt(document.getElementById('pb-anio').value, 10)
+  const { desde, hasta, label } = periodoBono(tipo, anio)
+  document.getElementById('pb-periodo').textContent = `Período: ${desde} a ${hasta} · ${label} · (base 30/360, exento de IHSS/ISR)`
+
+  const r2 = x => Math.round(x * 100) / 100
+  const sb = getSb()
+
+  // ¿Ya existe esta planilla de bono?
+  const { data: yaExiste } = await sb.from('planillas_bono')
+    .select('id, estado, partida_numero').eq('tipo', tipo).eq('periodo', label).maybeSingle()
+
+  // Empleados activos
+  const { data: emps } = await sb.from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
+  const activos = emps || []
+
+  // Adelantos del MISMO concepto, activos
+  const tipoAdel = tipo === 'catorceavo' ? 'adelanto_catorceavo' : 'adelanto_aguinaldo'
+  const { data: adelantos } = await sb.from('prestamos_empleados')
+    .select('id, empleado_id, saldo, activo, tipo').eq('activo', true).eq('tipo', tipoAdel)
+  const adelPorEmp = {}
+  for (const a of (adelantos || [])) {
+    if (!adelPorEmp[a.empleado_id]) adelPorEmp[a.empleado_id] = { total: 0, prestamos: [] }
+    const s = parseFloat(a.saldo) || 0
+    adelPorEmp[a.empleado_id].total += s
+    adelPorEmp[a.empleado_id].prestamos.push({ id: a.id, saldo: s })
+  }
+
+  const filas = activos.map(e => {
+    const dias = diasBono(e.fecha_ingreso, desde, hasta)
+    const bono = r2((e.sueldo_mensual || 0) / 360 * dias)
+    const ad = adelPorEmp[e.id] || { total: 0, prestamos: [] }
+    const adel = r2(ad.total)
+    return {
+      empleado_id: e.id, nombre: e.nombre, seccion: e.seccion, cuenta_cxc: e.cuenta_cxc,
+      sueldo_mensual: e.sueldo_mensual || 0, fecha_ingreso: e.fecha_ingreso || null,
+      dias, bono_bruto: bono, adelantos: adel, neto: r2(bono - adel), prestamos: ad.prestamos
+    }
+  }).filter(f => f.bono_bruto > 0 || f.adelantos > 0)
+
+  _bonoCtx = { tipo, anio, desde, hasta, label, filas, existe: yaExiste || null }
+
+  const totBono = r2(filas.reduce((s, f) => s + f.bono_bruto, 0))
+  const totAdel = r2(filas.reduce((s, f) => s + f.adelantos, 0))
+  const totNeto = r2(filas.reduce((s, f) => s + f.neto, 0))
+  const negativos = filas.filter(f => f.neto < 0)
+
+  document.getElementById('pb-resultado').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+      <div class="stat-card"><div class="stat-num" style="font-size:16px">${filas.length}</div><div class="stat-label">Empleados</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:15px">L. ${fmt(totBono)}</div><div class="stat-label">Bono bruto</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:15px;color:var(--gold)">L. ${fmt(totAdel)}</div><div class="stat-label">Adelantos</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:15px;color:var(--green)">L. ${fmt(totNeto)}</div><div class="stat-label">Neto a pagar</div></div>
+    </div>
+    ${yaExiste ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.12);border-radius:8px;color:var(--gold);font-size:12px;margin-bottom:10px">⚠️ Ya existe la planilla ${label}${yaExiste.partida_numero ? ` (partida #${yaExiste.partida_numero})` : ''}. <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:8px" onclick="window.regenerarBono()">🗑️ Borrar y regenerar</button></div>` : ''}
+    ${negativos.length ? `<div style="padding:8px 12px;background:rgba(239,68,68,0.12);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:10px">⚠️ ${negativos.length} empleado(s) con adelanto mayor al bono (${negativos.map(f => f.nombre).join(', ')}). Corregí antes de generar.</div>` : ''}
+    <div class="table-wrap" style="overflow-x:auto"><table style="width:100%;min-width:600px"><thead><tr>
+      <th>Empleado</th><th>Sección</th><th>Ingreso</th><th style="text-align:center">Días</th>
+      <th style="text-align:right">Bono</th><th style="text-align:right">Adelanto</th><th style="text-align:right">Neto</th>
+    </tr></thead><tbody>
+    ${filas.map(f => `<tr>
+      <td>${f.nombre}</td>
+      <td style="font-size:12px">${f.seccion || '—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${f.fecha_ingreso || '—'}</td>
+      <td style="text-align:center">${f.dias}${f.dias >= 360 ? ' <span style="color:var(--green);font-size:10px">100%</span>' : ''}</td>
+      <td style="text-align:right;font-family:var(--mono)">L. ${fmt(f.bono_bruto)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${f.adelantos > 0 ? 'var(--gold)' : 'inherit'}">${f.adelantos > 0 ? 'L. ' + fmt(f.adelantos) : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${f.neto < 0 ? 'var(--red)' : 'var(--green)'}">L. ${fmt(f.neto)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>`
+
+  document.getElementById('pb-btn-partida').style.display = (negativos.length || yaExiste) ? 'none' : ''
+}
+
+window.regenerarBono = async () => {
+  if (!_bonoCtx || !_bonoCtx.existe) return
+  if (!confirm(`¿Borrar la planilla ${_bonoCtx.label} y regenerar? Se restaurarán los adelantos liquidados (la partida borrador, si existe, deberás anularla manualmente).`)) return
+  await borrarPlanillaBono(_bonoCtx.tipo, _bonoCtx.label)
+  await window.calcularPlanillaBono()
+}
+
+async function borrarPlanillaBono(tipo, label) {
+  const sb = getSb()
+  const { data: cab } = await sb.from('planillas_bono')
+    .select('id, adelantos_liquidados').eq('tipo', tipo).eq('periodo', label).maybeSingle()
+  if (!cab) return
+  // Restaurar adelantos liquidados (reactivar préstamos con su saldo)
+  const liq = Array.isArray(cab.adelantos_liquidados) ? cab.adelantos_liquidados : []
+  for (const x of liq) {
+    if (x && x.id) await sb.from('prestamos_empleados').update({ saldo: x.saldo, activo: true }).eq('id', x.id)
+  }
+  await sb.from('detalle_planilla_bono').delete().eq('planilla_bono_id', cab.id)
+  await sb.from('planillas_bono').delete().eq('id', cab.id)
+}
+
+window.generarPartidaBono = async () => {
+  if (!_bonoCtx || !_bonoCtx.filas.length) return
+  const { tipo, anio, desde, hasta, label, filas, existe } = _bonoCtx
+  if (existe) { window.toast?.(`Ya existe la planilla ${label}. Borrala primero para regenerar.`, 'error'); return }
+  if (filas.some(f => f.neto < 0)) { window.toast?.('Hay netos negativos. Corregí los adelantos primero.', 'error'); return }
+  const sb = getSb()
+  const r2 = x => Math.round(x * 100) / 100
+
+  const btn = document.getElementById('pb-btn-partida'); btn.disabled = true; btn.textContent = 'Procesando...'
+  try {
+    // Re-chequear idempotencia (por si dos pestañas)
+    const { data: dup } = await sb.from('planillas_bono').select('id').eq('tipo', tipo).eq('periodo', label).limit(1)
+    if ((dup || []).length) throw new Error(`Ya existe la planilla ${label}.`)
+
+    // Validar cuentas de gasto presentes + chequera
+    const codigosGasto = [...new Set(filas.filter(f => f.neto > 0).map(f => cuentaBono(f.seccion, tipo)))]
+    const codChequera = '110103-001'
+    const { data: cuentas } = await sb.from('catalogo_cuentas').select('id, codigo, nombre').in('codigo', [...codigosGasto, codChequera])
+    const mapC = {}; for (const c of (cuentas || [])) mapC[c.codigo] = c
+    const faltan = [...codigosGasto, codChequera].filter(c => !mapC[c])
+    if (faltan.length) throw new Error('Faltan cuentas en el catálogo: ' + faltan.join(', '))
+
+    // Cabecera
+    const fechaPago = document.getElementById('pb-fecha-pago').value || hasta
+    const adelantosLiquidados = filas.flatMap(f => (f.prestamos || []).map(p => ({ id: p.id, saldo: p.saldo })))
+    const { data: cab, error: cErr } = await sb.from('planillas_bono').insert({
+      tipo, periodo: label, fecha_desde: desde, fecha_hasta: hasta, fecha_pago: fechaPago,
+      estado: 'borrador', adelantos_liquidados: adelantosLiquidados,
+      created_by: window._currentProfile?.()?.id || null
+    }).select().single()
+    if (cErr || !cab) throw new Error(cErr?.message || 'No se creó la planilla de bono')
+
+    // Detalle
+    const det = filas.map(f => ({
+      planilla_bono_id: cab.id, empleado_id: f.empleado_id, nombre: f.nombre, seccion: f.seccion,
+      cuenta_cxc: f.cuenta_cxc, sueldo_mensual: f.sueldo_mensual, fecha_ingreso: f.fecha_ingreso,
+      dias_trabajados: f.dias, bono_bruto: f.bono_bruto, adelantos: f.adelantos, neto: f.neto
+    }))
+    const { error: dErr } = await sb.from('detalle_planilla_bono').insert(det)
+    if (dErr) throw new Error('Detalle: ' + dErr.message)
+
+    // Partida: Débito gasto bono por sección (NETO) / Crédito chequera (NETO). El adelanto ya se gastó.
+    const deb = {}
+    for (const f of filas) {
+      if (f.neto <= 0) continue
+      const cod = cuentaBono(f.seccion, tipo)
+      deb[cod] = r2((deb[cod] || 0) + f.neto)
+    }
+    const totalNeto = r2(Object.values(deb).reduce((s, m) => s + m, 0))
+    let numPartida = null
+    if (totalNeto > 0) {
+      const desc = `PLANILLA ${label}`
+      numPartida = await window.siguienteNumeroPartida()
+      const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+        centro_costo_id: null, fecha_partida: fechaPago, numero_partida: numPartida,
+        descripcion: `${desc} (${filas.length} EMPLEADOS)`, tipo_origen: 'otro', estado: 'borrador',
+        total: totalNeto, generada_por: window._currentProfile?.()?.id || null
+      }).select().single()
+      if (pErr || !partida) throw new Error('Partida: ' + (pErr?.message || ''))
+      const lineas = []
+      for (const [cod, m] of Object.entries(deb)) {
+        const c = mapC[cod]
+        lineas.push({ partida_id: partida.id, cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'debito', monto: r2(m), descripcion: desc, aplica_fiscal: false })
+      }
+      const ch = mapC[codChequera]
+      lineas.push({ partida_id: partida.id, cuenta_id: ch.id, cuenta_codigo: ch.codigo, cuenta_nombre: ch.nombre, tipo: 'credito', monto: totalNeto, descripcion: desc, aplica_fiscal: false })
+      const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
+      if (lErr) throw new Error('Líneas: ' + lErr.message)
+      await sb.from('planillas_bono').update({ partida_numero: numPartida }).eq('id', cab.id)
+    }
+
+    // Liquidar adelantos consumidos (saldo→0, inactivo). Se pueden restaurar al borrar la planilla.
+    const idsAdel = adelantosLiquidados.map(x => x.id)
+    if (idsAdel.length) await sb.from('prestamos_empleados').update({ saldo: 0, activo: false }).in('id', idsAdel)
+
+    window.toast?.(`Planilla ${label} generada ✓${numPartida ? ` · Partida #${numPartida} (borrador)` : ''} · ${idsAdel.length} adelanto(s) liquidados`, 'success')
+    window.logActividad?.('planilla_bono_generada', 'rrhh', `${label} · ${filas.length} empleados · neto L.${totalNeto}`)
+    closeModalBono()
+    await window.loadPrestamosEmp?.()
+  } catch (e) {
+    console.error('generarPartidaBono:', e)
+    window.toast?.('Error: ' + e.message, 'error')
+  } finally {
+    btn.disabled = false; btn.textContent = 'Generar partida (borrador) + liquidar adelantos'
+  }
 }
 
 })(); // end IIFE
