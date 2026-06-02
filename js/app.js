@@ -3675,36 +3675,54 @@ function renderImportResults() {
   const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const yf = d.yonker_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
-  const granTotal = tf.total + ti.total + yf.total + yi.total
+  const tfc = d.tecnimax_fiscal?.totalesCredito || { total: 0 }
+  const tic = d.tecnimax_interno?.totalesCredito || { total: 0 }
+  const yfc = d.yonker_fiscal?.totalesCredito || { total: 0 }
+  const yic = d.yonker_interno?.totalesCredito || { total: 0 }
+  const totContado = tf.total + ti.total + yf.total + yi.total
+  const totCredito = tfc.total + tic.total + yfc.total + yic.total
+  const granTotal = totContado + totCredito
+
+  // Fila de crédito (solo si hay) para cada tarjeta
+  const rowCred = (c) => (c && c.total > 0)
+    ? `<div class="imp-sum-row"><span class="label" style="color:var(--blue)">+ Crédito</span><span class="value" style="color:var(--blue)">${fmt(c.total)}</span></div>`
+    : ''
 
   document.getElementById('import-resumen').innerHTML = `
     <div class="imp-summary">
       <div class="imp-sum-card">
-        <div class="imp-sum-title">Tecnimax Fiscal (${d.tecnimax_fiscal?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-title">Tecnimax Fiscal (${d.tecnimax_fiscal?.facturas.length || 0} contado${tfc.total > 0 ? ' + ' + (d.tecnimax_fiscal?.facturasCredito.length || 0) + ' créd.' : ''})</div>
         <div class="imp-sum-row"><span class="label">Subtotal</span><span class="value">${fmt(tf.subtotal)}</span></div>
         <div class="imp-sum-row"><span class="label">ISV 15%</span><span class="value">${fmt(tf.impuestos)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(tf.total)}</span></div>
+        <div class="imp-sum-row"><span class="label">Contado</span><span class="value">${fmt(tf.total)}</span></div>
+        ${rowCred(tfc)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(tf.total + tfc.total)}</span></div>
       </div>
       <div class="imp-sum-card">
-        <div class="imp-sum-title">TECNIMAX Interno (${d.tecnimax_interno?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-title">TECNIMAX Interno (${d.tecnimax_interno?.facturas.length || 0} contado${tic.total > 0 ? ' + ' + (d.tecnimax_interno?.facturasCredito.length || 0) + ' créd.' : ''})</div>
         <div class="imp-sum-row"><span class="label">Subtotal</span><span class="value">${fmt(ti.subtotal)}</span></div>
         <div class="imp-sum-row"><span class="label">ISV (Bono)</span><span class="value">${fmt(ti.impuestos)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(ti.total)}</span></div>
+        <div class="imp-sum-row"><span class="label">Contado</span><span class="value">${fmt(ti.total)}</span></div>
+        ${rowCred(tic)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(ti.total + tic.total)}</span></div>
       </div>
       <div class="imp-sum-card">
-        <div class="imp-sum-title">Yonker Fiscal (${d.yonker_fiscal?.facturas.length || 0} facturas)</div>
-        <div class="imp-sum-row"><span class="label">Total exento</span><span class="value">${fmt(yf.total)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yf.total)}</span></div>
+        <div class="imp-sum-title">Yonker Fiscal (${d.yonker_fiscal?.facturas.length || 0} contado${yfc.total > 0 ? ' + ' + (d.yonker_fiscal?.facturasCredito.length || 0) + ' créd.' : ''})</div>
+        <div class="imp-sum-row"><span class="label">Contado exento</span><span class="value">${fmt(yf.total)}</span></div>
+        ${rowCred(yfc)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yf.total + yfc.total)}</span></div>
       </div>
       <div class="imp-sum-card">
-        <div class="imp-sum-title">YONKER Interno (${d.yonker_interno?.facturas.length || 0} facturas)</div>
-        <div class="imp-sum-row"><span class="label">Total exento</span><span class="value">${fmt(yi.total)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yi.total)}</span></div>
+        <div class="imp-sum-title">YONKER Interno (${d.yonker_interno?.facturas.length || 0} contado${yic.total > 0 ? ' + ' + (d.yonker_interno?.facturasCredito.length || 0) + ' créd.' : ''})</div>
+        <div class="imp-sum-row"><span class="label">Contado exento</span><span class="value">${fmt(yi.total)}</span></div>
+        ${rowCred(yic)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yi.total + yic.total)}</span></div>
       </div>
     </div>
     <div style="text-align:center;padding:12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--gold)">
       <span style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Gran Total del día</span>
       <div style="font-size:24px;font-family:var(--mono);color:var(--gold);font-weight:500;margin-top:4px">${fmt(granTotal)}</div>
+      ${totCredito > 0 ? `<div style="font-size:12px;color:var(--text3);margin-top:4px">Contado: ${fmt(totContado)} · Crédito: <span style="color:var(--blue)">${fmt(totCredito)}</span></div>` : ''}
     </div>`
 
   // Detalle fiscal
