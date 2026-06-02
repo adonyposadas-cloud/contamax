@@ -802,27 +802,31 @@ window.generarEstadoResultados = async () => {
   gastos.sort((a, b) => { if (a._privado && !b._privado) return 1; if (!a._privado && b._privado) return -1; return (a.codigo||'').localeCompare(b.codigo||'') })
 
   const totalIngresos = ingresos.reduce((s, c) => s + c.saldo, 0)
-  const totalCostos = costos.reduce((s, c) => s + Math.abs(c.saldo), 0)
-  const totalGastos = gastos.reduce((s, c) => s + Math.abs(c.saldo), 0)
+  const totalCostos = costos.reduce((s, c) => s + (-c.saldo), 0)   // costos: debe-haber = -(haber-debe)
+  const totalGastos = gastos.reduce((s, c) => s + (-c.saldo), 0)   // gastos: idem
   const utilidadBruta = totalIngresos - totalCostos
   const utilidadNeta = utilidadBruta - totalGastos
 
   erData = { ingresos, costos, gastos, totalIngresos, totalCostos, totalGastos, utilidadBruta, utilidadNeta, fechaIni, fechaFin }
 
+  // Para costos y gastos, mostramos debe-haber (positivo en cuentas de gasto normales)
+  const invertir = (arr) => arr.map(c => ({ ...c, saldo: -c.saldo }))
+
   const renderSeccion = (titulo, items, color, signo) => {
     if (items.length === 0) return ''
-    const total = items.reduce((s, c) => s + Math.abs(c.saldo), 0)
+    const total = items.reduce((s, c) => s + c.saldo, 0)
+    const fmtSigned = (v) => (v < 0 ? '(' + fmtL(Math.abs(v)) + ')' : fmtL(v))
     return `
       <tr style="background:var(--bg3)"><td colspan="4" style="font-weight:600;color:${color};padding:10px 14px">${titulo}</td></tr>
       ${items.map(c => `<tr${c._privado ? ' style="background:rgba(239,68,68,0.04)"' : ''}>
         <td style="font-family:var(--mono);color:var(--gold);font-size:12px;padding-left:24px">${c.codigo}</td>
         <td>${c.nombre}</td>
-        <td style="text-align:right;font-family:var(--mono)">${fmtL(Math.abs(c.saldo))}</td>
+        <td style="text-align:right;font-family:var(--mono);${c.saldo < 0 ? 'color:var(--red)' : ''}">${fmtSigned(c.saldo)}</td>
         <td></td>
       </tr>`).join('')}
       <tr style="border-top:1px solid var(--border)">
         <td></td><td style="text-align:right;font-weight:500">Total ${titulo.toLowerCase()}</td>
-        <td></td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${color}">L. ${fmtL(total)}</td>
+        <td></td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${color}">L. ${fmtSigned(total)}</td>
       </tr>`
   }
 
@@ -844,12 +848,12 @@ window.generarEstadoResultados = async () => {
       <thead><tr><th>Código</th><th>Cuenta</th><th style="text-align:right">Monto</th><th style="text-align:right">Subtotal</th></tr></thead>
       <tbody>
         ${renderSeccion('INGRESOS', ingresos, 'var(--green)', '+')}
-        ${renderSeccion('COSTOS DE VENTA', costos, 'var(--red)', '-')}
+        ${renderSeccion('COSTOS DE VENTA', invertir(costos), 'var(--red)', '-')}
         <tr style="background:rgba(59,130,246,0.08);font-weight:600">
           <td colspan="3" style="text-align:right;color:var(--blue)">UTILIDAD BRUTA</td>
           <td style="text-align:right;font-family:var(--mono);color:var(--blue)">L. ${fmtL(utilidadBruta)}</td>
         </tr>
-        ${renderSeccion('GASTOS OPERATIVOS', gastos, 'var(--amber)', '-')}
+        ${renderSeccion('GASTOS OPERATIVOS', invertir(gastos), 'var(--amber)', '-')}
         <tr style="background:${utilidadNeta >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'};font-weight:700">
           <td colspan="3" style="text-align:right;color:${utilidadNeta >= 0 ? 'var(--green)' : 'var(--red)'}">${utilidadNeta >= 0 ? 'UTILIDAD NETA' : 'PÉRDIDA NETA'}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:16px;color:${utilidadNeta >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(Math.abs(utilidadNeta))}</td>
@@ -871,20 +875,20 @@ window.exportarERXLSX = () => {
     [],
     ['Código', 'Cuenta', 'Monto'],
     ['', 'INGRESOS', ''],
-    ...ingresos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.abs(c.saldo)]),
+    ...ingresos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.round(c.saldo * 100) / 100]),
     ['', 'Total ingresos', totalIngresos],
     [],
     ['', 'COSTOS DE VENTA', ''],
-    ...costos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.abs(c.saldo)]),
+    ...costos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.round(-c.saldo * 100) / 100]),
     ['', 'Total costos', totalCostos],
     [],
     ['', 'UTILIDAD BRUTA', utilidadBruta],
     [],
     ['', 'GASTOS OPERATIVOS', ''],
-    ...gastos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.abs(c.saldo)]),
+    ...gastos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.round(-c.saldo * 100) / 100]),
     ['', 'Total gastos', totalGastos],
     [],
-    ['', utilidadNeta >= 0 ? 'UTILIDAD NETA' : 'PÉRDIDA NETA', Math.abs(utilidadNeta)],
+    ['', utilidadNeta >= 0 ? 'UTILIDAD NETA' : 'PÉRDIDA NETA', Math.round(utilidadNeta * 100) / 100],
   ]
   const ws = window.XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = [{ wch: 16 }, { wch: 45 }, { wch: 16 }]

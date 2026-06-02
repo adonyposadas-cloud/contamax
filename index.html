@@ -1426,6 +1426,9 @@
           <div class="stat-card"><div class="stat-num" id="stat-pe-activos">—</div><div class="stat-label">Préstamos activos</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-pe-monto">—</div><div class="stat-label">Saldo total</div></div>
         </div>
+        <div style="margin-bottom:12px">
+          <input type="text" id="pe-buscar" placeholder="Buscar por nombre del empleado..." oninput="filtrarPrestamosEmp()" style="width:100%;max-width:360px">
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -1818,14 +1821,15 @@
             </div>
             <div class="fld">
               <label>Tipo</label>
-              <select id="pe-tipo">
+              <select id="pe-tipo" onchange="onPrestamoTipoChange()">
                 <option value="prestamo">Préstamo</option>
                 <option value="anticipo">Anticipo de salario</option>
                 <option value="cxc">CXC (cuenta por cobrar)</option>
+                <option value="prestaciones">Cargo a prestaciones</option>
               </select>
             </div>
             <div class="fld"><label>Monto</label><input type="number" id="pe-monto" step="0.01"></div>
-            <div class="fld"><label>Cuota quincenal</label><input type="number" id="pe-cuota" step="0.01"></div>
+            <div class="fld" id="pe-cuota-wrap"><label>Cuota quincenal</label><input type="number" id="pe-cuota" step="0.01"></div>
             <div class="fld">
               <label>Forma de entrega</label>
               <select id="pe-forma-entrega">
@@ -1834,8 +1838,14 @@
               </select>
             </div>
             <div class="fld"><label>Fecha del préstamo</label><input type="date" id="pe-fecha-prestamo"></div>
-            <div class="fld"><label>Fecha 1ra deducción</label><input type="date" id="pe-fecha-deduccion"></div>
+            <div class="fld" id="pe-fecha-deduccion-wrap"><label>Fecha 1ra deducción</label><input type="date" id="pe-fecha-deduccion"></div>
             <div class="fld" style="grid-column:span 2"><label>Descripción</label><input type="text" id="pe-descripcion"></div>
+            <div class="fld" style="grid-column:span 2">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;margin:0">
+                <input type="checkbox" id="pe-generar-asiento" checked style="width:auto;margin:0"> ¿Generar asiento contable?
+              </label>
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">Desmarcá esta casilla para cargar datos históricos sin crear partida contable.</div>
+            </div>
           </div>
           <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal('modal-prestamo-emp')">Cancelar</button>

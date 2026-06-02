@@ -1371,7 +1371,9 @@ async function loadPartidas() {
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
   const { data, error } = await sb.from('partidas_contables')
     .select('*, centro_costo:centros_costo(nombre), generador:usuarios!generada_por(nombre)')
-    .order('numero_partida', { ascending: false }).limit(200)
+    .order('numero_partida', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1000)
   if (error) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--red)">${error.message}</td></tr>`; return }
   allPartidas = data || []
   if (!allPartidas.length) {

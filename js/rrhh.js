@@ -1151,28 +1151,66 @@ window.loadPrestamosEmp = async () => {
   document.getElementById('stat-pe-monto').textContent = 'L. ' + fmt(totalSaldo)
 
   // Table
+  renderPrestamosEmpTable(allPrestamosEmp)
+
+  // Populate employee select in modal
+  const sel = document.getElementById('pe-empleado')
+  sel.innerHTML = '<option value="">Seleccionar empleado...</option>' +
+    allEmpleados.filter(e => e.activo).map(e => `<option value="${e.id}">${e.nombre}</option>`).join('')
+}
+
+function renderPrestamosEmpTable(lista) {
   const tbody = document.getElementById('tbody-prestamos-emp')
-  tbody.innerHTML = allPrestamosEmp.map(p => `
+  if (!tbody) return
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text3)">Sin préstamos</td></tr>'
+    return
+  }
+  const tipoLabel = (t) => t === 'prestaciones' ? 'Cargo a prestaciones' : t
+  tbody.innerHTML = lista.map(p => `
     <tr style="${!p.activo ? 'opacity:0.5' : ''}">
       <td><strong>${p.empleado?.nombre || '—'}</strong></td>
       <td>${p.descripcion || '—'}</td>
-      <td><span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${p.tipo}</span></td>
+      <td><span style="font-size:11px;padding:2px 8px;background:${p.tipo === 'prestaciones' ? 'rgba(245,158,11,0.15)' : 'var(--bg1)'};border-radius:4px">${tipoLabel(p.tipo)}</span></td>
       <td style="text-align:right">L. ${fmt(p.monto_original)}</td>
       <td style="text-align:right;font-weight:600;color:${p.saldo > 0 ? 'var(--gold)' : 'var(--green)'}">L. ${fmt(p.saldo)}</td>
-      <td style="text-align:right">L. ${fmt(p.cuota_quincenal)}</td>
+      <td style="text-align:right">${p.tipo === 'prestaciones' ? '—' : 'L. ' + fmt(p.cuota_quincenal)}</td>
       <td style="font-size:12px;color:var(--text3)">${p.fecha_prestamo || '—'}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.fecha_primera_deduccion || '—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${p.tipo === 'prestaciones' ? '— (al liquidar)' : (p.fecha_primera_deduccion || '—')}</td>
       <td>${p.activo ? '<span style="color:var(--gold)">● Activo</span>' : '<span style="color:var(--green)">● Pagado</span>'}</td>
       <td>
         ${p.activo ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="liquidarPrestamoEmp('${p.id}')">💰 Liquidar</button>` : ''}
       </td>
     </tr>
   `).join('')
+}
 
-  // Populate employee select in modal
-  const sel = document.getElementById('pe-empleado')
-  sel.innerHTML = '<option value="">Seleccionar empleado...</option>' +
-    allEmpleados.filter(e => e.activo).map(e => `<option value="${e.id}">${e.nombre}</option>`).join('')
+window.filtrarPrestamosEmp = () => {
+  const q = (document.getElementById('pe-buscar')?.value || '').trim().toUpperCase()
+  const lista = !q ? allPrestamosEmp : allPrestamosEmp.filter(p => (p.empleado?.nombre || '').toUpperCase().includes(q))
+  renderPrestamosEmpTable(lista)
+}
+
+// Mostrar/ocultar cuota y fecha de deducción según el tipo
+window.onPrestamoTipoChange = () => {
+  const tipo = document.getElementById('pe-tipo').value
+  const esPrestaciones = tipo === 'prestaciones'
+  const cuotaWrap = document.getElementById('pe-cuota-wrap')
+  const fechaWrap = document.getElementById('pe-fecha-deduccion-wrap')
+  if (cuotaWrap) cuotaWrap.style.display = esPrestaciones ? 'none' : ''
+  if (fechaWrap) fechaWrap.style.display = esPrestaciones ? 'none' : ''
+  if (esPrestaciones) {
+    const c = document.getElementById('pe-cuota'); if (c) c.value = ''
+    const f = document.getElementById('pe-fecha-deduccion'); if (f) f.value = ''
+  }
+}
+
+// Cuenta de gasto PRESTACIONES LABORALES según sección del empleado (GO/GV/GA)
+function cuentaPrestaciones(seccion) {
+  const p = (seccion || '').trim().toUpperCase().split(/\s+/)[0]
+  if (p === 'GV') return '610102-006'
+  if (p === 'GA') return '610103-006'
+  return '610101-006' // GO (default)
 }
 
 window.openModalPrestamoEmp = () => {
@@ -1182,8 +1220,10 @@ window.openModalPrestamoEmp = () => {
   document.getElementById('pe-tipo').value = 'prestamo'
   document.getElementById('pe-forma-entrega').value = 'efectivo'
   document.getElementById('pe-empleado').value = ''
-  document.getElementById('pe-fecha-prestamo').value = new Date().toISOString().split('T')[0]
+  document.getElementById('pe-fecha-prestamo').value = new Date().toLocaleDateString('en-CA')
   document.getElementById('pe-fecha-deduccion').value = ''
+  const ga = document.getElementById('pe-generar-asiento'); if (ga) ga.checked = (window._peGenerarAsiento !== false)
+  onPrestamoTipoChange()
   openModal('modal-prestamo-emp')
 }
 
@@ -1196,6 +1236,8 @@ window.guardarPrestamoEmp = async () => {
   const descripcion = document.getElementById('pe-descripcion').value.trim() || null
   const tipo = document.getElementById('pe-tipo').value
   const formaEntrega = document.getElementById('pe-forma-entrega').value  // efectivo | banco
+  const generarAsiento = document.getElementById('pe-generar-asiento')?.checked !== false
+  window._peGenerarAsiento = generarAsiento  // recordar la última elección
 
   if (!empleadoId) { window.toast?.('Seleccioná un empleado', 'error'); return }
   if (monto <= 0) { window.toast?.('Ingresá un monto válido', 'error'); return }
@@ -1217,7 +1259,9 @@ window.guardarPrestamoEmp = async () => {
 
   // Generar partida contable automática (cuadrada: Débito CXC / Crédito Caja o Banco)
   const emp = allEmpleados.find(e => e.id === empleadoId)
-  if (emp?.cuenta_cxc && tipo === 'prestamo') {
+  if (!generarAsiento) {
+    window.toast?.('Préstamo registrado sin asiento contable ✓', 'success')
+  } else if (emp?.cuenta_cxc && tipo === 'prestamo') {
     try {
       const sb = getSb()
       const codCredito = formaEntrega === 'banco' ? '110103-001' : '110102-001'
@@ -1268,6 +1312,39 @@ window.guardarPrestamoEmp = async () => {
     } catch(e) {
       console.error('Error generando partida:', e)
       window.toast?.('Préstamo guardado, pero hubo error al generar la partida: ' + e.message, 'error')
+    }
+  } else if (tipo === 'prestaciones') {
+    // Cargo a prestaciones: Débito 610x01-006 PRESTACIONES LABORALES (por sección) / Crédito forma de entrega
+    try {
+      const sb = getSb()
+      const codGasto = cuentaPrestaciones(emp?.seccion)
+      const codCredito = formaEntrega === 'banco' ? '110103-001' : '110102-001'
+      const nombreOrigen = formaEntrega === 'banco' ? 'BANCO/CHEQUERA' : 'EFECTIVO/CAJA GENERAL'
+      const { data: cuentas } = await sb.from('catalogo_cuentas')
+        .select('id, codigo, nombre').in('codigo', [codGasto, codCredito])
+      const cuentaGasto = (cuentas || []).find(c => c.codigo === codGasto)
+      const cuentaOrigen = (cuentas || []).find(c => c.codigo === codCredito)
+      if (cuentaGasto && cuentaOrigen) {
+        const numPartida = await window.siguienteNumeroPartida()
+        const descPartida = `CARGO A PRESTACIONES ${emp?.nombre || ''} - ${descripcion || nombreOrigen}`.toUpperCase()
+        const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+          centro_costo_id: null, fecha_partida: fechaPrestamo, numero_partida: numPartida,
+          descripcion: descPartida, tipo_origen: 'otro', estado: 'borrador', total: monto,
+          generada_por: window._currentProfile?.()?.id || null
+        }).select().single()
+        if (pErr || !partida) throw new Error(pErr?.message || 'No se creó la partida')
+        const { error: lErr } = await sb.from('lineas_partida').insert([
+          { partida_id: partida.id, cuenta_id: cuentaGasto.id, cuenta_codigo: cuentaGasto.codigo, cuenta_nombre: cuentaGasto.nombre, tipo: 'debito', monto, descripcion: descPartida, aplica_fiscal: false },
+          { partida_id: partida.id, cuenta_id: cuentaOrigen.id, cuenta_codigo: cuentaOrigen.codigo, cuenta_nombre: cuentaOrigen.nombre, tipo: 'credito', monto, descripcion: descPartida, aplica_fiscal: false }
+        ])
+        if (lErr) throw new Error(lErr.message)
+        window.toast?.(`Cargo a prestaciones guardado + Partida #${numPartida} (borrador) — entrega por ${nombreOrigen}`, 'success')
+      } else {
+        window.toast?.(`Guardado, pero no se encontró la cuenta ${codGasto} o ${codCredito} para la partida.`, 'info')
+      }
+    } catch(e) {
+      console.error('Error generando partida prestaciones:', e)
+      window.toast?.('Guardado, pero hubo error al generar la partida: ' + e.message, 'error')
     }
   } else {
     window.toast?.('Préstamo registrado ✓', 'ok')
