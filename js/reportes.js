@@ -897,3 +897,181 @@ window.exportarERXLSX = () => {
   window.XLSX.writeFile(wb, `Estado_Resultados_${fechaIni}_${fechaFin}.xlsx`)
   toast('Excel exportado ✓', 'success')
 }
+
+// ══════════════════════════════════════════════
+// ── REPORTE: RENTABILIDAD POR UNIDAD (TAXIS) · vista autoinyectada
+// ══════════════════════════════════════════════
+let rentUnidades = []
+
+function ensureRentabilidadView() {
+  if (document.getElementById('view-rentabilidad-taxis')) return
+  const anyView = document.querySelector('.view')
+  if (!anyView || !anyView.parentNode) return
+  const v = document.createElement('div')
+  v.className = 'view'
+  v.id = 'view-rentabilidad-taxis'
+  anyView.parentNode.appendChild(v)
+}
+
+window.initRentabilidadTaxis = async function () {
+  ensureRentabilidadView()
+  const view = document.getElementById('view-rentabilidad-taxis')
+  if (view && !view.classList.contains('active')) {
+    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'))
+    view.classList.add('active')
+  }
+  const hoy = new Date()
+  const ini = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toLocaleDateString('en-CA')
+  const fin = hoy.toLocaleDateString('en-CA')
+
+  // Cargar lista de propietarios para el filtro
+  const { data: unidades } = await getSb().from('unidades_taxis').select('propietario').eq('activo', true)
+  const props = [...new Set((unidades || []).map(u => u.propietario).filter(Boolean))].sort()
+
+  view.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">📊 Rentabilidad por unidad</div>
+        <div class="page-sub">Ingresos y egresos por taxi en un rango de fechas</div>
+      </div>
+      <button class="btn btn-ghost" id="btn-rent-xlsx" style="display:none" onclick="exportRentabilidadXlsx()">📊 Exportar Excel</button>
+    </div>
+
+    <div class="form-card" style="margin-bottom:16px">
+      <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap">
+        <div class="fld"><label>Fecha inicio</label><input type="date" id="rent-desde" value="${ini}"></div>
+        <div class="fld"><label>Fecha fin</label><input type="date" id="rent-hasta" value="${fin}"></div>
+        <div class="fld" style="min-width:200px">
+          <label>Propietario</label>
+          <select id="rent-prop">
+            <option value="">Todos los propietarios</option>
+            ${props.map(p => `<option value="${p}">${p}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fld" style="min-width:140px">
+          <label>Modalidad</label>
+          <select id="rent-mod">
+            <option value="">Todas</option>
+            <option value="TAXI">TAXI</option>
+            <option value="VIP">VIP</option>
+            <option value="BUS">BUS</option>
+            <option value="PARTICULAR">PARTICULAR</option>
+          </select>
+        </div>
+        <button class="btn btn-gold" id="btn-rent-consultar" onclick="consultarRentabilidad()">Consultar →</button>
+      </div>
+    </div>
+
+    <div id="rent-resumen" style="margin-bottom:16px"></div>
+    <div class="table-wrap" id="rent-tabla"></div>`
+}
+
+window.consultarRentabilidad = async function () {
+  const desde = document.getElementById('rent-desde').value
+  const hasta = document.getElementById('rent-hasta').value
+  const propFilter = document.getElementById('rent-prop').value
+  const modFilter = document.getElementById('rent-mod').value
+  if (!desde || !hasta) { window.toast?.('Seleccioná el rango de fechas', 'error'); return }
+
+  const btn = document.getElementById('btn-rent-consultar')
+  if (btn) { btn.disabled = true; btn.textContent = 'Consultando...' }
+  const tabla = document.getElementById('rent-tabla')
+  tabla.innerHTML = '<div style="text-align:center;padding:24px"><div class="spinner"></div></div>'
+
+  try {
+    let q = getSb().from('unidades_taxis').select('registro, modalidad, propietario, motorista').eq('activo', true)
+    if (propFilter) q = q.eq('propietario', propFilter)
+    if (modFilter) q = q.eq('modalidad', modFilter)
+    const { data: unidades } = await q.order('registro')
+
+    rentUnidades = []
+    for (const u of (unidades || [])) {
+      const r = await window.calcularRentabilidadUnidad(u.registro, desde, hasta)
+      rentUnidades.push({ ...u, ...r })
+    }
+    // Ordenar por neto descendente
+    rentUnidades.sort((a, b) => b.neto - a.neto)
+    renderRentabilidad()
+  } catch (e) {
+    console.error('consultarRentabilidad:', e)
+    tabla.innerHTML = '<div style="text-align:center;padding:24px;color:var(--red)">Error al consultar</div>'
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Consultar →' }
+  }
+}
+
+function renderRentabilidad() {
+  const tabla = document.getElementById('rent-tabla')
+  const totI = rentUnidades.reduce((s, u) => s + u.totalIngresos, 0)
+  const totE = rentUnidades.reduce((s, u) => s + u.totalEgresos, 0)
+  const totN = totI - totE
+
+  document.getElementById('rent-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div class="stat-card"><div class="stat-num" style="font-size:18px">${rentUnidades.length}</div><div class="stat-label">Unidades</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:18px">L. ${fmtL(totI)}</div><div class="stat-label">Ingresos</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:18px">L. ${fmtL(totE)}</div><div class="stat-label">Egresos</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:${totN >= 0 ? 'var(--green)' : 'var(--red)'};font-size:18px">L. ${fmtL(totN)}</div><div class="stat-label">${totN >= 0 ? 'Utilidad' : 'Pérdida'}</div></div>
+    </div>`
+
+  if (!rentUnidades.length) {
+    tabla.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Sin unidades para los filtros seleccionados</div>'
+    document.getElementById('btn-rent-xlsx').style.display = 'none'
+    return
+  }
+  document.getElementById('btn-rent-xlsx').style.display = ''
+
+  tabla.innerHTML = `
+    <table style="width:100%">
+      <thead><tr>
+        <th>Unidad</th><th>Modalidad</th><th>Propietario</th><th>Motorista</th>
+        <th style="text-align:right">Ingresos</th><th style="text-align:right">Egresos</th><th style="text-align:right">Total</th>
+      </tr></thead>
+      <tbody>
+        ${rentUnidades.map(u => `
+          <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro})">
+            <td style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--gold)">${u.registro}</td>
+            <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : u.modalidad === 'BUS' ? 'badge-green' : u.modalidad === 'PARTICULAR' ? 'badge-red' : 'badge-amber'}">${u.modalidad}</span></td>
+            <td style="font-size:13px">${u.propietario || '—'}</td>
+            <td style="font-size:13px;color:var(--text3)">${u.motorista || '—'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(u.totalIngresos)}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(u.totalEgresos)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${u.neto >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(u.neto)}</td>
+          </tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--bg3);font-weight:700">
+          <td colspan="4" style="text-align:right">TOTALES</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(totI)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totE)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${totN >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(totN)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div style="font-size:11px;color:var(--text3);padding:8px 4px">Hacé clic en una unidad para ver el detalle de entregas y facturas.</div>`
+}
+
+window.exportRentabilidadXlsx = function () {
+  if (!rentUnidades.length || !window.XLSX) return
+  const desde = document.getElementById('rent-desde').value
+  const hasta = document.getElementById('rent-hasta').value
+  const rows = [
+    ['RENTABILIDAD POR UNIDAD'],
+    [`Período: ${desde} a ${hasta}`],
+    [],
+    ['Unidad', 'Modalidad', 'Propietario', 'Motorista', 'Ingresos', 'Egresos', 'Total'],
+    ...rentUnidades.map(u => [u.registro, u.modalidad, u.propietario || '', u.motorista || '',
+      Math.round(u.totalIngresos * 100) / 100, Math.round(u.totalEgresos * 100) / 100, Math.round(u.neto * 100) / 100]),
+    [],
+    ['', '', '', 'TOTALES',
+      Math.round(rentUnidades.reduce((s, u) => s + u.totalIngresos, 0) * 100) / 100,
+      Math.round(rentUnidades.reduce((s, u) => s + u.totalEgresos, 0) * 100) / 100,
+      Math.round(rentUnidades.reduce((s, u) => s + u.neto, 0) * 100) / 100]
+  ]
+  const ws = window.XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Rentabilidad')
+  window.XLSX.writeFile(wb, `Rentabilidad_Unidades_${desde}_${hasta}.xlsx`)
+  window.toast?.('Excel exportado ✓', 'success')
+}

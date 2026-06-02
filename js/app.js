@@ -116,15 +116,15 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
   }
   const visibles = permisos[p.rol] || []
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -226,6 +226,7 @@ window.showView = (id, label) => {
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
+  if (id === 'rentabilidad-taxis' && window.initRentabilidadTaxis) window.initRentabilidadTaxis()
   if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
   if (id === 'actividad') loadActividad()
   if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
@@ -7189,9 +7190,80 @@ window.desactivarUnidad = async (id, registro) => {
 
 let detalleRegistro = null
 
-window.verDetalleUnidad = (registro) => {
+// Calcula ingresos/egresos de una unidad en un rango. Reutilizable por el modal y por reportes.
+window.calcularRentabilidadUnidad = async (registro, desde, hasta) => {
+  const { data: entregas } = await sb.from('entregas_taxis')
+    .select('fecha_deposito, monto, banco')
+    .eq('unidad', registro).gte('fecha_deposito', desde).lte('fecha_deposito', hasta)
+    .order('fecha_deposito')
+
+  const { data: facturas } = await sb.from('facturas_taxis')
+    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
+    .eq('registro', registro).gte('fecha', desde).lte('fecha', hasta).order('fecha')
+
+  const reg = String(registro)
+  const patterns = [
+    `%TAXI ${reg}%`, `%TAXI_${reg}%`, `%T_${reg}%`,
+    `%VIP ${reg}%`, `%VIP_${reg}%`,
+    `%TAXI  ${reg}%`, `%VIP  ${reg}%`,
+    `%TAXI VIP ${reg}%`, `%TAXI VIP  ${reg}%`
+  ]
+  const { data: partidasRango } = await sb.from('partidas_contables')
+    .select('id, fecha_partida, descripcion').eq('estado', 'aprobada')
+    .gte('fecha_partida', desde).lte('fecha_partida', hasta)
+  const partidaIds = (partidasRango || []).map(p => p.id)
+  let partidasGastos = []
+  if (partidaIds.length) {
+    for (const pat of patterns) {
+      const { data } = await sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
+        .in('partida_id', partidaIds).ilike('descripcion', pat)
+      if (data?.length) partidasGastos.push(...data)
+    }
+    const partidasHeader = (partidasRango || []).filter(p => {
+      if (!p.descripcion) return false
+      const d = p.descripcion.toUpperCase()
+      return patterns.some(pat => new RegExp(pat.replace(/%/g, '.*'), 'i').test(d))
+    })
+    if (partidasHeader.length) {
+      const headerIds = partidasHeader.map(p => p.id)
+      const { data } = await sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
+        .in('partida_id', headerIds)
+      if (data?.length) partidasGastos.push(...data)
+    }
+  }
+  const seenKeys = new Set()
+  partidasGastos = partidasGastos.filter(g => {
+    const key = `${g.partida_id}_${g.cuenta_codigo}_${g.monto}`
+    if (seenKeys.has(key)) return false
+    seenKeys.add(key); return true
+  }).filter(g => g.centro_costo_id)   // excluye bancos/caja (sin centro de costo)
+
+  const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
+  const gastosPartidas = partidasGastos.map(g => ({
+    fecha: partidaMap[g.partida_id]?.fecha_partida || '',
+    descripcion: g.descripcion || partidaMap[g.partida_id]?.descripcion || '',
+    monto: parseFloat(g.monto) || 0, es_mano_obra: false,
+    _fromPartida: true, _tipo: g.tipo, _cuenta: g.cuenta_codigo
+  }))
+  const todasFacturas = [...(facturas || []), ...gastosPartidas].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
+  const esIngresoLinea = (f) => f._fromPartida && f._tipo === 'credito' && String(f._cuenta || '').startsWith('4')
+
+  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const ingresosPartidas = todasFacturas.filter(esIngresoLinea).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalIngresos = totalEntregas + ingresosPartidas
+  const totalEgresos = todasFacturas.filter(f => !esIngresoLinea(f)).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  return { totalIngresos, totalEgresos, neto: totalIngresos - totalEgresos, entregasCount: (entregas || []).length, facturasCount: todasFacturas.length }
+}
+
+window.verDetalleUnidad = async (registro) => {
   detalleRegistro = registro
-  const u = allUnidades.find(x => x.registro === registro)
+  let u = allUnidades.find(x => x.registro === registro)
+  if (!u) {
+    const { data } = await sb.from('unidades_taxis').select('*').eq('registro', registro).maybeSingle()
+    u = data || null
+  }
   document.getElementById('modal-du-title').textContent = `🚕 Detalle unidad #${registro}${u ? ' · ' + u.modalidad + (u.propietario !== 'TAXIS' ? ' · ' + u.propietario : '') : ''}`
   // Default: mes actual
   const hoy = new Date()
