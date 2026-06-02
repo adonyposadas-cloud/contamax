@@ -121,7 +121,18 @@ function setupUI() {
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
   }
-  const visibles = permisos[p.rol] || []
+  window._permisosPorRol = permisos
+  // Permisos personalizados (columna permisos_modulos) tienen prioridad sobre el rol.
+  // super_admin siempre ve todo (no se puede auto-bloquear).
+  let visibles
+  if (p.rol === 'super_admin') {
+    visibles = permisos.super_admin
+  } else if (Array.isArray(p.permisos_modulos) && p.permisos_modulos.length) {
+    visibles = p.permisos_modulos
+  } else {
+    visibles = permisos[p.rol] || []
+  }
+  window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
   const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
@@ -424,10 +435,65 @@ async function loadUsuarios() {
 }
 window.loadUsuarios = loadUsuarios
 
+// ── CATÁLOGO DE MÓDULOS (para el panel de permisos por usuario) ──
+const MODULOS_CATALOGO = [
+  { grupo: 'Principal', items: [
+    ['nav-usuarios', 'Usuarios'], ['nav-compras', 'Registrar compra'], ['nav-pendientes', 'Facturas pendientes'],
+    ['nav-caja', 'Caja General'], ['nav-caja-chica', 'Caja Chica'], ['nav-cxp', 'Cuentas x Pagar'],
+    ['nav-cuentas-cobrar', 'Cuentas x Cobrar'], ['nav-aprobaciones', 'Aprobaciones'], ['nav-vehiculos', 'Vehículos VIN'],
+    ['nav-unidades-taxis', 'Unidades Taxis'], ['nav-financiamiento', 'Financiamiento'], ['nav-cierre-recibos', 'Cierre Recibos']
+  ]},
+  { grupo: 'Contabilidad', items: [
+    ['nav-catalogo', 'Catálogo de cuentas'], ['nav-partidas', 'Partidas'], ['nav-tipos-origen', 'Tipos de origen']
+  ]},
+  { grupo: 'Importaciones', items: [
+    ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'],
+    ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-importar-taxis', 'Entregas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis']
+  ]},
+  { grupo: 'RRHH', items: [
+    ['nav-empleados', 'Empleados'], ['nav-planilla', 'Planilla'], ['nav-prestamos-emp', 'Préstamos'],
+    ['nav-asistencia', 'Asistencia'], ['nav-config-planilla', 'Config. planilla']
+  ]},
+  { grupo: 'Reportes', items: [
+    ['nav-auxiliar', 'Auxiliar de cuentas'], ['nav-balance-comp', 'Balance comprobación'],
+    ['nav-estado-resultados', 'Estado de resultados'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-actividad', 'Actividad']
+  ]}
+]
+
+// Renderiza el panel de checkboxes en el contenedor dado, con los ids marcados
+function renderPanelPermisos(containerId, marcados) {
+  const cont = document.getElementById(containerId)
+  if (!cont) return
+  const set = new Set(marcados || [])
+  cont.innerHTML = MODULOS_CATALOGO.map(g => `
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--gold);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${g.grupo}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">
+        ${g.items.map(([id, label]) => `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;font-size:12px;margin:0">
+            <input type="checkbox" class="${containerId}-chk" value="${id}" ${set.has(id) ? 'checked' : ''} style="width:auto;margin:0"> ${label}
+          </label>`).join('')}
+      </div>
+    </div>`).join('')
+}
+
+// Lee los ids marcados de un panel
+function leerPanelPermisos(containerId) {
+  return [...document.querySelectorAll('.' + containerId + '-chk:checked')].map(c => c.value)
+}
+
+// Premarca el panel según la plantilla del rol elegido
+window.aplicarPlantillaRol = (containerId, rol) => {
+  const plantilla = (window._permisosPorRol || {})[rol] || []
+  renderPanelPermisos(containerId, plantilla)
+}
+
 window.openModalUsuario = () => {
   document.getElementById('modal-error').classList.add('hidden')
   ;['nu-nombre','nu-email','nu-pass'].forEach(id => document.getElementById(id).value = '')
   document.getElementById('nu-rol').value = 'compras'
+  renderPanelPermisos('nu-permisos', (window._permisosPorRol || {}).compras || [])
+  const sp = document.getElementById('nu-solo-partidas'); if (sp) sp.checked = false
   document.getElementById('modal-usuario').classList.add('open')
 }
 
@@ -447,6 +513,12 @@ window.editarUsuario = (id) => {
   const nuSel = document.getElementById('nu-empresa')
   sel.innerHTML = nuSel.innerHTML // copy options from create modal
   sel.value = u.centro_costo_id || ''
+  // Panel de permisos: usa los guardados del usuario, o la plantilla del rol si no tiene
+  const marcados = (Array.isArray(u.permisos_modulos) && u.permisos_modulos.length)
+    ? u.permisos_modulos
+    : ((window._permisosPorRol || {})[u.rol] || [])
+  renderPanelPermisos('eu-permisos', marcados)
+  const sp = document.getElementById('eu-solo-partidas'); if (sp) sp.checked = !!u.solo_sus_partidas
   document.getElementById('modal-editar-usuario').classList.add('open')
 }
 
@@ -457,6 +529,8 @@ window.guardarEdicionUsuario = async () => {
   const centro_costo_id = document.getElementById('eu-empresa').value || null
   const newPass = document.getElementById('eu-pass').value
   const err = document.getElementById('modal-edit-error')
+  const permisos_modulos = leerPanelPermisos('eu-permisos')
+  const solo_sus_partidas = !!document.getElementById('eu-solo-partidas')?.checked
 
   if (!nombre) { showError(err, 'El nombre es obligatorio'); return }
   if (newPass && newPass.length < 8) { showError(err, 'La contraseña debe tener al menos 8 caracteres'); return }
@@ -465,7 +539,7 @@ window.guardarEdicionUsuario = async () => {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
   // Update profile in usuarios table
-  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id }).eq('id', editingUserId)
+  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id, permisos_modulos, solo_sus_partidas }).eq('id', editingUserId)
   if (updErr) {
     btn.disabled = false; btn.textContent = 'Guardar cambios'
     showError(err, updErr.message); return
@@ -510,6 +584,8 @@ window.crearUsuario = async () => {
   const pass = document.getElementById('nu-pass').value
   const rol = document.getElementById('nu-rol').value
   const centro_costo_id = document.getElementById('nu-empresa').value || null
+  const permisos_modulos = leerPanelPermisos('nu-permisos')
+  const solo_sus_partidas = !!document.getElementById('nu-solo-partidas')?.checked
   const err = document.getElementById('modal-error')
   if (!nombre || !email || !pass) { showError(err, 'Completa todos los campos'); return }
   if (pass.length < 8) { showError(err, 'La contraseña debe tener al menos 8 caracteres'); return }
@@ -525,7 +601,8 @@ window.crearUsuario = async () => {
   }
   // 3. Insertar perfil en tabla usuarios
   const { error: profileErr } = await sb.from('usuarios').insert({
-    auth_user_id: signData.user.id, nombre, email, rol, centro_costo_id, activo: true
+    auth_user_id: signData.user.id, nombre, email, rol, centro_costo_id, activo: true,
+    permisos_modulos, solo_sus_partidas
   })
   // 4. Restaurar sesión del admin inmediatamente
   if (adminSession) {
@@ -1370,11 +1447,16 @@ let allPartidas = []
 async function loadPartidas() {
   const tbody = document.getElementById('tbody-partidas')
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
-  const { data, error } = await sb.from('partidas_contables')
+  let query = sb.from('partidas_contables')
     .select('*, centro_costo:centros_costo(nombre), generador:usuarios!generada_por(nombre)')
     .order('numero_partida', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(1000)
+  // Si el usuario tiene "solo sus partidas", filtrar por las que él generó
+  if (window._soloSusPartidas && currentProfile?.id) {
+    query = query.eq('generada_por', currentProfile.id)
+  }
+  const { data, error } = await query
   if (error) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--red)">${error.message}</td></tr>`; return }
   allPartidas = data || []
   if (!allPartidas.length) {
@@ -8696,13 +8778,15 @@ window.eliminarSelCxP = async (selId, nombre) => {
 // ══════════════════════════════════════════════
 
 window.loadActividad = async () => {
-  const hoy = new Date().toISOString().split('T')[0]
+  const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD en hora local
   const iniEl = document.getElementById('act-fecha-ini')
   const finEl = document.getElementById('act-fecha-fin')
   if (!iniEl.value) iniEl.value = hoy
   if (!finEl.value) finEl.value = hoy
-  const desde = iniEl.value + 'T00:00:00'
-  const hasta = finEl.value + 'T23:59:59'
+  // Construir los límites del rango en hora LOCAL y pasarlos a ISO/UTC,
+  // para que coincidan con cómo se muestra created_at (hora local de Honduras).
+  const desde = new Date(iniEl.value + 'T00:00:00').toISOString()
+  const hasta = new Date(finEl.value + 'T23:59:59.999').toISOString()
   const userFilter = document.getElementById('act-usuario').value
 
   let query = getSb().from('actividad_log')

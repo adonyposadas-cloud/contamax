@@ -2275,7 +2275,7 @@
       </div>
       <div class="fld">
         <label>Rol</label>
-        <select id="nu-rol">
+        <select id="nu-rol" onchange="aplicarPlantillaRol('nu-permisos', this.value)">
           <option value="super_admin">Super Admin</option>
           <option value="contador">Contador</option>
           <option value="aux_contable">Aux. Contable</option>
@@ -2287,6 +2287,14 @@
         <select id="nu-empresa">
           <option value="">Todos los centros de costo</option>
         </select>
+      </div>
+      <div class="fld col-full">
+        <label>Módulos que puede ver</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El rol premarca lo típico; ajustá lo que quieras. Super Admin ve todo siempre.</div>
+        <div id="nu-permisos" style="max-height:260px;overflow-y:auto;border:1px solid var(--bg1);border-radius:6px;padding:10px"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:12px;margin-top:8px">
+          <input type="checkbox" id="nu-solo-partidas" style="width:auto;margin:0"> En Partidas, ver solo sus propios asientos
+        </label>
       </div>
     </div>
     <div id="modal-error" class="login-error hidden" style="margin-top:14px"></div>
@@ -2308,7 +2316,7 @@
       </div>
       <div class="fld">
         <label>Rol</label>
-        <select id="eu-rol">
+        <select id="eu-rol" onchange="aplicarPlantillaRol('eu-permisos', this.value)">
           <option value="super_admin">Super Admin</option>
           <option value="contador">Contador</option>
           <option value="aux_contable">Aux. Contable</option>
@@ -2320,6 +2328,14 @@
         <select id="eu-empresa">
           <option value="">Todos los centros de costo</option>
         </select>
+      </div>
+      <div class="fld col-full">
+        <label>Módulos que puede ver</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cambiar el rol vuelve a premarcar su plantilla. Super Admin ve todo siempre.</div>
+        <div id="eu-permisos" style="max-height:240px;overflow-y:auto;border:1px solid var(--bg1);border-radius:6px;padding:10px"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:12px;margin-top:8px">
+          <input type="checkbox" id="eu-solo-partidas" style="width:auto;margin:0"> En Partidas, ver solo sus propios asientos
+        </label>
       </div>
       <div class="fld col-full" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
         <label>Nueva contraseña <span style="color:var(--text3);font-weight:400">(dejar vacío para no cambiar)</span></label>
@@ -2923,8 +2939,8 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260602"></script>
-<script type="module" src="js/reportes.js?v=20260602"></script>
+<script type="module" src="js/app.js?v=20260602b"></script>
+<script type="module" src="js/reportes.js?v=20260602b"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js"></script>
 <script defer src="js/rrhh.js"></script>
