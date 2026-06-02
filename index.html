@@ -1426,8 +1426,10 @@
           <div class="stat-card"><div class="stat-num" id="stat-pe-activos">—</div><div class="stat-label">Préstamos activos</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-pe-monto">—</div><div class="stat-label">Saldo total</div></div>
         </div>
-        <div style="margin-bottom:12px">
-          <input type="text" id="pe-buscar" placeholder="Buscar por nombre del empleado..." oninput="filtrarPrestamosEmp()" style="width:100%;max-width:360px">
+        <div class="form-card" style="margin-bottom:14px;padding:12px 16px">
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="pe-buscar" placeholder="Buscar por nombre del empleado..." oninput="filtrarPrestamosEmp()" style="flex:1;min-width:200px">
+          </div>
         </div>
         <div class="table-wrap">
           <table>
