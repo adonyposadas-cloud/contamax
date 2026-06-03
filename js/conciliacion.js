@@ -244,13 +244,46 @@
     const libro = libroMovs.map((m, i) => ({ ...m, _i: i, _match: null }))
     const pares = []
 
-    // PASO 0 — emparejar por MARCA explícita (movimiento del banco ya registrado en una partida).
+    // PASO 0a — marcas AGRUPADAS (N movimientos del banco : 1 línea del libro).
+    // Junta las marcas por grupo_id, suma los movimientos del banco y empareja contra
+    // la línea del libro de la misma partida (monto ≈ total del grupo). Caso típico: taxis,
+    // donde muchos depósitos chicos suman un solo asiento consolidado en libros.
+    if (marcas && marcas.length) {
+      const grupos = {}
+      for (const mk of marcas) {
+        if (!mk.grupo_id) continue
+        ;(grupos[mk.grupo_id] = grupos[mk.grupo_id] || []).push(mk)
+      }
+      for (const gid of Object.keys(grupos)) {
+        const gmarcas = grupos[gid]
+        const partidaId = gmarcas[0].partida_id
+        const grupoTotal = Number(gmarcas[0].grupo_total) ||
+          r2(gmarcas.reduce((s, mk) => s + Number(mk.mov_monto || 0), 0))
+        const movsB = []
+        for (const mk of gmarcas) {
+          const b = banco.find(x => x._match === null && !movsB.includes(x) &&
+            x.fecha === mk.mov_fecha && Math.abs(x.monto - Number(mk.mov_monto)) <= 0.01 && x.tipo === mk.mov_tipo)
+          if (b) movsB.push(b)
+        }
+        if (!movsB.length) continue
+        const l = libro.find(x => x._match === null && x.partida_id === partidaId &&
+          x.tipo === movsB[0].tipo && Math.abs(x.monto - grupoTotal) <= 0.02)
+        if (!l) continue
+        l._match = movsB[0]._i
+        for (const b of movsB) {
+          b._match = l._i
+          pares.push({ banco: b, libro: l, dias: diasEntre(b.fecha, l.fecha), porMarca: true, porGrupo: true })
+        }
+      }
+    }
+
+    // PASO 0b — marcas INDIVIDUALES (1 banco : 1 libro, por monto igual).
     // La marca solo "agarra" si la partida sigue aprobada (tiene línea en el libro);
     // si fue anulada, no hay línea y cae al cruce normal → vuelve a solo banco. Correcto.
     if (marcas && marcas.length) {
       for (const b of banco) {
         if (b._match !== null) continue
-        const cand = marcas.filter(mk =>
+        const cand = marcas.filter(mk => !mk.grupo_id &&
           mk.mov_fecha === b.fecha && Math.abs(Number(mk.mov_monto) - b.monto) <= 0.01 && mk.mov_tipo === b.tipo)
         for (const marca of cand) {
           const l = libro.find(x => x._match === null && x.partida_id === marca.partida_id &&
@@ -429,7 +462,7 @@
 
     const filaMov = (m, lado, idx) => `
       <tr>
-        <td><input type="checkbox" class="cb-sel-${lado}" value="${idx}"></td>
+        <td><input type="checkbox" class="cb-sel-${lado}" value="${idx}" onchange="window._cbSumaSel()"></td>
         <td style="font-size:12px">${m.fecha}</td>
         <td style="font-size:12px">${(m.descripcion || '').slice(0, 50)}${m.numero_partida ? ` · #${m.numero_partida}` : ''}</td>
         <td style="text-align:right;font-family:var(--mono);color:${m.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${m.tipo === 'ingreso' ? '+' : '−'} ${fmtL(m.monto)}</td>
@@ -449,11 +482,14 @@
           <tbody>${e.soloLibro.map((m) => filaMov(m, 'libro', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
         </div>
       </div>
-      <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap">
+      <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;align-items:center">
         <button class="btn btn-gold" onclick="window._cbCrearPartidaSeleccionados()">+ Crear 1 partida de seleccionados (banco)</button>
         <button class="btn btn-ghost" onclick="window._cbEmparejar()">🔗 Emparejar seleccionados (manual)</button>
+        <button class="btn btn-ghost" onclick="window._cbAgrupar()">🧩 Agrupar N banco → 1 libro</button>
+        <span style="font-size:12px;color:var(--text3)">tol. suma <input type="number" id="cb-tol-suma" value="0" min="0" step="0.01" style="width:74px;padding:3px 6px" oninput="window._cbSumaSel()"></span>
         <button class="btn btn-ghost" onclick="window._cbToggleConciliados()">Ver conciliados (${e.pares.length})</button>
       </div>
+      <div id="cb-suma-sel" style="font-size:13px;color:var(--text3);margin:-4px 0 12px;min-height:18px"></div>
       <div id="cb-conciliados" class="table-wrap" style="display:none">
         <div style="padding:10px 14px;font-weight:600;color:var(--green);background:var(--bg3)">✅ Conciliados (${e.pares.length})</div>
         <table style="width:100%"><thead><tr><th>Fecha banco</th><th>Descripción banco</th><th>Fecha libro</th><th>Partida</th><th style="text-align:right">Monto</th><th>Δ días</th><th></th></tr></thead>
@@ -464,7 +500,7 @@
           <td style="font-size:12px">#${p.libro.numero_partida || '—'}</td>
           <td style="text-align:right;font-family:var(--mono)">${fmtL(p.banco.monto)}</td>
           <td style="text-align:center;font-size:12px;color:var(--text3)">${p.dias}</td>
-          <td style="font-size:11px;color:var(--gold)">${p.porMarca ? '🔗 marca' : ''}</td>
+          <td style="font-size:11px;color:var(--gold)">${p.porGrupo ? '🧩 grupo' : (p.porMarca ? '🔗 marca' : '')}</td>
         </tr>`).join('')}</tbody></table>
       </div>`
   }
@@ -503,7 +539,75 @@
     renderResultado()
   }
 
-  // Botón para crear partida agrupada de los seleccionados del banco
+  // Suma en vivo de lo seleccionado (banco) vs la línea del libro elegida
+  window._cbSumaSel = () => {
+    const el = document.getElementById('cb-suma-sel')
+    if (!el || !estadoConc) return
+    const selB = [...document.querySelectorAll('.cb-sel-banco:checked')].map(c => parseInt(c.value, 10))
+    const selL = [...document.querySelectorAll('.cb-sel-libro:checked')].map(c => parseInt(c.value, 10))
+    if (!selB.length && !selL.length) { el.innerHTML = ''; return }
+    const movsB = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
+    const sumaB = r2(movsB.reduce((s, b) => s + b.monto, 0))
+    let html = `Banco seleccionado: <strong>${fmtL(sumaB)}</strong> (${movsB.length} mov.)`
+    if (selL.length === 1) {
+      const l = estadoConc.libro.find(x => x._i === selL[0])
+      if (l) {
+        const tol = Math.max(0, parseFloat(document.getElementById('cb-tol-suma')?.value) || 0)
+        const dif = r2(sumaB - l.monto)
+        const cuadra = Math.abs(dif) <= tol + 0.001
+        html += ` &nbsp;·&nbsp; Libro: <strong>${fmtL(l.monto)}</strong> &nbsp;·&nbsp; Diferencia: <strong style="color:${cuadra ? 'var(--green)' : 'var(--red)'}">${fmtL(dif)}</strong> ${cuadra ? '✓ cuadra' : ''}`
+      }
+    } else if (selL.length > 1) {
+      html += ` &nbsp;·&nbsp; <span style="color:var(--amber)">seleccioná solo 1 del libro para comparar</span>`
+    }
+    el.innerHTML = html
+  }
+
+  // Agrupado manual: N del banco (que suman) : 1 del libro
+  window._cbAgrupar = async () => {
+    const selB = [...document.querySelectorAll('.cb-sel-banco:checked')].map(c => parseInt(c.value, 10))
+    const selL = [...document.querySelectorAll('.cb-sel-libro:checked')].map(c => parseInt(c.value, 10))
+    if (selB.length < 1 || selL.length !== 1) {
+      window.toast?.('Seleccioná 1 o más del banco y exactamente 1 del libro', 'error'); return
+    }
+    const movsB = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
+    const l = estadoConc.libro.find(x => x._i === selL[0])
+    if (!movsB.length || !l) return
+    if (movsB.some(b => b.tipo !== l.tipo)) {
+      window.toast?.('Los movimientos del banco y la línea del libro deben ser del mismo tipo (ingreso/egreso).', 'error'); return
+    }
+    const suma = r2(movsB.reduce((s, b) => s + b.monto, 0))
+    const tol = Math.max(0, parseFloat(document.getElementById('cb-tol-suma')?.value) || 0)
+    const dif = r2(Math.abs(suma - l.monto))
+    if (dif > tol + 0.001) {
+      window.toast?.(`La suma del banco (${fmtL(suma)}) no coincide con el libro (${fmtL(l.monto)}). Diferencia ${fmtL(dif)} > tolerancia ${fmtL(tol)}.`, 'error'); return
+    }
+    if (!l.partida_id) {
+      window.toast?.('La línea del libro no tiene partida asociada; no se puede guardar el grupo.', 'error'); return
+    }
+    // Actualizar estado en memoria: las N del banco apuntan a la misma línea del libro
+    l._match = movsB[0]._i
+    for (const b of movsB) {
+      b._match = l._i
+      estadoConc.pares.push({ banco: b, libro: l, dias: diasEntre(b.fecha, l.fecha), porMarca: true, porGrupo: true })
+      estadoConc.soloBanco = estadoConc.soloBanco.filter(x => x._i !== b._i)
+    }
+    estadoConc.soloLibro = estadoConc.soloLibro.filter(x => x._i !== l._i)
+    // Guardar el grupo: una marca por movimiento del banco, con grupo_id y grupo_total compartidos
+    const gid = (window.crypto?.randomUUID?.() || ('g' + Date.now() + Math.random().toString(36).slice(2)))
+    const filas = movsB.map(b => ({
+      cuenta_codigo: estadoConc.cuenta, banco: estadoConc.bancoId,
+      mov_fecha: b.fecha, mov_monto: b.monto, mov_tipo: b.tipo,
+      mov_descripcion: (b.descripcion || '').slice(0, 160),
+      partida_id: l.partida_id, partida_numero: l.numero_partida || null,
+      grupo_id: gid, grupo_total: l.monto, origen: 'grupo'
+    }))
+    const { error } = await getSb().from('conciliacion_marcas').insert(filas)
+    if (error) console.warn('No se guardó el grupo de marcas:', error.message)
+    window.toast?.(`Agrupado ✓ ${movsB.length} mov. del banco → partida #${l.numero_partida || '—'} (guardado)`, 'success')
+    renderResultado()
+  }
+
   window._cbCrearPartidaSeleccionados = () => {
     const sel = [...document.querySelectorAll('.cb-sel-banco:checked')].map(c => parseInt(c.value, 10))
     if (!sel.length) { window.toast?.('Seleccioná al menos un movimiento del banco', 'error'); return }
