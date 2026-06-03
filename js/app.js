@@ -2562,6 +2562,15 @@ window.guardarPartida = async (estado) => {
       }
     }
 
+    // Reemplazo idempotente: si es re-importación, anular las partidas previas de Ventas
+    // Alpha de esta fecha y limpiar el libro de ventas del día antes de reinsertar (evita
+    // duplicados). El borrado por fecha+origen corre siempre, aunque no haya filas fiscales.
+    if (vd.previas?.length) {
+      await sb.from('partidas_contables').update({ estado: 'anulada' }).in('id', vd.previas)
+      console.log(`🚫 ${vd.previas.length} partida(s) previa(s) de Ventas Alpha anuladas`)
+    }
+    await sb.from('libro_ventas').delete().eq('fecha', vd.fecha).eq('origen', 'import_alpha')
+
     if (registros.length) {
       const { error: lvErr } = await sb.from('libro_ventas').insert(registros)
       if (lvErr) console.error('Error libro_ventas:', lvErr.message)
@@ -3970,6 +3979,19 @@ window.guardarImportPartida = async () => {
   const descripcion = document.getElementById('imp-desc').value.trim() || `Ventas Alpha ${fecha}`
   if (!fecha) { toast('Selecciona la fecha de ventas', 'error'); return }
 
+  // ── Re-importación: ¿ya existe una partida de Ventas Alpha (no anulada) para esta fecha? ──
+  let _vaPrevias = []
+  {
+    const { data: previasVA } = await sb.from('partidas_contables')
+      .select('id, numero_partida, estado').eq('fecha_partida', fecha)
+      .eq('tipo_origen', 'venta_alpha').neq('estado', 'anulada')
+    if ((previasVA || []).length) {
+      const lst = previasVA.map(p => `#${p.numero_partida} (${p.estado})`).join(', ')
+      if (!confirm(`Ya existe una partida de Ventas Alpha para el ${fecha}: ${lst}.\n\nSi continuás, al guardar se ANULARÁ(N) esa(s) partida(s) y el libro de ventas de ese día se reemplazará (sin duplicar). La nueva queda en BORRADOR para que la revises.\n\n¿Continuar con el reemplazo?`)) return
+      _vaPrevias = previasVA.map(p => p.id)
+    }
+  }
+
   const d = importData
   const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
@@ -4108,6 +4130,7 @@ window.guardarImportPartida = async () => {
     ccTecniId: ccTecni?.id || null,
     ccYonkerId: ccYonker?.id || null,
     isvWarnings: window._isvWarnings || {},
+    previas: _vaPrevias,
   }
 
   toast('Créditos cargados. Completá los débitos con las formas de pago.', 'info')
