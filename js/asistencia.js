@@ -13,6 +13,7 @@ let asistenciaResumen = [] // summary per employee for the period
 let configPlanilla = {}    // editable config values
 let permisosCache = []
 let _permisosLista = []
+let _novedades = null
 let incapacidadesCache = []
 
 // ── LOAD CONFIG ──
@@ -482,12 +483,13 @@ function renderAsistencia(fechaMin, fechaMax) {
   
   // Stats
   document.getElementById('ast-stats').innerHTML = `
-    <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="stats-row" style="grid-template-columns:repeat(6,1fr)">
       <div class="stat-card"><div class="stat-num">${totalEmps}</div><div class="stat-label">Empleados</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--green)">${Math.round(totalHE / 60 * 10) / 10}h</div><div class="stat-label">HE Netas</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--red)">${totalTardes}min</div><div class="stat-label">Tardes a deducir</div></div>
       <div class="stat-card"><div class="stat-num" style="color:${sinSalidaCount ? 'var(--red)' : 'var(--green)'}">${sinSalidaCount}</div><div class="stat-label">Sin salida</div></div>
       <div class="stat-card"><div class="stat-num" style="color:${totalAlertas ? 'var(--amber)' : 'var(--green)'}">${totalAlertas}</div><div class="stat-label">Alertas</div></div>
+      <div class="stat-card" style="cursor:pointer" onclick="window.abrirNovedades()" title="Ver novedades del día (ayer/hoy)"><div class="stat-num" id="nov-count" style="color:var(--gold)">…</div><div class="stat-label">Novedades hoy ▸</div></div>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-top:6px">Período: ${fechaMin} al ${fechaMax}</div>`
   
@@ -498,7 +500,7 @@ function renderAsistencia(fechaMin, fechaMax) {
     const matched = r.empleado_id ? '✅' : '⚠️'
     
     html += `
-    <div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden" id="ast-emp-${r.nombre.replace(/\s/g, '_')}">
+    <div data-nombre="${r.nombre.toUpperCase().replace(/"/g, '')}" style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden" id="ast-emp-${r.nombre.replace(/\s/g, '_')}">
       <div style="padding:12px 16px;background:var(--bg3);display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleAstDetalle('${r.nombre.replace(/'/g, "\\'")}')">
         <div>
           <span style="font-weight:600">${matched} ${r.nombre}</span>
@@ -548,9 +550,162 @@ function renderAsistencia(fechaMin, fechaMax) {
   }
   
   document.getElementById('ast-empleados').innerHTML = html
+  ensureBuscadorEmpleados()
+  actualizarContadorNovedades()
   
   // Show action buttons
   document.getElementById('ast-acciones').classList.remove('hidden')
+}
+
+// ── BUSCADOR DE EMPLEADOS (filtra las tarjetas por nombre) ──
+function ensureBuscadorEmpleados() {
+  if (document.getElementById('ast-buscar')) return
+  const cont = document.getElementById('ast-empleados')
+  if (!cont || !cont.parentNode) return
+  const wrap = document.createElement('div')
+  wrap.style.margin = '4px 0 12px'
+  wrap.innerHTML = `<input type="text" id="ast-buscar" placeholder="🔍 Buscar empleado…" oninput="window._filtrarEmpleados(this.value)" style="width:100%;max-width:360px;padding:7px 10px">`
+  cont.parentNode.insertBefore(wrap, cont)
+}
+window._filtrarEmpleados = (q) => {
+  const t = (q || '').trim().toUpperCase()
+  document.querySelectorAll('#ast-empleados > div[data-nombre]').forEach(card => {
+    card.style.display = (!t || card.getAttribute('data-nombre').includes(t)) ? '' : 'none'
+  })
+}
+
+// ── NOVEDADES DEL DÍA (ayer/hoy, en vivo desde marcaciones_raw) ──
+function _horaAMin(hora) {
+  const p = String(hora).split(':')
+  return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0)
+}
+function _addDaysStr(fecha, n) {
+  const d = new Date(fecha + 'T12:00:00'); d.setDate(d.getDate() + n)
+  return _localYMD(d)
+}
+
+async function calcularNovedades() {
+  const sb = getSb()
+  await loadConfig()
+  const HORA_ENTRADA = 8 * 60, HORA_SALIDA_LV = 17 * 60
+  const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
+  const hoy = new Date()
+  const fHoy = _localYMD(hoy)
+  const fAyer = _addDaysStr(fHoy, -1)
+  const hace60 = _addDaysStr(fHoy, -60)
+
+  const { data: mapas } = await sb.from('reloj_empleados').select('pin, empleado_nombre, activo')
+  const mapaPin = {}
+  for (const r of (mapas || [])) if (r.activo !== false && r.empleado_nombre) mapaPin[String(r.pin)] = r.empleado_nombre
+  const { data: empleados } = await sb.from('empleados').select('id, nombre').eq('activo', true)
+  const { data: permisos } = await sb.from('permisos_empleados').select('*').gte('fecha', hace60).lte('fecha', fHoy)
+  const { data: marc } = await sb.from('marcaciones_raw').select('pin, fecha, hora').gte('fecha', fAyer).lte('fecha', fHoy).limit(20000)
+
+  // Entrada/salida por empleado+día (mismo criterio que la planilla: corte mediodía)
+  const dias = {}
+  for (const mk of (marc || [])) {
+    const nombre = mapaPin[String(mk.pin)]
+    if (!nombre) continue
+    const tm = _horaAMin(mk.hora)
+    const key = nombre + '|' + mk.fecha
+    if (!dias[key]) dias[key] = { nombre, fecha: mk.fecha, entradaMin: null, salidaMin: null, entrada: null, salida: null }
+    const d = dias[key]
+    if (tm < 720 && (d.entradaMin === null || tm < d.entradaMin)) { d.entradaMin = tm; d.entrada = String(mk.hora).slice(0, 5) }
+    if (tm >= 720 && (d.salidaMin === null || tm > d.salidaMin)) { d.salidaMin = tm; d.salida = String(mk.hora).slice(0, 5) }
+  }
+  const tienePermiso = (nombre, fecha) => (permisos || []).some(p => {
+    if (p.empleado_nombre?.toUpperCase() !== nombre.toUpperCase()) return false
+    const ini = p.fecha
+    const fin = p.fecha_fin || (p.dias > 1 ? _addDaysStr(p.fecha, p.dias - 1) : p.fecha)
+    return fecha >= ini && fecha <= fin
+  })
+  const esLaboral = (fecha) => new Date(fecha + 'T12:00:00').getDay() !== 0  // domingo no
+
+  const sinSalidaAyer = [], tardeHoy = [], ausentesHoy = [], conPermisoHoy = [], salioTempranoAyer = []
+
+  if (esLaboral(fAyer)) {
+    for (const key in dias) {
+      const d = dias[key]
+      if (d.fecha !== fAyer || tienePermiso(d.nombre, fAyer)) continue
+      if (d.entrada && !d.salida) sinSalidaAyer.push({ nombre: d.nombre, entrada: d.entrada })
+      else if (d.salida && d.salidaMin < HORA_SALIDA_LV) salioTempranoAyer.push({ nombre: d.nombre, salida: d.salida, min: HORA_SALIDA_LV - d.salidaMin })
+    }
+  }
+
+  const presentesHoy = new Set()
+  for (const key in dias) { const d = dias[key]; if (d.fecha === fHoy && d.entrada) presentesHoy.add(d.nombre.toUpperCase()) }
+  if (esLaboral(fHoy)) {
+    for (const key in dias) {
+      const d = dias[key]
+      if (d.fecha !== fHoy || !d.entrada) continue
+      if (d.entradaMin > HORA_ENTRADA) {
+        const min = d.entradaMin - HORA_ENTRADA
+        tardeHoy.push({ nombre: d.nombre, entrada: d.entrada, min, excede: min > GRACIA_TARDE })
+      }
+    }
+    const nombresMapeados = new Set(Object.values(mapaPin).map(n => n.toUpperCase()))
+    for (const e of (empleados || [])) {
+      const N = e.nombre.toUpperCase()
+      if (!nombresMapeados.has(N)) continue          // sin PIN vinculado → no se puede saber
+      if (presentesHoy.has(N)) continue
+      if (tienePermiso(e.nombre, fHoy)) { conPermisoHoy.push({ nombre: e.nombre }); continue }
+      ausentesHoy.push({ nombre: e.nombre })
+    }
+  }
+
+  const byName = (a, b) => a.nombre.localeCompare(b.nombre)
+  sinSalidaAyer.sort(byName); tardeHoy.sort((a, b) => b.min - a.min)
+  ausentesHoy.sort(byName); conPermisoHoy.sort(byName); salioTempranoAyer.sort(byName)
+  return { fHoy, fAyer, sinSalidaAyer, tardeHoy, ausentesHoy, conPermisoHoy, salioTempranoAyer }
+}
+
+async function actualizarContadorNovedades() {
+  try {
+    const n = await calcularNovedades()
+    _novedades = n
+    const el = document.getElementById('nov-count')
+    if (el) el.textContent = n.sinSalidaAyer.length + n.tardeHoy.length + n.ausentesHoy.length
+  } catch (e) { console.warn('novedades:', e) }
+}
+
+function ensureNovedadesModal() {
+  if (document.getElementById('modal-novedades')) return
+  const div = document.createElement('div')
+  div.className = 'modal-backdrop'; div.id = 'modal-novedades'
+  div.innerHTML = `
+    <div class="modal" style="width:min(560px,94vw);max-width:560px;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>📋 Novedades del día</h3><button class="modal-close" onclick="closeNovedades()">✕</button></div>
+      <div class="modal-body" id="novedades-body" style="flex:1;min-height:0;overflow-y:auto">Cargando…</div>
+      <div class="modal-actions"><button class="btn btn-ghost" onclick="closeNovedades()">Cerrar</button></div>
+    </div>`
+  document.body.appendChild(div)
+}
+window.closeNovedades = () => { const m = document.getElementById('modal-novedades'); if (m) m.classList.remove('open') }
+
+function renderNovedades(n) {
+  const linea = (txt, extra = '') => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:5px 9px;background:var(--bg2);border-radius:6px"><span>${txt}</span><span style="color:var(--text3);font-family:var(--mono);font-size:12px">${extra}</span></div>`
+  const sec = (color, icono, titulo, items, fmtItem, vacio) => `
+    <div style="margin-bottom:16px">
+      <div style="font-weight:600;color:${color};margin-bottom:6px">${icono} ${titulo} (${items.length})</div>
+      ${items.length ? `<div style="display:flex;flex-direction:column;gap:4px">${items.map(fmtItem).join('')}</div>` : `<div style="font-size:12px;color:var(--text3);padding:2px 0">${vacio}</div>`}
+    </div>`
+  return `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Hoy: <strong>${n.fHoy}</strong> · Ayer: <strong>${n.fAyer}</strong></div>
+    ${sec('var(--red)', '🚪', 'No marcó SALIDA ayer — citar a firmar deducción', n.sinSalidaAyer, d => linea(d.nombre, 'entró ' + d.entrada), 'Nadie ✓')}
+    ${sec('var(--amber)', '⏰', 'Llegó TARDE hoy', n.tardeHoy, d => linea(d.nombre + (d.excede ? ' ⚠️ excede gracia' : ''), d.entrada + ' · ' + d.min + 'min'), 'Nadie ✓')}
+    ${sec('var(--text2)', '🚫', 'No marcó ENTRADA hoy — ausente / no ha llegado', n.ausentesHoy, d => linea(d.nombre), 'Todos presentes ✓')}
+    ${n.salioTempranoAyer.length ? sec('var(--amber)', '🏃', 'Salió temprano ayer (antes de 5:00pm)', n.salioTempranoAyer, d => linea(d.nombre, 'salió ' + d.salida + ' · ' + d.min + 'min antes'), '') : ''}
+    ${sec('#60a5fa', '🔓', 'Con permiso / incapacidad hoy (informativo)', n.conPermisoHoy, d => linea(d.nombre), '—')}`
+}
+
+window.abrirNovedades = async () => {
+  ensureNovedadesModal()
+  document.getElementById('modal-novedades').classList.add('open')
+  const body = document.getElementById('novedades-body')
+  body.innerHTML = 'Cargando…'
+  const n = _novedades || await calcularNovedades()
+  _novedades = n
+  body.innerHTML = renderNovedades(n)
 }
 
 window.toggleAstDetalle = (nombre) => {
