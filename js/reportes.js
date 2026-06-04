@@ -183,6 +183,32 @@ document.addEventListener('click', (e) => {
   }
 })
 
+// Saldo acumulado de la cuenta ANTES de fechaIni (el "vienen")
+async function _auxSaldoAnterior(cuenta, fechaIni, centroId, libro, estadoFiltro) {
+  let query = getSb().from('lineas_partida')
+    .select('tipo, monto, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
+    .eq('cuenta_id', cuenta.id)
+    .lt('partida.fecha_partida', fechaIni)
+  if (centroId) query = query.eq('centro_costo_id', centroId)
+  if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
+  if (libro === 'interno') query = query.eq('aplica_fiscal', false)
+  const { data: lineas } = await query.limit(20000)
+  let filtered = (lineas || []).filter(l => l.partida && l.partida.fecha_partida)
+  if (estadoFiltro !== 'todos') filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
+  if (!centroId && !esSuperAdmin()) {
+    const idsPriv = getIdsPrivados()
+    filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
+  }
+  const naturaleza = cuenta.naturaleza || 'deudora'
+  let saldo = 0
+  for (const l of filtered) {
+    const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
+    const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
+    saldo += naturaleza === 'deudora' ? (debe - haber) : (haber - debe)
+  }
+  return Math.round(saldo * 100) / 100
+}
+
 window.generarAuxiliar = async () => {
   const fechaIni = document.getElementById('aux-fecha-ini').value
   const fechaFin = document.getElementById('aux-fecha-fin').value
@@ -258,7 +284,8 @@ window.generarAuxiliar = async () => {
     })
 
     const naturaleza = cuenta.naturaleza || 'deudora'
-    let saldo = 0
+    const saldoAnterior = await _auxSaldoAnterior(cuenta, fechaIni, centroId, libro, estadoFiltro)
+    let saldo = saldoAnterior
     const movimientos = filtered.map(l => {
       const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
       const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
@@ -270,13 +297,13 @@ window.generarAuxiliar = async () => {
     const totalHaber = movimientos.reduce((s, m) => s + m.haber, 0)
     grandTotalDebe += totalDebe
     grandTotalHaber += totalHaber
-    bloques.push({ cuenta, movimientos, totalDebe, totalHaber, saldoFinal: saldo, naturaleza })
+    bloques.push({ cuenta, movimientos, totalDebe, totalHaber, saldoFinal: saldo, saldoAnterior, naturaleza })
   }
 
   // Para compatibilidad con exportar Excel (cuenta única)
   if (bloques.length === 1) {
     const b = bloques[0]
-    auxData = { movimientos: b.movimientos, cuenta: b.cuenta, fechaIni, fechaFin, totalDebe: b.totalDebe, totalHaber: b.totalHaber, saldoFinal: b.saldoFinal }
+    auxData = { movimientos: b.movimientos, cuenta: b.cuenta, fechaIni, fechaFin, totalDebe: b.totalDebe, totalHaber: b.totalHaber, saldoFinal: b.saldoFinal, saldoAnterior: b.saldoAnterior }
   } else {
     auxData = { bloques, fechaIni, fechaFin, grandTotalDebe, grandTotalHaber, grupoCodigo }
   }
@@ -298,16 +325,20 @@ window.generarAuxiliar = async () => {
 function renderAuxiliarSingle(b, fechaIni, fechaFin) {
   const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
   const saldo = saldoFinal
+  const saldoAnterior = b.saldoAnterior || 0
+  const tieneVienen = Math.abs(saldoAnterior) >= 0.005
+  const labelNat = (v) => v >= 0 ? (naturaleza === 'deudora' ? 'deudor' : 'acreedor') : (naturaleza === 'deudora' ? 'acreedor' : 'deudor')
 
   // Render resumen
   document.getElementById('aux-resumen').innerHTML = `
     <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
       <div style="font-size:16px;font-weight:600;margin-bottom:6px">${cuenta?.codigo} — ${cuenta?.nombre}</div>
       <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Período: ${fechaIni} al ${fechaFin} · Naturaleza: ${naturaleza} · ${movimientos.length} movimientos</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div style="display:grid;grid-template-columns:repeat(${tieneVienen ? 4 : 3},1fr);gap:12px">
+        ${tieneVienen ? `<div class="stat-card"><div class="stat-num" style="color:var(--text2)">L. ${fmtL(Math.abs(saldoAnterior))}</div><div class="stat-label">Saldo anterior (vienen)</div></div>` : ''}
         <div class="stat-card"><div class="stat-num" style="color:var(--green)">L. ${fmtL(totalDebe)}</div><div class="stat-label">Total débitos</div></div>
         <div class="stat-card"><div class="stat-num" style="color:var(--red)">L. ${fmtL(totalHaber)}</div><div class="stat-label">Total créditos</div></div>
-        <div class="stat-card"><div class="stat-num" style="color:var(--gold)">L. ${fmtL(Math.abs(saldo))}</div><div class="stat-label">Saldo ${saldo >= 0 ? (naturaleza === 'deudora' ? 'deudor' : 'acreedor') : (naturaleza === 'deudora' ? 'acreedor' : 'deudor')}</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--gold)">L. ${fmtL(Math.abs(saldo))}</div><div class="stat-label">Saldo ${tieneVienen ? 'final ' : ''}${labelNat(saldo)}</div></div>
       </div>
     </div>`
 
@@ -323,7 +354,11 @@ function renderAuxiliarSingle(b, fechaIni, fechaFin) {
         <th>Fecha</th><th>N° Part.</th><th>Descripción</th><th>Origen</th>
         <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
       </tr></thead>
-      <tbody id="aux-tbody">${movimientos.map((m, i) => `
+      <tbody id="aux-tbody">${tieneVienen ? `
+        <tr style="background:var(--bg2);font-style:italic;color:var(--text2)">
+          <td colspan="6" style="text-align:right">Saldo anterior (vienen) al ${fechaIni}</td>
+          <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtL(saldoAnterior)}</td>
+        </tr>` : ''}${movimientos.map((m, i) => `
         <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" onclick="verPartida('${m.partidaId}')">
           <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
           <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
@@ -381,6 +416,8 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
   for (const b of bloques) {
     const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
     if (!movimientos.length) continue
+    const saldoAntB = b.saldoAnterior || 0
+    const vienenB = Math.abs(saldoAntB) >= 0.005
     tablaHTML += `
     <div class="aux-multi-bloque" style="margin-bottom:24px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
       <div style="padding:10px 14px;background:var(--bg3);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
@@ -392,7 +429,11 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
           <th>Fecha</th><th>N° Part.</th><th>Descripción</th><th>Origen</th>
           <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
         </tr></thead>
-        <tbody>${movimientos.map(m => `
+        <tbody>${vienenB ? `
+          <tr style="background:var(--bg2);font-style:italic;color:var(--text2)">
+            <td colspan="6" style="text-align:right">Saldo anterior (vienen) al ${fechaIni}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtL(saldoAntB)}</td>
+          </tr>` : ''}${movimientos.map(m => `
           <tr class="aux-multi-row" data-desc="${(m.descripcion||'').toLowerCase()}" style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
             <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
             <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
@@ -452,6 +493,7 @@ window.exportarAuxiliarXLSX = () => {
       if (!b.movimientos.length) continue
       rows.push([`${b.cuenta.codigo} — ${b.cuenta.nombre}`])
       rows.push(['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'])
+      if (Math.abs(b.saldoAnterior || 0) >= 0.005) rows.push(['', '', `Saldo anterior (vienen) al ${fechaIni}`, '', '', '', b.saldoAnterior])
       for (const m of b.movimientos) {
         rows.push([m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo])
       }
@@ -467,13 +509,15 @@ window.exportarAuxiliarXLSX = () => {
     toast(`Excel con ${bloques.length} cuentas exportado ✓`, 'success')
   } else {
     // Single account export
-    const { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal } = auxData
+    const { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal, saldoAnterior } = auxData
+    const vienen = Math.abs(saldoAnterior || 0) >= 0.005
     const rows = [
       ['AUXILIAR DE CUENTAS — CONTAMAX'],
       [`Cuenta: ${cuenta.codigo} — ${cuenta.nombre}`],
       [`Período: ${fechaIni} al ${fechaFin}`],
       [],
       ['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'],
+      ...(vienen ? [['', '', `Saldo anterior (vienen) al ${fechaIni}`, '', '', '', saldoAnterior]] : []),
       ...movimientos.map(m => [m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo]),
       [],
       ['', '', '', 'TOTALES', totalDebe, totalHaber, Math.abs(saldoFinal)]
