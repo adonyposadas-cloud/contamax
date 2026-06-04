@@ -852,6 +852,8 @@ window.loadAsistencia = async () => {
   if (q) q.value = new Date().getDate() <= 15 ? 'Q1' : 'Q2'
   // Load available periods
   await cargarPeriodosHistorial()
+  ensureMapeoPinsLauncher()
+  ensureRelojOnlineControls()
 }
 
 async function cargarPeriodosHistorial() {
@@ -1035,6 +1037,193 @@ window.guardarConfigPlanilla = async () => {
   }
   window.toast?.('Configuración guardada ✓', 'success')
   loadConfigPlanilla()
+}
+
+// ══════════════════════════════════════════════
+// ── MAPEO PIN DEL RELOJ ↔ EMPLEADO (tabla reloj_empleados)
+//    Autoinyecta botón + modal. Lista los PIN vistos en marcaciones_raw
+//    y permite asignar a cada uno el empleado (mismo nombre que planilla).
+// ══════════════════════════════════════════════
+let _empleadosMapeo = []
+
+function ensureMapeoPinsLauncher() {
+  if (document.getElementById('btn-mapeo-pins')) return
+  const anchor = document.getElementById('reloj-quincena') || document.getElementById('reloj-file')
+  if (!anchor || !anchor.parentNode) return
+  const btn = document.createElement('button')
+  btn.id = 'btn-mapeo-pins'; btn.type = 'button'
+  btn.className = 'btn btn-ghost'; btn.style.margin = '8px 0'
+  btn.textContent = '🔢 Vincular PIN ↔ empleado (reloj)'
+  btn.onclick = () => window.abrirMapeoPins()
+  anchor.parentNode.insertBefore(btn, anchor.nextSibling)
+}
+
+function ensureMapeoPinsModal() {
+  if (document.getElementById('modal-reloj-pins')) return
+  const div = document.createElement('div')
+  div.className = 'modal-backdrop'; div.id = 'modal-reloj-pins'
+  div.innerHTML = `
+    <div class="modal" style="width:min(720px,94vw);max-width:720px;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>🔢 Vincular PIN del reloj ↔ empleado</h3><button class="modal-close" onclick="closeMapeoPins()">✕</button></div>
+      <div class="modal-body" style="flex:1;min-height:0;overflow-y:auto">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Asigná a cada PIN del reloj su empleado (el mismo nombre que usás en la planilla). Se guarda al elegir.</div>
+        <div id="mapeo-pins-resultado">Cargando…</div>
+      </div>
+      <div class="modal-actions"><button class="btn btn-ghost" onclick="closeMapeoPins()">Cerrar</button></div>
+    </div>`
+  document.body.appendChild(div)
+}
+
+window.closeMapeoPins = () => { const m = document.getElementById('modal-reloj-pins'); if (m) m.classList.remove('open') }
+
+window.abrirMapeoPins = async () => {
+  ensureMapeoPinsModal()
+  document.getElementById('modal-reloj-pins').classList.add('open')
+  await cargarMapeoPins()
+}
+
+// Trae TODOS los PIN de marcaciones_raw (paginando) con su conteo
+async function _conteoPins(sb) {
+  const conteo = {}
+  const size = 1000
+  let from = 0
+  for (let i = 0; i < 30; i++) {
+    const { data, error } = await sb.from('marcaciones_raw').select('pin').range(from, from + size - 1)
+    if (error || !data || !data.length) break
+    for (const m of data) conteo[m.pin] = (conteo[m.pin] || 0) + 1
+    if (data.length < size) break
+    from += size
+  }
+  return conteo
+}
+
+async function cargarMapeoPins() {
+  const cont = document.getElementById('mapeo-pins-resultado')
+  if (!cont) return
+  cont.innerHTML = 'Cargando…'
+  const sb = getSb()
+  const conteo = await _conteoPins(sb)
+  const { data: emps } = await sb.from('empleados').select('id, nombre').eq('activo', true).order('nombre')
+  _empleadosMapeo = emps || []
+  const { data: mapas } = await sb.from('reloj_empleados').select('pin, empleado_id, empleado_nombre, activo')
+  const mapaPorPin = {}
+  for (const r of (mapas || [])) mapaPorPin[String(r.pin)] = r
+
+  const pins = [...new Set([...Object.keys(conteo), ...Object.keys(mapaPorPin)])]
+    .sort((a, b) => (conteo[b] || 0) - (conteo[a] || 0) || a.localeCompare(b, undefined, { numeric: true }))
+
+  const optEmp = (selId) => `<option value="">— sin asignar —</option>` +
+    _empleadosMapeo.map(e => `<option value="${e.id}" ${selId === e.id ? 'selected' : ''}>${e.nombre}</option>`).join('')
+
+  const asignados = pins.filter(p => mapaPorPin[p]?.empleado_id).length
+  cont.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${pins.length} PIN en el reloj · ${asignados} ya vinculados</div>
+    <div class="table-wrap"><table style="width:100%"><thead><tr>
+      <th style="width:60px">PIN</th><th style="width:70px;text-align:right">Marcas</th><th>Empleado</th>
+    </tr></thead><tbody>
+    ${pins.map(pin => `<tr>
+      <td style="font-family:var(--mono);font-weight:600">${pin}</td>
+      <td style="text-align:right;color:var(--text3);font-size:12px">${conteo[pin] || 0}</td>
+      <td><select style="width:100%;padding:4px 6px" onchange="window.guardarMapeoPin('${pin}', this.value)">${optEmp(mapaPorPin[pin]?.empleado_id || '')}</select></td>
+    </tr>`).join('')}
+    </tbody></table></div>`
+}
+
+window.guardarMapeoPin = async (pin, empleadoId) => {
+  const sb = getSb()
+  if (!empleadoId) {
+    await sb.from('reloj_empleados').delete().eq('pin', pin)
+    window.toast?.(`PIN ${pin}: sin asignar`, 'info')
+    return
+  }
+  const emp = _empleadosMapeo.find(e => e.id === empleadoId)
+  const { error } = await sb.from('reloj_empleados')
+    .upsert({ pin, empleado_id: empleadoId, empleado_nombre: emp?.nombre || null, activo: true }, { onConflict: 'pin' })
+  if (error) window.toast?.('Error: ' + error.message, 'error')
+  else window.toast?.(`PIN ${pin} → ${emp?.nombre}`, 'success')
+}
+
+// ══════════════════════════════════════════════
+// ── CARGAR DEL RELOJ (EN LÍNEA): lee marcaciones_raw del mes/quincena,
+//    resuelve nombre por PIN (reloj_empleados) y lo pasa por el MISMO
+//    motor que el archivo (processTimeClock → calcularAsistencia → resumen).
+// ══════════════════════════════════════════════
+function ensureRelojOnlineControls() {
+  if (document.getElementById('btn-reloj-online')) return
+  const anchor = document.getElementById('reloj-quincena') || document.getElementById('reloj-file')
+  if (!anchor || !anchor.parentNode) return
+  const now = new Date()
+  const mesDefault = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0'
+  wrap.innerHTML = `
+    <label style="font-size:13px;color:var(--text2)">Mes:</label>
+    <input type="month" id="reloj-online-mes" value="${mesDefault}" style="padding:4px 6px">
+    <button id="btn-reloj-online" type="button" class="btn btn-primary">📲 Cargar del reloj (en línea)</button>`
+  anchor.parentNode.insertBefore(wrap, anchor.nextSibling)
+  document.getElementById('btn-reloj-online').onclick = () => window.procesarRelojOnline()
+}
+
+window.procesarRelojOnline = async () => {
+  const quincena = document.getElementById('reloj-quincena')?.value || 'Q1'
+  const mes = document.getElementById('reloj-online-mes')?.value
+  if (!mes) { window.toast?.('Elegí un mes', 'error'); return }
+  const [anio, m] = mes.split('-').map(Number)
+  const finDia = new Date(anio, m, 0).getDate()
+  const desde = quincena === 'Q1' ? `${mes}-01` : `${mes}-16`
+  const hasta = quincena === 'Q1' ? `${mes}-15` : `${mes}-${String(finDia).padStart(2, '0')}`
+  const sb = getSb()
+  await loadConfig()
+
+  // Mapeo PIN → nombre (solo activos con empleado)
+  const { data: mapas } = await sb.from('reloj_empleados').select('pin, empleado_nombre, activo')
+  const mapaPin = {}
+  for (const r of (mapas || [])) if (r.activo !== false && r.empleado_nombre) mapaPin[String(r.pin)] = r.empleado_nombre
+
+  // Marcaciones del rango (paginado)
+  let marc = []
+  const size = 1000
+  for (let from = 0, i = 0; i < 30; i++, from += size) {
+    const { data, error } = await sb.from('marcaciones_raw')
+      .select('pin, fecha, hora')
+      .gte('fecha', desde).lte('fecha', hasta)
+      .order('fecha').order('hora')
+      .range(from, from + size - 1)
+    if (error) { window.toast?.(error.message, 'error'); return }
+    if (!data || !data.length) break
+    marc = marc.concat(data)
+    if (data.length < size) break
+  }
+  if (!marc.length) { window.toast?.('No hay marcaciones para ese mes/quincena', 'error'); return }
+
+  // Filas sintéticas en formato RELOJ_SIMPLE (nombre en col 0, fecha/hora ISO en col 2)
+  const rows = [['nombre', '', 'fecha_hora']]
+  const sinMapeo = new Set()
+  for (const mk of marc) {
+    const nombre = mapaPin[String(mk.pin)]
+    if (!nombre) { sinMapeo.add(mk.pin); continue }
+    rows.push([nombre, '', `${mk.fecha}T${mk.hora}`])
+  }
+  if (rows.length <= 1) { window.toast?.('Ninguna marcación tiene PIN vinculado a un empleado. Vinculá los PINs primero.', 'error'); return }
+
+  // MISMO motor que el archivo
+  const dayRecords = processTimeClock(rows, quincena)
+  if (!dayRecords.length) { window.toast?.('No se encontraron registros para la quincena seleccionada', 'error'); return }
+
+  const fechas = dayRecords.map(d => d.fecha).sort()
+  const fechaMin = fechas[0], fechaMax = fechas[fechas.length - 1]
+  const { data: empleados } = await sb.from('empleados').select('*').eq('activo', true)
+  const { data: permisos } = await sb.from('permisos_empleados').select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
+  permisosCache = permisos || []
+  const { data: incapsAll } = await sb.from('permisos_empleados').select('*').eq('tipo', 'incapacidad')
+  incapacidadesCache = incapsAll || []
+  asistenciaData = calcularAsistencia(dayRecords, permisosCache)
+  const [refY, refM] = dayRecords[0].fecha.split('-').map(Number)
+  const bounds = _periodoBounds(refY, refM, quincena)
+  asistenciaResumen = calcularResumenQuincenal(asistenciaData, empleados || [], bounds.inicio, bounds.fin, bounds.base)
+  renderAsistencia(fechaMin, fechaMax)
+  window.toast?.(`${dayRecords.length} registros · ${asistenciaResumen.length} empleados · ${quincena}` +
+    (sinMapeo.size ? ` · ${sinMapeo.size} PIN sin vincular (ignorados)` : ''), 'success')
 }
 
 })();
