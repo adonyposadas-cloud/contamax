@@ -366,10 +366,10 @@
         <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap">
           <div class="fld" style="min-width:280px">
             <label>Cuenta contable a conciliar</label>
-            <select id="cb-cuenta">
-              <option value="">Seleccionar cuenta...</option>
-              ${cuentasBanco().map(c => `<option value="${c.codigo}">${c.codigo} · ${c.nombre}</option>`).join('')}
-            </select>
+            <input type="text" id="cb-cuenta" list="cb-cuenta-dl" placeholder="Escribí código o nombre…" autocomplete="off" style="width:100%">
+            <datalist id="cb-cuenta-dl">
+              ${cuentasBanco().map(c => `<option value="${c.codigo} · ${c.nombre}"></option>`).join('')}
+            </datalist>
           </div>
           <div class="fld" style="min-width:200px">
             <label>Formato del banco</label>
@@ -405,11 +405,12 @@
 
   window._cbConciliar = async () => {
     const bancoId = document.getElementById('cb-banco').value
-    const cuentaCod = document.getElementById('cb-cuenta').value
+    const cuentaCod = (document.getElementById('cb-cuenta').value || '').trim().split(/\s+/)[0]
     const desde = document.getElementById('cb-desde').value
     const hasta = document.getElementById('cb-hasta').value
     const tol = parseInt(document.getElementById('cb-tol').value, 10) || 0
     if (!cuentaCod) { window.toast?.('Seleccioná la cuenta contable', 'error'); return }
+    if (!cuentasBanco().some(c => c.codigo === cuentaCod)) { window.toast?.('Cuenta no válida — elegila de la lista', 'error'); return }
     if (!bancoId) { window.toast?.('Seleccioná el formato del banco', 'error'); return }
     if (!desde || !hasta) { window.toast?.('Seleccioná el período', 'error'); return }
     if (!archivoBanco) { window.toast?.('Subí el archivo del estado de cuenta', 'error'); return }
@@ -461,7 +462,7 @@
       ${e.reversosNetados > 0 ? `<div style="margin-top:10px;padding:8px 12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text3)">🔄 Se netearon automáticamente <strong>${e.reversosNetados}</strong> reverso(s) del banco (depósitos duplicados que el banco revirtió). No afectan el neto.</div>` : ''}`
 
     const filaMov = (m, lado, idx) => `
-      <tr>
+      <tr class="cb-fila-${lado}" data-fecha="${m.fecha}">
         <td><input type="checkbox" class="cb-sel-${lado}" value="${idx}" onchange="window._cbSumaSel()"></td>
         <td style="font-size:12px">${m.fecha}</td>
         <td style="font-size:12px">${(m.descripcion || '').slice(0, 50)}${m.numero_partida ? ` · #${m.numero_partida}` : ''}</td>
@@ -469,10 +470,26 @@
         ${lado === 'banco' ? `<td><button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" onclick="window._cbCrearPartida(${idx})">+ Partida</button></td>` : '<td></td>'}
       </tr>`
 
+    const _diasMap = {}
+    for (const m of e.soloBanco) _diasMap[m.fecha] = (_diasMap[m.fecha] || 0) + 1
+    const _diasBanco = Object.keys(_diasMap).sort()
+    const controlesDiaBanco = e.soloBanco.length ? `
+      <div style="padding:8px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:var(--bg2);border-bottom:1px solid var(--border)">
+        <label style="font-size:12px;color:var(--text3)">Filtrar día:</label>
+        <select id="cb-banco-dia" onchange="window._cbFiltrarDiaBanco()" style="padding:3px 6px;font-size:12px">
+          <option value="">Todos (${e.soloBanco.length})</option>
+          ${_diasBanco.map(f => `<option value="${f}">${f} (${_diasMap[f]})</option>`).join('')}
+        </select>
+        <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--text2)">
+          <input type="checkbox" id="cb-banco-all" onchange="window._cbSelTodosBanco(this.checked)" style="width:auto;margin:0"> Seleccionar todos (visibles)
+        </label>
+      </div>` : ''
+
     document.getElementById('cb-resultado').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="table-wrap">
           <div style="padding:10px 14px;font-weight:600;color:var(--amber);background:var(--bg3)">⚠️ Solo en el banco (${e.soloBanco.length}) — falta registrar en el sistema</div>
+          ${controlesDiaBanco}
           <table style="width:100%"><thead><tr><th style="width:28px"></th><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th>Acción</th></tr></thead>
           <tbody>${e.soloBanco.map((m) => filaMov(m, 'banco', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
         </div>
@@ -508,6 +525,26 @@
   window._cbToggleConciliados = () => {
     const el = document.getElementById('cb-conciliados')
     el.style.display = el.style.display === 'none' ? '' : 'none'
+  }
+
+  // Filtrar el panel "Solo en el banco" por día
+  window._cbFiltrarDiaBanco = () => {
+    const dia = document.getElementById('cb-banco-dia')?.value || ''
+    document.querySelectorAll('.cb-fila-banco').forEach(tr => {
+      const show = !dia || tr.getAttribute('data-fecha') === dia
+      tr.style.display = show ? '' : 'none'
+      if (!show) { const cb = tr.querySelector('.cb-sel-banco'); if (cb) cb.checked = false } // no sumar lo oculto
+    })
+    const all = document.getElementById('cb-banco-all'); if (all) all.checked = false
+    window._cbSumaSel()
+  }
+
+  // Marcar/desmarcar todas las filas visibles del banco
+  window._cbSelTodosBanco = (checked) => {
+    document.querySelectorAll('.cb-fila-banco').forEach(tr => {
+      if (tr.style.display !== 'none') { const cb = tr.querySelector('.cb-sel-banco'); if (cb) cb.checked = checked }
+    })
+    window._cbSumaSel()
   }
 
   // Emparejado manual: 1 del banco + 1 del libro seleccionados
