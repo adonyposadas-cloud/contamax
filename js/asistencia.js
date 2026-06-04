@@ -12,6 +12,7 @@ let asistenciaData = []   // processed attendance per employee per day
 let asistenciaResumen = [] // summary per employee for the period
 let configPlanilla = {}    // editable config values
 let permisosCache = []
+let _permisosLista = []
 let incapacidadesCache = []
 
 // ── LOAD CONFIG ──
@@ -826,15 +827,16 @@ async function cargarPermisos() {
   
   const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)' }
 
+  _permisosLista = data || []
   tbody.innerHTML = (data || []).map(p => `
-    <tr>
+    <tr style="cursor:pointer" onclick="window.verPermiso('${p.id}')">
       <td>${p.fecha}</td>
       <td><strong>${p.empleado_nombre}</strong></td>
       <td>${p.tipo === 'incapacidad' ? (p.dias ? p.dias + ' día(s)' : '—') : (p.hora_salida || '—')}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}${p.tipo === 'incapacidad' ? ' 🏥' : ''}${p.es_continuacion ? ' <span title="Continuación/prórroga IHSS">🔗</span>' : ''}</td>
       <td style="font-size:12px;color:var(--text3)">${p.tipo === 'incapacidad' && p.diagnostico ? p.diagnostico : (p.motivo || '—')}</td>
       <td style="font-size:11px;color:var(--text3)">${p.aprobado_por || '—'}</td>
-      <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="eliminarPermiso('${p.id}')">✕</button></td>
+      <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="event.stopPropagation(); eliminarPermiso('${p.id}')">✕</button></td>
     </tr>
   `).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">No hay permisos registrados</td></tr>'
 }
@@ -844,6 +846,46 @@ window.eliminarPermiso = async (id) => {
   await getSb().from('permisos_empleados').delete().eq('id', id)
   window.toast?.('Permiso eliminado', 'success')
   cargarPermisos()
+}
+
+// ── Modal de detalle de permiso (clic en la fila) ──
+function ensurePermisoModal() {
+  if (document.getElementById('modal-ver-permiso')) return
+  const div = document.createElement('div')
+  div.className = 'modal-backdrop'; div.id = 'modal-ver-permiso'
+  div.innerHTML = `
+    <div class="modal" style="width:min(520px,94vw);max-width:520px">
+      <div class="modal-header"><h3>📄 Detalle del permiso</h3><button class="modal-close" onclick="closeVerPermiso()">✕</button></div>
+      <div class="modal-body" id="ver-permiso-body"></div>
+      <div class="modal-actions"><button class="btn btn-ghost" onclick="closeVerPermiso()">Cerrar</button></div>
+    </div>`
+  document.body.appendChild(div)
+}
+
+window.closeVerPermiso = () => { const m = document.getElementById('modal-ver-permiso'); if (m) m.classList.remove('open') }
+
+window.verPermiso = (id) => {
+  const p = _permisosLista.find(x => String(x.id) === String(id))
+  if (!p) return
+  ensurePermisoModal()
+  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)' }
+  const fila = (lbl, val) => (val == null || val === '') ? '' :
+    `<div style="display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text3);font-size:13px">${lbl}</span><span style="font-weight:500;text-align:right">${val}</span></div>`
+  document.getElementById('ver-permiso-body').innerHTML =
+    fila('Empleado', p.empleado_nombre) +
+    fila('Tipo', tipoLabel[p.tipo] || p.tipo) +
+    fila('Fecha', p.fecha) +
+    fila('Fecha fin', (p.fecha_fin && p.fecha_fin !== p.fecha) ? p.fecha_fin : '') +
+    (p.tipo === 'incapacidad' ? fila('Días', p.dias) : '') +
+    (p.tipo === 'salida_anticipada' ? fila('Hora salida', p.hora_salida) : '') +
+    (p.tipo === 'salida_anticipada' ? fila('Hora entrada', p.hora_entrada) : '') +
+    (p.tipo === 'incapacidad' ? fila('Diagnóstico', p.diagnostico) : '') +
+    fila('Motivo', p.motivo) +
+    fila('A cuenta de vacaciones', p.a_cuenta_vacaciones ? 'Sí 🏖️' : '') +
+    fila('Continuación/prórroga', p.es_continuacion ? 'Sí 🔗' : '') +
+    fila('Aprobado por', p.aprobado_por) +
+    fila('Registrado', p.created_at ? new Date(p.created_at).toLocaleString('es-HN') : '')
+  document.getElementById('modal-ver-permiso').classList.add('open')
 }
 
 window.loadAsistencia = async () => {
