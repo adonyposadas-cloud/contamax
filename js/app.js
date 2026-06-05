@@ -8175,12 +8175,22 @@ window.loadCajaChica = async () => {
 
   // Get all partidas that touch caja chica
   const { data: lineas, error } = await sb.from('lineas_partida')
-    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado, numero_documento)')
+    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado, numero_documento, created_at, generador:usuarios!generada_por(nombre), aprobador:usuarios!aprobada_por(nombre))')
     .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
 
   if (error) { toast('Error: ' + error.message, 'error'); return }
 
   const movs = (lineas || []).filter(l => l.partida)
+
+  // Cargar conteos de billetes de caja chica (para mostrar el detalle en la tarjeta)
+  const ccPartidaIds = [...new Set(movs.map(l => l.partida.id))]
+  if (ccPartidaIds.length) {
+    const { data: ccConteos } = await sb.from('conteo_billetes')
+      .select('*').in('partida_id', ccPartidaIds).eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+    if (ccConteos?.length) {
+      for (const l of movs) l.billetes = ccConteos.filter(c => c.partida_id === l.partida.id)
+    }
+  }
 
   // Saldo total (solo aprobadas) + vienen (día anterior) + hoy
   const hoyCC = localDateStr()
@@ -8250,13 +8260,14 @@ function renderCajaChicaList() {
       data = data.filter(l => l.partida.estado === filtroCCActual)
     }
   }
+  // Más reciente primero (igual que Caja General)
+  data = [...data].sort((a, b) => new Date(b.partida.created_at || 0) - new Date(a.partida.created_at || 0))
 
   if (!data.length) {
-    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</div>'
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No hay movimientos</div></div>'
     return
   }
 
-  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const esAuxContable = currentProfile?.rol === 'aux_contable'
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
   const puedeAprobar = esAuxContable || esSuperAdmin
@@ -8265,30 +8276,55 @@ function renderCajaChicaList() {
     const p = l.partida
     const monto = parseFloat(l.monto) || 0
     const esIngreso = l.tipo === 'debito'
-    const estadoBadge = {
-      'aprobada': '<span class="badge badge-on">Aprobada</span>',
-      'borrador': '<span class="badge badge-amber">Borrador</span>',
-      'pendiente_caja': '<span class="badge badge-amber">Pendiente</span>',
-      'anulada': '<span class="badge badge-red">Anulada</span>',
+    const iconClass = esIngreso ? 'ingreso' : 'egreso'
+    const icon = esIngreso ? '↓' : '↑'
+    const signo = esIngreso ? '+' : '-'
+    const estadoBadge = p.estado === 'aprobada' ? 'badge-green'
+      : p.estado === 'anulada' ? 'badge-red' : 'badge-amber'
+    const estadoLabel = p.estado === 'aprobada' ? 'Aprobada'
+      : p.estado === 'borrador' ? 'Borrador'
+      : p.estado === 'pendiente_caja' ? 'Pendiente'
+      : p.estado === 'anulada' ? 'Anulada' : p.estado
+    const fecha = p.created_at ? new Date(p.created_at).toLocaleDateString('es-HN') : (p.fecha_partida || '')
+    const hora = p.created_at ? new Date(p.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' }) : ''
+
+    const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
+      ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
+
+    // Detalle de billetes si existe
+    let billetesInfo = ''
+    if (l.billetes?.length) {
+      const denoms = [500,200,100,50,20,10,5,2,1]
+      const detalles = l.billetes.map(b => {
+        const partes = denoms.map(d => ({ d, q: b[`den_${d}`] || 0 })).filter(x => x.q > 0).map(x => `${x.q}×L.${x.d}`)
+        return partes.length ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes.join(' + ')}</span>` : ''
+      }).filter(Boolean)
+      if (detalles.length) billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
     }
-    return `<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:200px">
-        <div style="font-weight:500;font-size:13px">${p.descripcion || 'Sin descripción'}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:3px">
-          ${p.fecha_partida} · Partida #${p.numero_partida || '—'} ${p.numero_documento ? '· Doc: ' + p.numero_documento : ''}
+
+    const actions = (p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ? `
+      <div class="caja-actions">
+        <button class="caja-btn aprobar" onclick="aprobarMovCajaChica('${p.id}')">✓ Aprobar</button>
+      </div>` : ''
+
+    return `
+    <div class="caja-card ${p.estado}">
+      <div class="caja-left">
+        <div class="caja-icon ${iconClass}">${icon}</div>
+        <div class="caja-info">
+          <h4>Partida #${p.numero_partida || '—'} · ${p.descripcion || 'Sin descripción'}</h4>
+          <p>${fecha}${hora ? ' ' + hora : ''} · ${p.generador?.nombre || 'Sistema'} · Doc: ${p.numero_documento || '—'}</p>
+          ${billetesInfo}
+          ${aprobadoInfo}
         </div>
       </div>
-      <div style="text-align:right;min-width:120px">
-        <div style="font-size:16px;font-family:var(--mono);font-weight:600;color:${esIngreso ? 'var(--green)' : 'var(--red)'}">
-          ${esIngreso ? '+' : '-'} L. ${fmt(monto)}
+      <div class="caja-right">
+        <div>
+          <div class="caja-monto ${iconClass}">${signo} L. ${monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+          <div style="text-align:right;margin-top:4px"><span class="badge ${estadoBadge}">${estadoLabel}</span></div>
         </div>
-        <div style="font-size:11px;color:var(--text3)">${esIngreso ? 'Ingreso' : 'Egreso'}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        ${estadoBadge[p.estado] || p.estado}
-        ${(p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ?
-          `<button class="btn btn-ghost" style="padding:6px 12px;font-size:11px;color:var(--green)" onclick="aprobarMovCajaChica('${p.id}')">✅ Aprobar</button>` : ''}
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="verPartida('${p.id}')">👁️</button>
+        ${actions}
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
       </div>
     </div>`
   }).join('')
