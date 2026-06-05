@@ -1908,8 +1908,8 @@ function renderLineas() {
             oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
-    } else if (esCaja && esSuperAdmin) {
-      // Super Admin: botones 💵 en ambos lados
+    } else if (esCaja && esSuperAdmin && !esCajaChica) {
+      // Super Admin: botones 💵 en ambos lados (solo caja general; la caja chica la cuenta su responsable)
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
@@ -2562,15 +2562,6 @@ window.guardarPartida = async (estado) => {
       }
     }
 
-    // Reemplazo idempotente: si es re-importación, anular las partidas previas de Ventas
-    // Alpha de esta fecha y limpiar el libro de ventas del día antes de reinsertar (evita
-    // duplicados). El borrado por fecha+origen corre siempre, aunque no haya filas fiscales.
-    if (vd.previas?.length) {
-      await sb.from('partidas_contables').update({ estado: 'anulada' }).in('id', vd.previas)
-      console.log(`🚫 ${vd.previas.length} partida(s) previa(s) de Ventas Alpha anuladas`)
-    }
-    await sb.from('libro_ventas').delete().eq('fecha', vd.fecha).eq('origen', 'import_alpha')
-
     if (registros.length) {
       const { error: lvErr } = await sb.from('libro_ventas').insert(registros)
       if (lvErr) console.error('Error libro_ventas:', lvErr.message)
@@ -2805,9 +2796,11 @@ const CAJA_CODIGOS = ['110101-001', '110102', '110102-001'] // Caja Chica MN + C
 
 // ── CUENTAS SENSIBLES (solo Super Admin puede ver saldos) ──
 const CUENTAS_SENSIBLES_PREFIJOS = ['110102', '110103', '110104'] // Caja General, Chequeras, Bancos
+const GRUPOS_SENSIBLES_PREFIJOS = ['6204'] // GASTOS CASA (gastos personales): solo super_admin
 function esCuentaSensible(codigo) {
   if (!codigo) return false
-  return CUENTAS_SENSIBLES_PREFIJOS.some(p => codigo === p || codigo.startsWith(p + '-'))
+  if (CUENTAS_SENSIBLES_PREFIJOS.some(p => codigo === p || codigo.startsWith(p + '-'))) return true
+  return GRUPOS_SENSIBLES_PREFIJOS.some(p => String(codigo).startsWith(p)) // todo el grupo 6204 (6204, 620401, 620401-XX…)
 }
 function puedeVerSensibles() {
   return currentProfile?.rol === 'super_admin'
@@ -3979,19 +3972,6 @@ window.guardarImportPartida = async () => {
   const descripcion = document.getElementById('imp-desc').value.trim() || `Ventas Alpha ${fecha}`
   if (!fecha) { toast('Selecciona la fecha de ventas', 'error'); return }
 
-  // ── Re-importación: ¿ya existe una partida de Ventas Alpha (no anulada) para esta fecha? ──
-  let _vaPrevias = []
-  {
-    const { data: previasVA } = await sb.from('partidas_contables')
-      .select('id, numero_partida, estado').eq('fecha_partida', fecha)
-      .eq('tipo_origen', 'venta_alpha').neq('estado', 'anulada')
-    if ((previasVA || []).length) {
-      const lst = previasVA.map(p => `#${p.numero_partida} (${p.estado})`).join(', ')
-      if (!confirm(`Ya existe una partida de Ventas Alpha para el ${fecha}: ${lst}.\n\nSi continuás, al guardar se ANULARÁ(N) esa(s) partida(s) y el libro de ventas de ese día se reemplazará (sin duplicar). La nueva queda en BORRADOR para que la revises.\n\n¿Continuar con el reemplazo?`)) return
-      _vaPrevias = previasVA.map(p => p.id)
-    }
-  }
-
   const d = importData
   const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
@@ -4130,7 +4110,6 @@ window.guardarImportPartida = async () => {
     ccTecniId: ccTecni?.id || null,
     ccYonkerId: ccYonker?.id || null,
     isvWarnings: window._isvWarnings || {},
-    previas: _vaPrevias,
   }
 
   toast('Créditos cargados. Completá los débitos con las formas de pago.', 'info')
@@ -4143,14 +4122,43 @@ const DENOMINACIONES = [1, 2, 5, 10, 20, 50, 100, 200, 500]
 let billetesCallback = null
 let billetesConteo = {}
 let billetesChequeMonto = 0  // Valor total de cheques
+let billetesObjetivo = 0     // Monto que se quiere alcanzar (para la resta en vivo)
+let billetesStock = null     // Stock disponible por denominación (solo egresos): {den: cantidad} o null
 
-function openBilletes(titulo, subtitulo, callback, initialValues) {
+// Stock disponible por denominación de una caja (ingresos − egresos de conteos aprobados).
+// Agrupa igual que el Arqueo: caja general = todo lo que NO es caja chica; caja chica = su propia cuenta.
+async function cajaStockDenom(cuentaCodigo, excludePartidaId) {
+  const stock = {}
+  DENOMINACIONES.forEach(d => stock[d] = 0)
+  if (!cuentaCodigo) return stock
+  const esChica = String(cuentaCodigo).startsWith('110101')
+  const { data } = await sb.from('conteo_billetes')
+    .select('tipo, partida_id, cuenta_codigo, den_500,den_200,den_100,den_50,den_20,den_10,den_5,den_2,den_1, partida:partidas_contables(estado)')
+  for (const c of (data || [])) {
+    if (excludePartidaId && c.partida_id === excludePartidaId) continue
+    if (!(c.partida?.estado === 'aprobada' || c.partida_id === null)) continue
+    const enGrupo = esChica
+      ? (c.cuenta_codigo === cuentaCodigo)      // cada caja chica = su propia cuenta
+      : (c.cuenta_codigo !== '110101-001')      // caja general = todo lo que no es caja chica (igual que el arqueo)
+    if (!enGrupo) continue
+    const signo = c.tipo === 'ingreso' ? 1 : (c.tipo === 'egreso' ? -1 : 0)
+    DENOMINACIONES.forEach(d => { stock[d] += signo * (c[`den_${d}`] || 0) })
+  }
+  return stock
+}
+
+async function openBilletes(titulo, subtitulo, callback, initialValues, objetivo, cuentaCodigo, chequearStock) {
   billetesCallback = callback
   billetesConteo = {}
   DENOMINACIONES.forEach(d => billetesConteo[d] = (initialValues && initialValues[d]) || 0)
   billetesChequeMonto = (initialValues && initialValues._cheques) || 0
+  billetesObjetivo = objetivo || 0
+  billetesStock = (chequearStock && cuentaCodigo) ? await cajaStockDenom(cuentaCodigo, editingPartidaId) : null
   document.getElementById('billetes-title').textContent = titulo || '💵 Conteo de billetes'
   document.getElementById('billetes-sub').textContent = subtitulo || 'Ingresa la cantidad de cada denominación'
+  _ensureBilletesObjetivo()
+  const objInput = document.getElementById('billetes-objetivo')
+  if (objInput) objInput.value = billetesObjetivo ? billetesObjetivo : ''
   renderBilletes()
   document.getElementById('modal-billetes').classList.add('open')
   setTimeout(() => {
@@ -4159,19 +4167,41 @@ function openBilletes(titulo, subtitulo, callback, initialValues) {
   }, 200)
 }
 
+// Inyecta (una sola vez) el campo "Monto objetivo" + indicador de resta en el modal de billetes
+function _ensureBilletesObjetivo() {
+  if (document.getElementById('billetes-objetivo-wrap')) return
+  const sub = document.getElementById('billetes-sub')
+  if (!sub || !sub.parentNode) return
+  const w = document.createElement('div')
+  w.id = 'billetes-objetivo-wrap'
+  w.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin:10px 0;padding:10px 12px;background:var(--bg3);border-radius:8px;border:0.5px solid var(--border)'
+  w.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:13px;color:var(--text2)">Monto objetivo:</label>
+      <input type="text" inputmode="decimal" id="billetes-objetivo" placeholder="0.00" oninput="window.updBilletesObjetivo(this.value)" onfocus="this.select()"
+        style="width:120px;text-align:right;font-family:var(--mono);font-size:15px;padding:6px 8px;background:var(--bg2);border:0.5px solid var(--gold);border-radius:6px;color:var(--text);outline:none">
+      <span id="billetes-falta" style="font-family:var(--mono);font-size:14px;font-weight:600;margin-left:auto"></span>
+    </div>
+    <div id="billetes-stock-warn" style="font-size:12px;color:var(--red);font-weight:600"></div>`
+  sub.parentNode.insertBefore(w, sub.nextSibling)
+}
+
 function renderBilletes() {
   const tbody = document.getElementById('tbody-billetes')
-  let rows = DENOMINACIONES.slice().reverse().map(d => {
+  let rows = DENOMINACIONES.slice().map(d => {
     const qty = billetesConteo[d] || 0
     const sub = qty * d
+    const disp = billetesStock ? (billetesStock[d] || 0) : null
+    const over = disp !== null && qty > disp
     return `<tr>
       <td style="padding:8px 12px">
         <span style="font-family:var(--mono);font-size:15px;color:var(--text);font-weight:500">L. ${d.toLocaleString('es-HN')}</span>
+        ${disp !== null ? `<div id="bill-disp-${d}" style="font-size:11px;color:${over ? 'var(--red)' : 'var(--text3)'}">disp: ${disp}</div>` : ''}
       </td>
       <td style="padding:8px 12px;text-align:center">
         <input type="text" inputmode="numeric" pattern="[0-9]*" value="${qty || ''}" placeholder="0" data-denom="${d}"
-          oninput="updBillete(${d},this.value)" onfocus="this.select()"
-          style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-family:var(--mono);font-size:15px;outline:none">
+          class="bill-input" oninput="updBillete(${d},this.value)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
+          style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid ${over ? 'var(--red)' : 'var(--border)'};border-radius:6px;padding:8px;color:var(--text);font-family:var(--mono);font-size:15px;outline:none">
       </td>
       <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px;min-width:120px" id="bill-sub-${d}">
         ${sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'}
@@ -4187,7 +4217,7 @@ function renderBilletes() {
     </td>
     <td style="padding:8px 12px;text-align:center" colspan="1">
       <input type="text" inputmode="decimal" value="${cheqVal || ''}" placeholder="0.00"
-        oninput="updBilletesCheque(this.value)" onfocus="this.select()"
+        class="bill-input" oninput="updBilletesCheque(this.value)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
         style="width:100px;text-align:center;background:rgba(245,158,11,0.05);border:0.5px solid var(--amber);border-radius:6px;padding:8px;color:var(--amber);font-family:var(--mono);font-size:15px;outline:none">
     </td>
     <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px" id="bill-sub-cheques">
@@ -4205,6 +4235,13 @@ window.updBillete = (denom, val) => {
   const subEl = document.getElementById('bill-sub-' + denom)
   if (subEl) {
     subEl.innerHTML = sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'
+  }
+  if (billetesStock) {
+    const over = (billetesConteo[denom] || 0) > (billetesStock[denom] || 0)
+    const inp = document.querySelector(`#tbody-billetes input[data-denom="${denom}"]`)
+    if (inp) inp.style.borderColor = over ? 'var(--red)' : 'var(--border)'
+    const dispEl = document.getElementById('bill-disp-' + denom)
+    if (dispEl) dispEl.style.color = over ? 'var(--red)' : 'var(--text3)'
   }
   updateBilletesTotal()
 }
@@ -4230,6 +4267,38 @@ function updateBilletesTotal() {
   if (billetesChequeMonto > 0) totalQty += 1 // Count cheques as 1 item
   document.getElementById('bill-total-qty').textContent = totalQty
   document.getElementById('bill-total-monto').textContent = 'L. ' + totalMonto.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const faltaEl = document.getElementById('billetes-falta')
+  if (faltaEl) {
+    if (!billetesObjetivo || billetesObjetivo <= 0) {
+      faltaEl.textContent = ''
+    } else {
+      const dif = Math.round((billetesObjetivo - totalMonto) * 100) / 100
+      if (Math.abs(dif) < 0.005) faltaEl.innerHTML = '<span style="color:var(--green)">✓ Exacto</span>'
+      else if (dif > 0) faltaEl.innerHTML = '<span style="color:var(--amber)">Falta L. ' + dif.toLocaleString('es-HN', { minimumFractionDigits: 2 }) + '</span>'
+      else faltaEl.innerHTML = '<span style="color:var(--red)">Sobra L. ' + Math.abs(dif).toLocaleString('es-HN', { minimumFractionDigits: 2 }) + '</span>'
+    }
+  }
+  const warnEl = document.getElementById('billetes-stock-warn')
+  if (warnEl) {
+    const exceso = billetesStock && DENOMINACIONES.some(d => (billetesConteo[d] || 0) > (billetesStock[d] || 0))
+    warnEl.textContent = exceso ? '⚠️ Estás sacando más billetes de los que hay disponibles en la caja' : ''
+  }
+}
+
+window.updBilletesObjetivo = (val) => {
+  billetesObjetivo = parseFloat(String(val).replace(/,/g, '')) || 0
+  updateBilletesTotal()
+}
+
+// Navegación con teclado entre casillas del contador (Enter/↓ baja, ↑ sube)
+window.billeteKey = (e, el) => {
+  if (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  const inputs = Array.from(document.querySelectorAll('#tbody-billetes .bill-input'))
+  const i = inputs.indexOf(el)
+  if (i === -1) return
+  const next = (e.key === 'ArrowUp') ? inputs[i - 1] : inputs[i + 1]
+  if (next) { next.focus(); if (next.select) next.select() }
 }
 
 window.cancelBilletes = () => {
@@ -4238,6 +4307,13 @@ window.cancelBilletes = () => {
 }
 
 window.aplicarBilletes = () => {
+  if (billetesStock) {
+    const over = DENOMINACIONES.filter(d => (billetesConteo[d] || 0) > (billetesStock[d] || 0))
+    if (over.length) {
+      window.toast?.('No hay suficientes billetes en caja para: ' + over.map(d => 'L.' + d).join(', '), 'error')
+      return
+    }
+  }
   let totalMonto = 0
   DENOMINACIONES.forEach(d => totalMonto += (billetesConteo[d] || 0) * d)
   totalMonto += billetesChequeMonto || 0
@@ -4263,7 +4339,7 @@ window.openCajaDebe = (lineaId) => {
     }
     renderLineas()
     calcTotales()
-  }, existing)
+  }, existing, l?.monto || 0)
 }
 
 window.openCajaHaber = (lineaId) => {
@@ -4279,7 +4355,7 @@ window.openCajaHaber = (lineaId) => {
     }
     renderLineas()
     calcTotales()
-  }, existing)
+  }, existing, l?.monto || 0, l?.cuenta_codigo, true)
 }
 
 // ── ARQUEO DE CAJA ──
