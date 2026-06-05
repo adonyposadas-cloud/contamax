@@ -2916,17 +2916,27 @@ window.loadCaja = loadCaja
 
 function updateCajaStats() {
   const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const hoy = localDateStr()
 
-  // Saldo acumulado (todas las aprobadas, sin filtro de fecha)
+  // Saldo acumulado real (todas las aprobadas, sin filtro de fecha) — no cambia
   const aprobadas = cajaPartidas.filter(p => p.estado === 'aprobada')
   const totalIngresosAcum = aprobadas.filter(p => p.caja_tipo === 'ingreso').reduce((s, p) => s + p.caja_monto, 0)
   const totalEgresosAcum = aprobadas.filter(p => p.caja_tipo === 'egreso').reduce((s, p) => s + p.caja_monto, 0)
   const saldo = totalIngresosAcum - totalEgresosAcum
 
+  // Vienen = saldo con que abrió el día (todo lo aprobado con fecha anterior a hoy)
+  const antIng = aprobadas.filter(p => p.caja_tipo === 'ingreso' && p.fecha_partida < hoy).reduce((s, p) => s + p.caja_monto, 0)
+  const antEgr = aprobadas.filter(p => p.caja_tipo === 'egreso' && p.fecha_partida < hoy).reduce((s, p) => s + p.caja_monto, 0)
+  const vienen = antIng - antEgr
+  // Ingresos / egresos SOLO de hoy
+  const ingHoy = aprobadas.filter(p => p.caja_tipo === 'ingreso' && p.fecha_partida === hoy).reduce((s, p) => s + p.caja_monto, 0)
+  const egrHoy = aprobadas.filter(p => p.caja_tipo === 'egreso' && p.fecha_partida === hoy).reduce((s, p) => s + p.caja_monto, 0)
+
   document.getElementById('cj-saldo').textContent = fmt(saldo)
   document.getElementById('cj-saldo').style.color = saldo >= 0 ? 'var(--green)' : 'var(--red)'
-  document.getElementById('cj-total-ingresos').textContent = fmt(totalIngresosAcum)
-  document.getElementById('cj-total-egresos').textContent = fmt(totalEgresosAcum)
+  const vEl = document.getElementById('cj-vienen'); if (vEl) vEl.textContent = fmt(vienen)
+  document.getElementById('cj-total-ingresos').textContent = fmt(ingHoy)
+  document.getElementById('cj-total-egresos').textContent = fmt(egrHoy)
 
   // Stats filtrados por fecha seleccionada
   filtrarCajaFecha()
@@ -4371,7 +4381,7 @@ window.verArqueo = async () => {
     c.cuenta_codigo !== '110101-001'
   )
 
-  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const denoms = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   const tbody = document.getElementById('tbody-arqueo')
 
   let totIng = 0, totEgr = 0, totCaja = 0, totValor = 0
@@ -4663,7 +4673,7 @@ window.openModalCambioDenoms = (cajaCodigo = '110102-001') => {
 
 function renderCambioDenoms() {
   const tbody = document.getElementById('tbody-cambio-denoms')
-  tbody.innerHTML = DENOMINACIONES.slice().reverse().map(d => {
+  tbody.innerHTML = DENOMINACIONES.slice().map(d => {
     const inQty = cambioDenomIn[d] || 0
     const outQty = cambioDenomOut[d] || 0
     const neto = (inQty - outQty) * d
@@ -4671,12 +4681,14 @@ function renderCambioDenoms() {
       <td style="padding:6px 10px;font-family:var(--mono);font-size:14px;font-weight:500">L. ${d.toLocaleString('es-HN')}</td>
       <td style="padding:6px 10px;text-align:center">
         <input type="text" inputmode="numeric" value="${inQty || ''}" placeholder="0"
-          oninput="updCambioDenom('in',${d},this.value)" onfocus="this.select()"
+          class="cxd-input" data-side="in" data-denom="${d}"
+          oninput="updCambioDenom('in',${d},this.value)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
           style="width:70px;text-align:center;background:rgba(16,185,129,0.05);border:0.5px solid var(--green);border-radius:6px;padding:6px;color:var(--green);font-family:var(--mono);font-size:14px;outline:none">
       </td>
       <td style="padding:6px 10px;text-align:center">
         <input type="text" inputmode="numeric" value="${outQty || ''}" placeholder="0"
-          oninput="updCambioDenom('out',${d},this.value)" onfocus="this.select()"
+          class="cxd-input" data-side="out" data-denom="${d}"
+          oninput="updCambioDenom('out',${d},this.value)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
           style="width:70px;text-align:center;background:rgba(239,68,68,0.05);border:0.5px solid var(--red);border-radius:6px;padding:6px;color:var(--red);font-family:var(--mono);font-size:14px;outline:none">
       </td>
       <td class="neto-cell" style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:13px;color:${neto > 0 ? 'var(--green)' : neto < 0 ? 'var(--red)' : 'var(--text3)'}">
@@ -4685,6 +4697,31 @@ function renderCambioDenoms() {
     </tr>`
   }).join('')
   calcCambioDenomTotals()
+}
+
+// Navegación con teclado en el modal de Cambio de denominaciones (2 columnas: ENTRADA/SALIDA)
+window.cambioDenomKey = (e, el) => {
+  const order = DENOMINACIONES.slice()       // ascendente 1→500 (mismo orden que la tabla)
+  const side = el.dataset.side
+  const i = order.indexOf(parseInt(el.dataset.denom))
+  const atStart = el.selectionStart === 0 && el.selectionEnd === 0
+  const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length
+  let tSide = side, tDenom = null
+  if (e.key === 'Enter' || e.key === 'ArrowDown') {
+    if (i + 1 < order.length) tDenom = order[i + 1]                       // baja en la misma columna
+    else if (side === 'in') { tSide = 'out'; tDenom = order[0] }          // fin de ENTRADA → inicio de SALIDA
+  } else if (e.key === 'ArrowUp') {
+    if (i - 1 >= 0) tDenom = order[i - 1]                                 // sube en la misma columna
+    else if (side === 'out') { tSide = 'in'; tDenom = order[order.length - 1] }
+  } else if (e.key === 'ArrowRight' && side === 'in' && atEnd) {
+    tSide = 'out'; tDenom = order[i]                                      // pasa a SALIDA (misma fila)
+  } else if (e.key === 'ArrowLeft' && side === 'out' && atStart) {
+    tSide = 'in'; tDenom = order[i]                                       // vuelve a ENTRADA (misma fila)
+  } else return
+  e.preventDefault()
+  if (tDenom == null) return
+  const next = document.querySelector(`#tbody-cambio-denoms input[data-side="${tSide}"][data-denom="${tDenom}"]`)
+  if (next) { next.focus(); next.select() }
 }
 
 window.updCambioDenom = (side, denom, val) => {
@@ -8145,16 +8182,26 @@ window.loadCajaChica = async () => {
 
   const movs = (lineas || []).filter(l => l.partida)
 
-  // Saldo total (solo aprobadas)
-  let saldoTotal = 0, ingresosTotal = 0, egresosTotal = 0
+  // Saldo total (solo aprobadas) + vienen (día anterior) + hoy
+  const hoyCC = localDateStr()
+  let saldoTotal = 0, ingresosTotal = 0, egresosTotal = 0, vienenCC = 0
   movs.filter(l => l.partida.estado === 'aprobada').forEach(l => {
     const m = parseFloat(l.monto) || 0
-    if (l.tipo === 'debito') { saldoTotal += m; ingresosTotal += m }
-    else { saldoTotal -= m; egresosTotal += m }
+    const f = l.partida.fecha_partida
+    if (l.tipo === 'debito') {
+      saldoTotal += m
+      if (f === hoyCC) ingresosTotal += m
+      if (f < hoyCC) vienenCC += m
+    } else {
+      saldoTotal -= m
+      if (f === hoyCC) egresosTotal += m
+      if (f < hoyCC) vienenCC -= m
+    }
   })
 
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   document.getElementById('cc-saldo').textContent = 'L. ' + fmt(saldoTotal)
+  const vccEl = document.getElementById('cc-vienen'); if (vccEl) vccEl.textContent = 'L. ' + fmt(vienenCC)
   document.getElementById('cc-total-ingresos').textContent = 'L. ' + fmt(ingresosTotal)
   document.getElementById('cc-total-egresos').textContent = 'L. ' + fmt(egresosTotal)
 
@@ -8328,7 +8375,7 @@ window.aprobarMovCajaChica = async (partidaId) => {
 
 // Arqueo de caja chica — solo billetes, sin USD ni cheques
 window.verArqueoCajaChica = async () => {
-  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const denoms = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   
   // Get all conteos for caja chica account (by cuenta_codigo or by partida that touches caja chica)
   const { data: conteosDirect } = await sb.from('conteo_billetes')
