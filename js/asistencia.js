@@ -1199,14 +1199,17 @@ window.cargarHistorialAsistencia = async () => {
 // ── CONFIG IHSS ──
 window.loadConfigPlanilla = async () => {
   await loadConfig()
-  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min']
+  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min', 'bono_educativo_monto', 'bono_educativo_tope', 'bono_educativo_anio']
   const labels = {
     ihss_techo_mensual: 'Techo IHSS mensual (L.)',
     ihss_pct_laboral: 'IHSS % laboral (ej: 0.025 = 2.5%)',
     ihss_pct_patronal: 'IHSS % patronal (ej: 0.05 = 5%)',
     gracia_tarde_min: 'Gracia tardes (min/quincena)',
     he_gracia_lv_min: 'Gracia HE Lun-Vie (min después de 5PM)',
-    he_bloque_min: 'Bloque HE (min)'
+    he_bloque_min: 'Bloque HE (min)',
+    bono_educativo_monto: 'Bono educativo: monto anual (L.)',
+    bono_educativo_tope: 'Bono educativo: tope salarial (2 sal. mín.)',
+    bono_educativo_anio: 'Bono educativo: año vigente'
   }
   const container = document.getElementById('config-planilla-fields')
   if (!container) return
@@ -1226,7 +1229,7 @@ window.loadConfigPlanilla = async () => {
 }
 
 window.guardarConfigPlanilla = async () => {
-  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min']
+  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min', 'bono_educativo_monto', 'bono_educativo_tope', 'bono_educativo_anio']
   for (const k of keys) {
     const val = parseFloat(document.getElementById(`cfg-${k}`).value) || 0
     await getSb().from('config_planilla').upsert({ clave: k, valor: val, updated_at: new Date().toISOString() }, { onConflict: 'clave' })

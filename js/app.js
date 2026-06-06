@@ -4210,7 +4210,7 @@ function renderBilletes() {
       </td>
       <td style="padding:8px 12px;text-align:center">
         <input type="text" inputmode="numeric" pattern="[0-9]*" value="${qty || ''}" placeholder="0" data-denom="${d}"
-          class="bill-input" oninput="updBillete(${d},this.value)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
+          class="bill-input" oninput="updBillete(${d},this.value)" onblur="window.resolveBillete(${d},this)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
           style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid ${over ? 'var(--red)' : 'var(--border)'};border-radius:6px;padding:8px;color:var(--text);font-family:var(--mono);font-size:15px;outline:none">
       </td>
       <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px;min-width:120px" id="bill-sub-${d}">
@@ -4227,7 +4227,7 @@ function renderBilletes() {
     </td>
     <td style="padding:8px 12px;text-align:center" colspan="1">
       <input type="text" inputmode="decimal" value="${cheqVal || ''}" placeholder="0.00"
-        class="bill-input" oninput="updBilletesCheque(this.value)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
+        class="bill-input" oninput="updBilletesCheque(this.value)" onblur="window.resolveCheque(this)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
         style="width:100px;text-align:center;background:rgba(245,158,11,0.05);border:0.5px solid var(--amber);border-radius:6px;padding:8px;color:var(--amber);font-family:var(--mono);font-size:15px;outline:none">
     </td>
     <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px" id="bill-sub-cheques">
@@ -4239,8 +4239,49 @@ function renderBilletes() {
   updateBilletesTotal()
 }
 
+// Evalúa una expresión aritmética estilo Excel (+, -, *, /, paréntesis). Devuelve número o NaN.
+// Sin eval/Function: tokeniza y resuelve con shunting-yard; solo acepta caracteres aritméticos.
+function evalExprSeguro(expr) {
+  const s = String(expr).trim()
+  if (!s) return 0
+  if (!/^[\d\s+\-*/.()]+$/.test(s)) return NaN
+  const tokens = s.match(/\d+\.?\d*|[+\-*/()]/g)
+  if (!tokens) return NaN
+  const out = [], ops = [], prec = { '+': 1, '-': 1, '*': 2, '/': 2 }
+  let prev = null
+  for (const t of tokens) {
+    if (/^[\d.]/.test(t)) { out.push(parseFloat(t)); prev = 'num' }
+    else if (t === '(') { ops.push(t); prev = '(' }
+    else if (t === ')') {
+      while (ops.length && ops[ops.length - 1] !== '(') out.push(ops.pop())
+      if (!ops.length) return NaN
+      ops.pop(); prev = 'num'
+    } else {
+      if ((t === '+' || t === '-') && (prev === null || prev === 'op' || prev === '(')) out.push(0) // unario (+1, -3...)
+      while (ops.length && prec[ops[ops.length - 1]] >= prec[t]) out.push(ops.pop())
+      ops.push(t); prev = 'op'
+    }
+  }
+  while (ops.length) { const o = ops.pop(); if (o === '(') return NaN; out.push(o) }
+  const st = []
+  for (const x of out) {
+    if (typeof x === 'number') st.push(x)
+    else {
+      const b = st.pop(), a = st.pop()
+      if (a === undefined || b === undefined) return NaN
+      st.push(x === '+' ? a + b : x === '-' ? a - b : x === '*' ? a * b : a / b)
+    }
+  }
+  return st.length === 1 ? st[0] : NaN
+}
+
+// Al salir de la celda, muestra el resultado entero ya calculado (como Excel)
+window.resolveBillete = (denom, el) => { el.value = billetesConteo[denom] ? billetesConteo[denom] : '' }
+window.resolveCheque = (el) => { el.value = billetesChequeMonto ? billetesChequeMonto : '' }
+
 window.updBillete = (denom, val) => {
-  billetesConteo[denom] = parseInt(val) || 0
+  const n = evalExprSeguro(val)
+  if (!isNaN(n) && n >= 0) billetesConteo[denom] = Math.round(n) // billetes = entero
   const sub = billetesConteo[denom] * denom
   const subEl = document.getElementById('bill-sub-' + denom)
   if (subEl) {
@@ -4257,7 +4298,8 @@ window.updBillete = (denom, val) => {
 }
 
 window.updBilletesCheque = (val) => {
-  billetesChequeMonto = parseFloat(val) || 0
+  const n = evalExprSeguro(val)
+  if (!isNaN(n) && n >= 0) billetesChequeMonto = Math.round(n * 100) / 100
   const subEl = document.getElementById('bill-sub-cheques')
   if (subEl) {
     subEl.innerHTML = billetesChequeMonto > 0
@@ -4296,7 +4338,8 @@ function updateBilletesTotal() {
 }
 
 window.updBilletesObjetivo = (val) => {
-  billetesObjetivo = parseFloat(String(val).replace(/,/g, '')) || 0
+  const n = evalExprSeguro(String(val).replace(/,/g, ''))
+  if (!isNaN(n) && n >= 0) billetesObjetivo = n
   updateBilletesTotal()
 }
 
@@ -4682,13 +4725,13 @@ function renderCambioDenoms() {
       <td style="padding:6px 10px;text-align:center">
         <input type="text" inputmode="numeric" value="${inQty || ''}" placeholder="0"
           class="cxd-input" data-side="in" data-denom="${d}"
-          oninput="updCambioDenom('in',${d},this.value)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
+          oninput="updCambioDenom('in',${d},this.value)" onblur="window.resolveCambio('in',${d},this)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
           style="width:70px;text-align:center;background:rgba(16,185,129,0.05);border:0.5px solid var(--green);border-radius:6px;padding:6px;color:var(--green);font-family:var(--mono);font-size:14px;outline:none">
       </td>
       <td style="padding:6px 10px;text-align:center">
         <input type="text" inputmode="numeric" value="${outQty || ''}" placeholder="0"
           class="cxd-input" data-side="out" data-denom="${d}"
-          oninput="updCambioDenom('out',${d},this.value)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
+          oninput="updCambioDenom('out',${d},this.value)" onblur="window.resolveCambio('out',${d},this)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
           style="width:70px;text-align:center;background:rgba(239,68,68,0.05);border:0.5px solid var(--red);border-radius:6px;padding:6px;color:var(--red);font-family:var(--mono);font-size:14px;outline:none">
       </td>
       <td class="neto-cell" style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:13px;color:${neto > 0 ? 'var(--green)' : neto < 0 ? 'var(--red)' : 'var(--text3)'}">
@@ -4724,9 +4767,18 @@ window.cambioDenomKey = (e, el) => {
   if (next) { next.focus(); next.select() }
 }
 
+// Resuelve la celda de cambio al salir (muestra el resultado ya calculado, como Excel)
+window.resolveCambio = (side, denom, el) => {
+  const v = side === 'in' ? cambioDenomIn[denom] : cambioDenomOut[denom]
+  el.value = v ? v : ''
+}
+
 window.updCambioDenom = (side, denom, val) => {
-  if (side === 'in') cambioDenomIn[denom] = parseInt(val) || 0
-  else cambioDenomOut[denom] = parseInt(val) || 0
+  const n = evalExprSeguro(val)
+  if (!isNaN(n) && n >= 0) {
+    if (side === 'in') cambioDenomIn[denom] = Math.round(n)
+    else cambioDenomOut[denom] = Math.round(n)
+  }
   // Only update the neto cell for this row, NOT re-render the whole table
   const row = document.querySelector(`#tbody-cambio-denoms tr[data-denom="${denom}"]`)
   if (row) {

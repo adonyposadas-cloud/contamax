@@ -336,6 +336,7 @@ window.initPlanilla = async () => {
   // Load employees if not loaded
   if (allEmpleados.length === 0) loadEmpleados()
   ensureBonoLauncher()
+  ensureBonoEduLauncher()
 }
 
 window.regenerarPlanilla = async () => {
@@ -1783,6 +1784,241 @@ window.generarPartidaBono = async () => {
     window.toast?.('Error: ' + e.message, 'error')
   } finally {
     btn.disabled = false; btn.textContent = 'Generar partida (borrador) + liquidar adelantos'
+  }
+}
+
+// ══════════════════════════════════════════════
+// ═══  PLANILLA DE BONO EDUCATIVO  ═══
+// ══════════════════════════════════════════════
+// Beneficio anual (Ley del Bono Educativo, Decreto 43-97). El monto es fijo de la tabla
+// STSS según rama + tamaño de empresa (parametrizado en config_planilla); NO depende del
+// sueldo. Elegibles: aplica_bono_educativo ✔ + sueldo ≤ tope (2 sal. mín.) + activo + !socio.
+// Prorrateo base 30/360 por tiempo laborado en el año. Modelo A: gasto directo (6101xx-008).
+
+function getBonoEduCfg() {
+  const cfg = window._configPlanilla || {}
+  return {
+    monto: parseFloat(cfg.bono_educativo_monto) || 2068.58,
+    tope:  parseFloat(cfg.bono_educativo_tope)  || 27970.32,
+    anio:  parseInt(cfg.bono_educativo_anio, 10) || new Date().getFullYear()
+  }
+}
+
+// Cuenta de gasto del bono educativo por sección (sufijo 008): GO=610101, GV=610102, GA=610103
+function cuentaBonoEdu(seccion) {
+  const p = (seccion || '').trim().toUpperCase().split(/\s+/)[0]
+  if (p === 'GV') return '610102-008'
+  if (p === 'GA') return '610103-008'
+  return '610101-008' // GO (default)
+}
+
+let _bonoEduCtx = null  // { anio, desde, hasta, label, monto, tope, filas, existe }
+
+function ensureBonoEduLauncher() {
+  if (document.getElementById('btn-bono-educativo')) return
+  const anchor = document.getElementById('planilla-resultado')
+  if (!anchor || !anchor.parentNode) return
+  const btn = document.createElement('button')
+  btn.id = 'btn-bono-educativo'; btn.type = 'button'
+  btn.className = 'btn btn-ghost'; btn.style.margin = '0 0 12px 8px'
+  btn.textContent = '🎒 Planilla de bono educativo'
+  btn.onclick = () => window.abrirBonoEducativo()
+  const bonoBtn = document.getElementById('btn-planilla-bono')
+  if (bonoBtn && bonoBtn.parentNode) bonoBtn.parentNode.insertBefore(btn, bonoBtn.nextSibling)
+  else anchor.parentNode.insertBefore(btn, anchor)
+}
+
+function ensureBonoEduModal() {
+  if (document.getElementById('modal-bono-edu')) return
+  const div = document.createElement('div')
+  div.className = 'modal-backdrop'; div.id = 'modal-bono-edu'
+  const now = new Date()
+  const cfg = getBonoEduCfg()
+  let opts = ''
+  for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 1; y++) opts += `<option value="${y}" ${y === cfg.anio ? 'selected' : ''}>${y}</option>`
+  div.innerHTML = `
+    <div class="modal" style="width:min(1000px,95vw);max-width:1000px;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>🎒 Planilla de bono educativo</h3><button class="modal-close" onclick="closeModalBonoEdu()">✕</button></div>
+      <div class="modal-body" style="flex:1;min-height:0;overflow-y:auto">
+        <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-bottom:12px">
+          <div class="fld"><label>Año</label><select id="be-anio">${opts}</select></div>
+          <div class="fld"><label>Fecha de pago</label><input type="date" id="be-fecha-pago" value="${now.toLocaleDateString('en-CA')}"></div>
+          <button class="btn btn-gold" type="button" onclick="window.calcularBonoEducativo()">Calcular →</button>
+        </div>
+        <div id="be-periodo" style="font-size:12px;color:var(--text3);margin-bottom:8px"></div>
+        <div id="be-resultado"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" onclick="closeModalBonoEdu()">Cerrar</button>
+        <button class="btn btn-gold" id="be-btn-partida" type="button" onclick="window.generarBonoEducativo()" style="display:none">Generar partida (borrador)</button>
+      </div>
+    </div>`
+  document.body.appendChild(div)
+}
+
+window.closeModalBonoEdu = () => { const m = document.getElementById('modal-bono-edu'); if (m) m.classList.remove('open') }
+
+window.abrirBonoEducativo = () => {
+  ensureBonoEduModal()
+  _bonoEduCtx = null
+  document.getElementById('be-resultado').innerHTML = ''
+  document.getElementById('be-periodo').textContent = ''
+  document.getElementById('be-btn-partida').style.display = 'none'
+  document.getElementById('modal-bono-edu').classList.add('open')
+}
+
+// Marca/desmarca quién aplica (persiste empleados.aplica_bono_educativo) y recalcula
+window.toggleAplicaBonoEdu = async (empleadoId, checked) => {
+  const sb = getSb()
+  const { error } = await sb.from('empleados').update({ aplica_bono_educativo: checked }).eq('id', empleadoId)
+  if (error) { window.toast?.('No se pudo guardar: ' + error.message, 'error'); return }
+  const emp = allEmpleados.find(e => e.id === empleadoId); if (emp) emp.aplica_bono_educativo = checked
+  await window.calcularBonoEducativo()
+}
+
+window.calcularBonoEducativo = async () => {
+  const sb = getSb()
+  const r2 = x => Math.round(x * 100) / 100
+  const cfg = getBonoEduCfg()
+  const anio = parseInt(document.getElementById('be-anio').value, 10)
+  const desde = `${anio}-01-01`, hasta = `${anio}-12-31`
+  const label = `BONO EDUCATIVO ${anio}`
+  document.getElementById('be-periodo').textContent = `Período: ${desde} a ${hasta} · monto base L. ${fmt(cfg.monto)} · tope L. ${fmt(cfg.tope)} · base 30/360 (exento de IHSS/ISR, no integra prestaciones/13.º/14.º)`
+
+  const { data: yaExiste } = await sb.from('planillas_bono_educativo')
+    .select('id, estado, partida_numero').eq('periodo', label).maybeSingle()
+
+  const { data: emps } = await sb.from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
+  const candidatos = (emps || []).filter(e => !e.es_socio && (e.sueldo_mensual || 0) <= cfg.tope)
+
+  const filas = candidatos.map(e => {
+    const dias = diasBono(e.fecha_ingreso, desde, hasta)
+    const aplica = !!e.aplica_bono_educativo
+    const monto = aplica ? r2(cfg.monto / 360 * dias) : 0
+    return {
+      empleado_id: e.id, nombre: e.nombre, seccion: e.seccion, centro_costo: e.centro_costo,
+      sueldo_mensual: e.sueldo_mensual || 0, fecha_ingreso: e.fecha_ingreso || null,
+      dias, aplica, monto
+    }
+  })
+
+  _bonoEduCtx = { anio, desde, hasta, label, monto: cfg.monto, tope: cfg.tope, filas, existe: yaExiste || null }
+
+  const aplicables = filas.filter(f => f.aplica)
+  const total = r2(aplicables.reduce((s, f) => s + f.monto, 0))
+
+  document.getElementById('be-resultado').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+      <div class="stat-card"><div class="stat-num" style="font-size:16px">${aplicables.length}</div><div class="stat-label">Aplican</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:16px">${filas.length}</div><div class="stat-label">Elegibles (≤ tope)</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:15px;color:var(--green)">L. ${fmt(total)}</div><div class="stat-label">Total a pagar</div></div>
+    </div>
+    ${yaExiste ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.12);border-radius:8px;color:var(--gold);font-size:12px;margin-bottom:10px">⚠️ Ya existe la planilla ${label}${yaExiste.partida_numero ? ` (partida #${yaExiste.partida_numero})` : ''}. <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:8px" onclick="window.regenerarBonoEdu()">🗑️ Borrar y regenerar</button></div>` : ''}
+    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Marca quién presentó constancia de matrícula (se guarda al instante). Solo aparecen empleados activos, no socios y con sueldo ≤ tope.</div>
+    <div class="table-wrap" style="overflow-x:auto"><table style="width:100%;min-width:660px"><thead><tr>
+      <th style="text-align:center">Aplica</th><th>Empleado</th><th>Sección</th><th>Ingreso</th>
+      <th style="text-align:center">Días</th><th style="text-align:right">Sueldo</th><th style="text-align:right">Bono</th>
+    </tr></thead><tbody>
+    ${filas.map(f => `<tr style="${f.aplica ? '' : 'opacity:0.55'}">
+      <td style="text-align:center"><input type="checkbox" ${f.aplica ? 'checked' : ''} onchange="window.toggleAplicaBonoEdu('${f.empleado_id}', this.checked)"></td>
+      <td>${f.nombre}</td>
+      <td style="font-size:12px">${f.seccion || '—'}</td>
+      <td style="font-size:12px;color:var(--text3)">${f.fecha_ingreso || '—'}</td>
+      <td style="text-align:center">${f.dias}${f.dias >= 360 ? ' <span style="color:var(--green);font-size:10px">100%</span>' : ''}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${fmt(f.sueldo_mensual)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${f.aplica ? 'var(--green)' : 'var(--text3)'}">${f.aplica ? 'L. ' + fmt(f.monto) : '—'}</td>
+    </tr>`).join('')}
+    </tbody></table></div>`
+
+  document.getElementById('be-btn-partida').style.display = (yaExiste || aplicables.length === 0) ? 'none' : ''
+}
+
+window.regenerarBonoEdu = async () => {
+  if (!_bonoEduCtx || !_bonoEduCtx.existe) return
+  if (!confirm(`¿Borrar la planilla ${_bonoEduCtx.label} y regenerar? La partida borrador, si existe, deberás anularla manualmente.`)) return
+  const sb = getSb()
+  const { data: cab } = await sb.from('planillas_bono_educativo').select('id').eq('periodo', _bonoEduCtx.label).maybeSingle()
+  if (cab) {
+    await sb.from('detalle_bono_educativo').delete().eq('planilla_id', cab.id)
+    await sb.from('planillas_bono_educativo').delete().eq('id', cab.id)
+  }
+  await window.calcularBonoEducativo()
+}
+
+window.generarBonoEducativo = async () => {
+  if (!_bonoEduCtx) return
+  const { anio, desde, hasta, label, monto, tope, filas, existe } = _bonoEduCtx
+  if (existe) { window.toast?.(`Ya existe la planilla ${label}. Bórrala primero para regenerar.`, 'error'); return }
+  const aplicables = filas.filter(f => f.aplica && f.monto > 0)
+  if (!aplicables.length) { window.toast?.('No hay empleados marcados que apliquen.', 'error'); return }
+  const sb = getSb()
+  const r2 = x => Math.round(x * 100) / 100
+
+  const btn = document.getElementById('be-btn-partida'); btn.disabled = true; btn.textContent = 'Procesando...'
+  try {
+    const { data: dup } = await sb.from('planillas_bono_educativo').select('id').eq('periodo', label).limit(1)
+    if ((dup || []).length) throw new Error(`Ya existe la planilla ${label}.`)
+
+    const codigosGasto = [...new Set(aplicables.map(f => cuentaBonoEdu(f.seccion)))]
+    const codChequera = '110103-001'
+    const { data: cuentas } = await sb.from('catalogo_cuentas').select('id, codigo, nombre').in('codigo', [...codigosGasto, codChequera])
+    const mapC = {}; for (const c of (cuentas || [])) mapC[c.codigo] = c
+    const faltan = [...codigosGasto, codChequera].filter(c => !mapC[c])
+    if (faltan.length) throw new Error('Faltan cuentas en el catálogo: ' + faltan.join(', '))
+
+    const fechaPago = document.getElementById('be-fecha-pago').value || hasta
+    const total = r2(aplicables.reduce((s, f) => s + f.monto, 0))
+
+    const { data: cab, error: cErr } = await sb.from('planillas_bono_educativo').insert({
+      anio, periodo: label, fecha_desde: desde, fecha_hasta: hasta, fecha_pago: fechaPago,
+      monto_unitario: monto, tope_salario: tope, estado: 'borrador',
+      created_by: window._currentProfile?.()?.id || null
+    }).select().single()
+    if (cErr || !cab) throw new Error(cErr?.message || 'No se creó la planilla de bono educativo')
+
+    const det = aplicables.map(f => ({
+      planilla_id: cab.id, empleado_id: f.empleado_id, nombre: f.nombre, seccion: f.seccion,
+      centro_costo: f.centro_costo, sueldo_mensual: f.sueldo_mensual, fecha_ingreso: f.fecha_ingreso,
+      dias_trabajados: f.dias, monto: f.monto
+    }))
+    const { error: dErr } = await sb.from('detalle_bono_educativo').insert(det)
+    if (dErr) throw new Error('Detalle: ' + dErr.message)
+
+    // Partida borrador: Débito gasto bono educativo (6101xx-008) por sección / Crédito chequera
+    const deb = {}
+    for (const f of aplicables) {
+      const cod = cuentaBonoEdu(f.seccion)
+      deb[cod] = r2((deb[cod] || 0) + f.monto)
+    }
+    const desc = `PLANILLA ${label}`
+    const numPartida = await window.siguienteNumeroPartida()
+    const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+      centro_costo_id: null, fecha_partida: fechaPago, numero_partida: numPartida,
+      descripcion: `${desc} (${aplicables.length} EMPLEADOS)`, tipo_origen: 'nomina', estado: 'borrador',
+      total, generada_por: window._currentProfile?.()?.id || null
+    }).select().single()
+    if (pErr || !partida) throw new Error('Partida: ' + (pErr?.message || ''))
+
+    const lineas = []
+    for (const [cod, m] of Object.entries(deb)) {
+      const c = mapC[cod]
+      lineas.push({ partida_id: partida.id, cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'debito', monto: r2(m), descripcion: desc, aplica_fiscal: false })
+    }
+    const ch = mapC[codChequera]
+    lineas.push({ partida_id: partida.id, cuenta_id: ch.id, cuenta_codigo: ch.codigo, cuenta_nombre: ch.nombre, tipo: 'credito', monto: total, descripcion: desc, aplica_fiscal: false })
+    const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
+    if (lErr) throw new Error('Líneas: ' + lErr.message)
+
+    await sb.from('planillas_bono_educativo').update({ partida_numero: numPartida }).eq('id', cab.id)
+
+    window.toast?.(`Planilla ${label} generada ✓ · Partida #${numPartida} (borrador) · ${aplicables.length} empleados · L. ${fmt(total)}`, 'success')
+    window.logActividad?.('bono_educativo_generado', 'rrhh', `${label} · ${aplicables.length} empleados · L.${total}`)
+    closeModalBonoEdu()
+  } catch (e) {
+    console.error('generarBonoEducativo:', e)
+    window.toast?.('Error: ' + e.message, 'error')
+  } finally {
+    btn.disabled = false; btn.textContent = 'Generar partida (borrador)'
   }
 }
 
