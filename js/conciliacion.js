@@ -713,9 +713,9 @@
           <span style="color:var(--text3)"> · ${(m.descripcion || '').slice(0, 40)}</span>
         </div>
         <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:8px">
-          <input type="text" class="cb-cp-cuenta" data-i="${m._i}" list="cb-cp-datalist"
-            placeholder="Escribí código o nombre de cuenta..." autocomplete="off" style="font-size:12px;width:100%">
-          <select class="cb-cp-centro" data-i="${m._i}" style="font-size:12px">${optsCentro}</select>
+          <div class="fld"><input type="text" class="cb-cp-cuenta" data-i="${m._i}" list="cb-cp-datalist"
+            placeholder="Escribí código o nombre de cuenta..." autocomplete="off" style="width:100%"></div>
+          <div class="fld"><select class="cb-cp-centro" data-i="${m._i}" style="width:100%">${optsCentro}</select></div>
         </div>
       </div>`).join('')
     document.getElementById('cb-cp-fiscal').checked = false

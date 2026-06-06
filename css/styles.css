@@ -331,3 +331,14 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
   .modal-actions{flex-direction:column;gap:8px}
   .modal-actions .btn{width:100%}
 }
+
+/* === Tema por defecto para campos sueltos (búsquedas y filtros fuera de .fld/.field) ===
+   :where() => especificidad 0: NO pisa .field, .fld, ni estilos inline existentes.
+   Excluye checkbox, radio y file para no romper sus controles nativos. */
+:where(input[type="text"],input[type="search"],input[type="number"],input[type="date"],input[type="month"],input[type="email"],input[type="password"],input[type="tel"],input:not([type]),select,textarea){
+  background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);
+  padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;
+  outline:none;transition:border-color .2s,box-shadow .2s;
+}
+:where(input,select,textarea):focus{border-color:var(--gold);box-shadow:0 0 0 3px #f0a50010}
+:where(select) option{background:var(--bg3)}
