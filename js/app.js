@@ -2892,7 +2892,7 @@ async function loadCaja() {
       caja_debitos: debitos,
       caja_creditos: creditos,
       caja_tipo: debitos > creditos ? 'ingreso' : 'egreso',
-      caja_monto: debitos > creditos ? debitos : creditos,
+      caja_monto: Math.abs(debitos - creditos), // neto: una partida puede mover caja por ambos lados
       caja_lineas: lineas
     }
   })
