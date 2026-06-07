@@ -96,7 +96,8 @@ async function initSession(user) {
     super_admin: ['usuarios', 'Gestión de usuarios'],
     contador: ['partidas', 'Partidas contables'],
     aux_contable: ['pendientes', 'Facturas pendientes'],
-    compras: ['compras', 'Registrar compras']
+    compras: ['compras', 'Registrar compras'],
+    contador_fiscal: ['declaracion-isv', 'Declaración de ISV']
   }
   const [dv, dl] = defaultViews[profile.rol] || ['compras', 'Registrar compras']
   showView(dv, dl)
@@ -110,16 +111,17 @@ function setupUI() {
   const initials = p.nombre.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
   document.getElementById('top-avatar').textContent = initials
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
-  const roleLabels = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras' }
+  const roleLabels = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal' }
   document.getElementById('top-role').textContent = roleLabels[p.rol] || p.rol
 
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
-    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
+    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
+    contador_fiscal: ['nav-declaracion-isv']
   }
   window._permisosPorRol = permisos
   // Permisos personalizados (columna permisos_modulos) tienen prioridad sobre el rol.
@@ -135,7 +137,7 @@ function setupUI() {
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -157,6 +159,10 @@ function setupUI() {
   const tieneReportes = reporteItems.some(id => visibles.includes(id))
   const sectionReportes = document.getElementById('section-reportes')
   if (sectionReportes) sectionReportes.classList.toggle('hidden', !tieneReportes)
+
+  // Ocultar sección Fiscal si no tiene el módulo
+  const sectionFiscal = document.getElementById('section-fiscal')
+  if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv'))
 
   // Ocultar sección RRHH si no tiene ningún módulo
   const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla']
@@ -241,6 +247,7 @@ window.showView = (id, label) => {
   if (id === 'rentabilidad-taxis' && window.initRentabilidadTaxis) window.initRentabilidadTaxis()
   if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
   if (id === 'actividad') loadActividad()
+  if (id === 'declaracion-isv' && window.loadDeclaracionISV) window.loadDeclaracionISV()
   if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
   if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
   // Ajustar botones según rol
@@ -459,6 +466,9 @@ const MODULOS_CATALOGO = [
   { grupo: 'Reportes', items: [
     ['nav-auxiliar', 'Auxiliar de cuentas'], ['nav-balance-comp', 'Balance comprobación'],
     ['nav-estado-resultados', 'Estado de resultados'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-actividad', 'Actividad']
+  ]},
+  { grupo: 'Fiscal', items: [
+    ['nav-declaracion-isv', 'Declaración ISV']
   ]}
 ]
 
@@ -2010,8 +2020,9 @@ document.addEventListener('change', (e) => {
 
 // ── Calculadora USD en partida ──
 window.calcUSD = () => {
-  const monto = parseFloat(document.getElementById('calc-usd-monto')?.value) || 0
-  const tc = parseFloat(document.getElementById('calc-usd-tc')?.value) || 0
+  const num = (id) => parseFloat(String(document.getElementById(id)?.value || '').replace(/[^\d.]/g, '')) || 0
+  const monto = num('calc-usd-monto')
+  const tc = num('calc-usd-tc')
   const resultado = Math.round(monto * tc * 100) / 100
   document.getElementById('calc-usd-result').textContent = 'L. ' + resultado.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 }
@@ -2509,63 +2520,48 @@ window.guardarPartida = async (estado) => {
     const registros = []
     const isvW = vd.isvWarnings || {}
 
-    // Tecnimax fiscal
-    if (vd.tecnimax_fiscal?.facturas?.length) {
-      for (const f of vd.tecnimax_fiscal.facturas) {
-        registros.push({
-          centro_costo_id: vd.ccTecniId,
-          fecha: vd.fecha,
-          factura_interna: String(f.factura_interna || ''),
-          factura_electronica: f.factura_electronica || '',
-          cliente: f.cliente || '',
-          rtn_cliente: f.rtn || '',
-          subtotal: Math.round(f.subtotal * 100) / 100,
-          total_gravado: Math.round(f.total_gravado * 100) / 100,
-          total_exento: Math.round(f.total_exento * 100) / 100,
-          isv: Math.round(f.impuestos * 100) / 100,
-          total: Math.round(f.total * 100) / 100,
-          monto_efectivo: Math.round(f.monto_efectivo * 100) / 100,
-          monto_tarjeta: Math.round(f.monto_tarjeta * 100) / 100,
-          monto_transferencia: Math.round(f.monto_transferencia * 100) / 100,
-          incluir_fiscal: true,
-          numero_documento: documento || null,
-          origen: 'import_alpha',
-          partida_id: partidaId,
-          observaciones: isvW[f.factura_electronica] || null,
-        })
-      }
-    }
+    // Helper: arma un registro de libro_ventas (contado o crédito)
+    const regVenta = (f, ccId, isCredito) => ({
+      centro_costo_id: ccId,
+      fecha: vd.fecha,
+      factura_interna: String(f.factura_interna || ''),
+      factura_electronica: f.factura_electronica || '',
+      cliente: f.cliente || '',
+      rtn_cliente: f.rtn || '',
+      subtotal: Math.round((f.subtotal || 0) * 100) / 100,
+      total_gravado: Math.round((f.total_gravado || 0) * 100) / 100,
+      total_exento: Math.round((f.total_exento || 0) * 100) / 100,
+      isv: Math.round((f.impuestos || 0) * 100) / 100,
+      total: Math.round((f.total || 0) * 100) / 100,
+      monto_efectivo: isCredito ? 0 : Math.round((f.monto_efectivo || 0) * 100) / 100,
+      monto_tarjeta: isCredito ? 0 : Math.round((f.monto_tarjeta || 0) * 100) / 100,
+      monto_transferencia: isCredito ? 0 : Math.round((f.monto_transferencia || 0) * 100) / 100,
+      incluir_fiscal: true,
+      numero_documento: documento || null,
+      origen: 'import_alpha',
+      partida_id: partidaId,
+      observaciones: isvW[f.factura_electronica] || null,
+    })
 
-    // Yonker fiscal
-    if (vd.yonker_fiscal?.facturas?.length) {
-      for (const f of vd.yonker_fiscal.facturas) {
-        registros.push({
-          centro_costo_id: vd.ccYonkerId,
-          fecha: vd.fecha,
-          factura_interna: String(f.factura_interna || ''),
-          factura_electronica: f.factura_electronica || '',
-          cliente: f.cliente || '',
-          rtn_cliente: f.rtn || '',
-          subtotal: Math.round(f.subtotal * 100) / 100,
-          total_gravado: Math.round(f.total_gravado * 100) / 100,
-          total_exento: Math.round(f.total_exento * 100) / 100,
-          isv: Math.round(f.impuestos * 100) / 100,
-          total: Math.round(f.total * 100) / 100,
-          monto_efectivo: Math.round(f.monto_efectivo * 100) / 100,
-          monto_tarjeta: Math.round(f.monto_tarjeta * 100) / 100,
-          monto_transferencia: Math.round(f.monto_transferencia * 100) / 100,
-          incluir_fiscal: true,
-          numero_documento: documento || null,
-          origen: 'import_alpha',
-          partida_id: partidaId,
-        })
-      }
-    }
+    if (vd.tecnimax_fiscal?.facturas?.length) for (const f of vd.tecnimax_fiscal.facturas) registros.push(regVenta(f, vd.ccTecniId, false))
+    if (vd.tecnimax_fiscal?.facturasCredito?.length) for (const f of vd.tecnimax_fiscal.facturasCredito) registros.push(regVenta(f, vd.ccTecniId, true))
+    if (vd.yonker_fiscal?.facturas?.length) for (const f of vd.yonker_fiscal.facturas) registros.push(regVenta(f, vd.ccYonkerId, false))
+    if (vd.yonker_fiscal?.facturasCredito?.length) for (const f of vd.yonker_fiscal.facturasCredito) registros.push(regVenta(f, vd.ccYonkerId, true))
 
     if (registros.length) {
-      const { error: lvErr } = await sb.from('libro_ventas').insert(registros)
-      if (lvErr) console.error('Error libro_ventas:', lvErr.message)
-      else console.log(`📗 ${registros.length} registros insertados en libro_ventas`)
+      // Dedupe por factura_electronica: no reinsertar las que ya estén en el libro
+      const facts = registros.map(r => r.factura_electronica).filter(Boolean)
+      let existentes = new Set()
+      if (facts.length) {
+        const { data: ya } = await sb.from('libro_ventas').select('factura_electronica').in('factura_electronica', facts)
+        existentes = new Set((ya || []).map(x => x.factura_electronica))
+      }
+      const nuevos = registros.filter(r => !r.factura_electronica || !existentes.has(r.factura_electronica))
+      if (nuevos.length) {
+        const { error: lvErr } = await sb.from('libro_ventas').insert(nuevos)
+        if (lvErr) console.error('Error libro_ventas:', lvErr.message)
+        else console.log(`📗 ${nuevos.length} insertados en libro_ventas (${registros.length - nuevos.length} ya existían)`)
+      }
     }
     window._importVentasData = null
   }
@@ -3304,60 +3300,111 @@ async function initAprobacionesBadge() {
 // ══════════════════════════════════════════════
 
 async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, descripcion) {
-  // Buscar si ya existe en libro_compras por numero_documento
-  const { data: existente } = await sb.from('libro_compras')
-    .select('id, incluir_fiscal')
-    .eq('numero_documento', numDocumento)
-    .maybeSingle()
-
-  // Determinar si alguna línea tiene aplica_fiscal = true
+  const r2 = (v) => Math.round((+v || 0) * 100) / 100
   const algunaFiscal = lineasValidas.some(l => l.aplica_fiscal)
 
-  // Extraer datos de las líneas para el registro
-  const lineaInventario = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110501'))
-  const lineaIva = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110402'))
+  // Si la partida ya no es fiscal, limpiar cualquier fila previa de esta partida y salir
+  if (!algunaFiscal) {
+    if (partidaId) await sb.from('libro_compras').delete().eq('partida_id', partidaId)
+    return
+  }
+
   const lineaProveedor = lineasValidas.find(l => l.cuenta_codigo?.startsWith('210101'))
   const lineaCaja = lineasValidas.find(l => l.cuenta_codigo?.startsWith('1101'))
+  const lineaInventario = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110501'))
+  // TODAS las líneas de ISV con monto > 0 (puede haber varias facturas en una partida)
+  const isvLines = lineasValidas.filter(l => l.cuenta_codigo?.startsWith('110402') && (+l.monto || 0) > 0)
 
-  const subtotal = lineaInventario?.monto || 0
-  const isv = lineaIva?.monto || 0
-  const total = lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0) || (subtotal + isv)
-  const provNombre = lineaProveedor?.cuenta_nombre || lineaProveedor?.descripcion || ''
   const cuentaProv = lineaProveedor?.cuenta_codigo || ''
   const formaPago = lineaProveedor ? 'credito' : (lineaCaja ? 'contado' : 'otro')
-  const centroCostoId = lineaInventario?.centro_costo_id || lineasValidas[0]?.centro_costo_id || null
+  const centroCostoId = lineaInventario?.centro_costo_id
+    || lineasValidas.find(l => l.tipo === 'debito' && !l.cuenta_codigo?.startsWith('110402'))?.centro_costo_id
+    || lineasValidas[0]?.centro_costo_id || null
 
-  if (existente) {
-    // Ya existe → actualizar incluir_fiscal según el check
-    await sb.from('libro_compras').update({
-      incluir_fiscal: algunaFiscal,
-      subtotal: Math.round(subtotal * 100) / 100,
-      isv: Math.round(isv * 100) / 100,
-      total: Math.round(total * 100) / 100,
-      proveedor: provNombre,
-      cuenta_proveedor: cuentaProv,
-      productos: descripcion,
-      forma_pago: formaPago,
-    }).eq('id', existente.id)
-  } else if (algunaFiscal) {
-    // No existe y tiene fiscal → insertar
-    await sb.from('libro_compras').insert({
-      centro_costo_id: centroCostoId,
+  // Proveedor "general" de la partida (cuando la línea de ISV no lo trae en su descripción)
+  let provGeneral = lineaProveedor?.cuenta_nombre || lineaProveedor?.descripcion || ''
+  if (!provGeneral && numDocumento) {
+    const { data: fc } = await sb.from('facturas_compras')
+      .select('proveedor_rel:proveedores(nombre)')
+      .eq('numero_factura', numDocumento)
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle()
+    provGeneral = fc?.proveedor_rel?.nombre || ''
+  }
+  if (!provGeneral && descripcion && descripcion.includes('·')) provGeneral = descripcion.split('·')[0].trim()
+
+  // Extrae { proveedor, n° factura } de la descripción de una línea (ej. "AGUA LA TIGRA FACT# 6729")
+  const parseLinea = (desc) => {
+    const d = (desc || '').trim()
+    const m = d.match(/(?:fact\.?\s*#?\s*|#\s*)([\w\-\/.]+)/i)
+    const numfac = m ? m[1] : ''
+    let prov = m ? d.slice(0, m.index).trim() : ''
+    prov = prov.replace(/\bfact\.?\b/i, '').replace(/[#·\-\s]+$/, '').trim()
+    return { numfac, prov }
+  }
+
+  // Una fila por línea de ISV; si no hay ISV pero es fiscal, una sola fila (exento)
+  const baseRows = []
+  if (isvLines.length) {
+    for (const li of isvLines) {
+      const isv = r2(li.monto)
+      const { numfac, prov } = parseLinea(li.descripcion)
+      baseRows.push({
+        numero_factura: numfac || numDocumento || '',
+        proveedor: prov || provGeneral || '',
+        isv,
+        subtotal: r2(isv / 0.15),
+        total: r2(isv / 0.15 + isv),
+        productos: li.descripcion || descripcion,
+        centro_costo_id: li.centro_costo_id || centroCostoId,
+      })
+    }
+  } else {
+    const subBase = lineaInventario ? r2(lineaInventario.monto)
+      : r2(lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0))
+    baseRows.push({
+      numero_factura: numDocumento || '', proveedor: provGeneral || '',
+      isv: 0, subtotal: subBase, total: subBase,
+      productos: descripcion, centro_costo_id: centroCostoId,
+    })
+  }
+
+  // Preservar la selección del contador (incluir_fiscal / periodo_fiscal / rtn) por n° de factura
+  const { data: previas } = await sb.from('libro_compras')
+    .select('numero_factura, incluir_fiscal, periodo_fiscal, rtn_proveedor')
+    .eq('partida_id', partidaId)
+  const prevMap = {}
+  ;(previas || []).forEach(p => { prevMap[p.numero_factura] = p })
+
+  // Reemplazar las filas de esta partida (borra y reinserta)
+  if (partidaId) await sb.from('libro_compras').delete().eq('partida_id', partidaId)
+
+  const registros = baseRows.map(b => {
+    const prev = prevMap[b.numero_factura]
+    const reg = {
+      centro_costo_id: b.centro_costo_id,
       fecha,
-      numero_factura: numDocumento,
-      numero_documento: numDocumento,
-      proveedor: provNombre,
-      rtn_proveedor: '',
+      numero_factura: b.numero_factura,
+      numero_documento: b.numero_factura,
+      proveedor: b.proveedor,
+      rtn_proveedor: prev?.rtn_proveedor || '',
       cuenta_proveedor: cuentaProv,
-      subtotal: Math.round(subtotal * 100) / 100,
-      isv: Math.round(isv * 100) / 100,
-      total: Math.round(total * 100) / 100,
+      subtotal: b.subtotal,
+      isv: b.isv,
+      total: b.total,
       forma_pago: formaPago,
-      productos: descripcion,
-      incluir_fiscal: true,
+      productos: b.productos,
+      incluir_fiscal: prev ? prev.incluir_fiscal : true,
       origen: 'manual',
       partida_id: partidaId,
-    })
+    }
+    if (prev?.periodo_fiscal) reg.periodo_fiscal = prev.periodo_fiscal
+    return reg
+  })
+
+  if (registros.length) {
+    const { error: insErr } = await sb.from('libro_compras').insert(registros)
+    if (insErr) console.error('syncLibroCompras insert:', insErr.message || insErr)
   }
 }
 
@@ -3379,6 +3426,53 @@ const IMPORT_CUENTAS = {
 let importFiles = []
 let importData = null
 let importFiscalTab = 'tecnimax'
+
+// Inserta SOLO las ventas a crédito del archivo ya procesado en libro_ventas (sin crear partida).
+// Idempotente: no duplica las que ya estén (dedupe por factura_electronica).
+window.sincronizarCreditoLibro = async () => {
+  if (!importData) { toast('Primero procesá el archivo (Paso 1).', 'error'); return }
+  const fecha = document.getElementById('imp-fecha')?.value
+  if (!fecha) { toast('Indicá la fecha del reporte.', 'error'); return }
+  const empresas = window._empresas?.() || []
+  const ccTecni = empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker'))
+  const ccYonker = empresas.find(e => e.nombre.toLowerCase().includes('yonker'))
+  const isvW = window._isvWarnings || {}
+
+  const reg = (f, ccId) => ({
+    centro_costo_id: ccId, fecha,
+    factura_interna: String(f.factura_interna || ''),
+    factura_electronica: f.factura_electronica || '',
+    cliente: f.cliente || '', rtn_cliente: f.rtn || '',
+    subtotal: Math.round((f.subtotal || 0) * 100) / 100,
+    total_gravado: Math.round((f.total_gravado || 0) * 100) / 100,
+    total_exento: Math.round((f.total_exento || 0) * 100) / 100,
+    isv: Math.round((f.impuestos || 0) * 100) / 100,
+    total: Math.round((f.total || 0) * 100) / 100,
+    monto_efectivo: 0, monto_tarjeta: 0, monto_transferencia: 0,
+    incluir_fiscal: true, origen: 'import_alpha', partida_id: null,
+    observaciones: isvW[f.factura_electronica] || null,
+  })
+
+  const registros = []
+  if (importData.tecnimax_fiscal?.facturasCredito?.length) for (const f of importData.tecnimax_fiscal.facturasCredito) registros.push(reg(f, ccTecni?.id || null))
+  if (importData.yonker_fiscal?.facturasCredito?.length) for (const f of importData.yonker_fiscal.facturasCredito) registros.push(reg(f, ccYonker?.id || null))
+
+  if (!registros.length) { toast('Este archivo no tiene ventas a crédito.', 'info'); return }
+
+  const facts = registros.map(r => r.factura_electronica).filter(Boolean)
+  let existentes = new Set()
+  if (facts.length) {
+    const { data: ya } = await sb.from('libro_ventas').select('factura_electronica').in('factura_electronica', facts)
+    existentes = new Set((ya || []).map(x => x.factura_electronica))
+  }
+  const nuevos = registros.filter(r => !r.factura_electronica || !existentes.has(r.factura_electronica))
+  if (!nuevos.length) { toast('Las ventas a crédito de este archivo ya estaban en el libro.', 'info'); return }
+
+  const { error } = await sb.from('libro_ventas').insert(nuevos)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`✅ ${nuevos.length} venta(s) a crédito agregada(s) al libro de ventas`, 'success')
+  if (window.logActividad) window.logActividad('sync_credito_libro', 'importar', `Sincronizó ${nuevos.length} ventas a crédito al libro (${fecha})`)
+}
 
 function initImport() {
   // Default: fecha de ayer (los reportes siempre son del día anterior)

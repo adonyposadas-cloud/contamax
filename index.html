@@ -212,6 +212,12 @@
           </div>
         </div>
       </div>
+      <div class="sidebar-section hidden" id="section-fiscal">
+        <div class="sidebar-label">Fiscal</div>
+        <div class="nav-item hidden" id="nav-declaracion-isv" onclick="showView('declaracion-isv','Declaración de ISV')">
+          <span class="nav-dot"></span>Declaración ISV
+        </div>
+      </div>
     </div>
 
     <div class="content">
@@ -743,6 +749,9 @@
           </div>
           <div id="import-alertas" style="margin-bottom:16px"></div>
           <div id="import-resumen"></div>
+          <div class="form-actions" style="margin-top:14px">
+            <button class="btn btn-ghost" onclick="window.sincronizarCreditoLibro()" title="Inserta solo las ventas a crédito al libro fiscal, sin crear partida (no duplica)">🧾 Solo sincronizar ventas a crédito al libro</button>
+          </div>
         </div>
 
         <!-- PASO 3: Detalle fiscal -->
@@ -1270,6 +1279,24 @@
         </div>
         <div id="act-stats" style="margin-bottom:16px"></div>
         <div id="act-tabla"></div>
+      </div>
+
+      <div class="view" id="view-declaracion-isv">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🧾 Declaración de ISV</div>
+            <div class="page-sub">Libro de ventas (en piedra) y libro de compras (seleccionable) para cuadrar la declaración mensual</div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:14px;align-items:end">
+            <div class="fld"><label>Período (mes)</label><input type="month" id="fisc-periodo" onchange="window.cargarISV()"></div>
+            <div class="fld"><label>Centro de costo</label><select id="fisc-centro" onchange="window.cargarISV()"><option value="">Todos los centros</option></select></div>
+            <div><button class="btn btn-gold" onclick="window.cargarISV()">Consultar →</button></div>
+          </div>
+        </div>
+        <div id="fisc-resumen" style="margin-bottom:16px"></div>
+        <div id="fisc-contenido"></div>
       </div>
 
       <div class="view" id="view-empleados">
@@ -2291,6 +2318,7 @@
           <option value="contador">Contador</option>
           <option value="aux_contable">Aux. Contable</option>
           <option value="compras">Compras</option>
+          <option value="contador_fiscal">Contador Fiscal (externo)</option>
         </select>
       </div>
       <div class="fld col-full">
@@ -2332,6 +2360,7 @@
           <option value="contador">Contador</option>
           <option value="aux_contable">Aux. Contable</option>
           <option value="compras">Compras</option>
+          <option value="contador_fiscal">Contador Fiscal (externo)</option>
         </select>
       </div>
       <div class="fld">
@@ -2950,7 +2979,7 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260604c"></script>
+<script type="module" src="js/app.js?v=20260606i"></script>
 <script type="module" src="js/reportes.js?v=20260603c"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js"></script>
@@ -2959,6 +2988,7 @@
 <script defer src="js/vacaciones.js"></script>
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260603c"></script>
+<script defer src="js/fiscal.js?v=20260606i"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">
