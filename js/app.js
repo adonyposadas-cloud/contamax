@@ -57,6 +57,7 @@ window.logActividad = async (accion, modulo, detalle, referencia_id) => {
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
+  setupCargaImagenes()
   const { data: { session } } = await sb.auth.getSession()
   if (session) {
     await initSession(session.user)
@@ -875,6 +876,77 @@ window.previewFoto = (input) => {
   document.getElementById('preview-size').textContent = (f.size / 1024).toFixed(0) + ' KB'
   document.getElementById('upload-preview').classList.remove('hidden')
   document.getElementById('upload-zone').classList.add('has-file')
+}
+
+// ── ARRASTRAR/SOLTAR Y PEGAR (Ctrl+V) IMÁGENES (factura y partida) ──
+function setupCargaImagenes() {
+  const esValido = (f) => f && (f.type.startsWith('image/') || f.type === 'application/pdf')
+  // Asigna archivos a un <input type=file> (DataTransfer). append=true para no perder los previos.
+  const setInputFiles = (input, files, append) => {
+    const dt = new DataTransfer()
+    if (append && input.files) for (const f of input.files) dt.items.add(f)
+    for (const f of files) dt.items.add(f)
+    input.files = dt.files
+  }
+  // Las capturas pegadas vienen sin nombre o como "image.png" → le ponemos uno con extensión
+  const nombrarPegado = (file) => {
+    if (file.name && file.name !== 'image.png' && file.name.includes('.')) return file
+    const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+    return new File([file], `captura_${Date.now()}.${ext}`, { type: file.type })
+  }
+  const marcar = (el, on) => {
+    if (!el) return
+    el.style.outline = on ? '2px dashed var(--gold, #f5a623)' : ''
+    el.style.outlineOffset = on ? '3px' : ''
+  }
+  const habilitarDrop = (zone, onFiles) => {
+    if (!zone) return
+    ;['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); marcar(zone, true) }))
+    ;['dragleave', 'dragend'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); marcar(zone, false) }))
+    zone.addEventListener('drop', e => {
+      e.preventDefault(); e.stopPropagation(); marcar(zone, false)
+      const files = [...(e.dataTransfer?.files || [])].filter(esValido)
+      if (files.length) onFiles(files)
+    })
+  }
+
+  // Factura (compras): una sola imagen + preview
+  const inputFc = document.getElementById('fc-file')
+  habilitarDrop(document.getElementById('upload-zone'), (files) => {
+    setInputFiles(inputFc, [files[0]], false)
+    window.previewFoto(inputFc)
+  })
+
+  // Partida: adjunto múltiple; zona = toda la tarjeta del encabezado
+  const inputPn = document.getElementById('pn-adjunto')
+  const statusPn = document.getElementById('pn-adjunto-status')
+  const refrescarPn = () => { if (statusPn && inputPn) statusPn.textContent = inputPn.files?.length ? `✓ ${inputPn.files.length} archivo(s) adjunto(s)` : '' }
+  habilitarDrop(inputPn ? inputPn.closest('.form-card') : null, (files) => {
+    setInputFiles(inputPn, files, true)
+    refrescarPn()
+    window.toast?.('Adjunto agregado', 'success')
+  })
+  inputPn?.addEventListener('change', refrescarPn)
+
+  // Pegar (Ctrl+V): enruta al formulario que esté visible
+  const visible = (el) => el && el.offsetParent !== null
+  document.addEventListener('paste', e => {
+    const imgItem = [...(e.clipboardData?.items || [])].find(it => it.type.startsWith('image/'))
+    if (!imgItem) return
+    let target = null
+    if (visible(document.getElementById('view-compras')) && inputFc) {
+      target = { input: inputFc, after: () => window.previewFoto(inputFc), append: false }
+    } else if (visible(document.getElementById('view-partida-nueva')) && inputPn) {
+      target = { input: inputPn, after: refrescarPn, append: true }
+    }
+    if (!target) return
+    const blob = imgItem.getAsFile()
+    if (!blob) return
+    e.preventDefault()
+    setInputFiles(target.input, [nombrarPegado(blob)], target.append)
+    target.after?.()
+    window.toast?.('Imagen pegada ✓', 'success')
+  })
 }
 
 window.guardarCompra = async () => {
