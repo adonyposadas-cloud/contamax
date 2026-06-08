@@ -32,30 +32,51 @@
     return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
   }
 
-  // ── Límite legal para acreditar el crédito fiscal de compras ──
-  // SAR / Art. 12 Ley del ISV: el crédito fiscal por compras se puede consignar
-  // dentro de un plazo de 3 meses. El plazo corre desde el período de la factura.
-  // OJO: confirmá con tu contadora si "3 meses" incluye o no el mes de origen.
-  //   - Si la factura de junio puede ir como tope hasta SEPTIEMBRE  -> deja 3.
-  //   - Si el tope es AGOSTO (3 meses contando junio)               -> ponelo en 2.
+  // ── Tope legal del crédito fiscal de compras (Art. 12 Ley del ISV) ──
+  // El crédito por compras se puede consignar dentro de un plazo de 3 meses,
+  // contado desde el período de la factura. Confirmá con tu contadora si "3 meses"
+  // incluye o no el mes de origen: si junio puede ir hasta SEPTIEMBRE dejá 3; si el
+  // tope es AGOSTO (3 meses contando junio) ponelo en 2.
   const MESES_LIMITE_CREDITO = 3
-  function periodoDeFecha(fecha) {
-    // fecha viene como 'YYYY-MM-DD'; tomamos el período 'YYYY-MM'
-    return (fecha || '').slice(0, 7)
-  }
+  function periodoDeFecha(fecha) { return (fecha || '').slice(0, 7) }
   function sumarMeses(p, n) {
     const [y, m] = p.split('-').map(Number)
     const total = (y * 12 + (m - 1)) + n
-    const ny = Math.floor(total / 12)
-    const nm = (total % 12) + 1
-    return `${ny}-${String(nm).padStart(2, '0')}`
+    return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`
   }
-  // Período máximo (YYYY-MM) en el que esta factura todavía puede acreditarse.
   function periodoMaximoCredito(fecha) {
     const origen = periodoDeFecha(fecha)
-    if (!origen) return null
-    return sumarMeses(origen, MESES_LIMITE_CREDITO)
+    return origen ? sumarMeses(origen, MESES_LIMITE_CREDITO) : null
   }
+
+  // ── Clasificación fiscal por actividad del centro de costo ──
+  // El centro de costo trae tipo_actividad: 'gravada' | 'exenta' | 'comun' | 'personal'.
+  //   gravada  → crédito 100% acreditable (taller / Tecnimax)
+  //   exenta   → crédito NO acreditable, va a costo (yonker, si las ventas son exentas)
+  //   comun    → acreditable solo en el % de ventas gravadas (prorrata): alquiler, energía, etc.
+  //   personal → fuera de los libros fiscales: ni débito ni crédito (gasto del dueño)
+  const TIPOS_ACTIVIDAD = ['gravada', 'exenta', 'comun', 'personal']
+  function centroObj(id) { return (window._empresas?.() || []).find(e => e.id === id) || null }
+  function tipoActividad(id) {
+    const t = centroObj(id)?.tipo_actividad
+    return TIPOS_ACTIVIDAD.includes(t) ? t : 'comun'   // sin clasificar → tratado como común (conservador)
+  }
+  function sinClasificar(id) {
+    const c = centroObj(id)
+    return !c || !TIPOS_ACTIVIDAD.includes(c.tipo_actividad)
+  }
+  function badgeActividad(id) {
+    const t = tipoActividad(id)
+    const sc = sinClasificar(id)
+    const def = {
+      gravada:  ['Gravada',  'var(--green)'],
+      exenta:   ['Exenta',   'var(--amber)'],
+      personal: ['Personal', 'var(--red)'],
+      comun:    sc ? ['Sin clasificar', 'var(--red)'] : ['Común', 'var(--text2)'],
+    }[t] || ['Común', 'var(--text2)']
+    return `<span title="Actividad del centro de costo" style="display:inline-block;border:1px solid ${def[1]};color:${def[1]};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;white-space:nowrap">${def[0]}</span>`
+  }
+
   function etiquetaMes(p) {
     const [y, m] = p.split('-').map(Number)
     const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -119,33 +140,108 @@
   }
 
   function totales() {
-    const debito = round2(fVentas.filter(v => v.incluir_fiscal).reduce((s, v) => s + (+v.isv || 0), 0))
-    const credito = round2(fCompras.filter(c => c.incluir_fiscal).reduce((s, c) => s + (+c.isv || 0), 0))
-    const neto = round2(debito - credito)
-    return { debito, credito, neto }
+    const esPersonal = (id) => tipoActividad(id) === 'personal'
+
+    // ── VENTAS fiscales: incluidas y NO personales ──
+    const ventasFisc = fVentas.filter(v => v.incluir_fiscal && !esPersonal(v.centro_costo_id))
+    const debito = round2(ventasFisc.reduce((s, v) => s + (+v.isv || 0), 0))
+    const baseGravada = ventasFisc.reduce((s, v) => s + (+v.total_gravado || 0), 0)
+    const baseExenta = ventasFisc.reduce((s, v) => s + (+v.total_exento || 0), 0)
+    const baseTotal = baseGravada + baseExenta
+    // Factor de prorrata = ventas gravadas / (gravadas + exentas).
+    // Sin ventas en el período: factor 1 (no se penaliza; el saldo a favor se arrastra).
+    const factor = baseTotal > 0 ? (baseGravada / baseTotal) : 1
+
+    // Ventas personales marcadas como fiscales (no deberían estarlo) — para alertar
+    const nPersonalVentas = fVentas.filter(v => v.incluir_fiscal && esPersonal(v.centro_costo_id)).length
+
+    // ── COMPRAS incluidas, separadas por actividad del centro ──
+    const comprasInc = fCompras.filter(c => c.incluir_fiscal)
+    let isvGravada = 0, isvExenta = 0, isvComun = 0, isvPersonal = 0
+    let nSinClasif = 0, nPersonalCompras = 0
+    for (const c of comprasInc) {
+      const isv = +c.isv || 0
+      const t = tipoActividad(c.centro_costo_id)
+      if (t === 'gravada') isvGravada += isv
+      else if (t === 'exenta') isvExenta += isv
+      else if (t === 'personal') { isvPersonal += isv; nPersonalCompras++ }
+      else { isvComun += isv; if (sinClasificar(c.centro_costo_id)) nSinClasif++ }
+    }
+
+    const comunAcreditable = round2(isvComun * factor)
+    const comunACosto = round2(isvComun - comunAcreditable)
+
+    // Crédito que SÍ va a la declaración:
+    const creditoAcreditable = round2(isvGravada + comunAcreditable)
+    // Crédito que NO acredita (se vuelve costo): exento + parte común + personal
+    const creditoACosto = round2(isvExenta + comunACosto + isvPersonal)
+    const neto = round2(debito - creditoAcreditable)
+
+    return {
+      debito, factor,
+      baseGravada: round2(baseGravada), baseExenta: round2(baseExenta),
+      isvGravada: round2(isvGravada), isvExenta: round2(isvExenta),
+      isvComun: round2(isvComun), isvPersonal: round2(isvPersonal),
+      comunAcreditable, comunACosto,
+      creditoAcreditable, creditoACosto, neto,
+      nSinClasif, nPersonalCompras, nPersonalVentas,
+      // alias para compatibilidad con código viejo (export):
+      credito: creditoAcreditable,
+    }
   }
 
   function renderResumen() {
-    const { debito, credito, neto } = totales()
+    const t = totales()
     const box = document.getElementById('fisc-resumen')
     if (!box) return
-    const aPagar = neto > 0
-    const cuadrado = neto === 0
+    const aPagar = t.neto > 0
+    const cuadrado = t.neto === 0
     const netoLabel = cuadrado ? 'Cuadrado' : (aPagar ? 'ISV a pagar' : 'Saldo a favor')
     const netoColor = cuadrado ? 'var(--text2)' : (aPagar ? 'var(--red)' : 'var(--green)')
-    const stat = (label, val, color) => `
-      <div style="flex:1;min-width:180px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+    const pct = (t.factor * 100)
+    const pctTxt = (Math.round(pct * 100) / 100).toLocaleString('es-HN', { maximumFractionDigits: 2 })
+
+    const stat = (label, val, color, border) => `
+      <div style="flex:1;min-width:170px;background:var(--bg2);border:1px solid ${border || 'var(--border)'};border-radius:10px;padding:14px 16px">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">${label}</div>
         <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${color || 'var(--text)'}">L. ${fmt(val)}</div>
       </div>`
+
+    // Alertas de clasificación
+    const alertas = []
+    if (t.nSinClasif > 0) alertas.push(`⚠️ ${t.nSinClasif} compra(s) en centros <b>sin clasificar</b> — se trataron como comunes (prorrata). Clasificá esos centros.`)
+    if (t.nPersonalCompras > 0) alertas.push(`🚫 ${t.nPersonalCompras} compra(s) de centros <b>personales</b> marcadas como fiscales — NO acreditan, van a costo. Revisá por qué están incluidas.`)
+    if (t.nPersonalVentas > 0) alertas.push(`🚫 ${t.nPersonalVentas} venta(s) de centros <b>personales</b> marcadas como fiscales — quedaron fuera del débito.`)
+
     box.innerHTML = `
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        ${stat('Débito fiscal · ISV ventas', debito, 'var(--text)')}
-        ${stat('Crédito fiscal · ISV compras incluidas', credito, 'var(--text)')}
-        <div style="flex:1;min-width:180px;background:var(--bg2);border:1px solid ${netoColor};border-radius:10px;padding:14px 16px">
+        ${stat('Débito fiscal · ISV ventas', t.debito, 'var(--text)')}
+        ${stat('Crédito ACREDITABLE · va a la declaración', t.creditoAcreditable, 'var(--green)', 'var(--green)')}
+        <div style="flex:1;min-width:170px;background:var(--bg2);border:1px solid ${netoColor};border-radius:10px;padding:14px 16px">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">${netoLabel} · ${etiquetaMes(fPeriodo)}</div>
-          <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${netoColor}">L. ${fmt(Math.abs(neto))}</div>
+          <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${netoColor}">L. ${fmt(Math.abs(t.neto))}</div>
         </div>
+      </div>
+
+      <div class="form-card" style="margin-top:12px;padding:14px 16px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px">📊 Desglose del crédito por actividad · prorrata del período</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+          Factor de prorrata = ventas gravadas ÷ (gravadas + exentas) =
+          L. ${fmt(t.baseGravada)} ÷ L. ${fmt(t.baseGravada + t.baseExenta)} =
+          <b style="color:var(--text)">${pctTxt}%</b>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;font-family:var(--mono);font-size:13px">
+          <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase">Directo gravado (100%)</div>L. ${fmt(t.isvGravada)}</div>
+          <div><div style="font-size:10px;color:var(--text3);text-transform:uppercase">Común × ${pctTxt}%</div>L. ${fmt(t.comunAcreditable)} <span style="color:var(--text3)">de ${fmt(t.isvComun)}</span></div>
+          <div style="color:var(--amber)"><div style="font-size:10px;color:var(--text3);text-transform:uppercase">A costo (no acredita)</div>L. ${fmt(t.creditoACosto)}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:10px">
+          "A costo" = exento (L. ${fmt(t.isvExenta)}) + común no acreditable (L. ${fmt(t.comunACosto)}) + personal (L. ${fmt(t.isvPersonal)}).
+          Ese ISV no va a la declaración: se registra como costo de la mercadería / gasto no deducible.
+        </div>
+        ${alertas.length ? `<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:6px">
+          ${alertas.map(a => `<div style="font-size:12px;color:var(--text2)">${a}</div>`).join('')}
+        </div>` : ''}
       </div>`
   }
 
@@ -272,14 +368,14 @@
         </div>`
     }).join('')
 
-    // ── LIBRO DE COMPRAS (seleccionable + rodaje) ──
+    // ── LIBRO DE COMPRAS (seleccionable + rodaje con tope legal + actividad) ──
     let subC = 0, isvC = 0
     const filasC = fCompras.map(c => {
       const incl = !!c.incluir_fiscal
       if (incl) { subC += +c.subtotal || 0; isvC += +c.isv || 0 }
       const sinProv = !((c.proveedor || '').trim())
       const chk = `<input type="checkbox" ${incl ? 'checked' : ''} ${editable ? '' : 'disabled'} onchange="window.fiscToggleCompra('${c.id}', this.checked)" style="width:auto;margin:0;cursor:pointer">`
-      // Destino y tope legal calculados por fila (el plazo corre desde la fecha de la factura)
+      // Botón rodar con tope legal de 3 meses calculado desde la fecha de la factura
       const destinoRow = mesSiguiente(c.periodo_fiscal || fPeriodo)
       const limiteRow = periodoMaximoCredito(c.fecha)
       const enTope = limiteRow && destinoRow > limiteRow
@@ -301,6 +397,7 @@
         <td style="font-family:var(--mono)">${esc(c.numero_factura)}</td>
         <td>${provCell}</td>
         <td style="font-family:var(--mono)">${esc(c.rtn_proveedor)}</td>
+        <td style="text-align:center">${badgeActividad(c.centro_costo_id)}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.subtotal)}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.isv)}</td>
         <td style="text-align:center;white-space:nowrap">${btnMover}${btnEdit}</td>
@@ -334,11 +431,11 @@
           <table>
             <thead><tr>
               <th style="text-align:center">Incluir</th><th>Fecha</th><th>Factura</th><th>Proveedor</th><th>RTN</th>
-              <th style="text-align:right">Subtotal</th><th style="text-align:right">ISV</th><th style="text-align:center">Rodar</th>
+              <th style="text-align:center">Actividad</th><th style="text-align:right">Subtotal</th><th style="text-align:right">ISV</th><th style="text-align:center">Rodar</th>
             </tr></thead>
-            <tbody>${filasC || '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:18px">Sin compras asignadas a este período</td></tr>'}</tbody>
+            <tbody>${filasC || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:18px">Sin compras asignadas a este período</td></tr>'}</tbody>
             <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
-              <td colspan="5" style="text-align:right">Crédito de las incluidas:</td>
+              <td colspan="6" style="text-align:right">ISV incluido (bruto, antes de prorrata):</td>
               <td style="text-align:right;font-family:var(--mono)">${fmt(subC)}</td>
               <td style="text-align:right;font-family:var(--mono)">${fmt(isvC)}</td>
               <td></td>
@@ -373,17 +470,14 @@
     render()
   }
 
-  // ── Rodar una compra al mes siguiente ──
+  // ── Rodar una compra al mes siguiente (con tope legal de 3 meses) ──
   window.fiscMoverMes = async (id) => {
     if (!puedeEditar()) return
     const sb = getSb()
     const c = fCompras.find(x => x.id === id)
-    // El destino parte del período actual de la factura (no del mes en pantalla).
     const actual = c?.periodo_fiscal || fPeriodo
     const destino = mesSiguiente(actual)
 
-    // Tope legal: el crédito no puede consignarse más allá de la ventana de 3 meses
-    // contada desde el período de la factura (Art. 12 Ley del ISV).
     const limite = periodoMaximoCredito(c?.fecha)
     if (!limite) {
       window.toast?.('La factura no tiene fecha válida; no se puede validar el plazo del crédito.', 'error')
@@ -479,24 +573,37 @@
   window.fiscExportar = () => {
     const XLSX = window.XLSX
     if (!XLSX) { window.toast?.('No se pudo cargar Excel', 'error'); return }
-    const { debito, credito, neto } = totales()
+    const t = totales()
+    const pct = Math.round(t.factor * 10000) / 100
 
     const ventasAoA = [['LIBRO DE VENTAS · ' + etiquetaMes(fPeriodo)], [],
-      ['Fecha', 'Factura', 'Cliente', 'RTN', 'Gravado 15%', 'Exento', 'ISV', 'Total', 'Fiscal']]
+      ['Fecha', 'Factura', 'Cliente', 'RTN', 'Centro', 'Actividad', 'Gravado 15%', 'Exento', 'ISV', 'Total', 'Fiscal']]
     fVentas.forEach(v => ventasAoA.push([
       v.fecha, v.factura_electronica || v.factura_interna || '', v.cliente || '', v.rtn_cliente || '',
+      nombreCentro(v.centro_costo_id), tipoActividad(v.centro_costo_id),
       +v.total_gravado || 0, +v.total_exento || 0, +v.isv || 0, +v.total || 0, v.incluir_fiscal ? 'Sí' : 'No']))
 
     const comprasAoA = [['LIBRO DE COMPRAS · ' + etiquetaMes(fPeriodo)], [],
-      ['Fecha', 'Factura', 'Proveedor', 'RTN', 'Subtotal', 'ISV', 'Total', 'Incluida']]
+      ['Fecha', 'Factura', 'Proveedor', 'RTN', 'Centro', 'Actividad', 'Subtotal', 'ISV', 'Total', 'Incluida']]
     fCompras.forEach(c => comprasAoA.push([
       c.fecha, c.numero_factura || '', c.proveedor || '', c.rtn_proveedor || '',
+      nombreCentro(c.centro_costo_id), tipoActividad(c.centro_costo_id),
       +c.subtotal || 0, +c.isv || 0, +c.total || 0, c.incluir_fiscal ? 'Sí' : 'No']))
 
     const resumenAoA = [['DECLARACIÓN DE ISV · ' + etiquetaMes(fPeriodo)], [],
-      ['Débito fiscal (ISV ventas)', debito],
-      ['Crédito fiscal (ISV compras incluidas)', credito],
-      [neto > 0 ? 'ISV a pagar' : (neto < 0 ? 'Saldo a favor' : 'Cuadrado'), Math.abs(neto)]]
+      ['Débito fiscal (ISV ventas)', t.debito], [],
+      ['CRÉDITO — desglose por actividad'],
+      ['Directo gravado (100%)', t.isvGravada],
+      ['Común (bruto)', t.isvComun],
+      [`Factor de prorrata (ventas gravadas / totales)`, pct / 100],
+      [`Común acreditable (× ${pct}%)`, t.comunAcreditable],
+      ['Crédito ACREDITABLE (va a la declaración)', t.creditoAcreditable], [],
+      ['A COSTO — no acredita'],
+      ['Exento', t.isvExenta],
+      ['Común no acreditable', t.comunACosto],
+      ['Personal / no deducible', t.isvPersonal],
+      ['Total a costo', t.creditoACosto], [],
+      [t.neto > 0 ? 'ISV a pagar' : (t.neto < 0 ? 'Saldo a favor' : 'Cuadrado'), Math.abs(t.neto)]]
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumenAoA), 'Resumen')

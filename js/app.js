@@ -933,6 +933,16 @@ function setupCargaImagenes() {
   document.addEventListener('paste', e => {
     const imgItem = [...(e.clipboardData?.items || [])].find(it => it.type.startsWith('image/'))
     if (!imgItem) return
+    // Si el usuario está escribiendo en un campo de texto y hay texto para pegar,
+    // dejamos el pegado normal (no secuestramos como imagen).
+    const ae = document.activeElement
+    const enCampoTexto = ae && (
+      ae.tagName === 'TEXTAREA' ||
+      (ae.tagName === 'INPUT' && !['file', 'checkbox', 'radio', 'button', 'submit'].includes((ae.type || 'text').toLowerCase())) ||
+      ae.isContentEditable
+    )
+    const hayTexto = !!(e.clipboardData?.getData?.('text/plain') || '').trim()
+    if (enCampoTexto && hayTexto) return
     let target = null
     if (visible(document.getElementById('view-compras')) && inputFc) {
       target = { input: inputFc, after: () => window.previewFoto(inputFc), append: false }
