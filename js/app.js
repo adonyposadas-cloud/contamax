@@ -661,10 +661,16 @@ async function loadCentrosCosto() {
     return
   }
 
+  const actBadge = (t) => {
+    const m = { gravada: ['Gravada', 'var(--green)'], exenta: ['Exenta', 'var(--amber)'], personal: ['Personal', 'var(--red)'], comun: ['Común', 'var(--text2)'] }
+    const [lbl, col] = m[t] || m.comun
+    return `<span title="Actividad fiscal (ISV)" style="display:inline-block;border:1px solid ${col};color:${col};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;margin-left:6px">${lbl}</span>`
+  }
+
   tbody.innerHTML = allCentros.map(c => `
     <tr style="${!c.activa ? 'opacity:0.5' : ''}">
       <td style="font-family:var(--mono);color:var(--gold);font-weight:500">${c.codigo || '—'}</td>
-      <td style="font-weight:500">${c.nombre}${c.privado ? ' <span style="color:var(--red);font-size:11px" title="Centro privado — reportes solo Super Admin">🔒</span>' : ''}</td>
+      <td style="font-weight:500">${c.nombre}${c.privado ? ' <span style="color:var(--red);font-size:11px" title="Centro privado — reportes solo Super Admin">🔒</span>' : ''}${actBadge(c.tipo_actividad)}</td>
       <td>${c.es_corporativo ? '<span class="badge badge-amber">Corporativo</span>' : '<span class="badge badge-blue">Operativo</span>'}</td>
       <td><span class="badge ${c.activa ? 'badge-on' : 'badge-off'}">${c.activa ? 'Activo' : 'Inactivo'}</span></td>
       <td class="mono" style="color:var(--text3);font-size:12px">${c.created_at ? new Date(c.created_at).toLocaleDateString('es-HN') : '—'}</td>
@@ -682,6 +688,7 @@ window.openModalCentro = () => {
   document.getElementById('btn-guardar-centro').textContent = 'Crear centro'
   document.getElementById('ncc-codigo').value = ''
   document.getElementById('ncc-nombre').value = ''
+  document.getElementById('ncc-tipo-actividad').value = 'comun'
   document.getElementById('ncc-corporativo').checked = false
   document.getElementById('ncc-privado').checked = false
   document.getElementById('ncc-codigo').disabled = false
@@ -697,6 +704,7 @@ window.editarCentro = (id) => {
   document.getElementById('btn-guardar-centro').textContent = 'Actualizar centro'
   document.getElementById('ncc-codigo').value = c.codigo || ''
   document.getElementById('ncc-nombre').value = c.nombre
+  document.getElementById('ncc-tipo-actividad').value = ['gravada','exenta','comun','personal'].includes(c.tipo_actividad) ? c.tipo_actividad : 'comun'
   document.getElementById('ncc-corporativo').checked = c.es_corporativo || false
   document.getElementById('ncc-privado').checked = c.privado || false
   document.getElementById('ncc-codigo').disabled = false
@@ -709,6 +717,7 @@ window.guardarCentro = async () => {
   const nombre = document.getElementById('ncc-nombre').value.trim()
   const esCorporativo = document.getElementById('ncc-corporativo').checked
   const esPrivado = document.getElementById('ncc-privado').checked
+  const tipoActividad = document.getElementById('ncc-tipo-actividad').value
   const err = document.getElementById('modal-centro-error')
 
   if (!nombre) { showError(err, 'El nombre es obligatorio'); return }
@@ -721,6 +730,7 @@ window.guardarCentro = async () => {
     nombre,
     es_corporativo: esCorporativo,
     privado: esPrivado,
+    tipo_actividad: tipoActividad,
     activa: true
   }
 

@@ -2278,6 +2278,15 @@
         <label>Nombre</label>
         <input type="text" id="ncc-nombre" placeholder="Ej: Tecnicentro Comayagüela">
       </div>
+      <div class="fld">
+        <label>Actividad fiscal (ISV)</label>
+        <select id="ncc-tipo-actividad">
+          <option value="gravada">Gravada — vende con 15% (crédito 100%)</option>
+          <option value="exenta">Exenta — vende sin ISV (el crédito va a costo)</option>
+          <option value="comun" selected>Común — gasto compartido (crédito a prorrata)</option>
+          <option value="personal">Personal — del dueño/socio (fuera de los libros fiscales)</option>
+        </select>
+      </div>
       <div class="fld col-full" style="flex-direction:row;align-items:center;gap:10px">
         <input type="checkbox" id="ncc-corporativo" style="width:auto;accent-color:var(--gold)">
         <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">Es centro corporativo (no aparece en selects de operación)</label>
@@ -2980,7 +2989,7 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260606k"></script>
+<script type="module" src="js/app.js?v=20260606l"></script>
 <script type="module" src="js/reportes.js?v=20260603c"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js"></script>
