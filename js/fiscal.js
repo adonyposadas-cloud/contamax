@@ -31,6 +31,31 @@
     const [y, m] = p.split('-').map(Number)
     return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
   }
+
+  // ── Límite legal para acreditar el crédito fiscal de compras ──
+  // SAR / Art. 12 Ley del ISV: el crédito fiscal por compras se puede consignar
+  // dentro de un plazo de 3 meses. El plazo corre desde el período de la factura.
+  // OJO: confirmá con tu contadora si "3 meses" incluye o no el mes de origen.
+  //   - Si la factura de junio puede ir como tope hasta SEPTIEMBRE  -> deja 3.
+  //   - Si el tope es AGOSTO (3 meses contando junio)               -> ponelo en 2.
+  const MESES_LIMITE_CREDITO = 3
+  function periodoDeFecha(fecha) {
+    // fecha viene como 'YYYY-MM-DD'; tomamos el período 'YYYY-MM'
+    return (fecha || '').slice(0, 7)
+  }
+  function sumarMeses(p, n) {
+    const [y, m] = p.split('-').map(Number)
+    const total = (y * 12 + (m - 1)) + n
+    const ny = Math.floor(total / 12)
+    const nm = (total % 12) + 1
+    return `${ny}-${String(nm).padStart(2, '0')}`
+  }
+  // Período máximo (YYYY-MM) en el que esta factura todavía puede acreditarse.
+  function periodoMaximoCredito(fecha) {
+    const origen = periodoDeFecha(fecha)
+    if (!origen) return null
+    return sumarMeses(origen, MESES_LIMITE_CREDITO)
+  }
   function etiquetaMes(p) {
     const [y, m] = p.split('-').map(Number)
     const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -249,15 +274,20 @@
 
     // ── LIBRO DE COMPRAS (seleccionable + rodaje) ──
     let subC = 0, isvC = 0
-    const sig = mesSiguiente(fPeriodo)
     const filasC = fCompras.map(c => {
       const incl = !!c.incluir_fiscal
       if (incl) { subC += +c.subtotal || 0; isvC += +c.isv || 0 }
       const sinProv = !((c.proveedor || '').trim())
       const chk = `<input type="checkbox" ${incl ? 'checked' : ''} ${editable ? '' : 'disabled'} onchange="window.fiscToggleCompra('${c.id}', this.checked)" style="width:auto;margin:0;cursor:pointer">`
-      const btnMover = editable
-        ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" title="Reclamar en ${etiquetaMes(sig)}" onclick="window.fiscMoverMes('${c.id}')">→ ${sig}</button>`
-        : ''
+      // Destino y tope legal calculados por fila (el plazo corre desde la fecha de la factura)
+      const destinoRow = mesSiguiente(c.periodo_fiscal || fPeriodo)
+      const limiteRow = periodoMaximoCredito(c.fecha)
+      const enTope = limiteRow && destinoRow > limiteRow
+      const btnMover = !editable
+        ? ''
+        : enTope
+          ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;opacity:.4;cursor:not-allowed" disabled title="Tope legal: el crédito solo puede acreditarse hasta ${etiquetaMes(limiteRow)} (plazo de ${MESES_LIMITE_CREDITO} meses, Art. 12 Ley del ISV)">⛔ tope</button>`
+          : `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" title="Reclamar en ${etiquetaMes(destinoRow)}" onclick="window.fiscMoverMes('${c.id}')">→ ${destinoRow}</button>`
       const btnEdit = puedeEditarDatos()
         ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;margin-left:4px" title="Editar n° de factura y proveedor" onclick="window.fiscEditCompra('${c.id}')">✏️</button>`
         : ''
@@ -348,7 +378,26 @@
     if (!puedeEditar()) return
     const sb = getSb()
     const c = fCompras.find(x => x.id === id)
-    const destino = mesSiguiente(fPeriodo)
+    // El destino parte del período actual de la factura (no del mes en pantalla).
+    const actual = c?.periodo_fiscal || fPeriodo
+    const destino = mesSiguiente(actual)
+
+    // Tope legal: el crédito no puede consignarse más allá de la ventana de 3 meses
+    // contada desde el período de la factura (Art. 12 Ley del ISV).
+    const limite = periodoMaximoCredito(c?.fecha)
+    if (!limite) {
+      window.toast?.('La factura no tiene fecha válida; no se puede validar el plazo del crédito.', 'error')
+      return
+    }
+    if (destino > limite) {
+      window.toast?.(
+        `No se puede rodar: el crédito de esta factura solo puede declararse hasta ${etiquetaMes(limite)} ` +
+        `(plazo legal de ${MESES_LIMITE_CREDITO} meses, Art. 12 Ley del ISV). Más allá de esa fecha se pierde.`,
+        'error'
+      )
+      return
+    }
+
     const { error } = await sb.from('libro_compras').update({ periodo_fiscal: destino }).eq('id', id)
     if (error) { window.toast?.('No se pudo mover la compra: ' + (error.message || ''), 'error'); return }
     fCompras = fCompras.filter(x => x.id !== id)
