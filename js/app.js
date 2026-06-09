@@ -1731,7 +1731,11 @@ window.verPartida = async (id) => {
   document.getElementById('modal-ver-partida').classList.add('open')
 }
 
+let _editPartidaEnCurso = false
 window.editarPartida = async (id) => {
+  if (_editPartidaEnCurso) return // evita doble clic que duplica las líneas
+  _editPartidaEnCurso = true
+  setTimeout(() => { _editPartidaEnCurso = false }, 8000) // seguro: liberar aunque algo falle
   // Cargar cuentas si no están
   if (!cuentasDetalle.length) {
     const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
@@ -1743,14 +1747,14 @@ window.editarPartida = async (id) => {
     .select('*')
     .eq('id', id)
     .single()
-  if (pErr || !partida) { toast('Error al cargar partida', 'error'); return }
+  if (pErr || !partida) { toast('Error al cargar partida', 'error'); _editPartidaEnCurso = false; return }
 
   // Cargar líneas
   const { data: lineas, error: lErr } = await sb.from('lineas_partida')
     .select('*')
     .eq('partida_id', id)
     .order('id')
-  if (lErr) { toast('Error al cargar líneas', 'error'); return }
+  if (lErr) { toast('Error al cargar líneas', 'error'); _editPartidaEnCurso = false; return }
 
   // Navegar al formulario
   editingPartidaId = id
@@ -1862,6 +1866,7 @@ window.editarPartida = async (id) => {
   if (btnAprobar) {
     btnAprobar.textContent = 'Aprobar partida ✓'
   }
+  _editPartidaEnCurso = false
 }
 
 window.eliminarPartida = async () => {

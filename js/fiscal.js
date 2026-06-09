@@ -56,7 +56,10 @@
   //   comun    → acreditable solo en el % de ventas gravadas (prorrata): alquiler, energía, etc.
   //   personal → fuera de los libros fiscales: ni débito ni crédito (gasto del dueño)
   const TIPOS_ACTIVIDAD = ['gravada', 'exenta', 'comun', 'personal']
-  function centroObj(id) { return (window._empresas?.() || []).find(e => e.id === id) || null }
+  function centroObj(id) {
+    const all = (window._todosLosCentros?.() || window._empresas?.() || [])
+    return all.find(e => e.id === id) || null
+  }
   function tipoActividad(id) {
     const t = centroObj(id)?.tipo_actividad
     return TIPOS_ACTIVIDAD.includes(t) ? t : 'comun'   // sin clasificar → tratado como común (conservador)
