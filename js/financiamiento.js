@@ -281,6 +281,9 @@ window.abrirLiquidacion = async (codigo) => {
     codigo, registro, motorista: p.motorista,
     entregas: entregas || [], facturas: facturas || [],
     abonosPartida: abonosValidos,
+    // Conjuntos completos NO usados (para re-filtrar por la fecha del recibo)
+    _entregasAll: entregas || [], _facturasAll: facturas || [], _abonosAll: abonosValidos,
+    fechaRecibo: new Date().toLocaleDateString('en-CA'),
     totalEntregas, totalAbonosPartida, totalFacturas,
     saldoInicial: saldo, tasa, tasaDiaria, intereses, gps, alquiler,
     fechaUltimoPago, diasTranscurridos,
@@ -290,6 +293,9 @@ window.abrirLiquidacion = async (codigo) => {
     nuevoSaldoPrestamo, montoRecibo, numRecibo: numReciboSig,
     esTaxi, concepto: `CANCELACION DE CUOTA NUMERO ${numReciboSig} EN LA COMPRA DEL ${esTaxi ? 'TAXI' : 'VIP'} ${codigo}`
   }
+
+  // Filtrar por la fecha del recibo (por defecto hoy) y recalcular todo
+  recomputarLiquidacion(liquidacionData, liquidacionData.fechaRecibo)
 
   renderLiquidacion()
   document.getElementById('modal-liquidacion').classList.add('open')
@@ -496,31 +502,40 @@ window.eliminarRecibo = async (reciboId, codigo, numRecibo) => {
   }
 }
 
-window.recalcularIntereses = () => {
-  const d = liquidacionData
-  if (!d) return
-  const fechaRecibo = document.getElementById('liq-fecha')?.value
-  if (!fechaRecibo) return
-
-  // Guardar fecha seleccionada para que persista al re-renderizar
+// Filtra entregas/facturas/abonos por fecha ≤ fecha del recibo y recalcula TODO.
+// Los conjuntos completos (sin usar) se guardan en d._entregasAll/_facturasAll/_abonosAll;
+// aquí derivamos los incluidos según la fecha del recibo, dejando los posteriores para el próximo.
+function recomputarLiquidacion(d, fechaRecibo) {
+  if (!d || !fechaRecibo) return
   d.fechaRecibo = fechaRecibo
+  const hasta = fechaRecibo
+  const dstr = (v) => (v || '').toString().slice(0, 10)
 
+  // Subconjuntos incluidos en ESTE recibo: solo lo ocurrido hasta la fecha del recibo
+  d.entregas = (d._entregasAll || []).filter(e => dstr(e.fecha_deposito) <= hasta)
+  d.facturas = (d._facturasAll || []).filter(f => dstr(f.fecha) <= hasta)
+  d.abonosPartida = (d._abonosAll || []).filter(a => dstr(a.partida?.fecha_partida) <= hasta)
+
+  // Totales del período
+  d.totalAbonosPartida = d.abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
+  d.totalEntregas = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + d.totalAbonosPartida
+  d.totalFacturas = d.facturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+
+  // Intereses por días desde el último pago hasta la fecha del recibo
   const fechaUlt = new Date(d.fechaUltimoPago + 'T12:00:00')
   const fechaRec = new Date(fechaRecibo + 'T12:00:00')
   const dias = Math.max(0, Math.round((fechaRec - fechaUlt) / (1000 * 60 * 60 * 24)))
-  
   d.diasTranscurridos = dias
   d.intereses = Math.round(d.saldoInicial * d.tasaDiaria * dias * 100) / 100
 
-  // Recalcular todo
+  // Saldo del mes y abono a capital
   const totalCargos = d.intereses + d.totalFacturas + d.alquiler + d.gps + d.cargoSaldoAnt
-  d.saldoDelMes = d.totalEntregas + d.abonoSaldoAnt - totalCargos
   d.totalCargos = totalCargos
+  d.saldoDelMes = d.totalEntregas + d.abonoSaldoAnt - totalCargos
 
   let abonoCapital = 0
   let nuevoSaldoMes = d.saldoDelMes
   const capitalPactado = d.cuotaMes > 0 ? d.cuotaMes - d.intereses : 0
-
   if (d.saldoDelMes > 0 && d.cuotaMes > 0) {
     if (d.saldoDelMes >= capitalPactado && capitalPactado > 0) {
       abonoCapital = Math.round(capitalPactado * 100) / 100
@@ -533,12 +548,18 @@ window.recalcularIntereses = () => {
     abonoCapital = Math.round(d.saldoDelMes * 100) / 100
     nuevoSaldoMes = 0
   }
-
   d.abonoCapital = abonoCapital
   d.nuevoSaldoMes = nuevoSaldoMes
   d.nuevoSaldoPrestamo = Math.round((d.saldoInicial - abonoCapital) * 100) / 100
   d.montoRecibo = Math.round((d.intereses + abonoCapital) * 100) / 100
+}
 
+window.recalcularIntereses = () => {
+  const d = liquidacionData
+  if (!d) return
+  const fechaRecibo = document.getElementById('liq-fecha')?.value
+  if (!fechaRecibo) return
+  recomputarLiquidacion(d, fechaRecibo)
   renderLiquidacion()
 }
 

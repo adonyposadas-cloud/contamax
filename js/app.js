@@ -7778,7 +7778,7 @@ window.cargarDetalleUnidad = async () => {
 
   // 2. Cargar facturas (gastos) desde importación
   const { data: facturas } = await sb.from('facturas_taxis')
-    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
+    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad, partida_id')
     .eq('registro', detalleRegistro)
     .gte('fecha', desde)
     .lte('fecha', hasta)
@@ -7838,6 +7838,14 @@ window.cargarDetalleUnidad = async () => {
   // Solo cuentan las líneas CON centro de costo. Las de bancos/caja (contrapartida)
   // van sin centro de costo, así que quedan excluidas automáticamente.
   partidasGastos = partidasGastos.filter(g => g.centro_costo_id)
+  // Quitar duplicados entre fuentes: si una partida YA vino por importación (tiene filas
+  // en facturas_taxis), sus líneas de GASTO ya están contadas ahí. Mantenemos solo los
+  // ingresos (ventas, cuenta 4xxx) de esa partida; los gastos se omiten para no duplicar.
+  const partidasConFactura = new Set((facturas || []).map(f => f.partida_id).filter(Boolean))
+  partidasGastos = partidasGastos.filter(g => {
+    const esIngreso = g.tipo === 'credito' && String(g.cuenta_codigo || '').startsWith('4')
+    return esIngreso || !partidasConFactura.has(g.partida_id)
+  })
   const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
   const gastosPartidas = partidasGastos.map(g => ({
     fecha: partidaMap[g.partida_id]?.fecha_partida || '',
