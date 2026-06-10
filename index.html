@@ -488,13 +488,17 @@
         </div>
         <div class="table-wrap">
           <div class="table-header"><span class="table-title">Libro diario</span><span id="fp-count" style="font-size:11px;color:var(--text3)"></span></div>
-          <table>
-            <thead><tr><th>N°</th><th>Fecha</th><th>Descripción</th><th>Origen</th><th>Total</th><th>Estado</th></tr></thead>
-            <tbody id="tbody-partidas">
-              <tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
-            </tbody>
-          </table>
+          <div id="partidas-scroll" style="max-height:620px;overflow-y:auto">
+            <table>
+              <thead><tr><th>N°</th><th>Fecha</th><th>Descripción</th><th>Origen</th><th>Total</th><th>Estado</th></tr></thead>
+              <tbody id="tbody-partidas">
+                <tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="partidas-paginacion" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--border);font-size:12px;color:var(--text3)"></div>
         </div>
+        <style>#partidas-scroll thead th{position:sticky;top:0;background:var(--bg2);z-index:2}</style>
       </div>
 
       <!-- TIPOS DE ORIGEN -->
@@ -2989,7 +2993,7 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260606n"></script>
+<script type="module" src="js/app.js?v=20260606o"></script>
 <script type="module" src="js/reportes.js?v=20260603c"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260609a"></script>

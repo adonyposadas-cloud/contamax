@@ -1591,6 +1591,7 @@ window.filtrarPartidas = () => {
   if (estado) filtered = filtered.filter(p => p.estado === estado)
   if (origen) filtered = filtered.filter(p => p.tipo_origen === origen)
 
+  _partidasPagina = 1
   renderPartidasTable(filtered)
 }
 
@@ -1600,19 +1601,44 @@ window.limpiarFiltrosPartidas = () => {
   filtrarPartidas()
 }
 
+let _partidasFiltradas = []
+let _partidasPagina = 1
+const PARTIDAS_POR_PAGINA = 50
+
 function renderPartidasTable(data) {
+  _partidasFiltradas = data || []
+  _renderPaginaPartidas()
+}
+
+window.partidasIrPagina = (delta) => {
+  const totalPag = Math.max(1, Math.ceil(_partidasFiltradas.length / PARTIDAS_POR_PAGINA))
+  _partidasPagina = Math.min(totalPag, Math.max(1, _partidasPagina + delta))
+  _renderPaginaPartidas()
+  document.getElementById('partidas-scroll')?.scrollTo({ top: 0 })
+}
+
+function _renderPaginaPartidas() {
   const tbody = document.getElementById('tbody-partidas')
   const countEl = document.getElementById('fp-count')
+  const pagEl = document.getElementById('partidas-paginacion')
+  const data = _partidasFiltradas
   if (!data?.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay partidas con estos filtros</td></tr>'
     if (countEl) countEl.textContent = '0 resultados'
+    if (pagEl) pagEl.innerHTML = ''
     return
   }
   if (countEl) countEl.textContent = data.length === allPartidas.length ? '' : `${data.length} de ${allPartidas.length}`
+
+  const totalPag = Math.max(1, Math.ceil(data.length / PARTIDAS_POR_PAGINA))
+  if (_partidasPagina > totalPag) _partidasPagina = totalPag
+  const ini = (_partidasPagina - 1) * PARTIDAS_POR_PAGINA
+  const pageData = data.slice(ini, ini + PARTIDAS_POR_PAGINA)
+
   const getOrigenLabel = (id) => { const t = tiposOrigen.find(x => x.id === id); return t ? t.nombre : id }
   const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber', pendiente_anulacion:'badge-red', anulada:'badge-red' }
   const estadoLabel = { pendiente_caja:'⏳ Pend. caja', pendiente_anulacion:'⚠ Pend. anulación', anulada:'✕ Anulada' }
-  tbody.innerHTML = data.map(p => `
+  tbody.innerHTML = pageData.map(p => `
     <tr style="cursor:pointer" onclick="verPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
@@ -1621,6 +1647,21 @@ function renderPartidasTable(data) {
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
       <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar">✏️</button></td>
     </tr>`).join('')
+
+  if (pagEl) {
+    if (totalPag <= 1) {
+      pagEl.innerHTML = `<span>${data.length} partida${data.length === 1 ? '' : 's'}</span>`
+    } else {
+      const desde = ini + 1, hastaN = Math.min(ini + PARTIDAS_POR_PAGINA, data.length)
+      pagEl.innerHTML = `
+        <span>Mostrando ${desde}–${hastaN} de ${data.length}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-ghost" style="padding:4px 10px" ${_partidasPagina <= 1 ? 'disabled' : ''} onclick="window.partidasIrPagina(-1)">← Anterior</button>
+          <span>Página ${_partidasPagina} de ${totalPag}</span>
+          <button class="btn btn-ghost" style="padding:4px 10px" ${_partidasPagina >= totalPag ? 'disabled' : ''} onclick="window.partidasIrPagina(1)">Siguiente →</button>
+        </span>`
+    }
+  }
 }
 
 async function initPartidaNueva() {
