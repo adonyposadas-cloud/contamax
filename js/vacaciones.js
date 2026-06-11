@@ -44,7 +44,7 @@ function renderVacaciones() {
       <td>${e.nombre}</td>
       <td><span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion || ''}</span></td>
       <td style="text-align:right">${fmt(e.sueldo_mensual)}</td>
-      <td style="text-align:right;font-weight:600;color:${saldo > 0 ? 'var(--green)' : 'var(--text3)'}">${fmtDias(saldo)}</td>
+      <td style="text-align:right;font-weight:600;color:${saldo > 0 ? 'var(--green)' : saldo < 0 ? 'var(--red)' : 'var(--text3)'}">${fmtDias(saldo)}</td>
       <td style="text-align:right"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="openPagoVacaciones('${e.id}')">💵 Pagar</button></td>
     </tr>`
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin empleados</td></tr>'
@@ -177,7 +177,7 @@ function ensureSumarDiasUI() {
     const sumarBtn = document.createElement('button')
     sumarBtn.id = 'btn-sumar-dias-vac'
     sumarBtn.className = 'btn btn-ghost'
-    sumarBtn.textContent = '➕ Sumar días'
+    sumarBtn.textContent = '± Ajustar días'
     sumarBtn.onclick = () => window.openSumarDiasVac()
     if (pagarBtn) {
       header.insertBefore(group, pagarBtn)
@@ -193,14 +193,14 @@ function ensureSumarDiasUI() {
     const html = `
     <div class="modal-backdrop" id="modal-sumar-dias-vac">
       <div class="modal" style="width:520px">
-        <div class="modal-title">➕ Sumar días de vacaciones</div>
+        <div class="modal-title">± Ajustar días de vacaciones</div>
         <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
-          Acredita días al saldo de los empleados seleccionados. No genera partida — solo afecta el saldo.
+          Positivo acredita días; negativo los descuenta (ej. vacaciones ya gozadas a cuenta del próximo año). No genera partida — solo afecta el saldo.
         </div>
         <div style="display:flex;gap:16px;margin-bottom:6px">
           <div class="fld" style="flex:0 0 140px">
-            <label>Días a sumar</label>
-            <input type="number" id="sumardias-dias" min="0" step="0.5" placeholder="0">
+            <label>Días (+/−)</label>
+            <input type="number" id="sumardias-dias" step="0.5" placeholder="+/- días">
           </div>
           <div class="fld" style="flex:1">
             <label>Descripción / motivo</label>
@@ -252,7 +252,7 @@ window.renderSumarDiasLista = () => {
       <input type="checkbox" value="${e.id}" ${checked} style="width:auto;margin:0" onchange="onSumarDiasCheck('${e.id}', this.checked)">
       <span style="flex:1">${e.nombre}</span>
       <span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion || ''}</span>
-      <span style="font-size:11px;color:${saldo > 0 ? 'var(--green)' : 'var(--text3)'};min-width:64px;text-align:right">${fmtDias(saldo)} días</span>
+      <span style="font-size:11px;color:${saldo > 0 ? 'var(--green)' : saldo < 0 ? 'var(--red)' : 'var(--text3)'};min-width:64px;text-align:right">${fmtDias(saldo)} días</span>
     </label>`
   }).join('') || '<div style="text-align:center;padding:16px;color:var(--text3)">Sin coincidencias</div>'
   updateSumarDiasCount()
@@ -278,13 +278,13 @@ window.toggleAllSumarDias = () => {
 
 window.aplicarSumarDias = async () => {
   const dias = parseFloat(document.getElementById('sumardias-dias').value) || 0
-  if (dias <= 0) { window.toast?.('Ingresá los días a sumar (mayor que 0)', 'error'); return }
+  if (!dias) { window.toast?.('Ingresá los días: positivo acredita, negativo descuenta (ej. vacaciones ya gozadas)', 'error'); return }
   const motivo = document.getElementById('sumardias-motivo').value.trim()
   if (!motivo) { window.toast?.('Escribí la descripción / motivo', 'error'); return }
   const seleccionados = vacEmpleados.filter(e => sumarDiasSel.has(e.id))
   if (seleccionados.length === 0) { window.toast?.('Seleccioná al menos un empleado', 'error'); return }
 
-  if (!confirm(`Vas a sumar ${fmtDias(dias)} día(s) a ${seleccionados.length} empleado(s).\nMotivo: ${motivo}\n\n¿Continuar?`)) return
+  if (!confirm(`Vas a ${dias > 0 ? 'SUMAR' : 'RESTAR'} ${fmtDias(Math.abs(dias))} día(s) a ${seleccionados.length} empleado(s).\nMotivo: ${motivo}\n\n¿Continuar?`)) return
 
   const sb = getSb()
   const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD local (evita off-by-one)
@@ -298,7 +298,7 @@ window.aplicarSumarDias = async () => {
       const resultante = Math.round((saldo + dias) * 100) / 100
       return {
         empleado_id: emp.id, empleado_nombre: emp.nombre, fecha: hoy,
-        tipo: 'ajuste', dias: Math.abs(dias), monto: 0,
+        tipo: 'ajuste', dias: dias, monto: 0,  // con signo: + acredita, − descuenta
         saldo_resultante: resultante, referencia: null,
         motivo, partida_numero: null,
         created_by: window._currentProfile?.()?.nombre || null
@@ -317,8 +317,8 @@ window.aplicarSumarDias = async () => {
       else ok++
     }
 
-    window.logActividad?.('vacaciones_ajuste', 'rrhh', `+${fmtDias(dias)} días a ${ok} empleado(s) · ${motivo}`)
-    window.toast?.(`Sumados ${fmtDias(dias)} día(s) a ${ok} empleado(s)`, 'success')
+    window.logActividad?.('vacaciones_ajuste', 'rrhh', `${dias > 0 ? '+' : ''}${fmtDias(dias)} días a ${ok} empleado(s) · ${motivo}`)
+    window.toast?.(`Ajuste de ${dias > 0 ? '+' : ''}${fmtDias(dias)} día(s) aplicado a ${ok} empleado(s)`, 'success')
     window.closeModal('modal-sumar-dias-vac')
     await window.loadVacaciones()
   } catch (e) {
