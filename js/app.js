@@ -6570,7 +6570,19 @@ window.guardarImportTaxis = async () => {
   }
 
   // ── 5. Insertar todas las entregas del CSV (insert, ya no upsert) ──
-  const todas = itxData.entregas
+  // DEDUPE por id, quedándonos con la ÚLTIMA aparición: la hoja de Timar a veces
+  // exporta la misma entrega dos veces (p. ej. cambió de estado y quedó la fila
+  // vieja). Dos filas con el mismo id en un mismo upsert hacen fallar TODO el
+  // lote en Postgres: "ON CONFLICT DO UPDATE command cannot affect row a second time".
+  const _conteoIds = {}
+  itxData.entregas.forEach(e => { _conteoIds[e.id] = (_conteoIds[e.id] || 0) + 1 })
+  const _porId = new Map()
+  itxData.entregas.forEach(e => _porId.set(e.id, e))  // la última pisa a la anterior
+  const todas = [..._porId.values()]
+  const _idsDup = Object.keys(_conteoIds).filter(k => _conteoIds[k] > 1)
+  if (_idsDup.length > 0) {
+    log.push(`<span style="color:var(--amber)">⚠</span> ${_idsDup.length} entrega(s) venían repetidas en el CSV (se usó la última versión): ${_idsDup.join(', ')}`)
+  }
   for (let i = 0; i < todas.length; i += 50) {
     const batch = todas.slice(i, i + 50).map(e => ({
       id: e.id,
@@ -6627,8 +6639,17 @@ window.guardarImportTaxis = async () => {
       await sb.from('km_diarios_taxis').delete().eq('fecha', fecha)
     }
 
-    for (let i = 0; i < itxData.km.length; i += 100) {
-      const batch = itxData.km.slice(i, i + 100).map(k => ({
+    // DEDUPE por fecha+unidad (última aparición gana) — mismo motivo que las
+    // entregas: claves repetidas en un mismo upsert tumban el lote completo.
+    const _porClaveKm = new Map()
+    itxData.km.forEach(k => _porClaveKm.set(`${k.fecha}|${k.unidad}`, k))
+    const kmUnicos = [..._porClaveKm.values()]
+    if (kmUnicos.length < itxData.km.length) {
+      log.push(`<span style="color:var(--amber)">⚠</span> ${itxData.km.length - kmUnicos.length} registro(s) de km repetidos en el CSV (se usó la última versión)`)
+    }
+
+    for (let i = 0; i < kmUnicos.length; i += 100) {
+      const batch = kmUnicos.slice(i, i + 100).map(k => ({
         fecha: k.fecha,
         unidad: k.unidad,
         km_recorridos: k.km_recorridos,
