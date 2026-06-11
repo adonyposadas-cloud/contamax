@@ -527,13 +527,15 @@
     el.style.display = el.style.display === 'none' ? '' : 'none'
   }
 
-  // Filtrar el panel "Solo en el banco" por día
+  // Filtrar el panel "Solo en el banco" por día.
+  // IMPORTANTE: la selección se MANTIENE entre días — así se pueden ir marcando
+  // depósitos de varios días para completar una misma partida/emparejamiento.
   window._cbFiltrarDiaBanco = () => {
     const dia = document.getElementById('cb-banco-dia')?.value || ''
     document.querySelectorAll('.cb-fila-banco').forEach(tr => {
       const show = !dia || tr.getAttribute('data-fecha') === dia
       tr.style.display = show ? '' : 'none'
-      if (!show) { const cb = tr.querySelector('.cb-sel-banco'); if (cb) cb.checked = false } // no sumar lo oculto
+      // (las filas ocultas conservan su check: la suma y las acciones los incluyen)
     })
     const all = document.getElementById('cb-banco-all'); if (all) all.checked = false
     window._cbSumaSel()
@@ -585,7 +587,10 @@
     if (!selB.length && !selL.length) { el.innerHTML = ''; return }
     const movsB = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
     const sumaB = r2(movsB.reduce((s, b) => s + b.monto, 0))
-    let html = `Banco seleccionado: <strong>${fmtL(sumaB)}</strong> (${movsB.length} mov.)`
+    // ¿Cuántos seleccionados están ocultos por el filtro de día actual?
+    const ocultosSel = [...document.querySelectorAll('.cb-sel-banco:checked')]
+      .filter(c => c.closest('tr')?.style.display === 'none').length
+    let html = `Banco seleccionado: <strong>${fmtL(sumaB)}</strong> (${movsB.length} mov.${ocultosSel > 0 ? `, <span style="color:var(--amber)">${ocultosSel} de otros días</span>` : ''})`
     if (selL.length === 1) {
       const l = estadoConc.libro.find(x => x._i === selL[0])
       if (l) {
