@@ -220,85 +220,106 @@ window.abrirLiquidacion = async (codigo) => {
     .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
     .order('fecha')
 
-  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + totalAbonosPartida
   const totalFacturas = (facturas || []).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
 
   const saldo = parseFloat(p.saldo_actual) || 0
   const tasa = parseFloat(p.tasa_interes) || 0.03 // tasa mensual (3% = 0.03)
-  
-  // Calcular días desde último pago hasta hoy (se recalculará al cambiar fecha)
-  const hoy = new Date()
-  const fechaUlt = new Date(fechaUltimoPago + 'T12:00:00')
-  const diasTranscurridos = Math.max(0, Math.round((hoy - fechaUlt) / (1000 * 60 * 60 * 24)))
   const tasaDiaria = tasa / 30 // tasa mensual / 30 días
-  const intereses = Math.round(saldo * tasaDiaria * diasTranscurridos * 100) / 100
-  
+
   const gps = Math.abs(parseFloat(prevGps)) || 0
   const alquiler = Math.abs(parseFloat(prevAlquiler)) || 0
   const saldoAnt = parseFloat(saldoMesAnterior) || 0
-
-  // Cálculo de liquidación:
-  // Saldo del mes = entregas - (intereses + facturas + alquiler + GPS + |saldo mes anterior negativo|)
   const cargoSaldoAnt = saldoAnt < 0 ? Math.abs(saldoAnt) : 0
   const abonoSaldoAnt = saldoAnt > 0 ? saldoAnt : 0
-  const totalCargos = intereses + totalFacturas + alquiler + gps + cargoSaldoAnt
-  const saldoDelMes = totalEntregas + abonoSaldoAnt - totalCargos
+
+  liquidacionData = {
+    codigo, registro, motorista: p.motorista,
+    // Listas COMPLETAS (sin filtrar por fecha) — el rango se aplica en recalcularLiquidacion()
+    entregasTodas: entregas || [],
+    abonosTodos: abonosValidos,
+    // Listas filtradas al rango [fechaUltimoPago, fechaRecibo] (se llenan abajo)
+    entregas: [], abonosPartida: [],
+    facturas: facturas || [],
+    totalEntregas: 0, totalAbonosPartida: 0, totalFacturas,
+    saldoInicial: saldo, tasa, tasaDiaria, intereses: 0, gps, alquiler,
+    fechaUltimoPago, diasTranscurridos: 0,
+    saldoMesAnterior: saldoAnt, cargoSaldoAnt, abonoSaldoAnt, totalCargos: 0,
+    cuotaMes,
+    saldoDelMes: 0, abonoCapital: 0, nuevoSaldoMes: 0,
+    nuevoSaldoPrestamo: saldo, montoRecibo: 0, numRecibo: numReciboSig,
+    fechaRecibo: new Date().toLocaleDateString('en-CA'),
+    esTaxi, concepto: `CANCELACION DE CUOTA NUMERO ${numReciboSig} EN LA COMPRA DEL ${esTaxi ? 'TAXI' : 'VIP'} ${codigo}`
+  }
+
+  // Aplicar rango de fechas a ingresos y calcular toda la liquidación
+  recalcularLiquidacion()
+
+  renderLiquidacion()
+  document.getElementById('modal-liquidacion').classList.add('open')
+}
+
+// ── Cálculo central de la liquidación ──
+// Los INGRESOS (entregas + abonos de partida) solo cuentan si su fecha está en el
+// rango [fecha del último recibo, fecha del recibo seleccionada], ambos inclusive.
+// Los GASTOS (facturas, GPS, alquiler, saldo anterior) no se filtran por fecha.
+function recalcularLiquidacion() {
+  const d = liquidacionData
+  if (!d) return
+
+  const hasta = String(d.fechaRecibo || new Date().toLocaleDateString('en-CA')).split('T')[0]
+  const desde = String(d.fechaUltimoPago || '').split('T')[0]
+
+  // Comparación lexicográfica segura para fechas YYYY-MM-DD
+  const enRango = (f) => {
+    const fecha = String(f || '').split('T')[0]
+    if (!fecha) return false
+    if (desde && fecha < desde) return false
+    return fecha <= hasta
+  }
+
+  d.entregas = (d.entregasTodas || []).filter(e => enRango(e.fecha_deposito))
+  d.abonosPartida = (d.abonosTodos || []).filter(a => enRango(a.partida?.fecha_partida))
+  d.totalAbonosPartida = d.abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
+  d.totalEntregas = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + d.totalAbonosPartida
+
+  // Intereses por días transcurridos desde el último recibo hasta la fecha del recibo
+  const fechaUlt = new Date(desde + 'T12:00:00')
+  const fechaRec = new Date(hasta + 'T12:00:00')
+  const dias = Math.max(0, Math.round((fechaRec - fechaUlt) / (1000 * 60 * 60 * 24)))
+  d.diasTranscurridos = dias
+  d.intereses = Math.round(d.saldoInicial * d.tasaDiaria * dias * 100) / 100
+
+  // Saldo del mes = entregas (+saldo a favor ant.) - (intereses + facturas + alquiler + GPS + deuda ant.)
+  const totalCargos = d.intereses + d.totalFacturas + d.alquiler + d.gps + d.cargoSaldoAnt
+  d.totalCargos = totalCargos
+  d.saldoDelMes = d.totalEntregas + d.abonoSaldoAnt - totalCargos
 
   // Si el saldo del mes es positivo y cubre la cuota pactada:
   //   - Se abona el capital de la cuota (cuota - intereses)
   //   - El excedente queda como saldo a favor para el próximo mes
-  // Si el saldo del mes es positivo pero NO cubre la cuota:
-  //   - Todo va a cubrir intereses, no abona capital
-  //   - El saldo del mes (positivo o negativo) se arrastra
+  // Si el saldo es positivo pero NO cubre la cuota: todo el saldo va a capital
   // Si el saldo es negativo: no abona capital, arrastra deuda
-
   let abonoCapital = 0
-  let nuevoSaldoMes = saldoDelMes
+  let nuevoSaldoMes = d.saldoDelMes
+  const capitalPactado = d.cuotaMes > 0 ? d.cuotaMes - d.intereses : 0
 
-  if (saldoDelMes > 0 && cuotaMes > 0) {
-    // La cuota ya incluye intereses, entonces capital = cuota - intereses
-    const capitalPactado = cuotaMes - intereses
-    if (saldoDelMes >= capitalPactado && capitalPactado > 0) {
-      // Cubre la cuota de capital completa: abona capital pactado, el resto es saldo a favor
+  if (d.saldoDelMes > 0 && d.cuotaMes > 0) {
+    if (d.saldoDelMes >= capitalPactado && capitalPactado > 0) {
       abonoCapital = Math.round(capitalPactado * 100) / 100
-      nuevoSaldoMes = Math.round((saldoDelMes - capitalPactado) * 100) / 100
-    } else if (saldoDelMes > 0) {
-      // No cubre toda la cuota de capital: todo el saldo va a capital
-      abonoCapital = Math.round(saldoDelMes * 100) / 100
+      nuevoSaldoMes = Math.round((d.saldoDelMes - capitalPactado) * 100) / 100
+    } else if (d.saldoDelMes > 0) {
+      abonoCapital = Math.round(d.saldoDelMes * 100) / 100
       nuevoSaldoMes = 0
     }
-    // Si saldoDelMes <= 0: no abona capital, arrastra deuda
-  } else if (saldoDelMes > 0 && cuotaMes === 0) {
-    // Sin cuota pactada: todo el saldo va a capital
-    abonoCapital = Math.round(saldoDelMes * 100) / 100
+  } else if (d.saldoDelMes > 0 && d.cuotaMes === 0) {
+    abonoCapital = Math.round(d.saldoDelMes * 100) / 100
     nuevoSaldoMes = 0
   }
 
-  const nuevoSaldoPrestamo = Math.round((saldo - abonoCapital) * 100) / 100
-  const montoRecibo = Math.round((intereses + abonoCapital) * 100) / 100
-
-  liquidacionData = {
-    codigo, registro, motorista: p.motorista,
-    entregas: entregas || [], facturas: facturas || [],
-    abonosPartida: abonosValidos,
-    // Conjuntos completos NO usados (para re-filtrar por la fecha del recibo)
-    _entregasAll: entregas || [], _facturasAll: facturas || [], _abonosAll: abonosValidos,
-    fechaRecibo: new Date().toLocaleDateString('en-CA'),
-    totalEntregas, totalAbonosPartida, totalFacturas,
-    saldoInicial: saldo, tasa, tasaDiaria, intereses, gps, alquiler,
-    fechaUltimoPago, diasTranscurridos,
-    saldoMesAnterior: saldoAnt, cargoSaldoAnt, abonoSaldoAnt, totalCargos,
-    cuotaMes,
-    saldoDelMes, abonoCapital, nuevoSaldoMes,
-    nuevoSaldoPrestamo, montoRecibo, numRecibo: numReciboSig,
-    esTaxi, concepto: `CANCELACION DE CUOTA NUMERO ${numReciboSig} EN LA COMPRA DEL ${esTaxi ? 'TAXI' : 'VIP'} ${codigo}`
-  }
-
-  // Filtrar por la fecha del recibo (por defecto hoy) y recalcular todo
-  recomputarLiquidacion(liquidacionData, liquidacionData.fechaRecibo)
-
-  renderLiquidacion()
-  document.getElementById('modal-liquidacion').classList.add('open')
+  d.abonoCapital = abonoCapital
+  d.nuevoSaldoMes = nuevoSaldoMes
+  d.nuevoSaldoPrestamo = Math.round((d.saldoInicial - abonoCapital) * 100) / 100
+  d.montoRecibo = Math.round((d.intereses + abonoCapital) * 100) / 100
 }
 
 function renderLiquidacion() {
@@ -349,7 +370,8 @@ function renderLiquidacion() {
     </div>
     <!-- Detalle de entregas -->
     <details style="margin-bottom:8px">
-      <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">📥 Entregas incluidas (${d.entregas.length + d.abonosPartida.length}) — L. ${getFmt(d.totalEntregas)}</summary>
+      <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">📥 Entregas incluidas (${d.entregas.length + d.abonosPartida.length}) — L. ${getFmt(d.totalEntregas)} <span style="font-size:11px;color:var(--text3)">· rango ${d.fechaUltimoPago} → ${d.fechaRecibo || 'hoy'}</span></summary>
+      ${(() => { const fuera = ((d.entregasTodas?.length || 0) + (d.abonosTodos?.length || 0)) - (d.entregas.length + d.abonosPartida.length); return fuera > 0 ? `<div style="font-size:11px;color:var(--gold);padding:4px 0">⚠️ ${fuera} ingreso(s) pendiente(s) quedaron fuera del rango de fechas y NO se incluyen en este recibo</div>` : '' })()}
       <div style="max-height:200px;overflow-y:auto;margin-top:8px">
         <table style="width:100%"><thead><tr><th>Fecha</th><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
         <tbody>${d.entregas.map(e => `<tr><td style="font-family:var(--mono);font-size:12px">${e.fecha_deposito}</td><td style="font-size:11px"><span class="badge badge-green">Entrega</span></td><td style="font-size:12px">${e.banco || '—'}</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${getFmt(e.monto)}</td></tr>`).join('')}
@@ -502,64 +524,18 @@ window.eliminarRecibo = async (reciboId, codigo, numRecibo) => {
   }
 }
 
-// Filtra entregas/facturas/abonos por fecha ≤ fecha del recibo y recalcula TODO.
-// Los conjuntos completos (sin usar) se guardan en d._entregasAll/_facturasAll/_abonosAll;
-// aquí derivamos los incluidos según la fecha del recibo, dejando los posteriores para el próximo.
-function recomputarLiquidacion(d, fechaRecibo) {
-  if (!d || !fechaRecibo) return
-  d.fechaRecibo = fechaRecibo
-  const hasta = fechaRecibo
-  const dstr = (v) => (v || '').toString().slice(0, 10)
-
-  // Subconjuntos incluidos en ESTE recibo: solo lo ocurrido hasta la fecha del recibo
-  d.entregas = (d._entregasAll || []).filter(e => dstr(e.fecha_deposito) <= hasta)
-  d.facturas = (d._facturasAll || []).filter(f => dstr(f.fecha) <= hasta)
-  d.abonosPartida = (d._abonosAll || []).filter(a => dstr(a.partida?.fecha_partida) <= hasta)
-
-  // Totales del período
-  d.totalAbonosPartida = d.abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
-  d.totalEntregas = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + d.totalAbonosPartida
-  d.totalFacturas = d.facturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
-
-  // Intereses por días desde el último pago hasta la fecha del recibo
-  const fechaUlt = new Date(d.fechaUltimoPago + 'T12:00:00')
-  const fechaRec = new Date(fechaRecibo + 'T12:00:00')
-  const dias = Math.max(0, Math.round((fechaRec - fechaUlt) / (1000 * 60 * 60 * 24)))
-  d.diasTranscurridos = dias
-  d.intereses = Math.round(d.saldoInicial * d.tasaDiaria * dias * 100) / 100
-
-  // Saldo del mes y abono a capital
-  const totalCargos = d.intereses + d.totalFacturas + d.alquiler + d.gps + d.cargoSaldoAnt
-  d.totalCargos = totalCargos
-  d.saldoDelMes = d.totalEntregas + d.abonoSaldoAnt - totalCargos
-
-  let abonoCapital = 0
-  let nuevoSaldoMes = d.saldoDelMes
-  const capitalPactado = d.cuotaMes > 0 ? d.cuotaMes - d.intereses : 0
-  if (d.saldoDelMes > 0 && d.cuotaMes > 0) {
-    if (d.saldoDelMes >= capitalPactado && capitalPactado > 0) {
-      abonoCapital = Math.round(capitalPactado * 100) / 100
-      nuevoSaldoMes = Math.round((d.saldoDelMes - capitalPactado) * 100) / 100
-    } else if (d.saldoDelMes > 0) {
-      abonoCapital = Math.round(d.saldoDelMes * 100) / 100
-      nuevoSaldoMes = 0
-    }
-  } else if (d.saldoDelMes > 0 && d.cuotaMes === 0) {
-    abonoCapital = Math.round(d.saldoDelMes * 100) / 100
-    nuevoSaldoMes = 0
-  }
-  d.abonoCapital = abonoCapital
-  d.nuevoSaldoMes = nuevoSaldoMes
-  d.nuevoSaldoPrestamo = Math.round((d.saldoInicial - abonoCapital) * 100) / 100
-  d.montoRecibo = Math.round((d.intereses + abonoCapital) * 100) / 100
-}
-
 window.recalcularIntereses = () => {
   const d = liquidacionData
   if (!d) return
   const fechaRecibo = document.getElementById('liq-fecha')?.value
   if (!fechaRecibo) return
-  recomputarLiquidacion(d, fechaRecibo)
+
+  // Guardar fecha seleccionada para que persista al re-renderizar
+  d.fechaRecibo = fechaRecibo
+
+  // Re-filtrar ingresos al nuevo rango y recalcular toda la liquidación
+  recalcularLiquidacion()
+
   renderLiquidacion()
 }
 
