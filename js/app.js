@@ -15,6 +15,19 @@ function localDateStr(d) {
   return dt.toLocaleDateString('en-CA') // en-CA returns YYYY-MM-DD format
 }
 
+// Correlativo de partida ATÓMICO: lo genera la BD (función siguiente_numero_partida).
+// Evita los duplicados que producía el viejo "último + 1" en el cliente.
+// Fallback: si la función no existe aún (BD sin migrar), usa el método viejo.
+window.siguienteNumeroPartida = async () => {
+  try {
+    const { data, error } = await sb.rpc('siguiente_numero_partida')
+    if (!error && Number.isInteger(data)) return data
+  } catch (e) { /* cae al fallback */ }
+  const { data: lastPN } = await sb.from('partidas_contables')
+    .select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
+  return (lastPN?.[0]?.numero_partida || 0) + 1
+}
+
 // ── STATE ──
 let currentUser = null
 let currentProfile = null
@@ -44,6 +57,7 @@ window.logActividad = async (accion, modulo, detalle, referencia_id) => {
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
+  setupCargaImagenes()
   const { data: { session } } = await sb.auth.getSession()
   if (session) {
     await initSession(session.user)
@@ -86,7 +100,8 @@ async function initSession(user) {
     super_admin: ['usuarios', 'Gestión de usuarios'],
     contador: ['partidas', 'Partidas contables'],
     aux_contable: ['pendientes', 'Facturas pendientes'],
-    compras: ['compras', 'Registrar compras']
+    compras: ['compras', 'Registrar compras'],
+    contador_fiscal: ['declaracion-isv', 'Declaración de ISV']
   }
   const [dv, dl] = defaultViews[profile.rol] || ['compras', 'Registrar compras']
   showView(dv, dl)
@@ -100,21 +115,33 @@ function setupUI() {
   const initials = p.nombre.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
   document.getElementById('top-avatar').textContent = initials
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
-  const roleLabels = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras' }
+  const roleLabels = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal' }
   document.getElementById('top-role').textContent = roleLabels[p.rol] || p.rol
 
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
-    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos']
+    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
+    contador_fiscal: ['nav-declaracion-isv']
   }
-  const visibles = permisos[p.rol] || []
+  window._permisosPorRol = permisos
+  // Permisos personalizados (columna permisos_modulos) tienen prioridad sobre el rol.
+  // super_admin siempre ve todo (no se puede auto-bloquear).
+  let visibles
+  if (p.rol === 'super_admin') {
+    visibles = permisos.super_admin
+  } else if (Array.isArray(p.permisos_modulos) && p.permisos_modulos.length) {
+    visibles = p.permisos_modulos
+  } else {
+    visibles = permisos[p.rol] || []
+  }
+  window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -136,6 +163,10 @@ function setupUI() {
   const tieneReportes = reporteItems.some(id => visibles.includes(id))
   const sectionReportes = document.getElementById('section-reportes')
   if (sectionReportes) sectionReportes.classList.toggle('hidden', !tieneReportes)
+
+  // Ocultar sección Fiscal si no tiene el módulo
+  const sectionFiscal = document.getElementById('section-fiscal')
+  if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv'))
 
   // Ocultar sección RRHH si no tiene ningún módulo
   const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla']
@@ -213,11 +244,14 @@ window.showView = (id, label) => {
   if (id === 'unidades-taxis') loadUnidadesTaxis()
   if (id === 'financiamiento') loadFinanciamiento()
   if (id === 'cierre-recibos') initCierreMensual()
+  if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
+  if (id === 'rentabilidad-taxis' && window.initRentabilidadTaxis) window.initRentabilidadTaxis()
   if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
   if (id === 'actividad') loadActividad()
+  if (id === 'declaracion-isv' && window.loadDeclaracionISV) window.loadDeclaracionISV()
   if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
   if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
   // Ajustar botones según rol
@@ -413,10 +447,69 @@ async function loadUsuarios() {
 }
 window.loadUsuarios = loadUsuarios
 
+// ── CATÁLOGO DE MÓDULOS (para el panel de permisos por usuario) ──
+const MODULOS_CATALOGO = [
+  { grupo: 'Principal', items: [
+    ['nav-usuarios', 'Usuarios'], ['nav-compras', 'Registrar compra'], ['nav-pendientes', 'Facturas pendientes'],
+    ['nav-caja', 'Caja General'], ['nav-caja-chica', 'Caja Chica'], ['nav-cxp', 'Cuentas x Pagar'],
+    ['nav-cuentas-cobrar', 'Cuentas x Cobrar'], ['nav-aprobaciones', 'Aprobaciones'], ['nav-vehiculos', 'Vehículos VIN'],
+    ['nav-unidades-taxis', 'Unidades Taxis'], ['nav-financiamiento', 'Financiamiento'], ['nav-cierre-recibos', 'Cierre Recibos'],
+    ['nav-conciliacion', 'Conciliación Bancaria']
+  ]},
+  { grupo: 'Contabilidad', items: [
+    ['nav-catalogo', 'Catálogo de cuentas'], ['nav-partidas', 'Partidas'], ['nav-tipos-origen', 'Tipos de origen']
+  ]},
+  { grupo: 'Importaciones', items: [
+    ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'],
+    ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-importar-taxis', 'Entregas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis']
+  ]},
+  { grupo: 'RRHH', items: [
+    ['nav-empleados', 'Empleados'], ['nav-planilla', 'Planilla'], ['nav-prestamos-emp', 'Préstamos'],
+    ['nav-asistencia', 'Asistencia'], ['nav-config-planilla', 'Config. planilla']
+  ]},
+  { grupo: 'Reportes', items: [
+    ['nav-auxiliar', 'Auxiliar de cuentas'], ['nav-balance-comp', 'Balance comprobación'],
+    ['nav-estado-resultados', 'Estado de resultados'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-actividad', 'Actividad']
+  ]},
+  { grupo: 'Fiscal', items: [
+    ['nav-declaracion-isv', 'Declaración ISV']
+  ]}
+]
+
+// Renderiza el panel de checkboxes en el contenedor dado, con los ids marcados
+function renderPanelPermisos(containerId, marcados) {
+  const cont = document.getElementById(containerId)
+  if (!cont) return
+  const set = new Set(marcados || [])
+  cont.innerHTML = MODULOS_CATALOGO.map(g => `
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--gold);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${g.grupo}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">
+        ${g.items.map(([id, label]) => `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;font-size:12px;margin:0">
+            <input type="checkbox" class="${containerId}-chk" value="${id}" ${set.has(id) ? 'checked' : ''} style="width:auto;margin:0"> ${label}
+          </label>`).join('')}
+      </div>
+    </div>`).join('')
+}
+
+// Lee los ids marcados de un panel
+function leerPanelPermisos(containerId) {
+  return [...document.querySelectorAll('.' + containerId + '-chk:checked')].map(c => c.value)
+}
+
+// Premarca el panel según la plantilla del rol elegido
+window.aplicarPlantillaRol = (containerId, rol) => {
+  const plantilla = (window._permisosPorRol || {})[rol] || []
+  renderPanelPermisos(containerId, plantilla)
+}
+
 window.openModalUsuario = () => {
   document.getElementById('modal-error').classList.add('hidden')
   ;['nu-nombre','nu-email','nu-pass'].forEach(id => document.getElementById(id).value = '')
   document.getElementById('nu-rol').value = 'compras'
+  renderPanelPermisos('nu-permisos', (window._permisosPorRol || {}).compras || [])
+  const sp = document.getElementById('nu-solo-partidas'); if (sp) sp.checked = false
   document.getElementById('modal-usuario').classList.add('open')
 }
 
@@ -436,6 +529,12 @@ window.editarUsuario = (id) => {
   const nuSel = document.getElementById('nu-empresa')
   sel.innerHTML = nuSel.innerHTML // copy options from create modal
   sel.value = u.centro_costo_id || ''
+  // Panel de permisos: usa los guardados del usuario, o la plantilla del rol si no tiene
+  const marcados = (Array.isArray(u.permisos_modulos) && u.permisos_modulos.length)
+    ? u.permisos_modulos
+    : ((window._permisosPorRol || {})[u.rol] || [])
+  renderPanelPermisos('eu-permisos', marcados)
+  const sp = document.getElementById('eu-solo-partidas'); if (sp) sp.checked = !!u.solo_sus_partidas
   document.getElementById('modal-editar-usuario').classList.add('open')
 }
 
@@ -446,6 +545,8 @@ window.guardarEdicionUsuario = async () => {
   const centro_costo_id = document.getElementById('eu-empresa').value || null
   const newPass = document.getElementById('eu-pass').value
   const err = document.getElementById('modal-edit-error')
+  const permisos_modulos = leerPanelPermisos('eu-permisos')
+  const solo_sus_partidas = !!document.getElementById('eu-solo-partidas')?.checked
 
   if (!nombre) { showError(err, 'El nombre es obligatorio'); return }
   if (newPass && newPass.length < 8) { showError(err, 'La contraseña debe tener al menos 8 caracteres'); return }
@@ -454,7 +555,7 @@ window.guardarEdicionUsuario = async () => {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
   // Update profile in usuarios table
-  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id }).eq('id', editingUserId)
+  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id, permisos_modulos, solo_sus_partidas }).eq('id', editingUserId)
   if (updErr) {
     btn.disabled = false; btn.textContent = 'Guardar cambios'
     showError(err, updErr.message); return
@@ -499,6 +600,8 @@ window.crearUsuario = async () => {
   const pass = document.getElementById('nu-pass').value
   const rol = document.getElementById('nu-rol').value
   const centro_costo_id = document.getElementById('nu-empresa').value || null
+  const permisos_modulos = leerPanelPermisos('nu-permisos')
+  const solo_sus_partidas = !!document.getElementById('nu-solo-partidas')?.checked
   const err = document.getElementById('modal-error')
   if (!nombre || !email || !pass) { showError(err, 'Completa todos los campos'); return }
   if (pass.length < 8) { showError(err, 'La contraseña debe tener al menos 8 caracteres'); return }
@@ -524,7 +627,8 @@ window.crearUsuario = async () => {
   }
   // 4. Insertar perfil en tabla usuarios (ya como super_admin)
   const { error: profileErr } = await sb.from('usuarios').insert({
-    auth_user_id: signData.user.id, nombre, email, rol, centro_costo_id, activo: true
+    auth_user_id: signData.user.id, nombre, email, rol, centro_costo_id, activo: true,
+    permisos_modulos, solo_sus_partidas
   })
   if (profileErr) {
     btn.disabled = false; btn.textContent = 'Crear usuario'
@@ -563,10 +667,16 @@ async function loadCentrosCosto() {
     return
   }
 
+  const actBadge = (t) => {
+    const m = { gravada: ['Gravada', 'var(--green)'], exenta: ['Exenta', 'var(--amber)'], personal: ['Personal', 'var(--red)'], comun: ['Común', 'var(--text2)'] }
+    const [lbl, col] = m[t] || m.comun
+    return `<span title="Actividad fiscal (ISV)" style="display:inline-block;border:1px solid ${col};color:${col};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;margin-left:6px">${lbl}</span>`
+  }
+
   tbody.innerHTML = allCentros.map(c => `
     <tr style="${!c.activa ? 'opacity:0.5' : ''}">
       <td style="font-family:var(--mono);color:var(--gold);font-weight:500">${c.codigo || '—'}</td>
-      <td style="font-weight:500">${c.nombre}${c.privado ? ' <span style="color:var(--red);font-size:11px" title="Centro privado — reportes solo Super Admin">🔒</span>' : ''}</td>
+      <td style="font-weight:500">${c.nombre}${c.privado ? ' <span style="color:var(--red);font-size:11px" title="Centro privado — reportes solo Super Admin">🔒</span>' : ''}${actBadge(c.tipo_actividad)}</td>
       <td>${c.es_corporativo ? '<span class="badge badge-amber">Corporativo</span>' : '<span class="badge badge-blue">Operativo</span>'}</td>
       <td><span class="badge ${c.activa ? 'badge-on' : 'badge-off'}">${c.activa ? 'Activo' : 'Inactivo'}</span></td>
       <td class="mono" style="color:var(--text3);font-size:12px">${c.created_at ? new Date(c.created_at).toLocaleDateString('es-HN') : '—'}</td>
@@ -584,6 +694,7 @@ window.openModalCentro = () => {
   document.getElementById('btn-guardar-centro').textContent = 'Crear centro'
   document.getElementById('ncc-codigo').value = ''
   document.getElementById('ncc-nombre').value = ''
+  document.getElementById('ncc-tipo-actividad').value = 'comun'
   document.getElementById('ncc-corporativo').checked = false
   document.getElementById('ncc-privado').checked = false
   document.getElementById('ncc-codigo').disabled = false
@@ -599,6 +710,7 @@ window.editarCentro = (id) => {
   document.getElementById('btn-guardar-centro').textContent = 'Actualizar centro'
   document.getElementById('ncc-codigo').value = c.codigo || ''
   document.getElementById('ncc-nombre').value = c.nombre
+  document.getElementById('ncc-tipo-actividad').value = ['gravada','exenta','comun','personal'].includes(c.tipo_actividad) ? c.tipo_actividad : 'comun'
   document.getElementById('ncc-corporativo').checked = c.es_corporativo || false
   document.getElementById('ncc-privado').checked = c.privado || false
   document.getElementById('ncc-codigo').disabled = false
@@ -611,6 +723,7 @@ window.guardarCentro = async () => {
   const nombre = document.getElementById('ncc-nombre').value.trim()
   const esCorporativo = document.getElementById('ncc-corporativo').checked
   const esPrivado = document.getElementById('ncc-privado').checked
+  const tipoActividad = document.getElementById('ncc-tipo-actividad').value
   const err = document.getElementById('modal-centro-error')
 
   if (!nombre) { showError(err, 'El nombre es obligatorio'); return }
@@ -623,6 +736,7 @@ window.guardarCentro = async () => {
     nombre,
     es_corporativo: esCorporativo,
     privado: esPrivado,
+    tipo_actividad: tipoActividad,
     activa: true
   }
 
@@ -778,6 +892,87 @@ window.previewFoto = (input) => {
   document.getElementById('preview-size').textContent = (f.size / 1024).toFixed(0) + ' KB'
   document.getElementById('upload-preview').classList.remove('hidden')
   document.getElementById('upload-zone').classList.add('has-file')
+}
+
+// ── ARRASTRAR/SOLTAR Y PEGAR (Ctrl+V) IMÁGENES (factura y partida) ──
+function setupCargaImagenes() {
+  const esValido = (f) => f && (f.type.startsWith('image/') || f.type === 'application/pdf')
+  // Asigna archivos a un <input type=file> (DataTransfer). append=true para no perder los previos.
+  const setInputFiles = (input, files, append) => {
+    const dt = new DataTransfer()
+    if (append && input.files) for (const f of input.files) dt.items.add(f)
+    for (const f of files) dt.items.add(f)
+    input.files = dt.files
+  }
+  // Las capturas pegadas vienen sin nombre o como "image.png" → le ponemos uno con extensión
+  const nombrarPegado = (file) => {
+    if (file.name && file.name !== 'image.png' && file.name.includes('.')) return file
+    const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+    return new File([file], `captura_${Date.now()}.${ext}`, { type: file.type })
+  }
+  const marcar = (el, on) => {
+    if (!el) return
+    el.style.outline = on ? '2px dashed var(--gold, #f5a623)' : ''
+    el.style.outlineOffset = on ? '3px' : ''
+  }
+  const habilitarDrop = (zone, onFiles) => {
+    if (!zone) return
+    ;['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); marcar(zone, true) }))
+    ;['dragleave', 'dragend'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); marcar(zone, false) }))
+    zone.addEventListener('drop', e => {
+      e.preventDefault(); e.stopPropagation(); marcar(zone, false)
+      const files = [...(e.dataTransfer?.files || [])].filter(esValido)
+      if (files.length) onFiles(files)
+    })
+  }
+
+  // Factura (compras): una sola imagen + preview
+  const inputFc = document.getElementById('fc-file')
+  habilitarDrop(document.getElementById('upload-zone'), (files) => {
+    setInputFiles(inputFc, [files[0]], false)
+    window.previewFoto(inputFc)
+  })
+
+  // Partida: adjunto múltiple; zona = toda la tarjeta del encabezado
+  const inputPn = document.getElementById('pn-adjunto')
+  const statusPn = document.getElementById('pn-adjunto-status')
+  const refrescarPn = () => { if (statusPn && inputPn) statusPn.textContent = inputPn.files?.length ? `✓ ${inputPn.files.length} archivo(s) adjunto(s)` : '' }
+  habilitarDrop(inputPn ? inputPn.closest('.form-card') : null, (files) => {
+    setInputFiles(inputPn, files, true)
+    refrescarPn()
+    window.toast?.('Adjunto agregado', 'success')
+  })
+  inputPn?.addEventListener('change', refrescarPn)
+
+  // Pegar (Ctrl+V): enruta al formulario que esté visible
+  const visible = (el) => el && el.offsetParent !== null
+  document.addEventListener('paste', e => {
+    const imgItem = [...(e.clipboardData?.items || [])].find(it => it.type.startsWith('image/'))
+    if (!imgItem) return
+    // Si el usuario está escribiendo en un campo de texto y hay texto para pegar,
+    // dejamos el pegado normal (no secuestramos como imagen).
+    const ae = document.activeElement
+    const enCampoTexto = ae && (
+      ae.tagName === 'TEXTAREA' ||
+      (ae.tagName === 'INPUT' && !['file', 'checkbox', 'radio', 'button', 'submit'].includes((ae.type || 'text').toLowerCase())) ||
+      ae.isContentEditable
+    )
+    const hayTexto = !!(e.clipboardData?.getData?.('text/plain') || '').trim()
+    if (enCampoTexto && hayTexto) return
+    let target = null
+    if (visible(document.getElementById('view-compras')) && inputFc) {
+      target = { input: inputFc, after: () => window.previewFoto(inputFc), append: false }
+    } else if (visible(document.getElementById('view-partida-nueva')) && inputPn) {
+      target = { input: inputPn, after: refrescarPn, append: true }
+    }
+    if (!target) return
+    const blob = imgItem.getAsFile()
+    if (!blob) return
+    e.preventDefault()
+    setInputFiles(target.input, [nombrarPegado(blob)], target.append)
+    target.after?.()
+    window.toast?.('Imagen pegada ✓', 'success')
+  })
 }
 
 window.guardarCompra = async () => {
@@ -1362,9 +1557,16 @@ let allPartidas = []
 async function loadPartidas() {
   const tbody = document.getElementById('tbody-partidas')
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
-  const { data, error } = await sb.from('partidas_contables')
+  let query = sb.from('partidas_contables')
     .select('*, centro_costo:centros_costo(nombre), generador:usuarios!generada_por(nombre)')
-    .order('numero_partida', { ascending: false }).limit(5000)
+    .order('numero_partida', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(5000)
+  // Si el usuario tiene "solo sus partidas", filtrar por las que él generó
+  if (window._soloSusPartidas && currentProfile?.id) {
+    query = query.eq('generada_por', currentProfile.id)
+  }
+  const { data, error } = await query
   if (error) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--red)">${error.message}</td></tr>`; return }
   allPartidas = data || []
   if (!allPartidas.length) {
@@ -1395,6 +1597,7 @@ window.filtrarPartidas = () => {
   if (estado) filtered = filtered.filter(p => p.estado === estado)
   if (origen) filtered = filtered.filter(p => p.tipo_origen === origen)
 
+  _partidasPagina = 1
   renderPartidasTable(filtered)
 }
 
@@ -1404,19 +1607,44 @@ window.limpiarFiltrosPartidas = () => {
   filtrarPartidas()
 }
 
+let _partidasFiltradas = []
+let _partidasPagina = 1
+const PARTIDAS_POR_PAGINA = 50
+
 function renderPartidasTable(data) {
+  _partidasFiltradas = data || []
+  _renderPaginaPartidas()
+}
+
+window.partidasIrPagina = (delta) => {
+  const totalPag = Math.max(1, Math.ceil(_partidasFiltradas.length / PARTIDAS_POR_PAGINA))
+  _partidasPagina = Math.min(totalPag, Math.max(1, _partidasPagina + delta))
+  _renderPaginaPartidas()
+  document.getElementById('partidas-scroll')?.scrollTo({ top: 0 })
+}
+
+function _renderPaginaPartidas() {
   const tbody = document.getElementById('tbody-partidas')
   const countEl = document.getElementById('fp-count')
+  const pagEl = document.getElementById('partidas-paginacion')
+  const data = _partidasFiltradas
   if (!data?.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay partidas con estos filtros</td></tr>'
     if (countEl) countEl.textContent = '0 resultados'
+    if (pagEl) pagEl.innerHTML = ''
     return
   }
   if (countEl) countEl.textContent = data.length === allPartidas.length ? '' : `${data.length} de ${allPartidas.length}`
+
+  const totalPag = Math.max(1, Math.ceil(data.length / PARTIDAS_POR_PAGINA))
+  if (_partidasPagina > totalPag) _partidasPagina = totalPag
+  const ini = (_partidasPagina - 1) * PARTIDAS_POR_PAGINA
+  const pageData = data.slice(ini, ini + PARTIDAS_POR_PAGINA)
+
   const getOrigenLabel = (id) => { const t = tiposOrigen.find(x => x.id === id); return t ? t.nombre : id }
   const estadoBadge = { borrador:'badge-amber', aprobada:'badge-green', rechazada:'badge-red', pendiente_caja:'badge-amber', pendiente_anulacion:'badge-red', anulada:'badge-red' }
   const estadoLabel = { pendiente_caja:'⏳ Pend. caja', pendiente_anulacion:'⚠ Pend. anulación', anulada:'✕ Anulada' }
-  tbody.innerHTML = data.map(p => `
+  tbody.innerHTML = pageData.map(p => `
     <tr style="cursor:pointer" onclick="verPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
@@ -1425,6 +1653,21 @@ function renderPartidasTable(data) {
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
       <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar">✏️</button></td>
     </tr>`).join('')
+
+  if (pagEl) {
+    if (totalPag <= 1) {
+      pagEl.innerHTML = `<span>${data.length} partida${data.length === 1 ? '' : 's'}</span>`
+    } else {
+      const desde = ini + 1, hastaN = Math.min(ini + PARTIDAS_POR_PAGINA, data.length)
+      pagEl.innerHTML = `
+        <span>Mostrando ${desde}–${hastaN} de ${data.length}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <button class="btn btn-ghost" style="padding:4px 10px" ${_partidasPagina <= 1 ? 'disabled' : ''} onclick="window.partidasIrPagina(-1)">← Anterior</button>
+          <span>Página ${_partidasPagina} de ${totalPag}</span>
+          <button class="btn btn-ghost" style="padding:4px 10px" ${_partidasPagina >= totalPag ? 'disabled' : ''} onclick="window.partidasIrPagina(1)">Siguiente →</button>
+        </span>`
+    }
+  }
 }
 
 async function initPartidaNueva() {
@@ -1535,7 +1778,11 @@ window.verPartida = async (id) => {
   document.getElementById('modal-ver-partida').classList.add('open')
 }
 
+let _editPartidaEnCurso = false
 window.editarPartida = async (id) => {
+  if (_editPartidaEnCurso) return // evita doble clic que duplica las líneas
+  _editPartidaEnCurso = true
+  setTimeout(() => { _editPartidaEnCurso = false }, 8000) // seguro: liberar aunque algo falle
   // Cargar cuentas si no están
   if (!cuentasDetalle.length) {
     const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
@@ -1547,14 +1794,14 @@ window.editarPartida = async (id) => {
     .select('*')
     .eq('id', id)
     .single()
-  if (pErr || !partida) { toast('Error al cargar partida', 'error'); return }
+  if (pErr || !partida) { toast('Error al cargar partida', 'error'); _editPartidaEnCurso = false; return }
 
   // Cargar líneas
   const { data: lineas, error: lErr } = await sb.from('lineas_partida')
     .select('*')
     .eq('partida_id', id)
     .order('id')
-  if (lErr) { toast('Error al cargar líneas', 'error'); return }
+  if (lErr) { toast('Error al cargar líneas', 'error'); _editPartidaEnCurso = false; return }
 
   // Navegar al formulario
   editingPartidaId = id
@@ -1666,6 +1913,7 @@ window.editarPartida = async (id) => {
   if (btnAprobar) {
     btnAprobar.textContent = 'Aprobar partida ✓'
   }
+  _editPartidaEnCurso = false
 }
 
 window.eliminarPartida = async () => {
@@ -1814,8 +2062,8 @@ function renderLineas() {
             oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
-    } else if (esCaja && esSuperAdmin) {
-      // Super Admin: botones 💵 en ambos lados
+    } else if (esCaja && esSuperAdmin && !esCajaChica) {
+      // Super Admin: botones 💵 en ambos lados (solo caja general; la caja chica la cuenta su responsable)
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
@@ -1916,8 +2164,9 @@ document.addEventListener('change', (e) => {
 
 // ── Calculadora USD en partida ──
 window.calcUSD = () => {
-  const monto = parseFloat(document.getElementById('calc-usd-monto')?.value) || 0
-  const tc = parseFloat(document.getElementById('calc-usd-tc')?.value) || 0
+  const num = (id) => parseFloat(String(document.getElementById(id)?.value || '').replace(/[^\d.]/g, '')) || 0
+  const monto = num('calc-usd-monto')
+  const tc = num('calc-usd-tc')
   const resultado = Math.round(monto * tc * 100) / 100
   document.getElementById('calc-usd-result').textContent = 'L. ' + resultado.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 }
@@ -2289,9 +2538,8 @@ window.guardarPartida = async (estado) => {
     if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
   } else {
     // ── CREAR partida nueva ──
-    // Auto-increment numero_partida
-    const { data: lastPN } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-    const nuevoNumero = (lastPN?.[0]?.numero_partida || 0) + 1
+    // Correlativo atómico (evita duplicados por concurrencia)
+    const nuevoNumero = await window.siguienteNumeroPartida()
 
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
       centro_costo_id: null,
@@ -2416,63 +2664,48 @@ window.guardarPartida = async (estado) => {
     const registros = []
     const isvW = vd.isvWarnings || {}
 
-    // Tecnimax fiscal
-    if (vd.tecnimax_fiscal?.facturas?.length) {
-      for (const f of vd.tecnimax_fiscal.facturas) {
-        registros.push({
-          centro_costo_id: vd.ccTecniId,
-          fecha: vd.fecha,
-          factura_interna: String(f.factura_interna || ''),
-          factura_electronica: f.factura_electronica || '',
-          cliente: f.cliente || '',
-          rtn_cliente: f.rtn || '',
-          subtotal: Math.round(f.subtotal * 100) / 100,
-          total_gravado: Math.round(f.total_gravado * 100) / 100,
-          total_exento: Math.round(f.total_exento * 100) / 100,
-          isv: Math.round(f.impuestos * 100) / 100,
-          total: Math.round(f.total * 100) / 100,
-          monto_efectivo: Math.round(f.monto_efectivo * 100) / 100,
-          monto_tarjeta: Math.round(f.monto_tarjeta * 100) / 100,
-          monto_transferencia: Math.round(f.monto_transferencia * 100) / 100,
-          incluir_fiscal: true,
-          numero_documento: documento || null,
-          origen: 'import_alpha',
-          partida_id: partidaId,
-          observaciones: isvW[f.factura_electronica] || null,
-        })
-      }
-    }
+    // Helper: arma un registro de libro_ventas (contado o crédito)
+    const regVenta = (f, ccId, isCredito) => ({
+      centro_costo_id: ccId,
+      fecha: vd.fecha,
+      factura_interna: String(f.factura_interna || ''),
+      factura_electronica: f.factura_electronica || '',
+      cliente: f.cliente || '',
+      rtn_cliente: f.rtn || '',
+      subtotal: Math.round((f.subtotal || 0) * 100) / 100,
+      total_gravado: Math.round((f.total_gravado || 0) * 100) / 100,
+      total_exento: Math.round((f.total_exento || 0) * 100) / 100,
+      isv: Math.round((f.impuestos || 0) * 100) / 100,
+      total: Math.round((f.total || 0) * 100) / 100,
+      monto_efectivo: isCredito ? 0 : Math.round((f.monto_efectivo || 0) * 100) / 100,
+      monto_tarjeta: isCredito ? 0 : Math.round((f.monto_tarjeta || 0) * 100) / 100,
+      monto_transferencia: isCredito ? 0 : Math.round((f.monto_transferencia || 0) * 100) / 100,
+      incluir_fiscal: true,
+      numero_documento: documento || null,
+      origen: 'import_alpha',
+      partida_id: partidaId,
+      observaciones: isvW[f.factura_electronica] || null,
+    })
 
-    // Yonker fiscal
-    if (vd.yonker_fiscal?.facturas?.length) {
-      for (const f of vd.yonker_fiscal.facturas) {
-        registros.push({
-          centro_costo_id: vd.ccYonkerId,
-          fecha: vd.fecha,
-          factura_interna: String(f.factura_interna || ''),
-          factura_electronica: f.factura_electronica || '',
-          cliente: f.cliente || '',
-          rtn_cliente: f.rtn || '',
-          subtotal: Math.round(f.subtotal * 100) / 100,
-          total_gravado: Math.round(f.total_gravado * 100) / 100,
-          total_exento: Math.round(f.total_exento * 100) / 100,
-          isv: Math.round(f.impuestos * 100) / 100,
-          total: Math.round(f.total * 100) / 100,
-          monto_efectivo: Math.round(f.monto_efectivo * 100) / 100,
-          monto_tarjeta: Math.round(f.monto_tarjeta * 100) / 100,
-          monto_transferencia: Math.round(f.monto_transferencia * 100) / 100,
-          incluir_fiscal: true,
-          numero_documento: documento || null,
-          origen: 'import_alpha',
-          partida_id: partidaId,
-        })
-      }
-    }
+    if (vd.tecnimax_fiscal?.facturas?.length) for (const f of vd.tecnimax_fiscal.facturas) registros.push(regVenta(f, vd.ccTecniId, false))
+    if (vd.tecnimax_fiscal?.facturasCredito?.length) for (const f of vd.tecnimax_fiscal.facturasCredito) registros.push(regVenta(f, vd.ccTecniId, true))
+    if (vd.yonker_fiscal?.facturas?.length) for (const f of vd.yonker_fiscal.facturas) registros.push(regVenta(f, vd.ccYonkerId, false))
+    if (vd.yonker_fiscal?.facturasCredito?.length) for (const f of vd.yonker_fiscal.facturasCredito) registros.push(regVenta(f, vd.ccYonkerId, true))
 
     if (registros.length) {
-      const { error: lvErr } = await sb.from('libro_ventas').insert(registros)
-      if (lvErr) console.error('Error libro_ventas:', lvErr.message)
-      else console.log(`📗 ${registros.length} registros insertados en libro_ventas`)
+      // Dedupe por factura_electronica: no reinsertar las que ya estén en el libro
+      const facts = registros.map(r => r.factura_electronica).filter(Boolean)
+      let existentes = new Set()
+      if (facts.length) {
+        const { data: ya } = await sb.from('libro_ventas').select('factura_electronica').in('factura_electronica', facts)
+        existentes = new Set((ya || []).map(x => x.factura_electronica))
+      }
+      const nuevos = registros.filter(r => !r.factura_electronica || !existentes.has(r.factura_electronica))
+      if (nuevos.length) {
+        const { error: lvErr } = await sb.from('libro_ventas').insert(nuevos)
+        if (lvErr) console.error('Error libro_ventas:', lvErr.message)
+        else console.log(`📗 ${nuevos.length} insertados en libro_ventas (${registros.length - nuevos.length} ya existían)`)
+      }
     }
     window._importVentasData = null
   }
@@ -2703,9 +2936,11 @@ const CAJA_CODIGOS = ['110101-001', '110102', '110102-001'] // Caja Chica MN + C
 
 // ── CUENTAS SENSIBLES (solo Super Admin puede ver saldos) ──
 const CUENTAS_SENSIBLES_PREFIJOS = ['110102', '110103', '110104'] // Caja General, Chequeras, Bancos
+const GRUPOS_SENSIBLES_PREFIJOS = ['6204'] // GASTOS CASA (gastos personales): solo super_admin
 function esCuentaSensible(codigo) {
   if (!codigo) return false
-  return CUENTAS_SENSIBLES_PREFIJOS.some(p => codigo === p || codigo.startsWith(p + '-'))
+  if (CUENTAS_SENSIBLES_PREFIJOS.some(p => codigo === p || codigo.startsWith(p + '-'))) return true
+  return GRUPOS_SENSIBLES_PREFIJOS.some(p => String(codigo).startsWith(p)) // todo el grupo 6204 (6204, 620401, 620401-XX…)
 }
 function puedeVerSensibles() {
   return currentProfile?.rol === 'super_admin'
@@ -2797,7 +3032,7 @@ async function loadCaja() {
       caja_debitos: debitos,
       caja_creditos: creditos,
       caja_tipo: debitos > creditos ? 'ingreso' : 'egreso',
-      caja_monto: debitos > creditos ? debitos : creditos,
+      caja_monto: Math.abs(debitos - creditos), // neto: una partida puede mover caja por ambos lados
       caja_lineas: lineas
     }
   })
@@ -2821,17 +3056,27 @@ window.loadCaja = loadCaja
 
 function updateCajaStats() {
   const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const hoy = localDateStr()
 
-  // Saldo acumulado (todas las aprobadas, sin filtro de fecha)
+  // Saldo acumulado real (todas las aprobadas, sin filtro de fecha) — no cambia
   const aprobadas = cajaPartidas.filter(p => p.estado === 'aprobada')
   const totalIngresosAcum = aprobadas.filter(p => p.caja_tipo === 'ingreso').reduce((s, p) => s + p.caja_monto, 0)
   const totalEgresosAcum = aprobadas.filter(p => p.caja_tipo === 'egreso').reduce((s, p) => s + p.caja_monto, 0)
   const saldo = totalIngresosAcum - totalEgresosAcum
 
+  // Vienen = saldo con que abrió el día (todo lo aprobado con fecha anterior a hoy)
+  const antIng = aprobadas.filter(p => p.caja_tipo === 'ingreso' && p.fecha_partida < hoy).reduce((s, p) => s + p.caja_monto, 0)
+  const antEgr = aprobadas.filter(p => p.caja_tipo === 'egreso' && p.fecha_partida < hoy).reduce((s, p) => s + p.caja_monto, 0)
+  const vienen = antIng - antEgr
+  // Ingresos / egresos SOLO de hoy
+  const ingHoy = aprobadas.filter(p => p.caja_tipo === 'ingreso' && p.fecha_partida === hoy).reduce((s, p) => s + p.caja_monto, 0)
+  const egrHoy = aprobadas.filter(p => p.caja_tipo === 'egreso' && p.fecha_partida === hoy).reduce((s, p) => s + p.caja_monto, 0)
+
   document.getElementById('cj-saldo').textContent = fmt(saldo)
   document.getElementById('cj-saldo').style.color = saldo >= 0 ? 'var(--green)' : 'var(--red)'
-  document.getElementById('cj-total-ingresos').textContent = fmt(totalIngresosAcum)
-  document.getElementById('cj-total-egresos').textContent = fmt(totalEgresosAcum)
+  const vEl = document.getElementById('cj-vienen'); if (vEl) vEl.textContent = fmt(vienen)
+  document.getElementById('cj-total-ingresos').textContent = fmt(ingHoy)
+  document.getElementById('cj-total-egresos').textContent = fmt(egrHoy)
 
   // Stats filtrados por fecha seleccionada
   filtrarCajaFecha()
@@ -3199,60 +3444,111 @@ async function initAprobacionesBadge() {
 // ══════════════════════════════════════════════
 
 async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, descripcion) {
-  // Buscar si ya existe en libro_compras por numero_documento
-  const { data: existente } = await sb.from('libro_compras')
-    .select('id, incluir_fiscal')
-    .eq('numero_documento', numDocumento)
-    .maybeSingle()
-
-  // Determinar si alguna línea tiene aplica_fiscal = true
+  const r2 = (v) => Math.round((+v || 0) * 100) / 100
   const algunaFiscal = lineasValidas.some(l => l.aplica_fiscal)
 
-  // Extraer datos de las líneas para el registro
-  const lineaInventario = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110501'))
-  const lineaIva = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110402'))
+  // Si la partida ya no es fiscal, limpiar cualquier fila previa de esta partida y salir
+  if (!algunaFiscal) {
+    if (partidaId) await sb.from('libro_compras').delete().eq('partida_id', partidaId)
+    return
+  }
+
   const lineaProveedor = lineasValidas.find(l => l.cuenta_codigo?.startsWith('210101'))
   const lineaCaja = lineasValidas.find(l => l.cuenta_codigo?.startsWith('1101'))
+  const lineaInventario = lineasValidas.find(l => l.cuenta_codigo?.startsWith('110501'))
+  // TODAS las líneas de ISV con monto > 0 (puede haber varias facturas en una partida)
+  const isvLines = lineasValidas.filter(l => l.cuenta_codigo?.startsWith('110402') && (+l.monto || 0) > 0)
 
-  const subtotal = lineaInventario?.monto || 0
-  const isv = lineaIva?.monto || 0
-  const total = lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0) || (subtotal + isv)
-  const provNombre = lineaProveedor?.cuenta_nombre || lineaProveedor?.descripcion || ''
   const cuentaProv = lineaProveedor?.cuenta_codigo || ''
   const formaPago = lineaProveedor ? 'credito' : (lineaCaja ? 'contado' : 'otro')
-  const centroCostoId = lineaInventario?.centro_costo_id || lineasValidas[0]?.centro_costo_id || null
+  const centroCostoId = lineaInventario?.centro_costo_id
+    || lineasValidas.find(l => l.tipo === 'debito' && !l.cuenta_codigo?.startsWith('110402'))?.centro_costo_id
+    || lineasValidas[0]?.centro_costo_id || null
 
-  if (existente) {
-    // Ya existe → actualizar incluir_fiscal según el check
-    await sb.from('libro_compras').update({
-      incluir_fiscal: algunaFiscal,
-      subtotal: Math.round(subtotal * 100) / 100,
-      isv: Math.round(isv * 100) / 100,
-      total: Math.round(total * 100) / 100,
-      proveedor: provNombre,
-      cuenta_proveedor: cuentaProv,
-      productos: descripcion,
-      forma_pago: formaPago,
-    }).eq('id', existente.id)
-  } else if (algunaFiscal) {
-    // No existe y tiene fiscal → insertar
-    await sb.from('libro_compras').insert({
-      centro_costo_id: centroCostoId,
+  // Proveedor "general" de la partida (cuando la línea de ISV no lo trae en su descripción)
+  let provGeneral = lineaProveedor?.cuenta_nombre || lineaProveedor?.descripcion || ''
+  if (!provGeneral && numDocumento) {
+    const { data: fc } = await sb.from('facturas_compras')
+      .select('proveedor_rel:proveedores(nombre)')
+      .eq('numero_factura', numDocumento)
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle()
+    provGeneral = fc?.proveedor_rel?.nombre || ''
+  }
+  if (!provGeneral && descripcion && descripcion.includes('·')) provGeneral = descripcion.split('·')[0].trim()
+
+  // Extrae { proveedor, n° factura } de la descripción de una línea (ej. "AGUA LA TIGRA FACT# 6729")
+  const parseLinea = (desc) => {
+    const d = (desc || '').trim()
+    const m = d.match(/(?:fact\.?\s*#?\s*|#\s*)([\w\-\/.]+)/i)
+    const numfac = m ? m[1] : ''
+    let prov = m ? d.slice(0, m.index).trim() : ''
+    prov = prov.replace(/\bfact\.?\b/i, '').replace(/[#·\-\s]+$/, '').trim()
+    return { numfac, prov }
+  }
+
+  // Una fila por línea de ISV; si no hay ISV pero es fiscal, una sola fila (exento)
+  const baseRows = []
+  if (isvLines.length) {
+    for (const li of isvLines) {
+      const isv = r2(li.monto)
+      const { numfac, prov } = parseLinea(li.descripcion)
+      baseRows.push({
+        numero_factura: numfac || numDocumento || '',
+        proveedor: prov || provGeneral || '',
+        isv,
+        subtotal: r2(isv / 0.15),
+        total: r2(isv / 0.15 + isv),
+        productos: li.descripcion || descripcion,
+        centro_costo_id: li.centro_costo_id || centroCostoId,
+      })
+    }
+  } else {
+    const subBase = lineaInventario ? r2(lineaInventario.monto)
+      : r2(lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0))
+    baseRows.push({
+      numero_factura: numDocumento || '', proveedor: provGeneral || '',
+      isv: 0, subtotal: subBase, total: subBase,
+      productos: descripcion, centro_costo_id: centroCostoId,
+    })
+  }
+
+  // Preservar la selección del contador (incluir_fiscal / periodo_fiscal / rtn) por n° de factura
+  const { data: previas } = await sb.from('libro_compras')
+    .select('numero_factura, incluir_fiscal, periodo_fiscal, rtn_proveedor')
+    .eq('partida_id', partidaId)
+  const prevMap = {}
+  ;(previas || []).forEach(p => { prevMap[p.numero_factura] = p })
+
+  // Reemplazar las filas de esta partida (borra y reinserta)
+  if (partidaId) await sb.from('libro_compras').delete().eq('partida_id', partidaId)
+
+  const registros = baseRows.map(b => {
+    const prev = prevMap[b.numero_factura]
+    const reg = {
+      centro_costo_id: b.centro_costo_id,
       fecha,
-      numero_factura: numDocumento,
-      numero_documento: numDocumento,
-      proveedor: provNombre,
-      rtn_proveedor: '',
+      numero_factura: b.numero_factura,
+      numero_documento: b.numero_factura,
+      proveedor: b.proveedor,
+      rtn_proveedor: prev?.rtn_proveedor || '',
       cuenta_proveedor: cuentaProv,
-      subtotal: Math.round(subtotal * 100) / 100,
-      isv: Math.round(isv * 100) / 100,
-      total: Math.round(total * 100) / 100,
+      subtotal: b.subtotal,
+      isv: b.isv,
+      total: b.total,
       forma_pago: formaPago,
-      productos: descripcion,
-      incluir_fiscal: true,
+      productos: b.productos,
+      incluir_fiscal: prev ? prev.incluir_fiscal : true,
       origen: 'manual',
       partida_id: partidaId,
-    })
+    }
+    if (prev?.periodo_fiscal) reg.periodo_fiscal = prev.periodo_fiscal
+    return reg
+  })
+
+  if (registros.length) {
+    const { error: insErr } = await sb.from('libro_compras').insert(registros)
+    if (insErr) console.error('syncLibroCompras insert:', insErr.message || insErr)
   }
 }
 
@@ -3274,6 +3570,53 @@ const IMPORT_CUENTAS = {
 let importFiles = []
 let importData = null
 let importFiscalTab = 'tecnimax'
+
+// Inserta SOLO las ventas a crédito del archivo ya procesado en libro_ventas (sin crear partida).
+// Idempotente: no duplica las que ya estén (dedupe por factura_electronica).
+window.sincronizarCreditoLibro = async () => {
+  if (!importData) { toast('Primero procesá el archivo (Paso 1).', 'error'); return }
+  const fecha = document.getElementById('imp-fecha')?.value
+  if (!fecha) { toast('Indicá la fecha del reporte.', 'error'); return }
+  const empresas = window._empresas?.() || []
+  const ccTecni = empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker'))
+  const ccYonker = empresas.find(e => e.nombre.toLowerCase().includes('yonker'))
+  const isvW = window._isvWarnings || {}
+
+  const reg = (f, ccId) => ({
+    centro_costo_id: ccId, fecha,
+    factura_interna: String(f.factura_interna || ''),
+    factura_electronica: f.factura_electronica || '',
+    cliente: f.cliente || '', rtn_cliente: f.rtn || '',
+    subtotal: Math.round((f.subtotal || 0) * 100) / 100,
+    total_gravado: Math.round((f.total_gravado || 0) * 100) / 100,
+    total_exento: Math.round((f.total_exento || 0) * 100) / 100,
+    isv: Math.round((f.impuestos || 0) * 100) / 100,
+    total: Math.round((f.total || 0) * 100) / 100,
+    monto_efectivo: 0, monto_tarjeta: 0, monto_transferencia: 0,
+    incluir_fiscal: true, origen: 'import_alpha', partida_id: null,
+    observaciones: isvW[f.factura_electronica] || null,
+  })
+
+  const registros = []
+  if (importData.tecnimax_fiscal?.facturasCredito?.length) for (const f of importData.tecnimax_fiscal.facturasCredito) registros.push(reg(f, ccTecni?.id || null))
+  if (importData.yonker_fiscal?.facturasCredito?.length) for (const f of importData.yonker_fiscal.facturasCredito) registros.push(reg(f, ccYonker?.id || null))
+
+  if (!registros.length) { toast('Este archivo no tiene ventas a crédito.', 'info'); return }
+
+  const facts = registros.map(r => r.factura_electronica).filter(Boolean)
+  let existentes = new Set()
+  if (facts.length) {
+    const { data: ya } = await sb.from('libro_ventas').select('factura_electronica').in('factura_electronica', facts)
+    existentes = new Set((ya || []).map(x => x.factura_electronica))
+  }
+  const nuevos = registros.filter(r => !r.factura_electronica || !existentes.has(r.factura_electronica))
+  if (!nuevos.length) { toast('Las ventas a crédito de este archivo ya estaban en el libro.', 'info'); return }
+
+  const { error } = await sb.from('libro_ventas').insert(nuevos)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`✅ ${nuevos.length} venta(s) a crédito agregada(s) al libro de ventas`, 'success')
+  if (window.logActividad) window.logActividad('sync_credito_libro', 'importar', `Sincronizó ${nuevos.length} ventas a crédito al libro (${fecha})`)
+}
 
 function initImport() {
   // Default: fecha de ayer (los reportes siempre son del día anterior)
@@ -3584,36 +3927,54 @@ function renderImportResults() {
   const ti = d.tecnimax_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const yf = d.yonker_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
   const yi = d.yonker_interno?.totales || { subtotal: 0, impuestos: 0, total: 0 }
-  const granTotal = tf.total + ti.total + yf.total + yi.total
+  const tfc = d.tecnimax_fiscal?.totalesCredito || { total: 0 }
+  const tic = d.tecnimax_interno?.totalesCredito || { total: 0 }
+  const yfc = d.yonker_fiscal?.totalesCredito || { total: 0 }
+  const yic = d.yonker_interno?.totalesCredito || { total: 0 }
+  const totContado = tf.total + ti.total + yf.total + yi.total
+  const totCredito = tfc.total + tic.total + yfc.total + yic.total
+  const granTotal = totContado + totCredito
+
+  // Fila de crédito (solo si hay) para cada tarjeta
+  const rowCred = (c) => (c && c.total > 0)
+    ? `<div class="imp-sum-row"><span class="label" style="color:var(--blue)">+ Crédito</span><span class="value" style="color:var(--blue)">${fmt(c.total)}</span></div>`
+    : ''
 
   document.getElementById('import-resumen').innerHTML = `
     <div class="imp-summary">
       <div class="imp-sum-card">
-        <div class="imp-sum-title">Tecnimax Fiscal (${d.tecnimax_fiscal?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-title">Tecnimax Fiscal (${d.tecnimax_fiscal?.facturas.length || 0} contado${tfc.total > 0 ? ' + ' + (d.tecnimax_fiscal?.facturasCredito.length || 0) + ' créd.' : ''})</div>
         <div class="imp-sum-row"><span class="label">Subtotal</span><span class="value">${fmt(tf.subtotal)}</span></div>
         <div class="imp-sum-row"><span class="label">ISV 15%</span><span class="value">${fmt(tf.impuestos)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(tf.total)}</span></div>
+        <div class="imp-sum-row"><span class="label">Contado</span><span class="value">${fmt(tf.total)}</span></div>
+        ${rowCred(tfc)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(tf.total + tfc.total)}</span></div>
       </div>
       <div class="imp-sum-card">
-        <div class="imp-sum-title">TECNIMAX Interno (${d.tecnimax_interno?.facturas.length || 0} facturas)</div>
+        <div class="imp-sum-title">TECNIMAX Interno (${d.tecnimax_interno?.facturas.length || 0} contado${tic.total > 0 ? ' + ' + (d.tecnimax_interno?.facturasCredito.length || 0) + ' créd.' : ''})</div>
         <div class="imp-sum-row"><span class="label">Subtotal</span><span class="value">${fmt(ti.subtotal)}</span></div>
         <div class="imp-sum-row"><span class="label">ISV (Bono)</span><span class="value">${fmt(ti.impuestos)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(ti.total)}</span></div>
+        <div class="imp-sum-row"><span class="label">Contado</span><span class="value">${fmt(ti.total)}</span></div>
+        ${rowCred(tic)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(ti.total + tic.total)}</span></div>
       </div>
       <div class="imp-sum-card">
-        <div class="imp-sum-title">Yonker Fiscal (${d.yonker_fiscal?.facturas.length || 0} facturas)</div>
-        <div class="imp-sum-row"><span class="label">Total exento</span><span class="value">${fmt(yf.total)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yf.total)}</span></div>
+        <div class="imp-sum-title">Yonker Fiscal (${d.yonker_fiscal?.facturas.length || 0} contado${yfc.total > 0 ? ' + ' + (d.yonker_fiscal?.facturasCredito.length || 0) + ' créd.' : ''})</div>
+        <div class="imp-sum-row"><span class="label">Contado exento</span><span class="value">${fmt(yf.total)}</span></div>
+        ${rowCred(yfc)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yf.total + yfc.total)}</span></div>
       </div>
       <div class="imp-sum-card">
-        <div class="imp-sum-title">YONKER Interno (${d.yonker_interno?.facturas.length || 0} facturas)</div>
-        <div class="imp-sum-row"><span class="label">Total exento</span><span class="value">${fmt(yi.total)}</span></div>
-        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yi.total)}</span></div>
+        <div class="imp-sum-title">YONKER Interno (${d.yonker_interno?.facturas.length || 0} contado${yic.total > 0 ? ' + ' + (d.yonker_interno?.facturasCredito.length || 0) + ' créd.' : ''})</div>
+        <div class="imp-sum-row"><span class="label">Contado exento</span><span class="value">${fmt(yi.total)}</span></div>
+        ${rowCred(yic)}
+        <div class="imp-sum-row imp-sum-total"><span class="label">Total</span><span class="value">${fmt(yi.total + yic.total)}</span></div>
       </div>
     </div>
     <div style="text-align:center;padding:12px;background:var(--bg3);border-radius:var(--radius);border:0.5px solid var(--gold)">
       <span style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">Gran Total del día</span>
       <div style="font-size:24px;font-family:var(--mono);color:var(--gold);font-weight:500;margin-top:4px">${fmt(granTotal)}</div>
+      ${totCredito > 0 ? `<div style="font-size:12px;color:var(--text3);margin-top:4px">Contado: ${fmt(totContado)} · Crédito: <span style="color:var(--blue)">${fmt(totCredito)}</span></div>` : ''}
     </div>`
 
   // Detalle fiscal
@@ -4009,14 +4370,43 @@ const DENOMINACIONES = [1, 2, 5, 10, 20, 50, 100, 200, 500]
 let billetesCallback = null
 let billetesConteo = {}
 let billetesChequeMonto = 0  // Valor total de cheques
+let billetesObjetivo = 0     // Monto que se quiere alcanzar (para la resta en vivo)
+let billetesStock = null     // Stock disponible por denominación (solo egresos): {den: cantidad} o null
 
-function openBilletes(titulo, subtitulo, callback, initialValues) {
+// Stock disponible por denominación de una caja (ingresos − egresos de conteos aprobados).
+// Agrupa igual que el Arqueo: caja general = todo lo que NO es caja chica; caja chica = su propia cuenta.
+async function cajaStockDenom(cuentaCodigo, excludePartidaId) {
+  const stock = {}
+  DENOMINACIONES.forEach(d => stock[d] = 0)
+  if (!cuentaCodigo) return stock
+  const esChica = String(cuentaCodigo).startsWith('110101')
+  const { data } = await sb.from('conteo_billetes')
+    .select('tipo, partida_id, cuenta_codigo, den_500,den_200,den_100,den_50,den_20,den_10,den_5,den_2,den_1, partida:partidas_contables(estado)')
+  for (const c of (data || [])) {
+    if (excludePartidaId && c.partida_id === excludePartidaId) continue
+    if (!(c.partida?.estado === 'aprobada' || c.partida_id === null)) continue
+    const enGrupo = esChica
+      ? (c.cuenta_codigo === cuentaCodigo)      // cada caja chica = su propia cuenta
+      : (c.cuenta_codigo !== '110101-001')      // caja general = todo lo que no es caja chica (igual que el arqueo)
+    if (!enGrupo) continue
+    const signo = c.tipo === 'ingreso' ? 1 : (c.tipo === 'egreso' ? -1 : 0)
+    DENOMINACIONES.forEach(d => { stock[d] += signo * (c[`den_${d}`] || 0) })
+  }
+  return stock
+}
+
+async function openBilletes(titulo, subtitulo, callback, initialValues, objetivo, cuentaCodigo, chequearStock) {
   billetesCallback = callback
   billetesConteo = {}
   DENOMINACIONES.forEach(d => billetesConteo[d] = (initialValues && initialValues[d]) || 0)
   billetesChequeMonto = (initialValues && initialValues._cheques) || 0
+  billetesObjetivo = objetivo || 0
+  billetesStock = (chequearStock && cuentaCodigo) ? await cajaStockDenom(cuentaCodigo, editingPartidaId) : null
   document.getElementById('billetes-title').textContent = titulo || '💵 Conteo de billetes'
   document.getElementById('billetes-sub').textContent = subtitulo || 'Ingresa la cantidad de cada denominación'
+  _ensureBilletesObjetivo()
+  const objInput = document.getElementById('billetes-objetivo')
+  if (objInput) objInput.value = billetesObjetivo ? billetesObjetivo : ''
   renderBilletes()
   document.getElementById('modal-billetes').classList.add('open')
   setTimeout(() => {
@@ -4025,19 +4415,41 @@ function openBilletes(titulo, subtitulo, callback, initialValues) {
   }, 200)
 }
 
+// Inyecta (una sola vez) el campo "Monto objetivo" + indicador de resta en el modal de billetes
+function _ensureBilletesObjetivo() {
+  if (document.getElementById('billetes-objetivo-wrap')) return
+  const sub = document.getElementById('billetes-sub')
+  if (!sub || !sub.parentNode) return
+  const w = document.createElement('div')
+  w.id = 'billetes-objetivo-wrap'
+  w.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin:10px 0;padding:10px 12px;background:var(--bg3);border-radius:8px;border:0.5px solid var(--border)'
+  w.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:13px;color:var(--text2)">Monto objetivo:</label>
+      <input type="text" inputmode="decimal" id="billetes-objetivo" placeholder="0.00" oninput="window.updBilletesObjetivo(this.value)" onfocus="this.select()"
+        style="width:120px;text-align:right;font-family:var(--mono);font-size:15px;padding:6px 8px;background:var(--bg2);border:0.5px solid var(--gold);border-radius:6px;color:var(--text);outline:none">
+      <span id="billetes-falta" style="font-family:var(--mono);font-size:14px;font-weight:600;margin-left:auto"></span>
+    </div>
+    <div id="billetes-stock-warn" style="font-size:12px;color:var(--red);font-weight:600"></div>`
+  sub.parentNode.insertBefore(w, sub.nextSibling)
+}
+
 function renderBilletes() {
   const tbody = document.getElementById('tbody-billetes')
-  let rows = DENOMINACIONES.slice().reverse().map(d => {
+  let rows = DENOMINACIONES.slice().map(d => {
     const qty = billetesConteo[d] || 0
     const sub = qty * d
+    const disp = billetesStock ? (billetesStock[d] || 0) : null
+    const over = disp !== null && qty > disp
     return `<tr>
       <td style="padding:8px 12px">
         <span style="font-family:var(--mono);font-size:15px;color:var(--text);font-weight:500">L. ${d.toLocaleString('es-HN')}</span>
+        ${disp !== null ? `<div id="bill-disp-${d}" style="font-size:11px;color:${over ? 'var(--red)' : 'var(--text3)'}">disp: ${disp}</div>` : ''}
       </td>
       <td style="padding:8px 12px;text-align:center">
         <input type="text" inputmode="numeric" pattern="[0-9]*" value="${qty || ''}" placeholder="0" data-denom="${d}"
-          oninput="updBillete(${d},this.value)" onfocus="this.select()"
-          style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid var(--border);border-radius:6px;padding:8px;color:var(--text);font-family:var(--mono);font-size:15px;outline:none">
+          class="bill-input" oninput="updBillete(${d},this.value)" onblur="window.resolveBillete(${d},this)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
+          style="width:70px;text-align:center;background:var(--bg3);border:0.5px solid ${over ? 'var(--red)' : 'var(--border)'};border-radius:6px;padding:8px;color:var(--text);font-family:var(--mono);font-size:15px;outline:none">
       </td>
       <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px;min-width:120px" id="bill-sub-${d}">
         ${sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'}
@@ -4053,7 +4465,7 @@ function renderBilletes() {
     </td>
     <td style="padding:8px 12px;text-align:center" colspan="1">
       <input type="text" inputmode="decimal" value="${cheqVal || ''}" placeholder="0.00"
-        oninput="updBilletesCheque(this.value)" onfocus="this.select()"
+        class="bill-input" oninput="updBilletesCheque(this.value)" onblur="window.resolveCheque(this)" onfocus="this.select()" onkeydown="window.billeteKey(event,this)"
         style="width:100px;text-align:center;background:rgba(245,158,11,0.05);border:0.5px solid var(--amber);border-radius:6px;padding:8px;color:var(--amber);font-family:var(--mono);font-size:15px;outline:none">
     </td>
     <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px" id="bill-sub-cheques">
@@ -4065,18 +4477,67 @@ function renderBilletes() {
   updateBilletesTotal()
 }
 
+// Evalúa una expresión aritmética estilo Excel (+, -, *, /, paréntesis). Devuelve número o NaN.
+// Sin eval/Function: tokeniza y resuelve con shunting-yard; solo acepta caracteres aritméticos.
+function evalExprSeguro(expr) {
+  const s = String(expr).trim()
+  if (!s) return 0
+  if (!/^[\d\s+\-*/.()]+$/.test(s)) return NaN
+  const tokens = s.match(/\d+\.?\d*|[+\-*/()]/g)
+  if (!tokens) return NaN
+  const out = [], ops = [], prec = { '+': 1, '-': 1, '*': 2, '/': 2 }
+  let prev = null
+  for (const t of tokens) {
+    if (/^[\d.]/.test(t)) { out.push(parseFloat(t)); prev = 'num' }
+    else if (t === '(') { ops.push(t); prev = '(' }
+    else if (t === ')') {
+      while (ops.length && ops[ops.length - 1] !== '(') out.push(ops.pop())
+      if (!ops.length) return NaN
+      ops.pop(); prev = 'num'
+    } else {
+      if ((t === '+' || t === '-') && (prev === null || prev === 'op' || prev === '(')) out.push(0) // unario (+1, -3...)
+      while (ops.length && prec[ops[ops.length - 1]] >= prec[t]) out.push(ops.pop())
+      ops.push(t); prev = 'op'
+    }
+  }
+  while (ops.length) { const o = ops.pop(); if (o === '(') return NaN; out.push(o) }
+  const st = []
+  for (const x of out) {
+    if (typeof x === 'number') st.push(x)
+    else {
+      const b = st.pop(), a = st.pop()
+      if (a === undefined || b === undefined) return NaN
+      st.push(x === '+' ? a + b : x === '-' ? a - b : x === '*' ? a * b : a / b)
+    }
+  }
+  return st.length === 1 ? st[0] : NaN
+}
+
+// Al salir de la celda, muestra el resultado entero ya calculado (como Excel)
+window.resolveBillete = (denom, el) => { el.value = billetesConteo[denom] ? billetesConteo[denom] : '' }
+window.resolveCheque = (el) => { el.value = billetesChequeMonto ? billetesChequeMonto : '' }
+
 window.updBillete = (denom, val) => {
-  billetesConteo[denom] = parseInt(val) || 0
+  const n = evalExprSeguro(val)
+  if (!isNaN(n) && n >= 0) billetesConteo[denom] = Math.round(n) // billetes = entero
   const sub = billetesConteo[denom] * denom
   const subEl = document.getElementById('bill-sub-' + denom)
   if (subEl) {
     subEl.innerHTML = sub > 0 ? '<span style="color:var(--green)">L. ' + sub.toLocaleString('es-HN', {minimumFractionDigits:2}) + '</span>' : '<span style="color:var(--text3)">—</span>'
   }
+  if (billetesStock) {
+    const over = (billetesConteo[denom] || 0) > (billetesStock[denom] || 0)
+    const inp = document.querySelector(`#tbody-billetes input[data-denom="${denom}"]`)
+    if (inp) inp.style.borderColor = over ? 'var(--red)' : 'var(--border)'
+    const dispEl = document.getElementById('bill-disp-' + denom)
+    if (dispEl) dispEl.style.color = over ? 'var(--red)' : 'var(--text3)'
+  }
   updateBilletesTotal()
 }
 
 window.updBilletesCheque = (val) => {
-  billetesChequeMonto = parseFloat(val) || 0
+  const n = evalExprSeguro(val)
+  if (!isNaN(n) && n >= 0) billetesChequeMonto = Math.round(n * 100) / 100
   const subEl = document.getElementById('bill-sub-cheques')
   if (subEl) {
     subEl.innerHTML = billetesChequeMonto > 0
@@ -4096,6 +4557,39 @@ function updateBilletesTotal() {
   if (billetesChequeMonto > 0) totalQty += 1 // Count cheques as 1 item
   document.getElementById('bill-total-qty').textContent = totalQty
   document.getElementById('bill-total-monto').textContent = 'L. ' + totalMonto.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const faltaEl = document.getElementById('billetes-falta')
+  if (faltaEl) {
+    if (!billetesObjetivo || billetesObjetivo <= 0) {
+      faltaEl.textContent = ''
+    } else {
+      const dif = Math.round((billetesObjetivo - totalMonto) * 100) / 100
+      if (Math.abs(dif) < 0.005) faltaEl.innerHTML = '<span style="color:var(--green)">✓ Exacto</span>'
+      else if (dif > 0) faltaEl.innerHTML = '<span style="color:var(--amber)">Falta L. ' + dif.toLocaleString('es-HN', { minimumFractionDigits: 2 }) + '</span>'
+      else faltaEl.innerHTML = '<span style="color:var(--red)">Sobra L. ' + Math.abs(dif).toLocaleString('es-HN', { minimumFractionDigits: 2 }) + '</span>'
+    }
+  }
+  const warnEl = document.getElementById('billetes-stock-warn')
+  if (warnEl) {
+    const exceso = billetesStock && DENOMINACIONES.some(d => (billetesConteo[d] || 0) > (billetesStock[d] || 0))
+    warnEl.textContent = exceso ? '⚠️ Estás sacando más billetes de los que hay disponibles en la caja' : ''
+  }
+}
+
+window.updBilletesObjetivo = (val) => {
+  const n = evalExprSeguro(String(val).replace(/,/g, ''))
+  if (!isNaN(n) && n >= 0) billetesObjetivo = n
+  updateBilletesTotal()
+}
+
+// Navegación con teclado entre casillas del contador (Enter/↓ baja, ↑ sube)
+window.billeteKey = (e, el) => {
+  if (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  const inputs = Array.from(document.querySelectorAll('#tbody-billetes .bill-input'))
+  const i = inputs.indexOf(el)
+  if (i === -1) return
+  const next = (e.key === 'ArrowUp') ? inputs[i - 1] : inputs[i + 1]
+  if (next) { next.focus(); if (next.select) next.select() }
 }
 
 window.cancelBilletes = () => {
@@ -4104,6 +4598,13 @@ window.cancelBilletes = () => {
 }
 
 window.aplicarBilletes = () => {
+  if (billetesStock) {
+    const over = DENOMINACIONES.filter(d => (billetesConteo[d] || 0) > (billetesStock[d] || 0))
+    if (over.length) {
+      window.toast?.('No hay suficientes billetes en caja para: ' + over.map(d => 'L.' + d).join(', '), 'error')
+      return
+    }
+  }
   let totalMonto = 0
   DENOMINACIONES.forEach(d => totalMonto += (billetesConteo[d] || 0) * d)
   totalMonto += billetesChequeMonto || 0
@@ -4129,7 +4630,7 @@ window.openCajaDebe = (lineaId) => {
     }
     renderLineas()
     calcTotales()
-  }, existing)
+  }, existing, l?.monto || 0)
 }
 
 window.openCajaHaber = (lineaId) => {
@@ -4145,7 +4646,7 @@ window.openCajaHaber = (lineaId) => {
     }
     renderLineas()
     calcTotales()
-  }, existing)
+  }, existing, l?.monto || 0, l?.cuenta_codigo, true)
 }
 
 // ── ARQUEO DE CAJA ──
@@ -4154,13 +4655,14 @@ window.verArqueo = async () => {
   const { data: allConteos, error } = await sb.from('conteo_billetes').select('*, partida:partidas_contables(estado)')
   if (error) { toast('Error al cargar arqueo: ' + error.message, 'error'); return }
 
-  // Filtrar: solo conteos de partidas aprobadas que NO sean de caja chica (110101-001)
-  const conteos = (allConteos || []).filter(c => 
-    c.partida?.estado === 'aprobada' && 
+  // Filtrar: conteos de partidas aprobadas + cambios de denominaciones (sin partida),
+  // excluyendo siempre los de caja chica (110101-001)
+  const conteos = (allConteos || []).filter(c =>
+    (c.partida?.estado === 'aprobada' || c.partida_id === null) &&
     c.cuenta_codigo !== '110101-001'
   )
 
-  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const denoms = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   const tbody = document.getElementById('tbody-arqueo')
 
   let totIng = 0, totEgr = 0, totCaja = 0, totValor = 0
@@ -4438,8 +4940,10 @@ window.ejecutarCambioUSD = async () => {
 
 let cambioDenomIn = {}
 let cambioDenomOut = {}
+let cambioDenomCuenta = '110102-001'   // caja a la que pertenece el cambio (general por defecto)
 
-window.openModalCambioDenoms = () => {
+window.openModalCambioDenoms = (cajaCodigo = '110102-001') => {
+  cambioDenomCuenta = cajaCodigo || '110102-001'
   cambioDenomIn = {}
   cambioDenomOut = {}
   DENOMINACIONES.forEach(d => { cambioDenomIn[d] = 0; cambioDenomOut[d] = 0 })
@@ -4450,7 +4954,7 @@ window.openModalCambioDenoms = () => {
 
 function renderCambioDenoms() {
   const tbody = document.getElementById('tbody-cambio-denoms')
-  tbody.innerHTML = DENOMINACIONES.slice().reverse().map(d => {
+  tbody.innerHTML = DENOMINACIONES.slice().map(d => {
     const inQty = cambioDenomIn[d] || 0
     const outQty = cambioDenomOut[d] || 0
     const neto = (inQty - outQty) * d
@@ -4458,12 +4962,14 @@ function renderCambioDenoms() {
       <td style="padding:6px 10px;font-family:var(--mono);font-size:14px;font-weight:500">L. ${d.toLocaleString('es-HN')}</td>
       <td style="padding:6px 10px;text-align:center">
         <input type="text" inputmode="numeric" value="${inQty || ''}" placeholder="0"
-          oninput="updCambioDenom('in',${d},this.value)" onfocus="this.select()"
+          class="cxd-input" data-side="in" data-denom="${d}"
+          oninput="updCambioDenom('in',${d},this.value)" onblur="window.resolveCambio('in',${d},this)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
           style="width:70px;text-align:center;background:rgba(16,185,129,0.05);border:0.5px solid var(--green);border-radius:6px;padding:6px;color:var(--green);font-family:var(--mono);font-size:14px;outline:none">
       </td>
       <td style="padding:6px 10px;text-align:center">
         <input type="text" inputmode="numeric" value="${outQty || ''}" placeholder="0"
-          oninput="updCambioDenom('out',${d},this.value)" onfocus="this.select()"
+          class="cxd-input" data-side="out" data-denom="${d}"
+          oninput="updCambioDenom('out',${d},this.value)" onblur="window.resolveCambio('out',${d},this)" onfocus="this.select()" onkeydown="window.cambioDenomKey(event,this)"
           style="width:70px;text-align:center;background:rgba(239,68,68,0.05);border:0.5px solid var(--red);border-radius:6px;padding:6px;color:var(--red);font-family:var(--mono);font-size:14px;outline:none">
       </td>
       <td class="neto-cell" style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:13px;color:${neto > 0 ? 'var(--green)' : neto < 0 ? 'var(--red)' : 'var(--text3)'}">
@@ -4474,9 +4980,43 @@ function renderCambioDenoms() {
   calcCambioDenomTotals()
 }
 
+// Navegación con teclado en el modal de Cambio de denominaciones (2 columnas: ENTRADA/SALIDA)
+window.cambioDenomKey = (e, el) => {
+  const order = DENOMINACIONES.slice()       // ascendente 1→500 (mismo orden que la tabla)
+  const side = el.dataset.side
+  const i = order.indexOf(parseInt(el.dataset.denom))
+  const atStart = el.selectionStart === 0 && el.selectionEnd === 0
+  const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length
+  let tSide = side, tDenom = null
+  if (e.key === 'Enter' || e.key === 'ArrowDown') {
+    if (i + 1 < order.length) tDenom = order[i + 1]                       // baja en la misma columna
+    else if (side === 'in') { tSide = 'out'; tDenom = order[0] }          // fin de ENTRADA → inicio de SALIDA
+  } else if (e.key === 'ArrowUp') {
+    if (i - 1 >= 0) tDenom = order[i - 1]                                 // sube en la misma columna
+    else if (side === 'out') { tSide = 'in'; tDenom = order[order.length - 1] }
+  } else if (e.key === 'ArrowRight' && side === 'in' && atEnd) {
+    tSide = 'out'; tDenom = order[i]                                      // pasa a SALIDA (misma fila)
+  } else if (e.key === 'ArrowLeft' && side === 'out' && atStart) {
+    tSide = 'in'; tDenom = order[i]                                       // vuelve a ENTRADA (misma fila)
+  } else return
+  e.preventDefault()
+  if (tDenom == null) return
+  const next = document.querySelector(`#tbody-cambio-denoms input[data-side="${tSide}"][data-denom="${tDenom}"]`)
+  if (next) { next.focus(); next.select() }
+}
+
+// Resuelve la celda de cambio al salir (muestra el resultado ya calculado, como Excel)
+window.resolveCambio = (side, denom, el) => {
+  const v = side === 'in' ? cambioDenomIn[denom] : cambioDenomOut[denom]
+  el.value = v ? v : ''
+}
+
 window.updCambioDenom = (side, denom, val) => {
-  if (side === 'in') cambioDenomIn[denom] = parseInt(val) || 0
-  else cambioDenomOut[denom] = parseInt(val) || 0
+  const n = evalExprSeguro(val)
+  if (!isNaN(n) && n >= 0) {
+    if (side === 'in') cambioDenomIn[denom] = Math.round(n)
+    else cambioDenomOut[denom] = Math.round(n)
+  }
   // Only update the neto cell for this row, NOT re-render the whole table
   const row = document.querySelector(`#tbody-cambio-denoms tr[data-denom="${denom}"]`)
   if (row) {
@@ -4523,10 +5063,12 @@ window.ejecutarCambioDenoms = async () => {
   // Registrar ingreso de denominaciones
   const hasIn = DENOMINACIONES.some(d => cambioDenomIn[d] > 0)
   const hasOut = DENOMINACIONES.some(d => cambioDenomOut[d] > 0)
+  let errIns = null
 
   if (hasIn) {
-    await sb.from('conteo_billetes').insert({
+    const { error: e } = await sb.from('conteo_billetes').insert({
       partida_id: null,
+      cuenta_codigo: cambioDenomCuenta,
       tipo: 'ingreso',
       den_500: cambioDenomIn[500] || 0, den_200: cambioDenomIn[200] || 0, den_100: cambioDenomIn[100] || 0,
       den_50: cambioDenomIn[50] || 0, den_20: cambioDenomIn[20] || 0, den_10: cambioDenomIn[10] || 0,
@@ -4536,11 +5078,13 @@ window.ejecutarCambioDenoms = async () => {
       total_monto: totIn,
       registrado_por: currentProfile.id
     })
+    if (e) errIns = e
   }
 
-  if (hasOut) {
-    await sb.from('conteo_billetes').insert({
+  if (!errIns && hasOut) {
+    const { error: e } = await sb.from('conteo_billetes').insert({
       partida_id: null,
+      cuenta_codigo: cambioDenomCuenta,
       tipo: 'egreso',
       den_500: cambioDenomOut[500] || 0, den_200: cambioDenomOut[200] || 0, den_100: cambioDenomOut[100] || 0,
       den_50: cambioDenomOut[50] || 0, den_20: cambioDenomOut[20] || 0, den_10: cambioDenomOut[10] || 0,
@@ -4550,7 +5094,10 @@ window.ejecutarCambioDenoms = async () => {
       total_monto: totOut,
       registrado_por: currentProfile.id
     })
+    if (e) errIns = e
   }
+
+  if (errIns) { showError(err, 'No se pudo registrar el cambio: ' + errIns.message); return }
 
   closeModal('modal-cambio-denoms')
   toast(`Cambio de denominaciones aplicado · L. ${totIn.toLocaleString('es-HN',{minimumFractionDigits:2})} ✓`, 'success')
@@ -5060,12 +5607,14 @@ window.guardarImportCompras = async () => {
     const descripcion = `${factura.proveedor} · ${productosDesc || 'Sin detalle'} [IMP-COMPRA]`
 
     // Crear partida
+    const numPartidaImp = await window.siguienteNumeroPartida()
     const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
       centro_costo_id: centroCostoId,
       generada_por: currentProfile.id,
       tipo_origen: 'compra',
       descripcion: descripcion,
       fecha_partida: fechaISO,
+      numero_partida: numPartidaImp,
       numero_documento: factura.no_factura !== 'S/F' ? factura.no_factura : null,
       estado: 'aprobada',
       total: Math.round(factura.total * 100) / 100,
@@ -5634,9 +6183,11 @@ window.guardarImportCostos = async () => {
 
     } else {
       // ── CREAR ──
+      const numPartidaImp = await window.siguienteNumeroPartida()
       const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
         centro_costo_id: centroCostoId, generada_por: currentProfile.id,
         tipo_origen: 'compra', descripcion, fecha_partida: fecha,
+        numero_partida: numPartidaImp,
         numero_documento: null, estado: 'aprobada', total: costoTotal,
       }).select().single()
 
@@ -6295,12 +6846,14 @@ window.generarPartidasTaxis = async () => {
     const estadoPartida = tocaCajaGeneral ? 'pendiente_caja' : 'aprobada'
 
     // Crear partida
+    const numPartidaImp = await window.siguienteNumeroPartida()
     const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
       centro_costo_id: centroCostoId,
       generada_por: currentProfile.id,
       tipo_origen: 'entrega_taxi',
       descripcion,
       fecha_partida: dia.fecha,
+      numero_partida: numPartidaImp,
       numero_documento: null,
       estado: estadoPartida,
       total: Math.round(total * 100) / 100,
@@ -7165,14 +7718,85 @@ window.desactivarUnidad = async (id, registro) => {
 
 let detalleRegistro = null
 
-window.verDetalleUnidad = (registro) => {
+// Calcula ingresos/egresos de una unidad en un rango. Reutilizable por el modal y por reportes.
+window.calcularRentabilidadUnidad = async (registro, desde, hasta) => {
+  const { data: entregas } = await sb.from('entregas_taxis')
+    .select('fecha_deposito, monto, banco')
+    .eq('unidad', registro).gte('fecha_deposito', desde).lte('fecha_deposito', hasta)
+    .order('fecha_deposito')
+
+  const { data: facturas } = await sb.from('facturas_taxis')
+    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
+    .eq('registro', registro).gte('fecha', desde).lte('fecha', hasta).order('fecha')
+
+  const reg = String(registro)
+  const patterns = [
+    `%TAXI ${reg}%`, `%TAXI_${reg}%`, `%T_${reg}%`,
+    `%VIP ${reg}%`, `%VIP_${reg}%`,
+    `%TAXI  ${reg}%`, `%VIP  ${reg}%`,
+    `%TAXI VIP ${reg}%`, `%TAXI VIP  ${reg}%`
+  ]
+  const { data: partidasRango } = await sb.from('partidas_contables')
+    .select('id, fecha_partida, descripcion').eq('estado', 'aprobada')
+    .gte('fecha_partida', desde).lte('fecha_partida', hasta)
+  const partidaIds = (partidasRango || []).map(p => p.id)
+  let partidasGastos = []
+  if (partidaIds.length) {
+    for (const pat of patterns) {
+      const { data } = await sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
+        .in('partida_id', partidaIds).ilike('descripcion', pat)
+      if (data?.length) partidasGastos.push(...data)
+    }
+    const partidasHeader = (partidasRango || []).filter(p => {
+      if (!p.descripcion) return false
+      const d = p.descripcion.toUpperCase()
+      return patterns.some(pat => new RegExp(pat.replace(/%/g, '.*'), 'i').test(d))
+    })
+    if (partidasHeader.length) {
+      const headerIds = partidasHeader.map(p => p.id)
+      const { data } = await sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
+        .in('partida_id', headerIds)
+      if (data?.length) partidasGastos.push(...data)
+    }
+  }
+  const seenKeys = new Set()
+  partidasGastos = partidasGastos.filter(g => {
+    const key = `${g.partida_id}_${g.cuenta_codigo}_${g.monto}`
+    if (seenKeys.has(key)) return false
+    seenKeys.add(key); return true
+  }).filter(g => g.centro_costo_id)   // excluye bancos/caja (sin centro de costo)
+
+  const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
+  const gastosPartidas = partidasGastos.map(g => ({
+    fecha: partidaMap[g.partida_id]?.fecha_partida || '',
+    descripcion: g.descripcion || partidaMap[g.partida_id]?.descripcion || '',
+    monto: parseFloat(g.monto) || 0, es_mano_obra: false,
+    _fromPartida: true, _tipo: g.tipo, _cuenta: g.cuenta_codigo
+  }))
+  const todasFacturas = [...(facturas || []), ...gastosPartidas].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
+  const esIngresoLinea = (f) => f._fromPartida && f._tipo === 'credito' && String(f._cuenta || '').startsWith('4')
+
+  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const ingresosPartidas = todasFacturas.filter(esIngresoLinea).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalIngresos = totalEntregas + ingresosPartidas
+  const totalEgresos = todasFacturas.filter(f => !esIngresoLinea(f)).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  return { totalIngresos, totalEgresos, neto: totalIngresos - totalEgresos, entregasCount: (entregas || []).length, facturasCount: todasFacturas.length }
+}
+
+window.verDetalleUnidad = async (registro, desde = null, hasta = null) => {
   detalleRegistro = registro
-  const u = allUnidades.find(x => x.registro === registro)
+  let u = allUnidades.find(x => x.registro === registro)
+  if (!u) {
+    const { data } = await sb.from('unidades_taxis').select('*').eq('registro', registro).maybeSingle()
+    u = data || null
+  }
   document.getElementById('modal-du-title').textContent = `🚕 Detalle unidad #${registro}${u ? ' · ' + u.modalidad + (u.propietario !== 'TAXIS' ? ' · ' + u.propietario : '') : ''}`
-  // Default: mes actual
+  // Rango: usa el recibido (desde el reporte) o, si no, el mes actual
   const hoy = new Date()
-  document.getElementById('du-desde').value = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
-  document.getElementById('du-hasta').value = localDateStr(hoy)
+  document.getElementById('du-desde').value = desde || new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
+  document.getElementById('du-hasta').value = hasta || localDateStr(hoy)
   document.getElementById('du-resumen').innerHTML = ''
   document.getElementById('du-contenido').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3);font-size:13px">Selecciona un rango de fechas y consulta</div>'
   document.getElementById('modal-detalle-unidad').classList.add('open')
@@ -7201,7 +7825,7 @@ window.cargarDetalleUnidad = async () => {
 
   // 2. Cargar facturas (gastos) desde importación
   const { data: facturas } = await sb.from('facturas_taxis')
-    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
+    .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad, partida_id')
     .eq('registro', detalleRegistro)
     .gte('fecha', desde)
     .lte('fecha', hasta)
@@ -7228,7 +7852,7 @@ window.cargarDetalleUnidad = async () => {
     // Buscar en descripción de LINEAS
     for (const pat of patterns) {
       const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
         .in('partida_id', partidaIds)
         .ilike('descripcion', pat)
       if (data?.length) partidasGastos.push(...data)
@@ -7245,7 +7869,7 @@ window.cargarDetalleUnidad = async () => {
     if (partidasHeader.length) {
       const headerIds = partidasHeader.map(p => p.id)
       const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, partida_id')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
         .in('partida_id', headerIds)
       if (data?.length) partidasGastos.push(...data)
     }
@@ -7257,6 +7881,17 @@ window.cargarDetalleUnidad = async () => {
     if (seenKeys.has(key)) return false
     seenKeys.add(key)
     return true
+  })
+  // Solo cuentan las líneas CON centro de costo. Las de bancos/caja (contrapartida)
+  // van sin centro de costo, así que quedan excluidas automáticamente.
+  partidasGastos = partidasGastos.filter(g => g.centro_costo_id)
+  // Quitar duplicados entre fuentes: si una partida YA vino por importación (tiene filas
+  // en facturas_taxis), sus líneas de GASTO ya están contadas ahí. Mantenemos solo los
+  // ingresos (ventas, cuenta 4xxx) de esa partida; los gastos se omiten para no duplicar.
+  const partidasConFactura = new Set((facturas || []).map(f => f.partida_id).filter(Boolean))
+  partidasGastos = partidasGastos.filter(g => {
+    const esIngreso = g.tipo === 'credito' && String(g.cuenta_codigo || '').startsWith('4')
+    return esIngreso || !partidasConFactura.has(g.partida_id)
   })
   const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
   const gastosPartidas = partidasGastos.map(g => ({
@@ -7272,16 +7907,22 @@ window.cargarDetalleUnidad = async () => {
   // Combinar facturas importadas + gastos de partidas manuales
   const todasFacturas = [...(facturas || []), ...gastosPartidas].sort((a, b) => a.fecha?.localeCompare(b.fecha))
 
+  // Una línea de partida es INGRESO si es crédito a una cuenta de ingreso (código que inicia en 4)
+  const esIngresoLinea = (f) => f._fromPartida && f._tipo === 'credito' && String(f._cuenta || '').startsWith('4')
+
   const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
-  const totalFacturas = todasFacturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
-  const totalMO = todasFacturas.filter(f => f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const ingresosPartidas = todasFacturas.filter(esIngresoLinea).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalIngresos = totalEntregas + ingresosPartidas
+  // Gastos = facturas importadas + líneas de partida que NO son ingreso
+  const totalFacturas = todasFacturas.filter(f => !esIngresoLinea(f)).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
+  const totalMO = todasFacturas.filter(f => !esIngresoLinea(f) && f.es_mano_obra).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
   const totalRepuestos = totalFacturas - totalMO
-  const neto = totalEntregas - totalFacturas
+  const neto = totalIngresos - totalFacturas
 
   // Resumen
   document.getElementById('du-resumen').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:16px">L. ${fmtL(totalEntregas)}</div><div class="stat-label">Entregas</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:16px">L. ${fmtL(totalIngresos)}</div><div class="stat-label">Ingresos</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:16px">L. ${fmtL(totalFacturas)}</div><div class="stat-label">Facturas (gasto)</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--amber);font-size:16px">L. ${fmtL(totalMO)}</div><div class="stat-label">Mano de obra</div></div>
       <div class="stat-card"><div class="stat-num" style="color:${neto >= 0 ? 'var(--green)' : 'var(--red)'};font-size:16px">L. ${fmtL(neto)}</div><div class="stat-label">${neto >= 0 ? 'Utilidad' : 'Pérdida'}</div></div>
@@ -7318,6 +7959,7 @@ window.cargarDetalleUnidad = async () => {
           </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text3)">No hay facturas en este período</td></tr>'}
         </tbody>
         <tfoot>
+          ${ingresosPartidas > 0 ? `<tr style="background:var(--bg3)"><td colspan="3" style="text-align:right;color:var(--green)">Ingresos (partidas)</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(ingresosPartidas)}</td></tr>` : ''}
           <tr style="background:var(--bg3)"><td colspan="3" style="text-align:right">Repuestos</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalRepuestos)}</td></tr>
           <tr style="background:var(--bg3)"><td colspan="3" style="text-align:right">Mano de obra</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(totalMO)}</td></tr>
           <tr style="background:var(--bg3);font-weight:600"><td colspan="3" style="text-align:right">Total facturas</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totalFacturas)}</td></tr>
@@ -7686,9 +8328,8 @@ window.importarFacturasTaxis = async () => {
     console.log(`[FACT-TAXIS] Procesando día ${dia.fecha}: ${dia.lineas.length} líneas, ${dia.resumen.length} resumen`)
     if (!dia.lineas.length) { console.log('[FACT-TAXIS] Día sin líneas, saltando'); continue }
 
-    // Obtener siguiente número de partida
-    const { data: lastP } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-    const numPartida = (lastP?.[0]?.numero_partida || 0) + 1
+    // Obtener siguiente número de partida (atómico)
+    const numPartida = await window.siguienteNumeroPartida()
 
     const totalDebitos = dia.lineas.reduce((s, l) => s + l.monto, 0)
     const totalMO = dia.resumen.filter(r => r.concepto === 'MANO DE OBRA').reduce((s, r) => s + r.monto, 0)
@@ -7832,23 +8473,43 @@ window.loadCajaChica = async () => {
 
   // Get all partidas that touch caja chica
   const { data: lineas, error } = await sb.from('lineas_partida')
-    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado, numero_documento)')
+    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado, numero_documento, created_at, generador:usuarios!generada_por(nombre), aprobador:usuarios!aprobada_por(nombre))')
     .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
 
   if (error) { toast('Error: ' + error.message, 'error'); return }
 
   const movs = (lineas || []).filter(l => l.partida)
 
-  // Saldo total (solo aprobadas)
-  let saldoTotal = 0, ingresosTotal = 0, egresosTotal = 0
+  // Cargar conteos de billetes de caja chica (para mostrar el detalle en la tarjeta)
+  const ccPartidaIds = [...new Set(movs.map(l => l.partida.id))]
+  if (ccPartidaIds.length) {
+    const { data: ccConteos } = await sb.from('conteo_billetes')
+      .select('*').in('partida_id', ccPartidaIds).eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+    if (ccConteos?.length) {
+      for (const l of movs) l.billetes = ccConteos.filter(c => c.partida_id === l.partida.id)
+    }
+  }
+
+  // Saldo total (solo aprobadas) + vienen (día anterior) + hoy
+  const hoyCC = localDateStr()
+  let saldoTotal = 0, ingresosTotal = 0, egresosTotal = 0, vienenCC = 0
   movs.filter(l => l.partida.estado === 'aprobada').forEach(l => {
     const m = parseFloat(l.monto) || 0
-    if (l.tipo === 'debito') { saldoTotal += m; ingresosTotal += m }
-    else { saldoTotal -= m; egresosTotal += m }
+    const f = l.partida.fecha_partida
+    if (l.tipo === 'debito') {
+      saldoTotal += m
+      if (f === hoyCC) ingresosTotal += m
+      if (f < hoyCC) vienenCC += m
+    } else {
+      saldoTotal -= m
+      if (f === hoyCC) egresosTotal += m
+      if (f < hoyCC) vienenCC -= m
+    }
   })
 
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   document.getElementById('cc-saldo').textContent = 'L. ' + fmt(saldoTotal)
+  const vccEl = document.getElementById('cc-vienen'); if (vccEl) vccEl.textContent = 'L. ' + fmt(vienenCC)
   document.getElementById('cc-total-ingresos').textContent = 'L. ' + fmt(ingresosTotal)
   document.getElementById('cc-total-egresos').textContent = 'L. ' + fmt(egresosTotal)
 
@@ -7897,13 +8558,14 @@ function renderCajaChicaList() {
       data = data.filter(l => l.partida.estado === filtroCCActual)
     }
   }
+  // Más reciente primero (igual que Caja General)
+  data = [...data].sort((a, b) => new Date(b.partida.created_at || 0) - new Date(a.partida.created_at || 0))
 
   if (!data.length) {
-    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</div>'
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No hay movimientos</div></div>'
     return
   }
 
-  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const esAuxContable = currentProfile?.rol === 'aux_contable'
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
   const puedeAprobar = esAuxContable || esSuperAdmin
@@ -7912,30 +8574,55 @@ function renderCajaChicaList() {
     const p = l.partida
     const monto = parseFloat(l.monto) || 0
     const esIngreso = l.tipo === 'debito'
-    const estadoBadge = {
-      'aprobada': '<span class="badge badge-on">Aprobada</span>',
-      'borrador': '<span class="badge badge-amber">Borrador</span>',
-      'pendiente_caja': '<span class="badge badge-amber">Pendiente</span>',
-      'anulada': '<span class="badge badge-red">Anulada</span>',
+    const iconClass = esIngreso ? 'ingreso' : 'egreso'
+    const icon = esIngreso ? '↓' : '↑'
+    const signo = esIngreso ? '+' : '-'
+    const estadoBadge = p.estado === 'aprobada' ? 'badge-green'
+      : p.estado === 'anulada' ? 'badge-red' : 'badge-amber'
+    const estadoLabel = p.estado === 'aprobada' ? 'Aprobada'
+      : p.estado === 'borrador' ? 'Borrador'
+      : p.estado === 'pendiente_caja' ? 'Pendiente'
+      : p.estado === 'anulada' ? 'Anulada' : p.estado
+    const fecha = p.created_at ? new Date(p.created_at).toLocaleDateString('es-HN') : (p.fecha_partida || '')
+    const hora = p.created_at ? new Date(p.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' }) : ''
+
+    const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
+      ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
+
+    // Detalle de billetes si existe
+    let billetesInfo = ''
+    if (l.billetes?.length) {
+      const denoms = [500,200,100,50,20,10,5,2,1]
+      const detalles = l.billetes.map(b => {
+        const partes = denoms.map(d => ({ d, q: b[`den_${d}`] || 0 })).filter(x => x.q > 0).map(x => `${x.q}×L.${x.d}`)
+        return partes.length ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes.join(' + ')}</span>` : ''
+      }).filter(Boolean)
+      if (detalles.length) billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
     }
-    return `<div style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:200px">
-        <div style="font-weight:500;font-size:13px">${p.descripcion || 'Sin descripción'}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:3px">
-          ${p.fecha_partida} · Partida #${p.numero_partida || '—'} ${p.numero_documento ? '· Doc: ' + p.numero_documento : ''}
+
+    const actions = (p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ? `
+      <div class="caja-actions">
+        <button class="caja-btn aprobar" onclick="aprobarMovCajaChica('${p.id}')">✓ Aprobar</button>
+      </div>` : ''
+
+    return `
+    <div class="caja-card ${p.estado}">
+      <div class="caja-left">
+        <div class="caja-icon ${iconClass}">${icon}</div>
+        <div class="caja-info">
+          <h4>Partida #${p.numero_partida || '—'} · ${p.descripcion || 'Sin descripción'}</h4>
+          <p>${fecha}${hora ? ' ' + hora : ''} · ${p.generador?.nombre || 'Sistema'} · Doc: ${p.numero_documento || '—'}</p>
+          ${billetesInfo}
+          ${aprobadoInfo}
         </div>
       </div>
-      <div style="text-align:right;min-width:120px">
-        <div style="font-size:16px;font-family:var(--mono);font-weight:600;color:${esIngreso ? 'var(--green)' : 'var(--red)'}">
-          ${esIngreso ? '+' : '-'} L. ${fmt(monto)}
+      <div class="caja-right">
+        <div>
+          <div class="caja-monto ${iconClass}">${signo} L. ${monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+          <div style="text-align:right;margin-top:4px"><span class="badge ${estadoBadge}">${estadoLabel}</span></div>
         </div>
-        <div style="font-size:11px;color:var(--text3)">${esIngreso ? 'Ingreso' : 'Egreso'}</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        ${estadoBadge[p.estado] || p.estado}
-        ${(p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ?
-          `<button class="btn btn-ghost" style="padding:6px 12px;font-size:11px;color:var(--green)" onclick="aprobarMovCajaChica('${p.id}')">✅ Aprobar</button>` : ''}
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px" onclick="verPartida('${p.id}')">👁️</button>
+        ${actions}
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
       </div>
     </div>`
   }).join('')
@@ -8022,7 +8709,7 @@ window.aprobarMovCajaChica = async (partidaId) => {
 
 // Arqueo de caja chica — solo billetes, sin USD ni cheques
 window.verArqueoCajaChica = async () => {
-  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const denoms = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   
   // Get all conteos for caja chica account (by cuenta_codigo or by partida that touches caja chica)
   const { data: conteosDirect } = await sb.from('conteo_billetes')
@@ -8085,7 +8772,7 @@ window.verArqueoCajaChica = async () => {
 
 // Cambio de denominaciones caja chica — reutiliza el modal de caja general
 window.cambioDenomsCajaChica = () => {
-  openModalCambioDenoms()
+  openModalCambioDenoms('110101-001')
 }
 
 window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
@@ -8405,9 +9092,8 @@ window.generarPagoCxP = async () => {
 
   if (!confirm(`¿Generar partida de pago en borrador?\n\nCuentas:\n${cuentasDetalle}\n\nTotal: L. ${fmt(suma)}\n\nSe creará una partida borrador con los débitos. Vos cargás la forma de pago (crédito).`)) return
 
-  // Get next partida number
-  const { data: lastPN } = await sb.from('partidas_contables').select('numero_partida').order('numero_partida', { ascending: false }).limit(1)
-  const nuevoNumero = (lastPN?.[0]?.numero_partida || 0) + 1
+  // Get next partida number (atómico)
+  const nuevoNumero = await window.siguienteNumeroPartida()
 
   // Build description
   const cuentasStr = Object.values(porCuenta).map(c => c.codigo).join(', ')
@@ -8592,13 +9278,15 @@ window.eliminarSelCxP = async (selId, nombre) => {
 // ══════════════════════════════════════════════
 
 window.loadActividad = async () => {
-  const hoy = new Date().toISOString().split('T')[0]
+  const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD en hora local
   const iniEl = document.getElementById('act-fecha-ini')
   const finEl = document.getElementById('act-fecha-fin')
   if (!iniEl.value) iniEl.value = hoy
   if (!finEl.value) finEl.value = hoy
-  const desde = iniEl.value + 'T00:00:00'
-  const hasta = finEl.value + 'T23:59:59'
+  // Construir los límites del rango en hora LOCAL y pasarlos a ISO/UTC,
+  // para que coincidan con cómo se muestra created_at (hora local de Honduras).
+  const desde = new Date(iniEl.value + 'T00:00:00').toISOString()
+  const hasta = new Date(finEl.value + 'T23:59:59.999').toISOString()
   const userFilter = document.getElementById('act-usuario').value
 
   let query = getSb().from('actividad_log')

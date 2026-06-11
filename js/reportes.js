@@ -187,6 +187,32 @@ document.addEventListener('click', (e) => {
   }
 })
 
+// Saldo acumulado de la cuenta ANTES de fechaIni (el "vienen")
+async function _auxSaldoAnterior(cuenta, fechaIni, centroId, libro, estadoFiltro) {
+  let query = getSb().from('lineas_partida')
+    .select('tipo, monto, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
+    .eq('cuenta_id', cuenta.id)
+    .lt('partida.fecha_partida', fechaIni)
+  if (centroId) query = query.eq('centro_costo_id', centroId)
+  if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
+  if (libro === 'interno') query = query.eq('aplica_fiscal', false)
+  const { data: lineas } = await query.limit(20000)
+  let filtered = (lineas || []).filter(l => l.partida && l.partida.fecha_partida)
+  if (estadoFiltro !== 'todos') filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
+  if (!centroId && !esSuperAdmin()) {
+    const idsPriv = getIdsPrivados()
+    filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
+  }
+  const naturaleza = cuenta.naturaleza || 'deudora'
+  let saldo = 0
+  for (const l of filtered) {
+    const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
+    const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
+    saldo += naturaleza === 'deudora' ? (debe - haber) : (haber - debe)
+  }
+  return Math.round(saldo * 100) / 100
+}
+
 window.generarAuxiliar = async () => {
   const fechaIni = document.getElementById('aux-fecha-ini').value
   const fechaFin = document.getElementById('aux-fecha-fin').value
@@ -262,7 +288,8 @@ window.generarAuxiliar = async () => {
     })
 
     const naturaleza = cuenta.naturaleza || 'deudora'
-    let saldo = 0
+    const saldoAnterior = await _auxSaldoAnterior(cuenta, fechaIni, centroId, libro, estadoFiltro)
+    let saldo = saldoAnterior
     const movimientos = filtered.map(l => {
       const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
       const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
@@ -274,13 +301,13 @@ window.generarAuxiliar = async () => {
     const totalHaber = movimientos.reduce((s, m) => s + m.haber, 0)
     grandTotalDebe += totalDebe
     grandTotalHaber += totalHaber
-    bloques.push({ cuenta, movimientos, totalDebe, totalHaber, saldoFinal: saldo, naturaleza })
+    bloques.push({ cuenta, movimientos, totalDebe, totalHaber, saldoFinal: saldo, saldoAnterior, naturaleza })
   }
 
   // Para compatibilidad con exportar Excel (cuenta única)
   if (bloques.length === 1) {
     const b = bloques[0]
-    auxData = { movimientos: b.movimientos, cuenta: b.cuenta, fechaIni, fechaFin, totalDebe: b.totalDebe, totalHaber: b.totalHaber, saldoFinal: b.saldoFinal }
+    auxData = { movimientos: b.movimientos, cuenta: b.cuenta, fechaIni, fechaFin, totalDebe: b.totalDebe, totalHaber: b.totalHaber, saldoFinal: b.saldoFinal, saldoAnterior: b.saldoAnterior }
   } else {
     auxData = { bloques, fechaIni, fechaFin, grandTotalDebe, grandTotalHaber, grupoCodigo }
   }
@@ -305,16 +332,20 @@ window.generarAuxiliar = async () => {
 function renderAuxiliarSingle(b, fechaIni, fechaFin) {
   const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
   const saldo = saldoFinal
+  const saldoAnterior = b.saldoAnterior || 0
+  const tieneVienen = Math.abs(saldoAnterior) >= 0.005
+  const labelNat = (v) => v >= 0 ? (naturaleza === 'deudora' ? 'deudor' : 'acreedor') : (naturaleza === 'deudora' ? 'acreedor' : 'deudor')
 
   // Render resumen
   document.getElementById('aux-resumen').innerHTML = `
     <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
       <div style="font-size:16px;font-weight:600;margin-bottom:6px">${cuenta?.codigo} — ${cuenta?.nombre}</div>
       <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Período: ${fechaIni} al ${fechaFin} · Naturaleza: ${naturaleza} · ${movimientos.length} movimientos</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div style="display:grid;grid-template-columns:repeat(${tieneVienen ? 4 : 3},1fr);gap:12px">
+        ${tieneVienen ? `<div class="stat-card"><div class="stat-num" style="color:var(--text2)">L. ${fmtL(Math.abs(saldoAnterior))}</div><div class="stat-label">Saldo anterior (vienen)</div></div>` : ''}
         <div class="stat-card"><div class="stat-num" style="color:var(--green)">L. ${fmtL(totalDebe)}</div><div class="stat-label">Total débitos</div></div>
         <div class="stat-card"><div class="stat-num" style="color:var(--red)">L. ${fmtL(totalHaber)}</div><div class="stat-label">Total créditos</div></div>
-        <div class="stat-card"><div class="stat-num" style="color:var(--gold)">L. ${fmtL(Math.abs(saldo))}</div><div class="stat-label">Saldo ${saldo >= 0 ? (naturaleza === 'deudora' ? 'deudor' : 'acreedor') : (naturaleza === 'deudora' ? 'acreedor' : 'deudor')}</div></div>
+        <div class="stat-card"><div class="stat-num" style="color:var(--gold)">L. ${fmtL(Math.abs(saldo))}</div><div class="stat-label">Saldo ${tieneVienen ? 'final ' : ''}${labelNat(saldo)}</div></div>
       </div>
     </div>`
 
@@ -330,7 +361,11 @@ function renderAuxiliarSingle(b, fechaIni, fechaFin) {
         <th>Fecha</th><th>N° Part.</th><th>Descripción</th><th>Origen</th>
         <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
       </tr></thead>
-      <tbody id="aux-tbody">${movimientos.map((m, i) => `
+      <tbody id="aux-tbody">${tieneVienen ? `
+        <tr style="background:var(--bg2);font-style:italic;color:var(--text2)">
+          <td colspan="6" style="text-align:right">Saldo anterior (vienen) al ${fechaIni}</td>
+          <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtL(saldoAnterior)}</td>
+        </tr>` : ''}${movimientos.map((m, i) => `
         <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" onclick="verPartida('${m.partidaId}')">
           <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
           <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
@@ -388,6 +423,8 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
   for (const b of bloques) {
     const { cuenta, movimientos, totalDebe, totalHaber, saldoFinal, naturaleza } = b
     if (!movimientos.length) continue
+    const saldoAntB = b.saldoAnterior || 0
+    const vienenB = Math.abs(saldoAntB) >= 0.005
     tablaHTML += `
     <div class="aux-multi-bloque" style="margin-bottom:24px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
       <div style="padding:10px 14px;background:var(--bg3);font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center">
@@ -399,7 +436,11 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
           <th>Fecha</th><th>N° Part.</th><th>Descripción</th><th>Origen</th>
           <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th style="text-align:right">Saldo</th>
         </tr></thead>
-        <tbody>${movimientos.map(m => `
+        <tbody>${vienenB ? `
+          <tr style="background:var(--bg2);font-style:italic;color:var(--text2)">
+            <td colspan="6" style="text-align:right">Saldo anterior (vienen) al ${fechaIni}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtL(saldoAntB)}</td>
+          </tr>` : ''}${movimientos.map(m => `
           <tr class="aux-multi-row" data-desc="${(m.descripcion||'').toLowerCase()}" style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
             <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
             <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
@@ -459,6 +500,7 @@ window.exportarAuxiliarXLSX = () => {
       if (!b.movimientos.length) continue
       rows.push([`${b.cuenta.codigo} — ${b.cuenta.nombre}`])
       rows.push(['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'])
+      if (Math.abs(b.saldoAnterior || 0) >= 0.005) rows.push(['', '', `Saldo anterior (vienen) al ${fechaIni}`, '', '', '', b.saldoAnterior])
       for (const m of b.movimientos) {
         rows.push([m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo])
       }
@@ -474,13 +516,15 @@ window.exportarAuxiliarXLSX = () => {
     toast(`Excel con ${bloques.length} cuentas exportado ✓`, 'success')
   } else {
     // Single account export
-    const { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal } = auxData
+    const { movimientos, cuenta, fechaIni, fechaFin, totalDebe, totalHaber, saldoFinal, saldoAnterior } = auxData
+    const vienen = Math.abs(saldoAnterior || 0) >= 0.005
     const rows = [
       ['AUXILIAR DE CUENTAS — CONTAMAX'],
       [`Cuenta: ${cuenta.codigo} — ${cuenta.nombre}`],
       [`Período: ${fechaIni} al ${fechaFin}`],
       [],
       ['Fecha', 'N° Partida', 'Descripción', 'Origen', 'Debe', 'Haber', 'Saldo'],
+      ...(vienen ? [['', '', `Saldo anterior (vienen) al ${fechaIni}`, '', '', '', saldoAnterior]] : []),
       ...movimientos.map(m => [m.fecha, m.partida, m.descripcion, m.origen, m.debe || '', m.haber || '', m.saldo]),
       [],
       ['', '', '', 'TOTALES', totalDebe, totalHaber, Math.abs(saldoFinal)]
@@ -809,27 +853,31 @@ window.generarEstadoResultados = async () => {
   gastos.sort((a, b) => { if (a._privado && !b._privado) return 1; if (!a._privado && b._privado) return -1; return (a.codigo||'').localeCompare(b.codigo||'') })
 
   const totalIngresos = ingresos.reduce((s, c) => s + c.saldo, 0)
-  const totalCostos = costos.reduce((s, c) => s + Math.abs(c.saldo), 0)
-  const totalGastos = gastos.reduce((s, c) => s + Math.abs(c.saldo), 0)
+  const totalCostos = costos.reduce((s, c) => s + (-c.saldo), 0)   // costos: debe-haber = -(haber-debe)
+  const totalGastos = gastos.reduce((s, c) => s + (-c.saldo), 0)   // gastos: idem
   const utilidadBruta = totalIngresos - totalCostos
   const utilidadNeta = utilidadBruta - totalGastos
 
   erData = { ingresos, costos, gastos, totalIngresos, totalCostos, totalGastos, utilidadBruta, utilidadNeta, fechaIni, fechaFin }
 
+  // Para costos y gastos, mostramos debe-haber (positivo en cuentas de gasto normales)
+  const invertir = (arr) => arr.map(c => ({ ...c, saldo: -c.saldo }))
+
   const renderSeccion = (titulo, items, color, signo) => {
     if (items.length === 0) return ''
-    const total = items.reduce((s, c) => s + Math.abs(c.saldo), 0)
+    const total = items.reduce((s, c) => s + c.saldo, 0)
+    const fmtSigned = (v) => (v < 0 ? '(' + fmtL(Math.abs(v)) + ')' : fmtL(v))
     return `
       <tr style="background:var(--bg3)"><td colspan="4" style="font-weight:600;color:${color};padding:10px 14px">${titulo}</td></tr>
       ${items.map(c => `<tr${c._privado ? ' style="background:rgba(239,68,68,0.04)"' : ` class="er-row-dd" style="cursor:pointer" onclick="erDrillDown('${c.codigo}')" title="Click para ver las transacciones que componen este monto"`}>
         <td style="font-family:var(--mono);color:var(--gold);font-size:12px;padding-left:24px">${c.codigo}</td>
         <td>${c.nombre}${c._privado ? '' : ' <span style="font-size:10px;color:var(--text3)">🔍</span>'}</td>
-        <td style="text-align:right;font-family:var(--mono)">${fmtL(Math.abs(c.saldo))}</td>
+        <td style="text-align:right;font-family:var(--mono);${c.saldo < 0 ? 'color:var(--red)' : ''}">${fmtSigned(c.saldo)}</td>
         <td></td>
       </tr>`).join('')}
       <tr style="border-top:1px solid var(--border)">
         <td></td><td style="text-align:right;font-weight:500">Total ${titulo.toLowerCase()}</td>
-        <td></td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${color}">L. ${fmtL(total)}</td>
+        <td></td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${color}">L. ${fmtSigned(total)}</td>
       </tr>`
   }
 
@@ -851,12 +899,12 @@ window.generarEstadoResultados = async () => {
       <thead><tr><th>Código</th><th>Cuenta</th><th style="text-align:right">Monto</th><th style="text-align:right">Subtotal</th></tr></thead>
       <tbody>
         ${renderSeccion('INGRESOS', ingresos, 'var(--green)', '+')}
-        ${renderSeccion('COSTOS DE VENTA', costos, 'var(--red)', '-')}
+        ${renderSeccion('COSTOS DE VENTA', invertir(costos), 'var(--red)', '-')}
         <tr style="background:rgba(59,130,246,0.08);font-weight:600">
           <td colspan="3" style="text-align:right;color:var(--blue)">UTILIDAD BRUTA</td>
           <td style="text-align:right;font-family:var(--mono);color:var(--blue)">L. ${fmtL(utilidadBruta)}</td>
         </tr>
-        ${renderSeccion('GASTOS OPERATIVOS', gastos, 'var(--amber)', '-')}
+        ${renderSeccion('GASTOS OPERATIVOS', invertir(gastos), 'var(--amber)', '-')}
         <tr style="background:${utilidadNeta >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'};font-weight:700">
           <td colspan="3" style="text-align:right;color:${utilidadNeta >= 0 ? 'var(--green)' : 'var(--red)'}">${utilidadNeta >= 0 ? 'UTILIDAD NETA' : 'PÉRDIDA NETA'}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:16px;color:${utilidadNeta >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(Math.abs(utilidadNeta))}</td>
@@ -957,20 +1005,20 @@ window.exportarERXLSX = () => {
     [],
     ['Código', 'Cuenta', 'Monto'],
     ['', 'INGRESOS', ''],
-    ...ingresos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.abs(c.saldo)]),
+    ...ingresos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.round(c.saldo * 100) / 100]),
     ['', 'Total ingresos', totalIngresos],
     [],
     ['', 'COSTOS DE VENTA', ''],
-    ...costos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.abs(c.saldo)]),
+    ...costos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.round(-c.saldo * 100) / 100]),
     ['', 'Total costos', totalCostos],
     [],
     ['', 'UTILIDAD BRUTA', utilidadBruta],
     [],
     ['', 'GASTOS OPERATIVOS', ''],
-    ...gastos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.abs(c.saldo)]),
+    ...gastos.map(c => [c._privado ? '🔒' : c.codigo, c.nombre, Math.round(-c.saldo * 100) / 100]),
     ['', 'Total gastos', totalGastos],
     [],
-    ['', utilidadNeta >= 0 ? 'UTILIDAD NETA' : 'PÉRDIDA NETA', Math.abs(utilidadNeta)],
+    ['', utilidadNeta >= 0 ? 'UTILIDAD NETA' : 'PÉRDIDA NETA', Math.round(utilidadNeta * 100) / 100],
   ]
   const ws = window.XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = [{ wch: 16 }, { wch: 45 }, { wch: 16 }]
@@ -978,4 +1026,284 @@ window.exportarERXLSX = () => {
   window.XLSX.utils.book_append_sheet(wb, ws, 'Estado Resultados')
   window.XLSX.writeFile(wb, `Estado_Resultados_${fechaIni}_${fechaFin}.xlsx`)
   toast('Excel exportado ✓', 'success')
+}
+
+// ══════════════════════════════════════════════
+// ── REPORTE: RENTABILIDAD POR UNIDAD (TAXIS) · vista autoinyectada
+// ══════════════════════════════════════════════
+let rentUnidades = []
+let rentSort = { col: 'neto', dir: 'desc' }
+
+window.ordenarRentabilidad = (col) => {
+  if (rentSort.col === col) {
+    rentSort.dir = rentSort.dir === 'asc' ? 'desc' : 'asc'
+  } else {
+    rentSort.col = col
+    // por defecto: texto asc, números desc
+    rentSort.dir = (col === 'registro' || col === 'modalidad') ? 'asc' : 'desc'
+  }
+  renderRentabilidad()
+}
+
+function ensureRentabilidadView() {
+  if (document.getElementById('view-rentabilidad-taxis')) return
+  const anyView = document.querySelector('.view')
+  if (!anyView || !anyView.parentNode) return
+  const v = document.createElement('div')
+  v.className = 'view'
+  v.id = 'view-rentabilidad-taxis'
+  anyView.parentNode.appendChild(v)
+}
+
+window.initRentabilidadTaxis = async function () {
+  ensureRentabilidadView()
+  const view = document.getElementById('view-rentabilidad-taxis')
+  if (view && !view.classList.contains('active')) {
+    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'))
+    view.classList.add('active')
+  }
+  const hoy = new Date()
+  const ini = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toLocaleDateString('en-CA')
+  const fin = hoy.toLocaleDateString('en-CA')
+
+  // Cargar lista de propietarios para el filtro
+  const { data: unidades } = await getSb().from('unidades_taxis').select('propietario').eq('activo', true)
+  const props = [...new Set((unidades || []).map(u => u.propietario).filter(Boolean))].sort()
+
+  view.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">📊 Rentabilidad por unidad</div>
+        <div class="page-sub">Ingresos y egresos por taxi en un rango de fechas</div>
+      </div>
+      <button class="btn btn-ghost" id="btn-rent-xlsx" style="display:none" onclick="exportRentabilidadXlsx()">📊 Exportar Excel</button>
+    </div>
+
+    <div class="form-card" style="margin-bottom:16px">
+      <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap">
+        <div class="fld"><label>Fecha inicio</label><input type="date" id="rent-desde" value="${ini}"></div>
+        <div class="fld"><label>Fecha fin</label><input type="date" id="rent-hasta" value="${fin}"></div>
+        <div class="fld" style="min-width:200px">
+          <label>Propietario</label>
+          <select id="rent-prop">
+            <option value="">Todos los propietarios</option>
+            ${props.map(p => `<option value="${p}">${p}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fld" style="min-width:140px">
+          <label>Modalidad</label>
+          <select id="rent-mod">
+            <option value="">Todas</option>
+            <option value="TAXI">TAXI</option>
+            <option value="VIP">VIP</option>
+            <option value="BUS">BUS</option>
+            <option value="PARTICULAR">PARTICULAR</option>
+          </select>
+        </div>
+        <button class="btn btn-gold" id="btn-rent-consultar" onclick="consultarRentabilidad()">Consultar →</button>
+      </div>
+    </div>
+
+    <div id="rent-resumen" style="margin-bottom:16px"></div>
+    <div class="table-wrap" id="rent-tabla"></div>`
+}
+
+window.consultarRentabilidad = async function () {
+  const desde = document.getElementById('rent-desde').value
+  const hasta = document.getElementById('rent-hasta').value
+  const propFilter = document.getElementById('rent-prop').value
+  const modFilter = document.getElementById('rent-mod').value
+  if (!desde || !hasta) { window.toast?.('Seleccioná el rango de fechas', 'error'); return }
+
+  const btn = document.getElementById('btn-rent-consultar')
+  if (btn) { btn.disabled = true; btn.textContent = 'Consultando...' }
+  const tabla = document.getElementById('rent-tabla')
+  tabla.innerHTML = '<div style="text-align:center;padding:24px"><div class="spinner"></div></div>'
+
+  try {
+    const sb = getSb()
+    // 1) Unidades filtradas
+    let q = sb.from('unidades_taxis').select('registro, modalidad, propietario, motorista').eq('activo', true)
+    if (propFilter) q = q.eq('propietario', propFilter)
+    if (modFilter) q = q.eq('modalidad', modFilter)
+    const { data: unidades } = await q.order('registro')
+    const regs = new Set((unidades || []).map(u => u.registro))
+
+    // Helper: traer TODAS las filas paginando (Supabase corta en 1000 por defecto)
+    const fetchAll = async (build) => {
+      let all = [], from = 0, size = 1000
+      while (true) {
+        const { data, error } = await build().range(from, from + size - 1)
+        if (error || !data || !data.length) break
+        all.push(...data)
+        if (data.length < size) break
+        from += size
+      }
+      return all
+    }
+
+    // 2) TODAS las entregas del rango (paginado)
+    const entregas = await fetchAll(() => sb.from('entregas_taxis')
+      .select('unidad, monto').gte('fecha_deposito', desde).lte('fecha_deposito', hasta))
+
+    // 3) TODAS las facturas (gasto) del rango (paginado)
+    const facturas = await fetchAll(() => sb.from('facturas_taxis')
+      .select('registro, monto').gte('fecha', desde).lte('fecha', hasta))
+
+    // 4) TODAS las líneas de partidas aprobadas del rango que tengan centro de costo
+    const partidasRango = await fetchAll(() => sb.from('partidas_contables')
+      .select('id, descripcion').eq('estado', 'aprobada')
+      .gte('fecha_partida', desde).lte('fecha_partida', hasta))
+    const partidaMap = Object.fromEntries((partidasRango || []).map(p => [p.id, p]))
+    const pIds = (partidasRango || []).map(p => p.id)
+    let lineas = []
+    // Traer en lotes de 200 ids para no exceder límites de URL
+    for (let i = 0; i < pIds.length; i += 200) {
+      const chunk = pIds.slice(i, i + 200)
+      const data = await fetchAll(() => sb.from('lineas_partida')
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
+        .in('partida_id', chunk))
+      if (data?.length) lineas.push(...data)
+    }
+    // Solo líneas con centro de costo (excluye bancos/caja)
+    lineas = lineas.filter(l => l.centro_costo_id)
+
+    // ── Acumular por unidad ──
+    // Normalizamos la clave a solo dígitos para que coincida sin importar
+    // si viene como número, texto, con espacios o ceros (ej. 7036, "7036", " 7036").
+    const keyOf = (v) => String(v ?? '').replace(/\D/g, '')
+    const acc = {}
+    for (const u of (unidades || [])) acc[keyOf(u.registro)] = { ingresos: 0, egresos: 0 }
+
+    for (const e of (entregas || [])) {
+      const k = keyOf(e.unidad)
+      if (acc[k]) acc[k].ingresos += parseFloat(e.monto) || 0
+    }
+    for (const f of (facturas || [])) {
+      const k = keyOf(f.registro)
+      if (acc[k]) acc[k].egresos += parseFloat(f.monto) || 0
+    }
+    // Líneas de partida: emparejar la unidad por su número en la descripción
+    const esIngreso = (l) => l.tipo === 'credito' && String(l.cuenta_codigo || '').startsWith('4')
+    for (const l of lineas) {
+      const texto = ((l.descripcion || '') + ' ' + (partidaMap[l.partida_id]?.descripcion || '')).toUpperCase()
+      // Detectar registro: "TAXI 1234", "VIP 1234", "T_1234", etc.
+      const m = texto.match(/(?:TAXI|VIP|T_)\s*[_ ]?\s*(\d{3,5})/)
+      if (!m) continue
+      const k = keyOf(m[1])
+      if (!acc[k]) continue
+      const monto = parseFloat(l.monto) || 0
+      if (esIngreso(l)) acc[k].ingresos += monto
+      else acc[k].egresos += monto
+    }
+
+    rentUnidades = (unidades || []).map(u => {
+      const a = acc[keyOf(u.registro)] || { ingresos: 0, egresos: 0 }
+      return { ...u, totalIngresos: a.ingresos, totalEgresos: a.egresos, neto: a.ingresos - a.egresos }
+    }).sort((x, y) => y.neto - x.neto)
+
+    renderRentabilidad()
+  } catch (e) {
+    console.error('consultarRentabilidad:', e)
+    tabla.innerHTML = '<div style="text-align:center;padding:24px;color:var(--red)">Error al consultar</div>'
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Consultar →' }
+  }
+}
+
+function renderRentabilidad() {
+  const tabla = document.getElementById('rent-tabla')
+  const totI = rentUnidades.reduce((s, u) => s + u.totalIngresos, 0)
+  const totE = rentUnidades.reduce((s, u) => s + u.totalEgresos, 0)
+  const totN = totI - totE
+
+  document.getElementById('rent-resumen').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div class="stat-card"><div class="stat-num" style="font-size:18px">${rentUnidades.length}</div><div class="stat-label">Unidades</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:18px">L. ${fmtL(totI)}</div><div class="stat-label">Ingresos</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:18px">L. ${fmtL(totE)}</div><div class="stat-label">Egresos</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:${totN >= 0 ? 'var(--green)' : 'var(--red)'};font-size:18px">L. ${fmtL(totN)}</div><div class="stat-label">${totN >= 0 ? 'Utilidad' : 'Pérdida'}</div></div>
+    </div>`
+
+  if (!rentUnidades.length) {
+    tabla.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Sin unidades para los filtros seleccionados</div>'
+    document.getElementById('btn-rent-xlsx').style.display = 'none'
+    return
+  }
+  document.getElementById('btn-rent-xlsx').style.display = ''
+
+  // Ordenar según la columna/dirección seleccionada
+  const { col, dir } = rentSort
+  const mult = dir === 'asc' ? 1 : -1
+  const ordenadas = [...rentUnidades].sort((a, b) => {
+    let va, vb
+    if (col === 'registro') { va = a.registro; vb = b.registro }
+    else if (col === 'modalidad') { va = a.modalidad || ''; vb = b.modalidad || '' }
+    else if (col === 'ingresos') { va = a.totalIngresos; vb = b.totalIngresos }
+    else if (col === 'egresos') { va = a.totalEgresos; vb = b.totalEgresos }
+    else { va = a.neto; vb = b.neto }
+    if (typeof va === 'string') return va.localeCompare(vb) * mult
+    return (va - vb) * mult
+  })
+
+  const flecha = (c) => rentSort.col === c ? (rentSort.dir === 'asc' ? ' ▲' : ' ▼') : ''
+  const th = (c, label, align) => `<th style="cursor:pointer;user-select:none;${align ? 'text-align:' + align : ''}" onclick="ordenarRentabilidad('${c}')">${label}${flecha(c)}</th>`
+
+  tabla.innerHTML = `
+    <table style="width:100%">
+      <thead><tr>
+        ${th('registro', 'Unidad')}
+        ${th('modalidad', 'Modalidad')}
+        <th>Propietario</th><th>Motorista</th>
+        ${th('ingresos', 'Ingresos', 'right')}
+        ${th('egresos', 'Egresos', 'right')}
+        ${th('neto', 'Total', 'right')}
+      </tr></thead>
+      <tbody>
+        ${ordenadas.map(u => `
+          <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro}, document.getElementById('rent-desde').value, document.getElementById('rent-hasta').value)">
+            <td style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--gold)">${u.registro}</td>
+            <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : u.modalidad === 'BUS' ? 'badge-green' : u.modalidad === 'PARTICULAR' ? 'badge-red' : 'badge-amber'}">${u.modalidad}</span></td>
+            <td style="font-size:13px">${u.propietario || '—'}</td>
+            <td style="font-size:13px;color:var(--text3)">${u.motorista || '—'}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(u.totalIngresos)}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(u.totalEgresos)}</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${u.neto >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(u.neto)}</td>
+          </tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--bg3);font-weight:700">
+          <td colspan="4" style="text-align:right">TOTALES</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(totI)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totE)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${totN >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(totN)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    <div style="font-size:11px;color:var(--text3);padding:8px 4px">Hacé clic en un encabezado para ordenar · clic en una unidad para ver el detalle.</div>`
+}
+
+window.exportRentabilidadXlsx = function () {
+  if (!rentUnidades.length || !window.XLSX) return
+  const desde = document.getElementById('rent-desde').value
+  const hasta = document.getElementById('rent-hasta').value
+  const rows = [
+    ['RENTABILIDAD POR UNIDAD'],
+    [`Período: ${desde} a ${hasta}`],
+    [],
+    ['Unidad', 'Modalidad', 'Propietario', 'Motorista', 'Ingresos', 'Egresos', 'Total'],
+    ...rentUnidades.map(u => [u.registro, u.modalidad, u.propietario || '', u.motorista || '',
+      Math.round(u.totalIngresos * 100) / 100, Math.round(u.totalEgresos * 100) / 100, Math.round(u.neto * 100) / 100]),
+    [],
+    ['', '', '', 'TOTALES',
+      Math.round(rentUnidades.reduce((s, u) => s + u.totalIngresos, 0) * 100) / 100,
+      Math.round(rentUnidades.reduce((s, u) => s + u.totalEgresos, 0) * 100) / 100,
+      Math.round(rentUnidades.reduce((s, u) => s + u.neto, 0) * 100) / 100]
+  ]
+  const ws = window.XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Rentabilidad')
+  window.XLSX.writeFile(wb, `Rentabilidad_Unidades_${desde}_${hasta}.xlsx`)
+  window.toast?.('Excel exportado ✓', 'success')
 }
