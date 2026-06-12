@@ -974,11 +974,17 @@ window.guardarPermiso = async () => {
 }
 
 async function cargarPermisos() {
-  const { data } = await getSb().from('permisos_empleados')
-    .select('*').order('fecha', { ascending: false }).limit(50)
-  
+  // Filtro por empleado: con empleado seleccionado se consultan TODOS sus
+  // permisos en el servidor; sin filtro, los últimos 50 como siempre
+  const filtroNombre = document.getElementById('filtro-perm-empleado')?.value || ''
+  let q = getSb().from('permisos_empleados').select('*').order('fecha', { ascending: false })
+  q = filtroNombre ? q.eq('empleado_nombre', filtroNombre).limit(300) : q.limit(50)
+  const { data } = await q
+
   const tbody = document.getElementById('tbody-permisos')
   if (!tbody) return
+
+  await _ensureFiltroPermisos(filtroNombre)
   
   const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)' }
 
@@ -993,8 +999,32 @@ async function cargarPermisos() {
       <td style="font-size:11px;color:var(--text3)">${p.aprobado_por || '—'}</td>
       <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="event.stopPropagation(); eliminarPermiso('${p.id}')">✕</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">No hay permisos registrados</td></tr>'
+  `).join('') || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">${filtroNombre ? 'Este empleado no tiene permisos registrados' : 'No hay permisos registrados'}</td></tr>`
 }
+
+// Inyecta (una sola vez) el selector de empleado arriba de la tabla de permisos
+// y lo puebla con los nombres que tienen permisos presentados
+async function _ensureFiltroPermisos(seleccionado) {
+  let sel = document.getElementById('filtro-perm-empleado')
+  if (!sel) {
+    const tbody = document.getElementById('tbody-permisos')
+    const tabla = tbody?.closest('table')
+    if (!tabla || !tabla.parentNode) return
+    const cont = document.createElement('div')
+    cont.id = 'filtro-perm-cont'
+    cont.style.cssText = 'display:flex;align-items:center;gap:8px;margin:0 0 8px'
+    cont.innerHTML = `<span style="font-size:11px;color:var(--text3);letter-spacing:1px">EMPLEADO</span>
+      <select id="filtro-perm-empleado" onchange="window._onFiltroPermisos()" style="max-width:300px;font-size:12px"></select>`
+    tabla.parentNode.insertBefore(cont, tabla)
+    sel = document.getElementById('filtro-perm-empleado')
+  }
+  const { data: noms } = await getSb().from('permisos_empleados').select('empleado_nombre').limit(2000)
+  const unicos = [...new Set((noms || []).map(x => (x.empleado_nombre || '').trim()).filter(Boolean))].sort()
+  const val = seleccionado || ''
+  sel.innerHTML = `<option value="">Todos (${unicos.length} empleados con permisos)</option>` +
+    unicos.map(n => `<option value="${n.replace(/"/g, '&quot;')}"${n === val ? ' selected' : ''}>${n}</option>`).join('')
+}
+window._onFiltroPermisos = () => cargarPermisos()
 
 window.eliminarPermiso = async (id) => {
   if (!confirm('¿Eliminar este permiso?')) return
