@@ -12,6 +12,20 @@ let filteredPrestamos = []
 let selectedPrestamo = null
 let editingPrestamoCode = null
 let currentDetalleCodigo = null
+let currentDetalleId = null
+let editingPrestamoId = null
+
+// ── Soporte de códigos reutilizados (unidad dada de baja y re-financiada) ──
+// findPrestamo: acepta id de fila (preferido) o código; con código prefiere el ACTIVO
+function findPrestamo(ref) {
+  if (ref === null || ref === undefined || ref === '') return null
+  let p = allPrestamos.find(x => String(x.id) === String(ref))
+  if (p) return p
+  const mismos = allPrestamos.filter(x => String(x.codigo) === String(ref))
+  return mismos.find(x => x.activo !== false) || mismos[0] || null
+}
+// Cada recibo queda ligado a su préstamo por prestamo_id (columna en recibos_prestamos).
+// Esto separa limpiamente las generaciones cuando un código se reutiliza, sin depender de fechas.
 let liquidacionData = null // Datos de la liquidación actual para generar recibo
 
 // ══════════════════════════════════════════════
@@ -68,7 +82,7 @@ function renderPrestamosTable() {
     const saldo = parseFloat(p.saldo_actual) || 0
     const diasColor = p.dias_sin_pago > 30 ? 'var(--red)' : p.dias_sin_pago > 15 ? 'var(--amber)' : 'var(--green)'
     const fechaUlt = p.fecha_ultimo_pago ? new Date(p.fecha_ultimo_pago + 'T12:00:00').toLocaleDateString('es-HN') : '—'
-    return `<tr style="cursor:pointer" onclick="verDetallePrestamo('${p.codigo}')">
+    return `<tr style="cursor:pointer" onclick="verDetallePrestamo('${p.id}')">
       <td style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--gold)">${p.codigo}</td>
       <td style="font-weight:500">${p.motorista || '—'}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${p.categoria}</span></td>
@@ -77,8 +91,8 @@ function renderPrestamosTable() {
       <td style="font-size:12px;color:var(--text3)">${fechaUlt}</td>
       <td style="text-align:center;font-family:var(--mono);font-weight:500;color:${diasColor}">${p.dias_sin_pago || 0}d</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
-        ${esSA ? `<button onclick="abrirLiquidacion('${p.codigo}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Generar recibo">🧾</button>
-          <button onclick="editarPrestamo('${p.codigo}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>` : '👁'}
+        ${esSA ? `<button onclick="abrirLiquidacion('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Generar recibo">🧾</button>
+          <button onclick="editarPrestamo('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>` : '👁'}
       </td></tr>`
   }).join('')
 }
@@ -87,10 +101,12 @@ function renderPrestamosTable() {
 // ── DETALLE DE PRÉSTAMO (historial) ──
 // ══════════════════════════════════════════════
 
-window.verDetallePrestamo = async (codigo) => {
-  const p = allPrestamos.find(x => x.codigo === codigo)
+window.verDetallePrestamo = async (ref) => {
+  const p = findPrestamo(ref)
   if (!p) return
-  currentDetalleCodigo = codigo
+  const codigo = p.codigo
+  currentDetalleCodigo = p.codigo
+  currentDetalleId = p.id
   document.getElementById('modal-detalle-prestamo-title').textContent = `🧾 Préstamo #${codigo} · ${p.motorista || p.categoria}`
   document.getElementById('modal-detalle-prestamo').classList.add('open')
 
@@ -105,7 +121,8 @@ window.verDetallePrestamo = async (codigo) => {
   const contenido = document.getElementById('dp-contenido')
   contenido.innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>'
 
-  const { data: recibos } = await getSb().from('recibos_prestamos').select('*').eq('registro', codigo).order('fecha', { ascending: false })
+  const { data: recibos } = await getSb().from('recibos_prestamos').select('*')
+    .eq('prestamo_id', p.id).order('fecha', { ascending: false })
 
   if (!recibos?.length) { contenido.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">No hay recibos emitidos</div>'; return }
 
@@ -132,7 +149,7 @@ window.verDetallePrestamo = async (codigo) => {
         <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3)" title="${r.concepto || ''}">${r.concepto || '—'}</td>
         <td style="text-align:center;white-space:nowrap">
           <button onclick="reimprimirRecibo('${r.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--blue)" title="Reimprimir recibo">🖨️</button>
-          ${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo})" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo">🗑️</button>` : ''}
+          ${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo},'${p.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo">🗑️</button>` : ''}
         </td>
       </tr>`).join('')}</tbody></table>
     </div>`
@@ -142,9 +159,11 @@ window.verDetallePrestamo = async (codigo) => {
 // ── LIQUIDACIÓN Y GENERACIÓN DE RECIBO ──
 // ══════════════════════════════════════════════
 
-window.abrirLiquidacion = async (codigo) => {
-  const p = allPrestamos.find(x => x.codigo === codigo)
+window.abrirLiquidacion = async (ref) => {
+  const p = findPrestamo(ref)
   if (!p) return
+  if (p.activo === false) { window.toast?.('Este préstamo está dado de baja — no se pueden generar recibos nuevos', 'error'); return }
+  const codigo = p.codigo
   selectedPrestamo = p
   liquidacionData = null
 
@@ -160,7 +179,8 @@ window.abrirLiquidacion = async (codigo) => {
   // Obtener último recibo para saldo del mes anterior y cuota_mes
   const { data: lastRec } = await getSb().from('recibos_prestamos')
     .select('saldo_del_mes, gps, numero_alquiler, numero_recibo, cuota_mes, fecha')
-    .eq('registro', codigo).order('fecha', { ascending: false }).limit(1)
+    .eq('prestamo_id', p.id)
+    .order('fecha', { ascending: false }).limit(1)
 
   const saldoMesAnterior = parseFloat(lastRec?.[0]?.saldo_del_mes) || 0
   const prevGps = parseFloat(lastRec?.[0]?.gps) || p.cuota_gps || 0
@@ -220,7 +240,6 @@ window.abrirLiquidacion = async (codigo) => {
     .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
     .order('fecha')
 
-  const totalFacturas = (facturas || []).reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
 
   const saldo = parseFloat(p.saldo_actual) || 0
   const tasa = parseFloat(p.tasa_interes) || 0.03 // tasa mensual (3% = 0.03)
@@ -234,13 +253,15 @@ window.abrirLiquidacion = async (codigo) => {
 
   liquidacionData = {
     codigo, registro, motorista: p.motorista,
+    arrendadorNombre: p.arrendador_nombre || '', arrendadorDni: p.arrendador_dni || '',
     // Listas COMPLETAS (sin filtrar por fecha) — el rango se aplica en recalcularLiquidacion()
     entregasTodas: entregas || [],
     abonosTodos: abonosValidos,
     // Listas filtradas al rango [fechaUltimoPago, fechaRecibo] (se llenan abajo)
     entregas: [], abonosPartida: [],
-    facturas: facturas || [],
-    totalEntregas: 0, totalAbonosPartida: 0, totalFacturas,
+    facturasTodas: facturas || [],
+    facturas: [],
+    totalEntregas: 0, totalAbonosPartida: 0, totalFacturas: 0,
     saldoInicial: saldo, tasa, tasaDiaria, intereses: 0, gps, alquiler,
     fechaUltimoPago, diasTranscurridos: 0,
     saldoMesAnterior: saldoAnt, cargoSaldoAnt, abonoSaldoAnt, totalCargos: 0,
@@ -259,9 +280,11 @@ window.abrirLiquidacion = async (codigo) => {
 }
 
 // ── Cálculo central de la liquidación ──
-// Los INGRESOS (entregas + abonos de partida) solo cuentan si su fecha está en el
-// rango [fecha del último recibo, fecha del recibo seleccionada], ambos inclusive.
-// Los GASTOS (facturas, GPS, alquiler, saldo anterior) no se filtran por fecha.
+// INGRESOS (entregas + abonos de partida) y FACTURAS solo cuentan si su fecha
+// está en el rango [fecha del último recibo, fecha del recibo seleccionada],
+// ambos inclusive. Las facturas fuera del rango NO se marcan como usadas:
+// quedan disponibles para el siguiente recibo.
+// GPS, alquiler/seguro y saldo anterior no se filtran por fecha.
 function recalcularLiquidacion() {
   const d = liquidacionData
   if (!d) return
@@ -281,6 +304,10 @@ function recalcularLiquidacion() {
   d.abonosPartida = (d.abonosTodos || []).filter(a => enRango(a.partida?.fecha_partida))
   d.totalAbonosPartida = d.abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
   d.totalEntregas = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + d.totalAbonosPartida
+
+  // Facturas del taller: mismo rango de fechas que los ingresos
+  d.facturas = (d.facturasTodas || []).filter(f => enRango(f.fecha))
+  d.totalFacturas = d.facturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
 
   // Intereses por días transcurridos desde el último recibo hasta la fecha del recibo
   const fechaUlt = new Date(desde + 'T12:00:00')
@@ -425,7 +452,15 @@ window.reimprimirRecibo = async (reciboId) => {
   } catch(e) {}
 
   // Determinar si es taxi
-  const { data: prestamo } = await getSb().from('prestamos_taxis').select('categoria').eq('codigo', r.registro).single()
+  let prestamo = null
+  if (r.prestamo_id) {
+    const { data: pPorId } = await getSb().from('prestamos_taxis').select('categoria, activo').eq('id', r.prestamo_id).limit(1)
+    prestamo = pPorId?.[0] || null
+  }
+  if (!prestamo) {
+    const { data: prestamosCat } = await getSb().from('prestamos_taxis').select('categoria, activo').eq('codigo', r.registro)
+    prestamo = (prestamosCat || []).find(x => x.activo !== false) || (prestamosCat || [])[0]
+  }
   const esTaxi = prestamo?.categoria?.toLowerCase().includes('taxi')
 
   // Reconstruir datos para impresión
@@ -450,6 +485,7 @@ window.reimprimirRecibo = async (reciboId) => {
     nuevoSaldoMes: parseFloat(r.saldo_del_mes) || 0,
     saldoDelMes: parseFloat(r.saldo_del_mes) || 0,
     concepto: r.concepto || '',
+    arrendadorNombre: r.propietario || '', arrendadorDni: r.dni || '',
     diasTranscurridos: '',
     esTaxi,
     entregas: entregas || [],
@@ -461,7 +497,7 @@ window.reimprimirRecibo = async (reciboId) => {
   imprimirRecibo(d)
 }
 
-window.eliminarRecibo = async (reciboId, codigo, numRecibo) => {
+window.eliminarRecibo = async (reciboId, codigo, numRecibo, prestamoId) => {
   if (!confirm(`⚠️ ¿Eliminar recibo #${numRecibo} del préstamo ${codigo}?\n\nEsto va a:\n• Reversar el saldo del préstamo al anterior\n• Liberar las entregas para volver a usarlas\n• Liberar las facturas para volver a usarlas\n• Liberar los abonos de partida\n• Eliminar el recibo permanentemente\n\n¿Continuar?`)) return
 
   try {
@@ -505,10 +541,11 @@ window.eliminarRecibo = async (reciboId, codigo, numRecibo) => {
     // 5. Reversar saldo del préstamo (volver al saldo_inicial del recibo)
     const saldoAnterior = parseFloat(recibo.saldo_inicial) || 0
     const prevRecibo = numRecibo - 1
+    const pRef = findPrestamo(recibo.prestamo_id || prestamoId || codigo)
     await getSb().from('prestamos_taxis').update({
       saldo_actual: saldoAnterior,
       num_recibos: prevRecibo > 0 ? prevRecibo : 0,
-    }).eq('codigo', codigo)
+    }).eq('id', pRef?.id ?? -1)
 
     // 6. Eliminar el recibo
     const { error: delErr } = await getSb().from('recibos_prestamos').delete().eq('id', reciboId)
@@ -593,7 +630,8 @@ window.confirmarRecibo = async () => {
     cuotas: selectedPrestamo.cuotas_pactadas || 24,
     cuota_mes: d.montoRecibo,
     concepto: d.concepto,
-    propietario: '', dni: ''
+    propietario: d.arrendadorNombre || '', dni: d.arrendadorDni || '',
+    prestamo_id: selectedPrestamo.id
   }).select().single()
 
   if (recErr) { btn.disabled = false; btn.textContent = 'Confirmar y generar recibo →'; window.toast('Error: ' + recErr.message, 'error'); return }
@@ -621,7 +659,7 @@ window.confirmarRecibo = async () => {
     num_recibos: d.numRecibo,
     fecha_ultimo_pago: fecha,
     dias_sin_pago: 0
-  }).eq('codigo', d.codigo)
+  }).eq('id', selectedPrestamo.id)
 
   btn.disabled = false; btn.textContent = 'Confirmar y generar recibo →'
   window.toast(`Recibo #${d.numRecibo} generado · Capital: L.${getFmt(d.abonoCapital)} · Saldo: L.${getFmt(d.nuevoSaldoPrestamo)}`, 'success')
@@ -641,6 +679,10 @@ window.confirmarRecibo = async () => {
 // ══════════════════════════════════════════════
 
 function imprimirRecibo(d) {
+  // Arrendador: viene del préstamo/recibo; si está vacío usa el default histórico
+  const arrNombre = (d.arrendadorNombre || '').trim() || 'ADONY FABRICIO POSADAS AGUILAR'
+  const arrDni = (d.arrendadorDni || '').trim() || '1701-1981-03404'
+  const arrEsAdony = arrNombre.toUpperCase().includes('ADONY') && arrNombre.toUpperCase().includes('POSADAS')
   const fechaRecibo = d.fechaRecibo || new Date().toLocaleDateString('en-CA')
   const fechaFmt = new Date(fechaRecibo + 'T12:00:00').toLocaleDateString('es-HN', { year: 'numeric', month: 'long', day: 'numeric' })
   const getFmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -741,10 +783,10 @@ function imprimirRecibo(d) {
   <!-- FIRMAS -->
   <div class="grid2" style="margin-top:40px">
     <div style="text-align:center;position:relative">
-      <div style="height:100px;position:relative"><img src="${FIRMA_ADONY_B64}" style="height:100px;position:absolute;bottom:0;left:50%;transform:translateX(-50%)" alt="Firma"></div>
+      <div style="height:100px;position:relative">${arrEsAdony ? `<img src="${FIRMA_ADONY_B64}" style="height:100px;position:absolute;bottom:0;left:50%;transform:translateX(-50%)" alt="Firma">` : ''}</div>
       <div style="border-top:1px solid #1a1a1a;width:70%;margin:0 auto;position:relative;z-index:1"></div>
-      <div style="font-size:11px;font-weight:600;margin-top:4px">ADONY FABRICIO POSADAS AGUILAR</div>
-      <div style="font-size:10px;color:#999">El arrendador — DNI: 1701-1981-03404</div>
+      <div style="font-size:11px;font-weight:600;margin-top:4px">${arrNombre}</div>
+      <div style="font-size:10px;color:#999">El arrendador — DNI: ${arrDni}</div>
     </div>
     <div style="text-align:center">
       <div style="height:100px"></div>
@@ -801,9 +843,10 @@ function imprimirRecibo(d) {
 
 window.openModalNuevoPrestamo = () => {
   editingPrestamoCode = null
+  editingPrestamoId = null
   document.getElementById('modal-edit-prestamo-title').textContent = '🆕 Nuevo préstamo'
   document.getElementById('btn-guardar-prestamo').textContent = 'Crear préstamo'
-  ;['ep-codigo','ep-motorista','ep-monto','ep-saldo','ep-tasa','ep-cuotas','ep-gps','ep-seguro','ep-admin','ep-notas'].forEach(id => {
+  ;['ep-codigo','ep-motorista','ep-monto','ep-saldo','ep-tasa','ep-cuotas','ep-gps','ep-seguro','ep-admin','ep-notas','ep-arrendador','ep-arrendador-dni'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
   document.getElementById('ep-codigo').disabled = false
@@ -815,11 +858,12 @@ window.openModalNuevoPrestamo = () => {
   document.getElementById('modal-edit-prestamo').classList.add('open')
 }
 
-window.editarPrestamo = (codigo) => {
-  const p = allPrestamos.find(x => x.codigo === codigo)
+window.editarPrestamo = (ref) => {
+  const p = findPrestamo(ref)
   if (!p) return
-  editingPrestamoCode = codigo
-  document.getElementById('modal-edit-prestamo-title').textContent = `✏️ Editar #${codigo}`
+  editingPrestamoCode = p.codigo
+  editingPrestamoId = p.id
+  document.getElementById('modal-edit-prestamo-title').textContent = `✏️ Editar #${p.codigo}`
   document.getElementById('btn-guardar-prestamo').textContent = 'Actualizar'
   document.getElementById('ep-codigo').value = p.codigo; document.getElementById('ep-codigo').disabled = true
   document.getElementById('ep-motorista').value = p.motorista || ''
@@ -832,6 +876,8 @@ window.editarPrestamo = (codigo) => {
   document.getElementById('ep-seguro').value = p.cuota_seguro || ''
   document.getElementById('ep-admin').value = p.cuota_admin || ''
   document.getElementById('ep-notas').value = p.notas || ''
+  const _epArr = document.getElementById('ep-arrendador'); if (_epArr) _epArr.value = p.arrendador_nombre || ''
+  const _epArrDni = document.getElementById('ep-arrendador-dni'); if (_epArrDni) _epArrDni.value = p.arrendador_dni || ''
   document.getElementById('ep-fecha-inicio').value = p.fecha_inicio || ''
   document.getElementById('modal-edit-prestamo-error').classList.add('hidden')
   document.getElementById('modal-edit-prestamo').classList.add('open')
@@ -849,16 +895,22 @@ window.guardarPrestamo = async () => {
   const seguro = parseFloat(document.getElementById('ep-seguro').value) || 0
   const admin = parseFloat(document.getElementById('ep-admin').value) || 0
   const notas = document.getElementById('ep-notas').value.trim()
+  const arrendador_nombre = (document.getElementById('ep-arrendador')?.value || '').trim()
+  const arrendador_dni = (document.getElementById('ep-arrendador-dni')?.value || '').trim()
   const fecha_inicio = document.getElementById('ep-fecha-inicio').value || null
   const err = document.getElementById('modal-edit-prestamo-error')
   if (!codigo) { showError(err, 'Código obligatorio'); return }
+  if (!editingPrestamoId) {
+    const dupActivo = allPrestamos.find(x => String(x.codigo) === codigo && x.activo !== false)
+    if (dupActivo) { showError(err, `Ya existe un préstamo ACTIVO con el código ${codigo} (${dupActivo.motorista || 'sin motorista'}). Dale de baja primero para poder reasignar la unidad.`); return }
+  }
 
   const btn = document.getElementById('btn-guardar-prestamo')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
-  const payload = { codigo, motorista, categoria, monto_prestamo: monto || saldo, saldo_actual: saldo, tasa_interes: tasa, cuotas_pactadas: cuotas, cuota_gps: gps, cuota_seguro: seguro, cuota_admin: admin, notas, fecha_inicio, activo: true }
+  const payload = { codigo, motorista, categoria, monto_prestamo: monto || saldo, saldo_actual: saldo, tasa_interes: tasa, cuotas_pactadas: cuotas, cuota_gps: gps, cuota_seguro: seguro, cuota_admin: admin, notas, arrendador_nombre, arrendador_dni, fecha_inicio, activo: true }
 
   let error
-  if (editingPrestamoCode) { const { error: e } = await getSb().from('prestamos_taxis').update(payload).eq('codigo', editingPrestamoCode); error = e }
+  if (editingPrestamoId) { const { error: e } = await getSb().from('prestamos_taxis').update(payload).eq('id', editingPrestamoId); error = e }
   else { const { error: e } = await getSb().from('prestamos_taxis').insert(payload); error = e }
 
   btn.disabled = false; btn.textContent = editingPrestamoCode ? 'Actualizar' : 'Crear préstamo'
@@ -866,15 +918,15 @@ window.guardarPrestamo = async () => {
   window.closeModal('modal-edit-prestamo')
   window.toast(editingPrestamoCode ? `#${codigo} actualizado ✓` : `#${codigo} creado ✓`, 'success')
   window.logActividad(editingPrestamoCode ? 'prestamo_editado' : 'prestamo_creado', 'financiamiento', `${motorista} · L.${monto || saldo}`, codigo)
-  editingPrestamoCode = null; loadFinanciamiento()
+  editingPrestamoCode = null; editingPrestamoId = null; loadFinanciamiento()
 }
 
 window.inactivarPrestamo = async () => {
   if (!currentDetalleCodigo) return
-  const p = allPrestamos.find(x => x.codigo === currentDetalleCodigo)
+  const p = findPrestamo(currentDetalleId || currentDetalleCodigo)
   if (!p) return
   if (!confirm(`¿Dar de baja el préstamo #${currentDetalleCodigo} de ${p.motorista}?\n\nEl préstamo quedará inactivo y se podrá reasignar la unidad a otro motorista.`)) return
-  const { error } = await getSb().from('prestamos_taxis').update({ activo: false, fecha_baja: new Date().toISOString().split('T')[0] }).eq('codigo', currentDetalleCodigo)
+  const { error } = await getSb().from('prestamos_taxis').update({ activo: false, fecha_baja: new Date().toISOString().split('T')[0] }).eq('id', p.id)
   if (error) { window.toast(error.message, 'error'); return }
   window.closeModal('modal-detalle-prestamo')
   window.toast(`Préstamo #${currentDetalleCodigo} dado de baja ✓`, 'success')
