@@ -681,7 +681,7 @@ window.confirmarRecibo = async () => {
 function imprimirRecibo(d) {
   // Arrendador: viene del préstamo/recibo; si está vacío usa el default histórico
   const arrNombre = (d.arrendadorNombre || '').trim() || 'ADONY FABRICIO POSADAS AGUILAR'
-  const arrDni = (d.arrendadorDni || '').trim() || '1701-1981-03404'
+  const arrDni = ((d.arrendadorDni || '').trim() || '1701-1981-03404').replace(/^\s*DNI[.:]?\s*/i, '')
   const arrEsAdony = arrNombre.toUpperCase().includes('ADONY') && arrNombre.toUpperCase().includes('POSADAS')
   const fechaRecibo = d.fechaRecibo || new Date().toLocaleDateString('en-CA')
   const fechaFmt = new Date(fechaRecibo + 'T12:00:00').toLocaleDateString('es-HN', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -715,11 +715,10 @@ function imprimirRecibo(d) {
   <!-- ENCABEZADO -->
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
     <div>
-      <div style="font-size:20px;font-weight:700;letter-spacing:2px">AUTOLOTE TECNIMAX</div>
-      <div style="font-size:10px;color:#666;margin-top:2px">RTN: 08019010278503 | Tel: +504 97045242 | Blvd. FF.AA, Tegucigalpa</div>
+      <div style="font-size:20px;font-weight:700;letter-spacing:2px">RECIBO</div>
+      <div style="font-size:10px;color:#666;margin-top:2px">DNI: ${arrDni} | Tel: +504 9525-1089 | Blvd. FF.AA, Tegucigalpa</div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:10px;color:#999;letter-spacing:1px">RECIBO</div>
       <div style="font-size:32px;font-weight:700">#${d.numRecibo}</div>
     </div>
   </div>
