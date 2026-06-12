@@ -1818,6 +1818,25 @@
                 <input type="checkbox" id="emp-es-socio" style="width:auto"> Es socio (sin deducciones)
               </label>
             </div>
+            <div id="emp-conf-wrap" class="fld col-full" style="border:1px dashed var(--gold);border-radius:8px;padding:10px;margin-top:6px;display:none">
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="emp-confidencial" style="width:auto"
+                  onchange="document.getElementById('emp-conf-extra').style.display=this.checked?'flex':'none'">
+                🔒 Planilla confidencial (fuera de planilla general e IHSS)
+              </label>
+              <div id="emp-conf-extra" style="display:none;gap:12px;margin-top:8px;flex-wrap:wrap">
+                <div class="fld" style="min-width:180px">
+                  <label>Centro del gasto</label>
+                  <select id="emp-conf-centro">
+                    <option value="TECNIMAX">Tecnimax</option>
+                    <option value="YONKER">Yonker</option>
+                  </select>
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:18px">
+                  <input type="checkbox" id="emp-conf-provisiona" style="width:auto"> Acumula provisiones (13vo/14vo/vac/cesantía)
+                </label>
+              </div>
+            </div>
           </div>
           <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal('modal-empleado')">Cancelar</button>
@@ -3005,7 +3024,7 @@
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260610a"></script>
-<script defer src="js/rrhh.js"></script>
+<script defer src="js/rrhh.js?v=20260612a"></script>
 <script defer src="js/asistencia.js?v=20260603c"></script>
 <script defer src="js/vacaciones.js"></script>
 <script defer src="js/cuentas-cobrar.js"></script>

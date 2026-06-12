@@ -63,6 +63,90 @@ const CUENTAS_SECCION = {
   }
 }
 
+// ── PROVISIONES LABORALES (partida quincenal junto a la planilla) ──
+// Porcentajes estándar Honduras: 13vo y 14vo = 1 mes/año (8.3333%);
+// cesantía = 1 mes/año (8.3333%); vacaciones según antigüedad (días/360).
+// Los socios (es_socio) NO acumulan provisiones.
+// ⚠ CUENTAS PROPUESTAS: confírmalas o ajústalas aquí; si alguna no existe
+// en el catálogo, la aprobación lo dirá con el código exacto faltante.
+const PROVISIONES_CFG = {
+  activo: true,
+  pct_aguinaldo: 8.3333,
+  pct_catorceavo: 8.3333,
+  pct_cesantia: 8.3333,
+  vacaciones_modo: 'antiguedad',   // 'antiguedad' (por fecha_ingreso) | 'fijo'
+  pct_vacaciones_fijo: 5.5556,     // 20 días/360 — usado solo si modo='fijo' o falta fecha_ingreso
+  // Gasto por CONCEPTO (cuentas existentes; mismas que la partida manual):
+  cuentas_gasto: {
+    aguinaldo: '610102-003',    // DECIMO TERCER MES
+    catorceavo: '610102-004',   // DECIMO CUARTO MES
+    vacaciones: '610102-005',   // VACACIONES
+    cesantia: '610102-006'      // PRESTACIONES LABORALES
+  },
+  // Pasivo (grupo existente 210601 PROVISIONES LABORALES):
+  cuentas_pasivo: {
+    aguinaldo: '210601-002',    // DECIMO TERCER MES TECNIMAX
+    catorceavo: '210601-001',   // DECIMO CUARTO MES TECNIMAX
+    vacaciones: '210601-004',   // VACACIONES TECNIMAX
+    cesantia: '210601-005'      // PRESTACIONES LABORES (PREAVISO, CESANTIA Y AUXILIO)
+  }
+}
+
+// ── PLANILLA CONFIDENCIAL ──
+// Empleados con planilla_confidencial=true salen de la planilla general e IHSS.
+// Solo super_admin y contador ven la pestaña, los empleados y sus datos (RLS).
+const CONF_CFG = {
+  gasto_sueldos: '610103-001',   // SUELDOS GA (cargo, con centro por empleado)
+  chequera: '110103-001',
+  imp_vecinal: { TECNIMAX: '210301-001', YONKER: '210301-002' },
+  trucha: { TECNIMAX: '210404-001', YONKER: '410305-002' }
+}
+let planillaModoConf = false
+
+function _puedeVerConfidencial() {
+  return ['super_admin', 'contador'].includes(window._currentProfile?.()?.rol)
+}
+
+function ensurePlanillaTabs() {
+  if (!_puedeVerConfidencial()) return
+  if (document.getElementById('pl-tabs-conf')) return
+  const ref = document.getElementById('pl-anio')
+  const host = ref?.parentElement?.parentElement || ref?.parentElement
+  if (!host || !host.parentNode) return
+  const bar = document.createElement('div')
+  bar.id = 'pl-tabs-conf'
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin:0 0 12px'
+  bar.innerHTML = `
+    <button id="pl-tab-gen" class="btn" onclick="setModoPlanillaConf(false)">Planilla general</button>
+    <button id="pl-tab-conf" class="btn btn-ghost" onclick="setModoPlanillaConf(true)">🔒 Confidencial</button>
+    <span id="pl-conf-aviso" style="display:none;font-size:12px;color:var(--gold)">Modo confidencial — visible solo para super_admin y contador</span>`
+  host.parentNode.insertBefore(bar, host)
+}
+
+window.setModoPlanillaConf = (conf) => {
+  if (conf && !_puedeVerConfidencial()) return
+  planillaModoConf = !!conf
+  const bGen = document.getElementById('pl-tab-gen'), bConf = document.getElementById('pl-tab-conf')
+  if (bGen && bConf) {
+    bGen.className = conf ? 'btn btn-ghost' : 'btn'
+    bConf.className = conf ? 'btn' : 'btn btn-ghost'
+  }
+  const aviso = document.getElementById('pl-conf-aviso')
+  if (aviso) aviso.style.display = conf ? '' : 'none'
+  document.getElementById('pl-existing')?.classList.add('hidden')
+  window.toast?.(conf ? 'Modo CONFIDENCIAL: presioná Generar para cargar esa planilla' : 'Modo planilla general', 'info')
+}
+
+// Días de vacaciones por años de antigüedad (Código de Trabajo, Art. 346)
+function _diasVacPorAntiguedad(fechaIngreso, fechaRef) {
+  if (!fechaIngreso) return 20  // sin fecha: provisión conservadora (tope)
+  const anios = Math.floor((new Date(fechaRef) - new Date(fechaIngreso + 'T12:00:00')) / (365.25 * 24 * 3600 * 1000))
+  if (anios >= 4) return 20
+  if (anios === 3) return 15
+  if (anios === 2) return 12
+  return 10
+}
+
 // IHSS constants (Honduras 2026)
 const IHSS_TECHO_MENSUAL = 11903.16  // default, overridden by config_planilla
 const IHSS_PCT_LABORAL = 0.025       // default 2.5%
@@ -85,7 +169,7 @@ function getIHSSConfig() {
 window.loadEmpleados = async () => {
   const { data, error } = await getSb().from('empleados').select('*').order('seccion').order('nombre')
   if (error) { window.toast?.('Error cargando empleados: ' + error.message, 'error'); return }
-  allEmpleados = data || []
+  allEmpleados = (data || []).filter(e => _puedeVerConfidencial() || !e.planilla_confidencial)
   filtrarEmpleados()
   // Stats
   const activos = allEmpleados.filter(e => e.activo)
@@ -95,6 +179,21 @@ window.loadEmpleados = async () => {
   document.getElementById('stat-emp-activos').textContent = activos.length
   document.getElementById('stat-emp-socios').textContent = socios.length
   document.getElementById('stat-emp-planilla').textContent = 'L. ' + fmt(totalPlanilla)
+}
+
+// Campos de planilla confidencial en el modal de empleado (solo roles autorizados)
+function _syncConfUI(e) {
+  const wrap = document.getElementById('emp-conf-wrap')
+  if (!wrap) return
+  wrap.style.display = _puedeVerConfidencial() ? '' : 'none'
+  const chk = document.getElementById('emp-confidencial')
+  const extra = document.getElementById('emp-conf-extra')
+  const selC = document.getElementById('emp-conf-centro')
+  const prov = document.getElementById('emp-conf-provisiona')
+  if (chk) chk.checked = !!e?.planilla_confidencial
+  if (selC) selC.value = e?.conf_centro || 'TECNIMAX'
+  if (prov) prov.checked = !!e?.conf_provisiona
+  if (extra) extra.style.display = chk?.checked ? 'flex' : 'none'
 }
 
 window.filtrarEmpleados = () => {
@@ -115,7 +214,7 @@ window.filtrarEmpleados = () => {
   tbody.innerHTML = filteredEmpleados.map((e, i) => `
     <tr style="${!e.activo ? 'opacity:0.5' : ''}">
       <td>${i + 1}</td>
-      <td><strong>${e.nombre}</strong>${e.es_socio ? ' <span style="color:var(--gold);font-size:11px">★ SOCIO</span>' : ''}</td>
+      <td><strong>${e.nombre}</strong>${e.es_socio ? ' <span style="color:var(--gold);font-size:11px">★ SOCIO</span>' : ''}${e.planilla_confidencial ? ' <span style="color:#a78bfa;font-size:11px">🔒 CONF</span>' : ''}</td>
       <td>${e.puesto || '—'}</td>
       <td><span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion}</span></td>
       <td style="text-align:right">L. ${fmt(e.sueldo_mensual)}</td>
@@ -140,6 +239,7 @@ window.openModalEmpleado = () => {
   document.getElementById('emp-banco').value = 'Bac Credomatic'
   document.getElementById('emp-forma-pago').value = 'BAC'
   document.getElementById('emp-es-socio').checked = false
+  _syncConfUI(null)
   openModal('modal-empleado')
 }
 
@@ -161,6 +261,7 @@ window.editarEmpleado = (id) => {
   document.getElementById('emp-cxc').value = e.cuenta_cxc || ''
   document.getElementById('emp-forma-pago').value = e.forma_pago || 'BAC'
   document.getElementById('emp-es-socio').checked = !!e.es_socio
+  _syncConfUI(e)
   openModal('modal-empleado')
 }
 
@@ -181,6 +282,9 @@ window.guardarEmpleado = async () => {
     cuenta_cxc: document.getElementById('emp-cxc').value.trim() || null,
     forma_pago: document.getElementById('emp-forma-pago').value,
     es_socio: document.getElementById('emp-es-socio').checked,
+    planilla_confidencial: document.getElementById('emp-confidencial')?.checked || false,
+    conf_centro: document.getElementById('emp-conf-centro')?.value || 'TECNIMAX',
+    conf_provisiona: document.getElementById('emp-conf-provisiona')?.checked || false,
     updated_at: new Date().toISOString()
   }
 
@@ -323,6 +427,8 @@ window.initPlanilla = async () => {
     }
   } catch(e) {}
   
+  ensurePlanillaTabs()
+
   // Set default year/month
   const now = new Date()
   const selAnio = document.getElementById('pl-anio')
@@ -367,7 +473,7 @@ window.generarPlanilla = async () => {
     : new Date(anio, mes, 0) // last day of month
 
   // Check if planilla already exists
-  const { data: existing } = await getSb().from('planillas').select('*').eq('periodo', periodo).single()
+  const { data: existing } = await getSb().from('planillas').select('*').eq('periodo', periodo).eq('es_confidencial', planillaModoConf).maybeSingle()
   if (existing) {
     document.getElementById('pl-existing').classList.remove('hidden')
     document.getElementById('pl-existing-msg').textContent =
@@ -389,7 +495,9 @@ window.generarPlanilla = async () => {
     allEmpleados = data || []
   }
 
-  const activos = allEmpleados.filter(e => e.activo)
+  // General: excluye confidenciales · Confidencial: solo confidenciales
+  const activos = allEmpleados.filter(e => e.activo && !!e.planilla_confidencial === planillaModoConf)
+  if (planillaModoConf && !activos.length) { window.toast?.('No hay empleados marcados como confidenciales', 'error'); return }
 
   // Create planilla header
   const { data: planilla, error: pErr } = await getSb().from('planillas').insert({
@@ -397,6 +505,7 @@ window.generarPlanilla = async () => {
     fecha_inicio: fechaInicio.toISOString().slice(0, 10),
     fecha_fin: fechaFin.toISOString().slice(0, 10),
     estado: 'borrador',
+    es_confidencial: planillaModoConf,
     created_by: window._currentProfile?.()?.auth_user_id || null
   }).select().single()
 
@@ -533,15 +642,14 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
   let ihssPatronal = 0
   let impVecinal = 0
 
-  if (!emp.es_socio) {
-    // IHSS laboral: 2.5% del sueldo, techo L.11,000 mensual → techo quincenal 5,500
-    // IHSS laboral: quincenal = techo × porcentaje (ya es quincenal, no dividir por 2)
+  // IHSS: no aplica a socios ni a planilla confidencial (fuera del seguro social)
+  if (!emp.es_socio && !emp.planilla_confidencial) {
     const ihssCfg = getIHSSConfig()
     ihssLaboral = Math.round(ihssCfg.techo * ihssCfg.pctLaboral * 100) / 100
-    // IHSS patronal
     ihssPatronal = Math.round(ihssCfg.techo * ihssCfg.pctPatronal * 100) / 100
-    // Impuesto vecinal (placeholder - se calcula con tabla cuando esté disponible)
-    // Por ahora usar proporción del sueldo similar al Excel
+  }
+  // Impuesto vecinal: SÍ aplica a confidenciales (obligación municipal); socios no
+  if (!emp.es_socio) {
     impVecinal = overrides.imp_vecinal ?? 0
   }
 
@@ -888,6 +996,209 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
   return { ok: true, numero: numPartida, total: totalDeb }
 }
 
+// ── Genera la partida de PROVISIONES (13vo, 14vo, vacaciones, cesantía) ──
+// Misma filosofía que la partida de planilla: valida todo antes de escribir,
+// idempotente por período, cuadrada al centavo. Excluye socios.
+async function generarPartidaProvisiones(periodo, fechaPartida, esConf = false) {
+  const sb = getSb()
+  const descBase = esConf ? `PROVISION PLANILLA CONFIDENCIAL ${periodo}` : `PROVISION PLANILLA ${periodo}`
+
+  // Candado anti-duplicado propio
+  const { data: existe, error: exErr } = await sb.from('partidas_contables')
+    .select('numero_partida').ilike('descripcion', `${descBase}%`).limit(1)
+  if (exErr) return { ok: false, error: 'No se pudo verificar partidas: ' + exErr.message }
+  if ((existe || []).length) return { ok: true, skipped: true, numero: existe[0].numero_partida }
+
+  // es_socio + fecha_ingreso por empleado
+  const ids = [...new Set(currentDetalle.map(d => d.empleado_id).filter(Boolean))]
+  const empMap = {}
+  if (ids.length) {
+    const { data: emps, error: eErr } = await sb.from('empleados').select('id, es_socio, fecha_ingreso, planilla_confidencial, conf_provisiona, conf_centro').in('id', ids)
+    if (eErr) return { ok: false, error: 'Error leyendo empleados: ' + eErr.message }
+    for (const e of (emps || [])) empMap[e.id] = e
+  }
+
+  const r2 = x => Math.round(x * 100) / 100
+  const CONCEPTOS = ['aguinaldo', 'catorceavo', 'vacaciones', 'cesantia']
+  const debGasto = {}   // `concepto|zona` (zona: Taller/Yonker) → monto
+
+  for (const d of currentDetalle) {
+    const emp = empMap[d.empleado_id]
+    if (emp?.es_socio) continue  // socios no acumulan prestaciones
+    if (esConf && !emp?.conf_provisiona) continue  // confidencial: provisiona solo si está marcado
+    const zona = esConf
+      ? (emp?.conf_centro === 'YONKER' ? 'Yonker' : 'Tecnimax')
+      : (/yonker/i.test(d.seccion || '') ? 'Yonker' : 'Taller')
+    // Base: salario ordinario devengado (excluye incapacidad, que no es salario)
+    const base = (d.sueldo_quincenal || 0) - (d.otras_deducciones || 0) + (d.monto_he || 0)
+      + (d.vacaciones || 0) + (d.bonificaciones || 0) + (d.otros_ingresos || 0)
+      + (d.ajuste_sueldo || 0) + (d.comisiones_venta || 0)
+    if (base <= 0) continue
+
+    const pctVac = PROVISIONES_CFG.vacaciones_modo === 'antiguedad'
+      ? _diasVacPorAntiguedad(emp?.fecha_ingreso, fechaPartida) * 100 / 360
+      : PROVISIONES_CFG.pct_vacaciones_fijo
+    const montos = {
+      aguinaldo: base * PROVISIONES_CFG.pct_aguinaldo / 100,
+      catorceavo: base * PROVISIONES_CFG.pct_catorceavo / 100,
+      vacaciones: base * pctVac / 100,
+      cesantia: base * PROVISIONES_CFG.pct_cesantia / 100
+    }
+    for (const c of CONCEPTOS) debGasto[`${c}|${zona}`] = (debGasto[`${c}|${zona}`] || 0) + montos[c]
+  }
+
+  // Redondear los buckets de gasto; el pasivo de cada concepto = suma de sus
+  // gastos ya redondeados → la partida cuadra al centavo por construcción
+  for (const k of Object.keys(debGasto)) debGasto[k] = r2(debGasto[k])
+  const crePasivo = {}
+  for (const c of CONCEPTOS) {
+    crePasivo[c] = r2(['Taller', 'Yonker', 'Tecnimax'].reduce((s, z) => s + (debGasto[`${c}|${z}`] || 0), 0))
+  }
+  const totalDeb = r2(Object.values(debGasto).reduce((s, x) => s + x, 0))
+  const totalCre = r2(Object.values(crePasivo).reduce((s, x) => s + x, 0))
+  if (totalCre <= 0) return { ok: true, skipped: true, numero: null, vacia: true }
+
+  // Centros de costo para las líneas de gasto (Taller → Tecnicentro)
+  const { data: centrosCC } = await sb.from('centros_costo').select('id, nombre')
+  const centroZona = {
+    Taller: (centrosCC || []).find(c => /tecnicentro/i.test(c.nombre))?.id || null,
+    Yonker: (centrosCC || []).find(c => /yonker/i.test(c.nombre))?.id || null,
+    Tecnimax: (centrosCC || []).find(c => /tecnimax/i.test(c.nombre))?.id || null
+  }
+
+  // Validar cuentas en el catálogo
+  const codGasto = Object.keys(debGasto).filter(k => debGasto[k] > 0).map(k => PROVISIONES_CFG.cuentas_gasto[k.split('|')[0]])
+  const codPasivo = Object.entries(crePasivo).filter(([, m]) => m > 0).map(([k]) => PROVISIONES_CFG.cuentas_pasivo[k])
+  const codigos = [...new Set([...codGasto, ...codPasivo])]
+  const { data: cuentas, error: cErr } = await sb.from('catalogo_cuentas')
+    .select('id, codigo, nombre').in('codigo', codigos)
+  if (cErr) return { ok: false, error: 'Error leyendo catálogo: ' + cErr.message }
+  const mapC = {}; for (const c of (cuentas || [])) mapC[c.codigo] = c
+  const noCat = codigos.filter(c => !mapC[c])
+  if (noCat.length) return { ok: false, error: `Cuentas de provisión inexistentes en el catálogo: ${noCat.join(', ')} — créalas en Catálogo de cuentas o ajusta PROVISIONES_CFG` }
+
+  // Construir e insertar la partida
+  const desc = `${descBase} (13vo, 14vo, vacaciones, cesantia)`
+  const lineas = []
+  for (const [key, m] of Object.entries(debGasto)) {
+    if (m <= 0) continue
+    const [concepto, zona] = key.split('|')
+    const c = mapC[PROVISIONES_CFG.cuentas_gasto[concepto]]
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'debito', monto: m,
+      centro_costo_id: centroZona[zona] || null, descripcion: `${desc} · ${zona.toUpperCase()}`, aplica_fiscal: false })
+  }
+  const etiqueta = { aguinaldo: 'AGUINALDO', catorceavo: 'CATORCEAVO', vacaciones: 'VACACIONES', cesantia: 'CESANTIA' }
+  for (const [k, m] of Object.entries(crePasivo)) {
+    if (m <= 0) continue
+    const c = mapC[PROVISIONES_CFG.cuentas_pasivo[k]]
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'credito', monto: m,
+      centro_costo_id: null, descripcion: `${desc} · ${etiqueta[k]}`, aplica_fiscal: false })
+  }
+
+  const quienId = window._currentProfile?.()?.id || null
+  let numero
+  try { numero = await window.siguienteNumeroPartida() } catch (e) { return { ok: false, error: 'No se pudo obtener número de partida: ' + e.message } }
+  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+    centro_costo_id: null, fecha_partida: fechaPartida, numero_partida: numero,
+    descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: totalDeb, generada_por: quienId
+  }).select().single()
+  if (pErr) return { ok: false, error: 'Error creando partida de provisiones: ' + pErr.message }
+  const { error: lErr } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id })))
+  if (lErr) {
+    await sb.from('partidas_contables').delete().eq('id', partida.id)  // no dejar partida sin líneas
+    return { ok: false, error: 'Error creando líneas de provisiones: ' + lErr.message }
+  }
+  return { ok: true, skipped: false, numero }
+}
+
+// ── Genera la partida de la PLANILLA CONFIDENCIAL ──
+// Cargo: sueldos a gasto administrativo (CONF_CFG.gasto_sueldos) con el centro
+// de costo de cada empleado (Tecnimax/Yonker). Sin IHSS. Vecinal y trucha sí.
+async function generarPartidaConfidencial(periodo, fechaPartida) {
+  const sb = getSb()
+  const { data: existe, error: exErr } = await sb.from('partidas_contables')
+    .select('numero_partida').ilike('descripcion', `PLANILLA CONFIDENCIAL ${periodo}%`).limit(1)
+  if (exErr) return { ok: false, error: 'No se pudo verificar partidas: ' + exErr.message }
+  if ((existe || []).length) return { ok: true, skipped: true, numero: existe[0].numero_partida }
+
+  const ids = [...new Set(currentDetalle.map(d => d.empleado_id).filter(Boolean))]
+  const empMap = {}
+  if (ids.length) {
+    const { data: emps, error: eErr } = await sb.from('empleados').select('id, conf_centro').in('id', ids)
+    if (eErr) return { ok: false, error: 'Error leyendo empleados: ' + eErr.message }
+    for (const e of (emps || [])) empMap[e.id] = e
+  }
+  const { data: centrosCC } = await sb.from('centros_costo').select('id, nombre')
+  const centroIdConf = {
+    TECNIMAX: (centrosCC || []).find(c => /tecnimax/i.test(c.nombre))?.id || null,
+    YONKER: (centrosCC || []).find(c => /yonker/i.test(c.nombre))?.id || null
+  }
+
+  const r2 = x => Math.round(x * 100) / 100
+  const debGasto = {}, cre = {}
+  const addC = (cod, m) => { if (cod && m) cre[cod] = (cre[cod] || 0) + m }
+  const sinCxc = []
+  for (const d of currentDetalle) {
+    const ck = (empMap[d.empleado_id]?.conf_centro === 'YONKER') ? 'YONKER' : 'TECNIMAX'
+    const gasto = (d.total_devengado || 0) - (d.otras_deducciones || 0)
+    if (gasto > 0) debGasto[ck] = (debGasto[ck] || 0) + gasto
+    addC(CONF_CFG.imp_vecinal[ck], d.imp_vecinal || 0)
+    addC(CONF_CFG.trucha[ck], d.trucha || 0)
+    const antCxc = (d.anticipos || 0) + (d.cxc || 0)
+    if (antCxc > 0) {
+      if (!d.cuenta_cxc) sinCxc.push(d.nombre)
+      else addC(d.cuenta_cxc, antCxc)
+    }
+    addC(CONF_CFG.chequera, d.sueldo_neto || 0)
+  }
+  if (sinCxc.length) return { ok: false, error: `Empleados con anticipo/CXC sin cuenta_cxc: ${sinCxc.join(', ')}` }
+
+  for (const k of Object.keys(debGasto)) debGasto[k] = r2(debGasto[k])
+  for (const k of Object.keys(cre)) cre[k] = r2(cre[k])
+  const totalDeb = r2(Object.values(debGasto).reduce((s, x) => s + x, 0))
+  const totalCre = r2(Object.values(cre).reduce((s, x) => s + x, 0))
+  if (totalDeb <= 0) return { ok: true, skipped: true, numero: null, vacia: true }
+  if (Math.abs(totalDeb - totalCre) > 0.02) return { ok: false, error: `Partida confidencial descuadrada: debe ${totalDeb} vs haber ${totalCre}` }
+
+  const codigos = [...new Set([CONF_CFG.gasto_sueldos, ...Object.keys(cre)])]
+  const { data: cuentas, error: cErr } = await sb.from('catalogo_cuentas')
+    .select('id, codigo, nombre').in('codigo', codigos)
+  if (cErr) return { ok: false, error: 'Error leyendo catálogo: ' + cErr.message }
+  const mapC = {}; for (const c of (cuentas || [])) mapC[c.codigo] = c
+  const noCat = codigos.filter(c => !mapC[c])
+  if (noCat.length) return { ok: false, error: `Cuentas inexistentes en el catálogo: ${noCat.join(', ')} — ajusta CONF_CFG en rrhh.js` }
+
+  const desc = `PLANILLA CONFIDENCIAL ${periodo}`
+  const lineas = []
+  const gc = mapC[CONF_CFG.gasto_sueldos]
+  for (const [ck, m] of Object.entries(debGasto)) {
+    if (m <= 0) continue
+    lineas.push({ cuenta_id: gc.id, cuenta_codigo: gc.codigo, cuenta_nombre: gc.nombre, tipo: 'debito', monto: m,
+      centro_costo_id: centroIdConf[ck] || null, descripcion: `${desc} · ${ck}`, aplica_fiscal: false })
+  }
+  for (const [cod, m] of Object.entries(cre)) {
+    if (m <= 0) continue
+    const c = mapC[cod]
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'credito', monto: m,
+      centro_costo_id: null, descripcion: desc, aplica_fiscal: false })
+  }
+
+  const quienId = window._currentProfile?.()?.id || null
+  let numero
+  try { numero = await window.siguienteNumeroPartida() } catch (e) { return { ok: false, error: 'No se pudo obtener número de partida: ' + e.message } }
+  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+    centro_costo_id: null, fecha_partida: fechaPartida, numero_partida: numero,
+    descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: totalDeb, generada_por: quienId
+  }).select().single()
+  if (pErr) return { ok: false, error: 'Error creando partida confidencial: ' + pErr.message }
+  const { error: lErr } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id })))
+  if (lErr) {
+    await sb.from('partidas_contables').delete().eq('id', partida.id)
+    return { ok: false, error: 'Error creando líneas: ' + lErr.message }
+  }
+  return { ok: true, skipped: false, numero }
+}
+
 // ── Aprobar planilla: rebaja saldo de vacaciones usado + genera partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
@@ -951,10 +1262,23 @@ window.aprobarPlanilla = async () => {
   }
 
   // Generar la partida contable (cuadrada; idempotente por período). Si falla, no aprueba.
-  const part = await generarPartidaPlanilla(periodo, fechaMov)
+  const esConf = !!currentPlanilla.es_confidencial
+  const part = esConf
+    ? await generarPartidaConfidencial(periodo, fechaMov)
+    : await generarPartidaPlanilla(periodo, fechaMov)
   if (!part.ok) {
     window.toast?.('No se aprobó: ' + part.error, 'error')
     return
+  }
+
+  // Partida de PROVISIONES (13vo, 14vo, vacaciones, cesantía) — junto a la planilla
+  let prov = { ok: true, skipped: true, numero: null }
+  if (PROVISIONES_CFG.activo) {
+    prov = await generarPartidaProvisiones(periodo, fechaMov, esConf)
+    if (!prov.ok) {
+      window.toast?.('No se aprobó: provisiones → ' + prov.error, 'error')
+      return
+    }
   }
 
   // Rebajar el saldo de los préstamos por la cuota deducida (abono primero, luego saldo).
@@ -1000,11 +1324,13 @@ window.aprobarPlanilla = async () => {
   let msg = '✅ Planilla aprobada.'
   if (part.skipped) msg += ` Partida #${part.numero} ya existía.`
   else msg += ` Partida #${part.numero} generada (borrador).`
+  if (prov.numero) msg += prov.skipped ? ` Provisiones #${prov.numero} ya existía.` : ` Provisiones #${prov.numero} generada (borrador).`
+  else if (prov.vacia) msg += ' Sin provisiones (solo socios o base 0).'
   if (yaSeAplico) msg += ' Vacaciones ya estaban aplicadas.'
   else if (rebajados > 0) msg += ` Vacaciones rebajadas a ${rebajados} empleado(s).`
   if (prestAbonados > 0) msg += ` Préstamos abonados: ${prestAbonados}.`
   window.toast?.(msg, 'ok')
-  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · partida #${part.numero} · vac: ${rebajados} · prest: ${prestAbonados}`)
+  window.logActividad?.('planilla_aprobada', 'rrhh', `${periodo} · partida #${part.numero} · provisiones #${prov.numero || '—'} · vac: ${rebajados} · prest: ${prestAbonados}`)
 }
 
 // ── Reabrir planilla: revierte TODO lo de aprobar (super_admin) ──
@@ -1026,8 +1352,12 @@ window.reabrirPlanilla = async () => {
 
   try {
     // 1) PARTIDA: borrar si está en borrador; contra-asiento si ya estaba aprobada
+    const esConfR = !!currentPlanilla.es_confidencial
+    const basePat = esConfR ? `PLANILLA CONFIDENCIAL ${periodo}` : `PLANILLA ${periodo}`
+    const provPat = esConfR ? `PROVISION PLANILLA CONFIDENCIAL ${periodo}` : `PROVISION PLANILLA ${periodo}`
     const { data: partidas } = await sb.from('partidas_contables')
-      .select('id, numero_partida, estado, total').ilike('descripcion', `PLANILLA ${periodo}%`)
+      .select('id, numero_partida, estado, total')
+      .or(`descripcion.ilike.${basePat}%,descripcion.ilike.${provPat}%`)
     for (const p of (partidas || [])) {
       if (p.estado === 'borrador') {
         await sb.from('lineas_partida').delete().eq('partida_id', p.id)
