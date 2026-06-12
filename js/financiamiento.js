@@ -462,8 +462,13 @@ function renderLiquidacion() {
 }
 
 window.reimprimirRecibo = async (reciboId) => {
+  // Ventana pre-abierta dentro del click (anti bloqueador de pop-ups)
+  const ventanaRecibo = window.open('', '_blank')
+  if (ventanaRecibo) {
+    try { ventanaRecibo.document.write('<title>Cargando recibo…</title><body style="font-family:Arial;padding:40px;color:#555">Cargando recibo…</body>') } catch (e) {}
+  }
   const { data: r, error } = await getSb().from('recibos_prestamos').select('*').eq('id', reciboId).single()
-  if (error || !r) { window.toast('Error cargando recibo: ' + (error?.message || 'no encontrado'), 'error'); return }
+  if (error || !r) { ventanaRecibo?.close(); window.toast('Error cargando recibo: ' + (error?.message || 'no encontrado'), 'error'); return }
 
   // Cargar entregas y facturas vinculadas a este recibo
   const { data: entregas } = await getSb().from('entregas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha_deposito')
@@ -538,7 +543,7 @@ window.reimprimirRecibo = async (reciboId) => {
     fechaRecibo: r.fecha,
   }
 
-  imprimirRecibo(d)
+  imprimirRecibo(d, ventanaRecibo)
 }
 
 window.eliminarRecibo = async (reciboId, codigo, numRecibo, prestamoId) => {
@@ -652,6 +657,13 @@ window.confirmarRecibo = async () => {
   const btn = document.getElementById('btn-confirmar-recibo')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
+  // Abrir la ventana del recibo AHORA (dentro del gesto del click): si se
+  // abre después de los await, el bloqueador de pop-ups de Chrome la mata.
+  const ventanaRecibo = window.open('', '_blank')
+  if (ventanaRecibo) {
+    try { ventanaRecibo.document.write('<title>Generando recibo…</title><body style="font-family:Arial;padding:40px;color:#555">Generando recibo…</body>') } catch (e) {}
+  }
+
   // 1. Insertar recibo en recibos_prestamos
   const { data: recibo, error: recErr } = await getSb().from('recibos_prestamos').insert({
     concatenar: d.codigo + d.numRecibo,
@@ -678,7 +690,7 @@ window.confirmarRecibo = async () => {
     prestamo_id: selectedPrestamo.id
   }).select().single()
 
-  if (recErr) { btn.disabled = false; btn.textContent = 'Confirmar y generar recibo →'; window.toast('Error: ' + recErr.message, 'error'); return }
+  if (recErr) { ventanaRecibo?.close(); btn.disabled = false; btn.textContent = 'Confirmar y generar recibo →'; window.toast('Error: ' + recErr.message, 'error'); return }
 
   // 2. Marcar entregas como usadas
   for (const e of d.entregas) {
@@ -709,8 +721,8 @@ window.confirmarRecibo = async () => {
   window.toast(`Recibo #${d.numRecibo} generado · Capital: L.${getFmt(d.abonoCapital)} · Saldo: L.${getFmt(d.nuevoSaldoPrestamo)}`, 'success')
   window.logActividad('recibo_generado', 'financiamiento', `Recibo #${d.numRecibo} · ${d.motorista} · Capital: L.${getFmt(d.abonoCapital)}`, d.codigo)
 
-  // 5. Abrir recibo para imprimir
-  imprimirRecibo(d, recibo.id)
+  // 5. Abrir recibo para imprimir (en la ventana pre-abierta)
+  imprimirRecibo(d, ventanaRecibo)
 
   window.closeModal('modal-liquidacion')
   selectedPrestamo = null
@@ -722,7 +734,7 @@ window.confirmarRecibo = async () => {
 // ── IMPRIMIR RECIBO (dos caras) ──
 // ══════════════════════════════════════════════
 
-function imprimirRecibo(d) {
+function imprimirRecibo(d, ventana) {
   // Arrendador: viene del préstamo/recibo; si está vacío usa el default histórico
   const arrNombre = (d.arrendadorNombre || '').trim() || 'ADONY FABRICIO POSADAS AGUILAR'
   const arrDni = ((d.arrendadorDni || '').trim() || '1701-1981-03404').replace(/^\s*DNI[.:]?\s*/i, '')
@@ -735,7 +747,12 @@ function imprimirRecibo(d) {
   const abonosPartidaRows = (d.abonosPartida || []).map(a => `<tr><td style="padding:4px 8px;font-size:11px">${a.partida?.fecha_partida || '—'}</td><td style="padding:4px 8px"><span style="background:#eeedfe;color:#3c3489;font-size:10px;padding:2px 6px;border-radius:3px">Partida</span></td><td style="padding:4px 8px;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.descripcion || '—'}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#0f6e56">${getFmt(a.monto)}</td></tr>`).join('')
   const facturasRows = d.facturas.map(f => `<tr><td style="padding:4px 8px;font-size:11px">${f.fecha}</td><td style="padding:4px 8px"><span style="background:#faece7;color:#712b13;font-size:10px;padding:2px 6px;border-radius:3px">Factura</span></td><td style="padding:4px 8px;font-size:11px">${(f.descripcion || '').substring(0, 40)}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#993c1d">${getFmt(f.monto)}</td></tr>`).join('')
 
-  const printWindow = window.open('', '_blank')
+  const printWindow = ventana || window.open('', '_blank')
+  if (!printWindow) {
+    window.toast?.('El navegador bloqueó la ventana del recibo. Permití pop-ups para este sitio (ícono al final de la barra de direcciones) y reimprimí desde el detalle del préstamo — el recibo SÍ quedó guardado.', 'error')
+    return
+  }
+  printWindow.document.open()
   printWindow.document.write(`<!DOCTYPE html><html><head><title>Recibo #${d.numRecibo} - ${d.codigo}</title>
 <style>
   @page { size: letter; margin: 15mm; }
@@ -908,7 +925,9 @@ window.editarPrestamo = (ref) => {
   editingPrestamoId = p.id
   document.getElementById('modal-edit-prestamo-title').textContent = `✏️ Editar #${p.codigo}`
   document.getElementById('btn-guardar-prestamo').textContent = 'Actualizar'
-  document.getElementById('ep-codigo').value = p.codigo; document.getElementById('ep-codigo').disabled = true
+  document.getElementById('ep-codigo').value = p.codigo
+  document.getElementById('ep-codigo').disabled = false
+  document.getElementById('ep-codigo').title = 'El código debe coincidir con el número de unidad para que la liquidación encuentre sus entregas'
   document.getElementById('ep-motorista').value = p.motorista || ''
   document.getElementById('ep-categoria').value = p.categoria || 'TAXIS'
   document.getElementById('ep-monto').value = p.monto_prestamo || ''
@@ -943,8 +962,9 @@ window.guardarPrestamo = async () => {
   const fecha_inicio = document.getElementById('ep-fecha-inicio').value || null
   const err = document.getElementById('modal-edit-prestamo-error')
   if (!codigo) { showError(err, 'Código obligatorio'); return }
-  if (!editingPrestamoId) {
-    const dupActivo = allPrestamos.find(x => String(x.codigo) === codigo && x.activo !== false)
+  {
+    const dupActivo = allPrestamos.find(x => String(x.codigo) === codigo && x.activo !== false
+      && String(x.id) !== String(editingPrestamoId || ''))
     if (dupActivo) { showError(err, `Ya existe un préstamo ACTIVO con el código ${codigo} (${dupActivo.motorista || 'sin motorista'}). Dale de baja primero para poder reasignar la unidad.`); return }
   }
 
