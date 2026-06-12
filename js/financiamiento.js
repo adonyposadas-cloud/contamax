@@ -9,6 +9,35 @@ const getFmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 
 
 let allPrestamos = []
 let filteredPrestamos = []
+let finSort = { campo: null, dir: -1 }  // dir -1 = mayor→menor (primer click), 1 = menor→mayor
+
+window.ordenarFin = (campo) => {
+  if (finSort.campo === campo) finSort.dir = -finSort.dir   // segundo click: invierte
+  else finSort = { campo, dir: -1 }                          // primer click: mayor a menor
+  renderPrestamosTable()
+}
+
+// Hace clickeables los encabezados Último pago / Días / Saldo (una sola vez)
+function ensureFinSortHeaders() {
+  const tabla = document.getElementById('tbody-financiamiento')?.closest('table')
+  const ths = tabla?.querySelectorAll('thead th')
+  if (!ths) return
+  const mapa = [[/último pago/i, 'ultimo'], [/^días$/i, 'dias'], [/^saldo$/i, 'saldo']]
+  ths.forEach(th => {
+    const txt = th.textContent.replace(/[▲▼]/g, '').trim()
+    const m = mapa.find(([re]) => re.test(txt))
+    if (!m) return
+    const campo = m[1]
+    if (!th.dataset.sortable) {
+      th.dataset.sortable = campo
+      th.style.cursor = 'pointer'
+      th.title = 'Click para ordenar'
+      th.onclick = () => window.ordenarFin(campo)
+    }
+    const flecha = finSort.campo === campo ? (finSort.dir === -1 ? ' ▼' : ' ▲') : ''
+    th.textContent = txt + flecha
+  })
+}
 let selectedPrestamo = null
 let editingPrestamoCode = null
 let currentDetalleCodigo = null
@@ -74,6 +103,21 @@ window.filtrarPrestamos = () => {
 function renderPrestamosTable() {
   const tbody = document.getElementById('tbody-financiamiento')
   if (!tbody) return
+  ensureFinSortHeaders()
+
+  if (finSort.campo) {
+    const dir = finSort.dir
+    filteredPrestamos.sort((a, b) => {
+      if (finSort.campo === 'dias') return ((a.dias_sin_pago || 0) - (b.dias_sin_pago || 0)) * dir
+      if (finSort.campo === 'saldo') return ((parseFloat(a.saldo_actual) || 0) - (parseFloat(b.saldo_actual) || 0)) * dir
+      // Último pago: por fecha; los que nunca han pagado van siempre al final
+      const va = a.fecha_ultimo_pago || '', vb = b.fecha_ultimo_pago || ''
+      if (!va && !vb) return 0
+      if (!va) return 1
+      if (!vb) return -1
+      return va.localeCompare(vb) * dir
+    })
+  }
   if (!filteredPrestamos.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron préstamos</td></tr>'; return }
   const profile = window._currentProfile ? window._currentProfile() : null
   const esSA = profile?.rol === 'super_admin'
@@ -380,7 +424,7 @@ function renderLiquidacion() {
         <table style="width:100%">
           <tr><td style="padding:4px 0">Saldo inicial</td><td style="text-align:right;font-family:var(--mono)">L. ${getFmt(d.saldoInicial)}</td></tr>
           <tr><td style="padding:4px 0">Capital</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">${d.abonoCapital > 0 ? 'L. ' + getFmt(d.abonoCapital) : '—'}</td></tr>
-          <tr><td style="padding:4px 0">Intereses <span style="font-size:10px;color:var(--text3)">(${d.diasTranscurridos}d desde ${d.fechaUltimoPago})</span></td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.intereses)}</td></tr>
+          <tr><td style="padding:4px 0">Intereses <span style="font-size:11px;color:var(--green);font-weight:600">(${d.diasTranscurridos}d desde ${d.fechaUltimoPago})</span></td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.intereses)}</td></tr>
           <tr style="border-top:1px solid var(--border);font-weight:600"><td style="padding:6px 0">Total recibo</td><td style="text-align:right;font-family:var(--mono);font-size:16px;color:var(--gold)">L. ${getFmt(d.montoRecibo)}</td></tr>
           <tr style="border-top:2px solid var(--border)"><td style="padding:6px 0;font-weight:600">Nuevo saldo préstamo</td><td style="text-align:right;font-family:var(--mono);font-size:18px;font-weight:700;color:${d.nuevoSaldoPrestamo > 0 ? 'var(--red)' : 'var(--green)'}">L. ${getFmt(d.nuevoSaldoPrestamo)}</td></tr>
         </table>
