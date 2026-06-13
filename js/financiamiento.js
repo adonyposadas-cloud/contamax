@@ -227,9 +227,11 @@ window.abrirLiquidacion = async (ref) => {
     .order('fecha', { ascending: false }).limit(1)
 
   const saldoMesAnterior = parseFloat(lastRec?.[0]?.saldo_del_mes) || 0
-  const prevGps = parseFloat(lastRec?.[0]?.gps) || p.cuota_gps || 0
-  const prevAlquiler = parseFloat(lastRec?.[0]?.numero_alquiler) || p.cuota_seguro || 0
-  const cuotaMes = parseFloat(lastRec?.[0]?.cuota_mes) || 0
+  // GPS y alquiler/seguro: la fuente de verdad es el PRÉSTAMO (lo que el usuario
+  // edita). Solo se usa el último recibo como respaldo si el préstamo no lo tiene.
+  const prevGps = (p.cuota_gps != null && p.cuota_gps !== '') ? parseFloat(p.cuota_gps) : (parseFloat(lastRec?.[0]?.gps) || 0)
+  const prevAlquiler = (p.cuota_seguro != null && p.cuota_seguro !== '') ? parseFloat(p.cuota_seguro) : (parseFloat(lastRec?.[0]?.numero_alquiler) || 0)
+  const cuotaMes = parseFloat(p.cuota_mensual) || parseFloat(lastRec?.[0]?.cuota_mes) || 0
   const numReciboSig = (lastRec?.[0]?.numero_recibo || p.num_recibos || 0) + 1
   const fechaUltimoPago = lastRec?.[0]?.fecha || p.fecha_inicio || p.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
 
@@ -278,6 +280,24 @@ window.abrirLiquidacion = async (ref) => {
 
   const totalAbonosPartida = abonosValidos.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
 
+  // CARGOS por partida: mismas búsquedas que los abonos, pero tipo DÉBITO
+  // (ej. "T_2336 MANO DE OBRA" contra 510101). Se tratan como facturas de taller.
+  let cargosValidos = []
+  try {
+    const { data: cargosPartida, error: cpErr } = await getSb().from('lineas_partida')
+      .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, usado_en_recibo, partida:partidas_contables(id, fecha_partida, estado, descripcion, tipo_origen)')
+      .eq('tipo', 'debito')
+      .or(prefijosAbono.join(','))
+    if (!cpErr && cargosPartida?.length) {
+      cargosValidos = cargosPartida.filter(c =>
+        c.partida?.estado === 'aprobada' && c.monto > 0 && !c.usado_en_recibo
+        // Las partidas de importación de facturas (IMP-FACT-TAXIS) ya aparecen
+        // en el cuadro "Facturas taller"; tomar también su línea las duplicaría.
+        && c.partida?.tipo_origen !== 'IMP-FACT-TAXIS'
+      )
+    }
+  } catch(e) { console.log('Cargos partida no disponible:', e) }
+
   // Cargar facturas NO usadas
   const { data: facturas } = await getSb().from('facturas_taxis')
     .select('*').eq('registro', registro)
@@ -305,7 +325,9 @@ window.abrirLiquidacion = async (ref) => {
     entregas: [], abonosPartida: [],
     facturasTodas: facturas || [],
     facturas: [],
-    totalEntregas: 0, totalAbonosPartida: 0, totalFacturas: 0,
+    cargosTodos: cargosValidos,
+    cargosPartida: [],
+    totalEntregas: 0, totalAbonosPartida: 0, totalFacturas: 0, totalCargosPartida: 0,
     saldoInicial: saldo, tasa, tasaDiaria, intereses: 0, gps, alquiler,
     fechaUltimoPago, diasTranscurridos: 0,
     saldoMesAnterior: saldoAnt, cargoSaldoAnt, abonoSaldoAnt, totalCargos: 0,
@@ -317,6 +339,7 @@ window.abrirLiquidacion = async (ref) => {
   }
 
   // Aplicar rango de fechas a ingresos y calcular toda la liquidación
+  liquidacionData.abonoCapitalManual = null
   recalcularLiquidacion()
 
   renderLiquidacion()
@@ -353,6 +376,10 @@ function recalcularLiquidacion() {
   d.facturas = (d.facturasTodas || []).filter(f => enRango(f.fecha))
   d.totalFacturas = d.facturas.reduce((s, f) => s + (parseFloat(f.monto) || 0), 0)
 
+  // Cargos por partida (débito): mismo rango; se tratan como cargo al motorista
+  d.cargosPartida = (d.cargosTodos || []).filter(c => enRango(c.partida?.fecha_partida))
+  d.totalCargosPartida = d.cargosPartida.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0)
+
   // Intereses por días transcurridos desde el último recibo hasta la fecha del recibo
   const fechaUlt = new Date(desde + 'T12:00:00')
   const fechaRec = new Date(hasta + 'T12:00:00')
@@ -361,7 +388,7 @@ function recalcularLiquidacion() {
   d.intereses = Math.round(d.saldoInicial * d.tasaDiaria * dias * 100) / 100
 
   // Saldo del mes = entregas (+saldo a favor ant.) - (intereses + facturas + alquiler + GPS + deuda ant.)
-  const totalCargos = d.intereses + d.totalFacturas + d.alquiler + d.gps + d.cargoSaldoAnt
+  const totalCargos = d.intereses + d.totalFacturas + d.totalCargosPartida + d.alquiler + d.gps + d.cargoSaldoAnt
   d.totalCargos = totalCargos
   d.saldoDelMes = d.totalEntregas + d.abonoSaldoAnt - totalCargos
 
@@ -370,27 +397,50 @@ function recalcularLiquidacion() {
   //   - El excedente queda como saldo a favor para el próximo mes
   // Si el saldo es positivo pero NO cubre la cuota: todo el saldo va a capital
   // Si el saldo es negativo: no abona capital, arrastra deuda
-  let abonoCapital = 0
-  let nuevoSaldoMes = d.saldoDelMes
-  const capitalPactado = d.cuotaMes > 0 ? d.cuotaMes - d.intereses : 0
+  // Capital DISPONIBLE para abonar = saldo del mes (lo que queda tras pagar
+  // intereses, facturas, seguro/alquiler y GPS). Nunca menos que 0.
+  d.capitalDisponible = Math.max(0, Math.round(d.saldoDelMes * 100) / 100)
+  // Tope real: no abonar más capital que el saldo que se debe del préstamo
+  const topeCapital = Math.min(d.capitalDisponible, Math.max(0, d.saldoInicial))
 
-  if (d.saldoDelMes > 0 && d.cuotaMes > 0) {
-    if (d.saldoDelMes >= capitalPactado && capitalPactado > 0) {
-      abonoCapital = Math.round(capitalPactado * 100) / 100
-      nuevoSaldoMes = Math.round((d.saldoDelMes - capitalPactado) * 100) / 100
-    } else if (d.saldoDelMes > 0) {
-      abonoCapital = Math.round(d.saldoDelMes * 100) / 100
-      nuevoSaldoMes = 0
-    }
-  } else if (d.saldoDelMes > 0 && d.cuotaMes === 0) {
-    abonoCapital = Math.round(d.saldoDelMes * 100) / 100
-    nuevoSaldoMes = 0
-  }
+  // Capital SUGERIDO por la cuota pactada (cuota − intereses), acotado al tope.
+  const capitalPactado = d.cuotaMes > 0 ? Math.max(0, d.cuotaMes - d.intereses) : 0
+  const sugerido = d.cuotaMes > 0
+    ? Math.min(capitalPactado, topeCapital)   // con cuota: lo pactado, sin pasarse del disponible
+    : topeCapital                              // sin cuota: todo el disponible (comportamiento previo)
 
+  // Si el usuario fijó el capital manualmente, se respeta (acotado al tope);
+  // si no, se usa el sugerido. abonoCapitalManual lo setea el input del recibo.
+  let abonoCapital = (d.abonoCapitalManual != null)
+    ? Math.min(Math.max(0, d.abonoCapitalManual), topeCapital)
+    : sugerido
+  abonoCapital = Math.round(abonoCapital * 100) / 100
+
+  d.capitalSugerido = Math.round(sugerido * 100) / 100
+  d.topeCapital = Math.round(topeCapital * 100) / 100
   d.abonoCapital = abonoCapital
-  d.nuevoSaldoMes = nuevoSaldoMes
+  // El excedente no abonado a capital queda como saldo a favor del próximo mes
+  d.nuevoSaldoMes = Math.round((d.saldoDelMes - abonoCapital) * 100) / 100
   d.nuevoSaldoPrestamo = Math.round((d.saldoInicial - abonoCapital) * 100) / 100
   d.montoRecibo = Math.round((d.intereses + abonoCapital) * 100) / 100
+}
+
+// Aplica el capital escrito por el usuario en el recibo y recalcula
+window.aplicarCapitalManual = (val) => {
+  const d = liquidacionData
+  if (!d) return
+  const n = parseFloat(String(val).replace(/[^0-9.\-]/g, ''))
+  d.abonoCapitalManual = isNaN(n) ? null : n
+  recalcularLiquidacion()
+  renderLiquidacion()
+}
+// Botón "usar todo el disponible"
+window.capitalTodoDisponible = () => {
+  const d = liquidacionData
+  if (!d) return
+  d.abonoCapitalManual = d.topeCapital
+  recalcularLiquidacion()
+  renderLiquidacion()
 }
 
 function renderLiquidacion() {
@@ -408,12 +458,24 @@ function renderLiquidacion() {
           <tr style="border-top:1px solid var(--border)"><td style="padding:4px 0" colspan="2"><b style="font-size:11px;color:var(--text3)">CARGOS:</b></td></tr>
           <tr><td style="padding:2px 0;padding-left:12px;font-size:13px">Intereses (${(d.tasa * 100).toFixed(0)}%)</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.intereses)}</td></tr>
           <tr><td style="padding:2px 0;padding-left:12px;font-size:13px">Facturas taller (${d.facturas.length})</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.totalFacturas)}</td></tr>
+          ${d.totalCargosPartida > 0 ? `<tr><td style="padding:2px 0;padding-left:12px;font-size:13px">Cargos de partida (${d.cargosPartida.length})</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.totalCargosPartida)}</td></tr>` : ''}
           <tr><td style="padding:2px 0;padding-left:12px;font-size:13px">${d.esTaxi ? 'Alquiler de número' : 'Seguro'}</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.alquiler)}</td></tr>
           <tr><td style="padding:2px 0;padding-left:12px;font-size:13px">GPS</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.gps)}</td></tr>
           ${d.cargoSaldoAnt > 0 ? `<tr><td style="padding:2px 0;padding-left:12px;font-size:13px">Saldo mes anterior (deuda)</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(d.cargoSaldoAnt)}</td></tr>` : ''}
           <tr style="border-top:2px solid var(--border);font-weight:600"><td style="padding:6px 0">Saldo del mes</td><td style="text-align:right;font-family:var(--mono);font-size:16px;color:${d.saldoDelMes >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${getFmt(d.saldoDelMes)}</td></tr>
           ${d.cuotaMes > 0 ? `<tr><td style="padding:4px 0;font-size:12px;color:var(--text3)">Cuota pactada (cap+int)</td><td style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--text3)">L. ${getFmt(d.cuotaMes)}</td></tr>` : ''}
-          ${d.abonoCapital > 0 ? `<tr style="background:rgba(16,185,129,0.08)"><td style="padding:6px 0;color:var(--green);font-weight:500">→ Abono a capital</td><td style="text-align:right;font-family:var(--mono);color:var(--green);font-weight:700">L. ${getFmt(d.abonoCapital)}</td></tr>` : ''}
+          <tr style="background:rgba(16,185,129,0.08)">
+            <td style="padding:6px 0;color:var(--green);font-weight:500">→ Abono a capital
+              <span style="font-size:10px;color:var(--text3);font-weight:400">(editable · disp. L. ${getFmt(d.topeCapital)})</span>
+            </td>
+            <td style="text-align:right">
+              <input type="number" step="0.01" min="0" max="${d.topeCapital}" value="${d.abonoCapital}"
+                onchange="aplicarCapitalManual(this.value)"
+                style="width:120px;text-align:right;font-family:var(--mono);color:var(--green);font-weight:700;background:var(--bg2);border:1px solid var(--green);border-radius:4px;padding:3px 6px">
+              <button onclick="capitalTodoDisponible()" title="Abonar todo el disponible"
+                style="margin-left:4px;font-size:10px;padding:2px 6px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer">máx</button>
+            </td>
+          </tr>
           ${d.nuevoSaldoMes > 0 ? `<tr style="background:rgba(59,130,246,0.08)"><td style="padding:6px 0;color:var(--blue);font-weight:500">→ Saldo a favor</td><td style="text-align:right;font-family:var(--mono);color:var(--blue);font-weight:700">L. ${getFmt(d.nuevoSaldoMes)}</td></tr>` : ''}
           ${d.nuevoSaldoMes < 0 ? `<tr style="background:rgba(239,68,68,0.08)"><td style="padding:6px 0;color:var(--red);font-weight:500">→ Arrastra deuda</td><td style="text-align:right;font-family:var(--mono);color:var(--red);font-weight:700">L. ${getFmt(d.nuevoSaldoMes)}</td></tr>` : ''}
         </table>
@@ -451,10 +513,10 @@ function renderLiquidacion() {
       </div>
     </details>
     <details>
-      <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">🔧 Facturas incluidas (${d.facturas.length}) — L. ${getFmt(d.totalFacturas)}</summary>
+      <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">🔧 Facturas y cargos (${d.facturas.length + d.cargosPartida.length}) — L. ${getFmt(d.totalFacturas + d.totalCargosPartida)}</summary>
       <div style="max-height:200px;overflow-y:auto;margin-top:8px">
         <table style="width:100%"><thead><tr><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th></tr></thead>
-        <tbody>${d.facturas.map(f => `<tr><td style="font-family:var(--mono);font-size:12px">${f.fecha}</td><td style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.descripcion}</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(f.monto)}</td></tr>`).join('')}</tbody></table>
+        <tbody>${d.facturas.map(f => `<tr><td style="font-family:var(--mono);font-size:12px">${f.fecha}</td><td style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.descripcion}</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(f.monto)}</td></tr>`).join('')}${d.cargosPartida.map(c => `<tr><td style="font-family:var(--mono);font-size:12px">${c.partida?.fecha_partida || '—'}</td><td style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span class="badge badge-red" style="font-size:9px">PARTIDA</span> ${c.descripcion || c.cuenta_nombre || ''}</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${getFmt(c.monto)}</td></tr>`).join('')}</tbody></table>
       </div>
     </details>`
 
@@ -577,7 +639,7 @@ window.eliminarRecibo = async (reciboId, codigo, numRecibo, prestamoId) => {
     try {
       const { data: lineasUsadas } = await getSb().from('lineas_partida')
         .select('id')
-        .eq('tipo', 'credito')
+        .in('tipo', ['credito', 'debito'])
         .eq('usado_en_recibo', true)
         .ilike('descripcion', `%${codigoSinCero}%`)
       if (lineasUsadas?.length) {
@@ -702,10 +764,15 @@ window.confirmarRecibo = async () => {
     await getSb().from('facturas_taxis').update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id }).eq('id', f.id)
   }
 
-  // 3b. Marcar abonos de partidas contables como usados
+  // 3b. Marcar abonos y cargos de partidas contables como usados
   if (d.abonosPartida?.length) {
     for (const a of d.abonosPartida) {
       await getSb().from('lineas_partida').update({ usado_en_recibo: true }).eq('id', a.id)
+    }
+  }
+  if (d.cargosPartida?.length) {
+    for (const c of d.cargosPartida) {
+      await getSb().from('lineas_partida').update({ usado_en_recibo: true }).eq('id', c.id)
     }
   }
 
@@ -745,7 +812,7 @@ function imprimirRecibo(d, ventana) {
 
   const entregasRows = d.entregas.map(e => `<tr><td style="padding:4px 8px;font-size:11px">${e.fecha_deposito}</td><td style="padding:4px 8px"><span style="background:#e6f1fb;color:#0c447c;font-size:10px;padding:2px 6px;border-radius:3px">Depósito</span></td><td style="padding:4px 8px;font-size:11px">${e.banco || '—'}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#0f6e56">${getFmt(e.monto)}</td></tr>`).join('')
   const abonosPartidaRows = (d.abonosPartida || []).map(a => `<tr><td style="padding:4px 8px;font-size:11px">${a.partida?.fecha_partida || '—'}</td><td style="padding:4px 8px"><span style="background:#eeedfe;color:#3c3489;font-size:10px;padding:2px 6px;border-radius:3px">Partida</span></td><td style="padding:4px 8px;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.descripcion || '—'}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#0f6e56">${getFmt(a.monto)}</td></tr>`).join('')
-  const facturasRows = d.facturas.map(f => `<tr><td style="padding:4px 8px;font-size:11px">${f.fecha}</td><td style="padding:4px 8px"><span style="background:#faece7;color:#712b13;font-size:10px;padding:2px 6px;border-radius:3px">Factura</span></td><td style="padding:4px 8px;font-size:11px">${(f.descripcion || '').substring(0, 40)}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#993c1d">${getFmt(f.monto)}</td></tr>`).join('')
+  const facturasRows = d.facturas.map(f => `<tr><td style="padding:4px 8px;font-size:11px">${f.fecha}</td><td style="padding:4px 8px"><span style="background:#faece7;color:#712b13;font-size:10px;padding:2px 6px;border-radius:3px">Factura</span></td><td style="padding:4px 8px;font-size:11px">${(f.descripcion || '').substring(0, 40)}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#993c1d">${getFmt(f.monto)}</td></tr>`).join('') + (d.cargosPartida || []).map(c => `<tr><td style="padding:4px 8px;font-size:11px">${c.partida?.fecha_partida || ''}</td><td style="padding:4px 8px"><span style="background:#faece7;color:#712b13;font-size:10px;padding:2px 6px;border-radius:3px">Cargo</span></td><td style="padding:4px 8px;font-size:11px">${(c.descripcion || c.cuenta_nombre || '').substring(0, 40)}</td><td style="padding:4px 8px;text-align:right;font-family:monospace;color:#993c1d">${getFmt(c.monto)}</td></tr>`).join('')
 
   const printWindow = ventana || window.open('', '_blank')
   if (!printWindow) {
@@ -906,7 +973,7 @@ window.openModalNuevoPrestamo = () => {
   editingPrestamoId = null
   document.getElementById('modal-edit-prestamo-title').textContent = '🆕 Nuevo préstamo'
   document.getElementById('btn-guardar-prestamo').textContent = 'Crear préstamo'
-  ;['ep-codigo','ep-motorista','ep-monto','ep-saldo','ep-tasa','ep-cuotas','ep-gps','ep-seguro','ep-admin','ep-notas','ep-arrendador','ep-arrendador-dni'].forEach(id => {
+  ;['ep-codigo','ep-motorista','ep-monto','ep-saldo','ep-tasa','ep-cuotas','ep-cuota-mensual','ep-gps','ep-seguro','ep-admin','ep-notas','ep-arrendador','ep-arrendador-dni'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
   document.getElementById('ep-codigo').disabled = false
@@ -935,6 +1002,7 @@ window.editarPrestamo = (ref) => {
   document.getElementById('ep-tasa').value = ((parseFloat(p.tasa_interes) || 0.03) * 100).toFixed(2)
   document.getElementById('ep-cuotas').value = p.cuotas_pactadas || 24
   document.getElementById('ep-gps').value = p.cuota_gps || ''
+  const _epCuota = document.getElementById('ep-cuota-mensual'); if (_epCuota) _epCuota.value = p.cuota_mensual || ''
   document.getElementById('ep-seguro').value = p.cuota_seguro || ''
   document.getElementById('ep-admin').value = p.cuota_admin || ''
   document.getElementById('ep-notas').value = p.notas || ''
@@ -953,6 +1021,7 @@ window.guardarPrestamo = async () => {
   const saldo = parseFloat(document.getElementById('ep-saldo').value) || 0
   const tasa = (parseFloat(document.getElementById('ep-tasa').value) || 3) / 100
   const cuotas = parseInt(document.getElementById('ep-cuotas').value) || 24
+  const cuota_mensual = parseFloat(document.getElementById('ep-cuota-mensual')?.value) || 0
   const gps = parseFloat(document.getElementById('ep-gps').value) || 0
   const seguro = parseFloat(document.getElementById('ep-seguro').value) || 0
   const admin = parseFloat(document.getElementById('ep-admin').value) || 0
@@ -970,7 +1039,7 @@ window.guardarPrestamo = async () => {
 
   const btn = document.getElementById('btn-guardar-prestamo')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
-  const payload = { codigo, motorista, categoria, monto_prestamo: monto || saldo, saldo_actual: saldo, tasa_interes: tasa, cuotas_pactadas: cuotas, cuota_gps: gps, cuota_seguro: seguro, cuota_admin: admin, notas, arrendador_nombre, arrendador_dni, fecha_inicio, activo: true }
+  const payload = { codigo, motorista, categoria, monto_prestamo: monto || saldo, saldo_actual: saldo, tasa_interes: tasa, cuotas_pactadas: cuotas, cuota_gps: gps, cuota_seguro: seguro, cuota_admin: admin, cuota_mensual, notas, arrendador_nombre, arrendador_dni, fecha_inicio, activo: true }
 
   let error
   if (editingPrestamoId) { const { error: e } = await getSb().from('prestamos_taxis').update(payload).eq('id', editingPrestamoId); error = e }
