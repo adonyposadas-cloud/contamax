@@ -122,6 +122,9 @@
         <div class="nav-item hidden" id="nav-conciliacion" onclick="showView('conciliacion','Conciliación bancaria');initConciliacion()">
           <span class="nav-dot"></span>Conciliación Bancaria
         </div>
+        <div class="nav-item" id="nav-conciliacion-puente" onclick="showView('conciliacion-puente','Conciliación de cuentas puente')">
+          <span class="nav-dot"></span>Conciliación Puente
+        </div>
       </div>
       <div class="sidebar-section" id="section-contab">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('contab-items')">
@@ -582,6 +585,13 @@
               <button class="btn btn-ghost" onclick="abrirBuscarTaxi()" style="padding:5px 12px;font-size:12px;border-color:var(--amber);color:var(--amber)">🚕 Buscar Taxi</button>
               <button class="btn btn-ghost" onclick="addLinea()" style="padding:5px 12px;font-size:12px">+ Línea</button>
             </div>
+          </div><div style="display:flex;align-items:center;gap:8px;margin:0 0 10px">
+            <input type="text" id="pn-filtro-lineas" placeholder="🔎 Filtrar líneas por cuenta, concepto o número..."
+              oninput="aplicarFiltroLineas()"
+              style="flex:1;max-width:420px;font-size:12px;padding:6px 10px">
+            <span id="pn-filtro-info" style="font-size:11px;color:var(--text3)"></span>
+            <button class="btn btn-ghost" onclick="document.getElementById('pn-filtro-lineas').value='';aplicarFiltroLineas()"
+              style="padding:5px 10px;font-size:11px">Limpiar</button>
           </div>
           <table id="tbl-lineas" style="min-width:700px">
             <thead><tr>
@@ -1182,6 +1192,67 @@
       </div>
 
       <!-- BALANCE DE COMPROBACIÓN -->
+      <div id="view-conciliacion-puente" class="view">
+        <div class="page-title">🔗 Conciliación de cuentas puente</div>
+        <div class="page-sub">Emparejá un cargo (DEBE) con un abono (HABER) de igual monto que ya se compensaron</div>
+
+        <div class="form-card">
+          <div class="form-card-title"><span>Filtros</span></div>
+          <div class="form-grid" style="gap:12px">
+            <div class="fld col-full">
+              <label>Cuenta puente</label>
+              <select id="cp-cuenta"></select>
+            </div>
+            <div class="fld"><label>Desde</label><input type="date" id="cp-fecha-ini"></div>
+            <div class="fld"><label>Hasta</label><input type="date" id="cp-fecha-fin"></div>
+            <div class="fld">
+              <label style="display:flex;align-items:center;gap:8px;margin-top:18px">
+                <input type="checkbox" id="cp-ver-conciliados" style="width:auto"> Mostrar también los ya conciliados
+              </label>
+            </div>
+          </div>
+          <div style="text-align:right;margin-top:8px">
+            <button class="btn btn-gold" id="cp-btn-consultar" onclick="cpConsultar()">Consultar &rarr;</button>
+          </div>
+        </div>
+
+        <div id="cp-resultado" class="hidden">
+          <div class="form-card">
+            <div id="cp-resumen" style="margin-bottom:12px"></div>
+
+            <!-- ZONA 1: Sugerencias automáticas -->
+            <div id="cp-zona-sugerencias" style="margin-bottom:18px"></div>
+
+            <!-- ZONA 2: Pendientes (emparejado manual) -->
+            <div style="font-size:12px;color:var(--amber);letter-spacing:1px;margin-bottom:8px">PENDIENTES — revisar y emparejar manual</div>
+            <div id="cp-barra-accion" style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:14px"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              <div>
+                <div style="font-size:12px;color:var(--text3);letter-spacing:1px;margin-bottom:6px">CARGOS (DEBE)</div>
+                <div style="max-height:460px;overflow-y:auto">
+                  <table style="width:100%">
+                    <thead><tr><th>Fecha</th><th>Part.</th><th>Descripci&oacute;n</th><th style="text-align:right">Monto</th></tr></thead>
+                    <tbody id="cp-tbody-debe"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:12px;color:var(--text3);letter-spacing:1px;margin-bottom:6px">ABONOS (HABER)</div>
+                <div style="max-height:460px;overflow-y:auto">
+                  <table style="width:100%">
+                    <thead><tr><th>Fecha</th><th>Part.</th><th>Descripci&oacute;n</th><th style="text-align:right">Monto</th></tr></thead>
+                    <tbody id="cp-tbody-haber"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- ZONA 3: Ya conciliados -->
+            <div id="cp-zona-conciliados" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="view" id="view-balance-comp">
         <div class="page-header">
           <div>
@@ -3007,6 +3078,10 @@
         <input type="checkbox" id="nc-detalle" checked style="width:auto;accent-color:var(--gold)">
         <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">Es cuenta de detalle (recibe movimientos contables)</label>
       </div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="nc-puente" style="width:auto;accent-color:var(--gold)">
+        <label style="margin:0;letter-spacing:0;text-transform:none;font-size:13px;color:var(--text2)">Es cuenta puente (aparece en Conciliación Puente)</label>
+      </div>
     </div>
     <div id="modal-cuenta-error" class="login-error hidden" style="margin-top:14px"></div>
     <div class="modal-actions">
@@ -3024,8 +3099,9 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260610o"></script>
+<script type="module" src="js/app.js?v=20260612c"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
+<script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260610a"></script>
 <script defer src="js/rrhh.js?v=20260612a"></script>

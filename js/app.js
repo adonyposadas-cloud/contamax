@@ -245,6 +245,7 @@ window.showView = (id, label) => {
   if (id === 'financiamiento') loadFinanciamiento()
   if (id === 'cierre-recibos') initCierreMensual()
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
+  if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
@@ -2029,6 +2030,26 @@ window.removeLinea = (id) => {
   calcTotales()
 }
 
+// Filtro visual de líneas del asiento (no toca partidaLineas ni el cuadre)
+window.aplicarFiltroLineas = () => {
+  const q = (document.getElementById('pn-filtro-lineas')?.value || '').trim().toLowerCase()
+  const tbody = document.getElementById('tbody-lineas')
+  if (!tbody) return
+  let visibles = 0, total = 0
+  tbody.querySelectorAll('tr.linea-row').forEach(tr => {
+    total++
+    const txt = tr.getAttribute('data-busqueda') || ''
+    const show = !q || txt.includes(q)
+    tr.style.display = show ? '' : 'none'
+    if (show) visibles++
+    // ocultar también su fila de descripción individual (la siguiente hermana)
+    const sig = tr.nextElementSibling
+    if (sig && sig.classList.contains('linea-desc-row')) sig.style.display = show ? '' : 'none'
+  })
+  const info = document.getElementById('pn-filtro-info')
+  if (info) info.textContent = q ? `${visibles} de ${total}` : ''
+}
+
 function renderLineas() {
   const tbody = document.getElementById('tbody-lineas')
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
@@ -2105,8 +2126,9 @@ function renderLineas() {
 
     // USD conversion row
     const showDescInd = document.getElementById('pn-desc-individual')?.checked
+    const _busqDesc = `${l.cuenta_codigo || ''} ${l.cuenta_nombre || ''} ${l.descripcion || ''}`.toLowerCase()
     const descRow = showDescInd ? `
-    <tr class="linea-desc-row" style="border-top:none">
+    <tr class="linea-desc-row" data-busqueda="${_busqDesc.replace(/"/g, '')}" style="border-top:none">
       <td colspan="6" style="padding:0 8px 8px 8px">
         <input type="text" value="${l.descripcion || ''}" placeholder="Descripción de esta línea..."
           oninput="updLinea(${l.id},'descripcion',this.value)"
@@ -2114,8 +2136,9 @@ function renderLineas() {
       </td>
     </tr>` : ''
 
+    const _busq = `${l.cuenta_codigo || ''} ${l.cuenta_nombre || ''} ${l.descripcion || ''}`.toLowerCase()
     return `
-    <tr class="linea-row"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
+    <tr class="linea-row" data-busqueda="${_busq.replace(/"/g, '')}"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
       <td>
         <div class="cuenta-wrap">
           <input type="text" value="${l.cuenta_codigo ? l.cuenta_codigo+' '+l.cuenta_nombre : ''}" placeholder="Buscar cuenta..."
@@ -2140,6 +2163,7 @@ function renderLineas() {
       </td>
     </tr>${descRow}`
   }).join('')
+  if (typeof aplicarFiltroLineas === 'function') aplicarFiltroLineas()
 }
 
 // TC manual: se guarda en localStorage y persiste hasta que el usuario lo cambie
@@ -2863,6 +2887,7 @@ window.openModalCuenta = (editing = null) => {
       document.getElementById('nc-nivel').value = c.nivel
       document.getElementById('nc-padre').value = c.cuenta_padre || ''
       document.getElementById('nc-detalle').checked = c.es_detalle
+      const _ncp = document.getElementById('nc-puente'); if (_ncp) _ncp.checked = !!c.es_cuenta_puente
     }
   } else {
     ['nc-codigo','nc-nombre'].forEach(id => document.getElementById(id).value = '')
@@ -2871,6 +2896,7 @@ window.openModalCuenta = (editing = null) => {
     document.getElementById('nc-nivel').value = '3'
     document.getElementById('nc-padre').value = ''
     document.getElementById('nc-detalle').checked = true
+    const _ncp = document.getElementById('nc-puente'); if (_ncp) _ncp.checked = false
   }
   document.getElementById('modal-cuenta').classList.add('open')
 }
@@ -2904,6 +2930,7 @@ window.guardarCuenta = async () => {
   const nivel = parseInt(document.getElementById('nc-nivel').value)
   const cuenta_padre = document.getElementById('nc-padre').value || null
   const es_detalle = document.getElementById('nc-detalle').checked
+  const es_cuenta_puente = document.getElementById('nc-puente')?.checked || false
   const err = document.getElementById('modal-cuenta-error')
   if (!codigo || !nombre) { showError(err, 'Código y nombre son obligatorios'); return }
   // Check duplicate code
@@ -2911,7 +2938,7 @@ window.guardarCuenta = async () => {
   if (dup) { showError(err, `El código ${codigo} ya existe: ${dup.nombre}`); return }
   const btn = document.getElementById('btn-guardar-cuenta')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
-  const payload = { codigo, nombre, tipo, naturaleza, nivel, cuenta_padre, es_detalle, activa: true }
+  const payload = { codigo, nombre, tipo, naturaleza, nivel, cuenta_padre, es_detalle, es_cuenta_puente, activa: true }
   let error
   if (editingCuentaId) {
     ({ error } = await sb.from('catalogo_cuentas').update(payload).eq('id', editingCuentaId))
