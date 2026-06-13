@@ -276,22 +276,47 @@ function _tienePermisoDiaCompleto(empleadoId, nombre, fecha, permisos) {
 //  · permiso_dia / falta_justificada → 1 día completo
 //  · salida_anticipada con hora → (fin de jornada − hora salida)/8  (fin: 17:00 L-V, 13:00 Sáb)
 // Cruce por empleado_id (robusto) con respaldo por nombre.
+// Tratamiento del permiso. Compatibilidad: registros viejos sin 'tratamiento'
+// usan a_cuenta_vacaciones (true → 'vacaciones', false → 'goce' como antes).
+function _tratamiento(p) {
+  if (p.tratamiento) return p.tratamiento
+  return p.a_cuenta_vacaciones ? 'vacaciones' : 'goce'
+}
+
+// Días-equivalentes de un permiso (1 día completo, o fracción para salida anticipada)
+function _diasDePermiso(p) {
+  if (p.tipo === 'permiso_dia' || p.tipo === 'falta_justificada') return 1
+  if (p.tipo === 'salida_anticipada' && p.hora_salida) {
+    const [hh, mm] = String(p.hora_salida).split(':').map(Number)
+    const salidaMin = (hh || 0) * 60 + (mm || 0)
+    const [y, m, d] = String(p.fecha).split('-').map(Number)
+    const dow = new Date(y, (m || 1) - 1, d || 1).getDay()   // 0=Dom … 6=Sáb
+    const finJornada = dow === 6 ? 13 * 60 : 17 * 60          // 13:00 sábado, 17:00 L-V
+    const horas = Math.max(0, (finJornada - salidaMin) / 60)
+    return horas / 8
+  }
+  return 0
+}
+
+// Suma los DÍAS de permiso marcados "a cuenta de vacaciones" (tratamiento='vacaciones').
 function _diasPermisoVac(empleadoId, nombre, permisos) {
   let dias = 0
   for (const p of (permisos || [])) {
-    if (!p.a_cuenta_vacaciones) continue
+    if (_tratamiento(p) !== 'vacaciones') continue
     if (!_matchEmpleado(empleadoId, nombre, p)) continue
-    if (p.tipo === 'permiso_dia' || p.tipo === 'falta_justificada') {
-      dias += 1
-    } else if (p.tipo === 'salida_anticipada' && p.hora_salida) {
-      const [hh, mm] = String(p.hora_salida).split(':').map(Number)
-      const salidaMin = (hh || 0) * 60 + (mm || 0)
-      const [y, m, d] = String(p.fecha).split('-').map(Number)
-      const dow = new Date(y, (m || 1) - 1, d || 1).getDay()  // 0=Dom … 6=Sáb
-      const finJornada = dow === 6 ? 13 * 60 : 17 * 60        // 13:00 sábado, 17:00 L-V
-      const horas = Math.max(0, (finJornada - salidaMin) / 60)
-      dias += horas / 8
-    }
+    dias += _diasDePermiso(p)
+  }
+  return Math.round(dias * 1000) / 1000
+}
+
+// Suma los DÍAS de permiso SIN goce de sueldo (tratamiento='sin_goce') → se
+// descuentan del salario. Misma conversión hora/día que las vacaciones.
+function _diasPermisoSinGoce(empleadoId, nombre, permisos) {
+  let dias = 0
+  for (const p of (permisos || [])) {
+    if (_tratamiento(p) !== 'sin_goce') continue
+    if (!_matchEmpleado(empleadoId, nombre, p)) continue
+    dias += _diasDePermiso(p)
   }
   return Math.round(dias * 1000) / 1000
 }
@@ -460,6 +485,7 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
       r.diasPagados = r.diasTrabajados // sin rango no se puede evaluar el séptimo (compat.)
     }
     r.diasPermisoVac = _diasPermisoVac(r.empleado_id, r.nombre, permisosCache)
+    r.diasPermisoSinGoce = _diasPermisoSinGoce(r.empleado_id, r.nombre, permisosCache)
     if (fechaInicio && fechaFin) {
       const incap = _incapacidadEnPeriodo(r.empleado_id, r.nombre, incapacidadesCache, fechaInicio, fechaFin)
       r.diasIncapacidad = incap.dias
@@ -830,6 +856,7 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     e.minNoTrabajados = e.totalNeg                    // salidas tempranas SIN permiso → descuento de sueldo
     _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [], incapacidades || [])
     e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisos || [])
+    e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisos || [])
     const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapacidades || [], bounds.inicio, bounds.fin)
     e.diasIncapacidad = incap.dias
     e.diasIncapEmpresa = incap.empresa
@@ -878,7 +905,7 @@ window.openPermisoEmpleado = async () => {
   document.getElementById('perm-hora').value = ''
   document.getElementById('perm-motivo').value = ''
   document.getElementById('perm-tipo').value = 'salida_anticipada'
-  document.getElementById('perm-acuenta-vac').checked = true
+  { const t = document.getElementById('perm-tratamiento'); if (t) t.value = 'sin_goce' }
   document.getElementById('perm-dias').value = ''
   document.getElementById('perm-diagnostico').value = ''
   document.getElementById('perm-continuacion').checked = false
@@ -893,7 +920,7 @@ window.onPermTipoChange = () => {
   const esIncap = tipo === 'incapacidad'
   document.getElementById('fld-perm-incap').style.display = esIncap ? '' : 'none'
   document.getElementById('fld-perm-hora').style.display = esIncap ? 'none' : ''
-  document.getElementById('fld-perm-acuenta').style.display = esIncap ? 'none' : 'flex'
+  document.getElementById('fld-perm-acuenta').style.display = esIncap ? 'none' : ''
   document.getElementById('perm-fecha-label').textContent = esIncap ? 'Fecha de inicio' : 'Fecha'
   if (esIncap) onPermContinuacionChange()
 }
@@ -960,9 +987,12 @@ window.guardarPermiso = async () => {
     reg.continua_de = esCont ? continuaDe : null
     reg.hora_salida = null
     reg.a_cuenta_vacaciones = false   // la incapacidad nunca toca vacaciones
+    reg.tratamiento = 'incapacidad'
   } else {
     reg.hora_salida = horaSalida || null
-    reg.a_cuenta_vacaciones = document.getElementById('perm-acuenta-vac').checked
+    const trat = document.getElementById('perm-tratamiento')?.value || 'sin_goce'
+    reg.tratamiento = trat
+    reg.a_cuenta_vacaciones = (trat === 'vacaciones')   // compatibilidad con lógica/exportes viejos
   }
 
   const { error } = await getSb().from('permisos_empleados').insert(reg)
@@ -1066,7 +1096,7 @@ window.verPermiso = (id) => {
     (p.tipo === 'salida_anticipada' ? fila('Hora entrada', p.hora_entrada) : '') +
     (p.tipo === 'incapacidad' ? fila('Diagnóstico', p.diagnostico) : '') +
     fila('Motivo', p.motivo) +
-    fila('A cuenta de vacaciones', p.a_cuenta_vacaciones ? 'Sí 🏖️' : '') +
+    fila('Tratamiento', ({goce:'Con goce de sueldo', vacaciones:'A cuenta de vacaciones 🏖️', sin_goce:'Sin goce (descuenta salario)'})[_tratamiento(p)] || '') +
     fila('Continuación/prórroga', p.es_continuacion ? 'Sí 🔗' : '') +
     fila('Aprobado por', p.aprobado_por) +
     fila('Registrado', p.created_at ? new Date(p.created_at).toLocaleString('es-HN') : '')
@@ -1160,6 +1190,7 @@ window.cargarHistorialAsistencia = async () => {
     e.es_socio = !!sociosMap[e.empleado_id]
     _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [], incapsHist || [])
     e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisosPeriodo || [])
+    e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisosPeriodo || [])
     const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapsHist || [], histBounds.inicio, histBounds.fin)
     e.diasIncapacidad = incap.dias
     e.diasIncapEmpresa = incap.empresa

@@ -1688,9 +1688,15 @@
           </div>
 
           <div class="fld"><label>Motivo</label><input type="text" id="perm-motivo" placeholder="Razón del permiso..."></div>
-          <div class="fld" id="fld-perm-acuenta" style="display:flex;align-items:center;gap:8px">
-            <input type="checkbox" id="perm-acuenta-vac" checked style="width:auto;margin:0">
-            <label for="perm-acuenta-vac" style="margin:0;cursor:pointer;text-transform:none;font-size:13px">A cuenta de vacaciones (descuenta del saldo y se paga como vacación)</label>
+          <div class="fld" id="fld-perm-acuenta">
+            <label>Tratamiento del permiso</label>
+            <select id="perm-tratamiento">
+              <option value="sin_goce">Sin goce de sueldo (se descuenta del salario)</option>
+              <option value="goce">Con goce de sueldo (se paga, no se descuenta nada)</option>
+              <option value="vacaciones">A cuenta de vacaciones (se paga, baja del saldo)</option>
+            </select>
+            <!-- compat: input oculto que algunos flujos viejos podrían leer -->
+            <input type="checkbox" id="perm-acuenta-vac" style="display:none">
           </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-ghost" onclick="closeModal('modal-permiso-emp')">Cancelar</button>
@@ -3099,13 +3105,13 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260612c"></script>
+<script type="module" src="js/app.js?v=20260612d"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260610a"></script>
-<script defer src="js/rrhh.js?v=20260612a"></script>
-<script defer src="js/asistencia.js?v=20260603c"></script>
+<script defer src="js/rrhh.js?v=20260612e"></script>
+<script defer src="js/asistencia.js?v=20260612e"></script>
 <script defer src="js/vacaciones.js"></script>
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260603c"></script>

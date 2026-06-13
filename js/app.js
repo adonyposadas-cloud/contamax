@@ -7786,29 +7786,20 @@ window.calcularRentabilidadUnidad = async (registro, desde, hasta) => {
   ]
   const { data: partidasRango } = await sb.from('partidas_contables')
     .select('id, fecha_partida, descripcion').eq('estado', 'aprobada')
-    .gte('fecha_partida', desde).lte('fecha_partida', hasta)
-  const partidaIds = (partidasRango || []).map(p => p.id)
-  let partidasGastos = []
-  if (partidaIds.length) {
-    for (const pat of patterns) {
-      const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
-        .in('partida_id', partidaIds).ilike('descripcion', pat)
-      if (data?.length) partidasGastos.push(...data)
-    }
-    const partidasHeader = (partidasRango || []).filter(p => {
-      if (!p.descripcion) return false
-      const d = p.descripcion.toUpperCase()
-      return patterns.some(pat => new RegExp(pat.replace(/%/g, '.*'), 'i').test(d))
-    })
-    if (partidasHeader.length) {
-      const headerIds = partidasHeader.map(p => p.id)
-      const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
-        .in('partida_id', headerIds)
-      if (data?.length) partidasGastos.push(...data)
-    }
+    .gte('fecha_partida', desde).lte('fecha_partida', hasta).limit(20000)
+  // Buscar líneas directamente por patrón (sin pasar cientos de IDs a .in())
+  let lineasCrudas = []
+  for (const pat of patterns) {
+    const { data } = await sb.from('lineas_partida')
+      .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id, partida:partidas_contables(id, fecha_partida, descripcion, estado)')
+      .ilike('descripcion', pat).limit(20000)
+    if (data?.length) lineasCrudas.push(...data)
   }
+  let partidasGastos = lineasCrudas.filter(g => {
+    const p = g.partida
+    if (!p || p.estado !== 'aprobada') return false
+    return p.fecha_partida >= desde && p.fecha_partida <= hasta
+  })
   const seenKeys = new Set()
   partidasGastos = partidasGastos.filter(g => {
     const key = `${g.partida_id}_${g.cuenta_codigo}_${g.monto}`
@@ -7888,38 +7879,39 @@ window.cargarDetalleUnidad = async () => {
     `%TAXI  ${reg}%`, `%VIP  ${reg}%`,
     `%TAXI VIP ${reg}%`, `%TAXI VIP  ${reg}%`
   ]
-  // Buscar partidas aprobadas en el rango
-  const { data: partidasRango } = await sb.from('partidas_contables')
-    .select('id, fecha_partida, descripcion')
-    .eq('estado', 'aprobada')
-    .gte('fecha_partida', desde)
-    .lte('fecha_partida', hasta)
-  const partidaIds = (partidasRango || []).map(p => p.id)
-  let partidasGastos = []
-  if (partidaIds.length) {
-    // Buscar en descripción de LINEAS
-    for (const pat of patterns) {
+  // Buscar las LÍNEAS directamente por patrón (sin pasar cientos de IDs a .in(),
+  // que satura la consulta y trunca resultados). Luego se filtran por fecha/estado.
+  let lineasCrudas = []
+  for (const pat of patterns) {
+    const { data } = await sb.from('lineas_partida')
+      .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id, partida:partidas_contables(id, fecha_partida, descripcion, estado)')
+      .ilike('descripcion', pat).limit(20000)
+    if (data?.length) lineasCrudas.push(...data)
+  }
+  // También: líneas de partidas cuyo ENCABEZADO referencia la unidad (aunque la
+  // línea no tenga el patrón). Se buscan los encabezados que casen y se traen sus líneas.
+  for (const pat of patterns) {
+    const { data: heads } = await sb.from('partidas_contables')
+      .select('id').eq('estado', 'aprobada').ilike('descripcion', pat)
+      .gte('fecha_partida', desde).lte('fecha_partida', hasta).limit(5000)
+    if (heads?.length) {
       const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
-        .in('partida_id', partidaIds)
-        .ilike('descripcion', pat)
-      if (data?.length) partidasGastos.push(...data)
+        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id, partida:partidas_contables(id, fecha_partida, descripcion, estado)')
+        .in('partida_id', heads.map(h => h.id))
+      if (data?.length) lineasCrudas.push(...data)
     }
-    // Buscar también en descripción del ENCABEZADO de la partida
-    const partidasHeader = partidasRango.filter(p => {
-      if (!p.descripcion) return false
-      const d = p.descripcion.toUpperCase()
-      return patterns.some(pat => {
-        const regex = new RegExp(pat.replace(/%/g, '.*'), 'i')
-        return regex.test(d)
-      })
-    })
-    if (partidasHeader.length) {
-      const headerIds = partidasHeader.map(p => p.id)
-      const { data } = await sb.from('lineas_partida')
-        .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id')
-        .in('partida_id', headerIds)
-      if (data?.length) partidasGastos.push(...data)
+  }
+  // Filtrar por estado aprobada y rango de fechas (de la partida embebida)
+  let partidasGastos = lineasCrudas.filter(g => {
+    const p = g.partida
+    if (!p || p.estado !== 'aprobada') return false
+    return p.fecha_partida >= desde && p.fecha_partida <= hasta
+  })
+  // Mapa de partidas para fecha/descripción posterior
+  const partidasRango = []
+  { const vistos = new Set()
+    for (const g of partidasGastos) {
+      if (g.partida && !vistos.has(g.partida.id)) { vistos.add(g.partida.id); partidasRango.push(g.partida) }
     }
   }
   // Deduplicar
