@@ -140,6 +140,9 @@
           <div class="nav-item" id="nav-tipos-origen" onclick="showView('tipos-origen','Tipos de Origen')">
             <span class="nav-dot"></span>Tipos de origen
           </div>
+          <div class="nav-item" id="nav-proveedores" onclick="showView('proveedores','Proveedores y rangos SAR')">
+            <span class="nav-dot"></span>Proveedores
+          </div>
         </div>
       </div>
       <div class="sidebar-section" id="section-importar">
@@ -1274,6 +1277,12 @@
         <div id="gh-resultado" class="hidden"></div>
       </div>
 
+      <div id="view-proveedores" class="view">
+        <div class="page-title">🏢 Proveedores y rangos SAR</div>
+        <div class="page-sub">Catálogo de proveedores con sus CAI y rangos de facturación autorizados. Base para validar el crédito fiscal de las compras.</div>
+        <div id="pv-lista"></div>
+      </div>
+
       <div class="view" id="view-balance-comp">
         <div class="page-header">
           <div>
@@ -1867,7 +1876,46 @@
       </div>
 
       <!-- ═══ MODAL EMPLEADO ═══ -->
-      <div class="modal-backdrop" id="modal-empleado">
+      <div class="modal-backdrop" id="modal-proveedor">
+  <div class="modal" style="width:440px">
+    <div class="modal-title"><span id="pv-modal-title">Nuevo proveedor</span></div>
+    <div class="form-grid" style="gap:12px">
+      <div class="fld col-full"><label>Nombre del proveedor</label><input type="text" id="pv-nombre" style="text-transform:uppercase"></div>
+      <div class="fld col-full"><label>RTN</label><input type="text" id="pv-rtn" placeholder="14 dígitos"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-proveedor').classList.remove('open')">Cancelar</button>
+      <button class="btn btn-gold" onclick="pvGuardarProveedor()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-proveedor-cai">
+  <div class="modal" style="width:480px">
+    <div class="modal-title"><span id="pv-cai-modal-title">Nuevo rango</span></div>
+    <div class="form-grid" style="gap:12px">
+      <div class="fld col-full"><label>CAI</label><input type="text" id="pv-cai-cai" placeholder="Clave de Autorización de Impresión"></div>
+      <div class="fld col-full"><label>Prefijo (NNN-NNN-NN)</label><input type="text" id="pv-cai-prefijo" placeholder="000-001-01"></div>
+      <div class="fld"><label>Rango desde</label><input type="text" id="pv-cai-desde" placeholder="000-001-01-00000001"></div>
+      <div class="fld"><label>Rango hasta</label><input type="text" id="pv-cai-hasta" placeholder="000-001-01-00000500"></div>
+      <div class="fld"><label>Fecha límite emisión</label><input type="date" id="pv-cai-fecha"></div>
+      <div class="fld"><label>Sucursal (opcional)</label><input type="text" id="pv-cai-sucursal"></div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:8px">
+        <input type="checkbox" id="pv-cai-activo" checked style="width:auto;accent-color:var(--gold)">
+        <label style="margin:0;text-transform:none;font-size:13px">Activo (vigente para validar)</label>
+      </div>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn btn-ghost" onclick="pvEliminarCai()" style="color:var(--red)">Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-proveedor-cai').classList.remove('open')">Cancelar</button>
+        <button class="btn btn-gold" onclick="pvGuardarCai()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-empleado">
         <div class="modal" style="max-width:700px">
           <div class="modal-header">
             <span id="modal-emp-title">Nuevo empleado</span>
@@ -3126,12 +3174,13 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260612e"></script>
+<script type="module" src="js/app.js?v=20260612f"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
+<script defer src="js/proveedores.js?v=20260612a"></script>
 <script src="js/jspdf.min.js"></script>
-<script defer src="js/financiamiento.js?v=20260610a"></script>
+<script defer src="js/financiamiento.js?v=20260612d"></script>
 <script defer src="js/rrhh.js?v=20260612e"></script>
 <script defer src="js/asistencia.js?v=20260612e"></script>
 <script defer src="js/vacaciones.js"></script>

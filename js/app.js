@@ -247,6 +247,7 @@ window.showView = (id, label) => {
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
   if (id === 'gastos-huerfanos' && window.initGastosHuerfanos) window.initGastosHuerfanos()
+  if (id === 'proveedores' && window.initProveedores) window.initProveedores()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()

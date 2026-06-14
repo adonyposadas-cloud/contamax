@@ -291,18 +291,23 @@ window.abrirLiquidacion = async (ref) => {
     if (!cpErr && cargosPartida?.length) {
       cargosValidos = cargosPartida.filter(c =>
         c.partida?.estado === 'aprobada' && c.monto > 0 && !c.usado_en_recibo
-        // Las partidas de importación de facturas (IMP-FACT-TAXIS) ya aparecen
-        // en el cuadro "Facturas taller"; tomar también su línea las duplicaría.
-        && c.partida?.tipo_origen !== 'IMP-FACT-TAXIS'
+        // Antes se excluían las IMP-FACT-TAXIS para no duplicar con facturas_taxis.
+        // Ahora la línea de partida es la ÚNICA fuente de cargos (es editable), y
+        // de facturas_taxis se ignoran las que ya tienen partida (ver abajo). Por
+        // eso ya NO se excluyen: estas líneas deben entrar como cargos.
       )
     }
   } catch(e) { console.log('Cargos partida no disponible:', e) }
 
-  // Cargar facturas NO usadas
-  const { data: facturas } = await getSb().from('facturas_taxis')
+  // Cargar facturas de facturas_taxis NO usadas. Como TODAS las facturas tienen
+  // su línea en la partida (ya verificado), se ignoran las que tengan partida_id
+  // para no duplicar — la línea de partida ya las representa y es editable.
+  // Solo se conservan facturas SIN partida (por si en el futuro alguna no la tuviera).
+  const { data: facturasRaw } = await getSb().from('facturas_taxis')
     .select('*').eq('registro', registro)
     .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
     .order('fecha')
+  const facturas = (facturasRaw || []).filter(f => !f.partida_id)
 
 
   const saldo = parseFloat(p.saldo_actual) || 0
@@ -601,6 +606,8 @@ window.reimprimirRecibo = async (reciboId) => {
     esTaxi,
     entregas: entregas || [],
     facturas: facturas || [],
+    cargosPartida: [],          // en reimpresión el total ya viene agregado en totalFacturas
+    totalCargosPartida: 0,
     abonosPartida,
     fechaRecibo: r.fecha,
   }
@@ -739,7 +746,7 @@ window.confirmarRecibo = async () => {
     saldo_inicial: d.saldoInicial,
     saldo_actual: d.nuevoSaldoPrestamo,
     total_del_mes: d.totalEntregas,
-    facturas: d.totalFacturas,
+    facturas: d.totalFacturas + d.totalCargosPartida,
     numero_alquiler: -Math.abs(d.alquiler),
     gps: -Math.abs(d.gps),
     saldo_anterior: d.saldoMesAnterior,
@@ -759,9 +766,11 @@ window.confirmarRecibo = async () => {
     await getSb().from('entregas_taxis').update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id }).eq('id', e.id)
   }
 
-  // 3. Marcar facturas como usadas
+  // 3. Marcar facturas como usadas (y persistir el monto sincronizado con la partida)
   for (const f of d.facturas) {
-    await getSb().from('facturas_taxis').update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id }).eq('id', f.id)
+    const upd = { usado_en_recibo: true, recibo_prestamo_id: recibo.id }
+    if (f._montoSincronizado) upd.monto = f.monto   // el valor editado en la partida prevalece
+    await getSb().from('facturas_taxis').update(upd).eq('id', f.id)
   }
 
   // 3b. Marcar abonos y cargos de partidas contables como usados
@@ -773,6 +782,13 @@ window.confirmarRecibo = async () => {
   if (d.cargosPartida?.length) {
     for (const c of d.cargosPartida) {
       await getSb().from('lineas_partida').update({ usado_en_recibo: true }).eq('id', c.id)
+      // Marcar también su espejo en facturas_taxis (misma partida) para que el
+      // detalle de unidad no la muestre como pendiente de cobro.
+      if (c.partida?.id) {
+        await getSb().from('facturas_taxis')
+          .update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id })
+          .eq('partida_id', c.partida.id).eq('registro', d.registro)
+      }
     }
   }
 
@@ -872,7 +888,7 @@ function imprimirRecibo(d, ventana) {
       <table>
         <tr><td style="padding:3px 0;color:#0f6e56">▼ Entregas (${d.entregas.length}${d.abonosPartida?.length ? ' + ' + d.abonosPartida.length + ' partidas' : ''})</td><td style="text-align:right" class="mono" style="color:#0f6e56">${getFmt(d.totalEntregas)}</td></tr>
         <tr><td style="padding:3px 0;color:#993c1d">— Intereses ${d.diasTranscurridos || 30}d</td><td style="text-align:right;color:#993c1d" class="mono">(${getFmt(d.intereses)})</td></tr>
-        ${d.totalFacturas ? `<tr><td style="padding:3px 0;color:#666">— Facturas</td><td style="text-align:right" class="mono">(${getFmt(d.totalFacturas)})</td></tr>` : `<tr><td style="padding:3px 0;color:#999">— Facturas</td><td style="text-align:right;color:#999" class="mono">—</td></tr>`}
+        ${(d.totalFacturas + d.totalCargosPartida) ? `<tr><td style="padding:3px 0;color:#666">— Facturas/Gastos</td><td style="text-align:right" class="mono">(${getFmt(d.totalFacturas + d.totalCargosPartida)})</td></tr>` : `<tr><td style="padding:3px 0;color:#999">— Facturas</td><td style="text-align:right;color:#999" class="mono">—</td></tr>`}
         ${d.gps ? `<tr><td style="padding:3px 0;color:#666">— GPS</td><td style="text-align:right" class="mono">(${getFmt(d.gps)})</td></tr>` : ''}
         ${d.alquiler ? `<tr><td style="padding:3px 0;color:#666">— ${d.esTaxi ? 'Alquiler' : 'Seguro'}</td><td style="text-align:right" class="mono">(${getFmt(d.alquiler)})</td></tr>` : ''}
         <tr style="border-top:1px solid #ddd"><td style="padding:6px 0;font-weight:600">Saldo del mes</td><td style="text-align:right;font-weight:600;color:${d.saldoDelMes >= 0 ? '#0f6e56' : '#993c1d'}" class="mono">${getFmt(d.saldoDelMes)}</td></tr>
@@ -950,12 +966,12 @@ function imprimirRecibo(d, ventana) {
     <tfoot><tr style="font-weight:600;background:#f5f5f5"><td colspan="3">TOTAL ENTREGAS</td><td style="text-align:right" class="mono">${getFmt(d.totalEntregas)}</td></tr></tfoot>
   </table>
 
-  ${d.facturas.length ? `
-  <div style="font-size:11px;font-weight:600;color:#999;letter-spacing:1px;margin-bottom:6px">FACTURAS / GASTOS (${d.facturas.length})</div>
+  ${(d.facturas.length + (d.cargosPartida?.length || 0)) ? `
+  <div style="font-size:11px;font-weight:600;color:#999;letter-spacing:1px;margin-bottom:6px">FACTURAS / GASTOS (${d.facturas.length + (d.cargosPartida?.length || 0)})</div>
   <table class="bordered">
     <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
     <tbody>${facturasRows}</tbody>
-    <tfoot><tr style="font-weight:600;background:#f5f5f5"><td colspan="3">TOTAL FACTURAS</td><td style="text-align:right" class="mono">${getFmt(d.totalFacturas)}</td></tr></tfoot>
+    <tfoot><tr style="font-weight:600;background:#f5f5f5"><td colspan="3">TOTAL FACTURAS / GASTOS</td><td style="text-align:right" class="mono">${getFmt(d.totalFacturas + d.totalCargosPartida)}</td></tr></tfoot>
   </table>` : '<div style="color:#999;font-size:11px;text-align:center;padding:20px">Sin facturas en este período</div>'}
 </div>
 
