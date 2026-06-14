@@ -246,6 +246,7 @@ window.showView = (id, label) => {
   if (id === 'cierre-recibos') initCierreMensual()
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
+  if (id === 'gastos-huerfanos' && window.initGastosHuerfanos) window.initGastosHuerfanos()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
@@ -1709,7 +1710,21 @@ window.nuevaPartida = () => {
   showView('partida-nueva', 'Nueva partida')
 }
 
+// Retorno genérico desde el editor de partidas. Si otra pantalla fijó
+// window._origenPartida = {view, label, init}, se regresa ahí (y se limpia).
+function _retornoPartida(fallback) {
+  const o = window._origenPartida
+  if (o && o.view) {
+    window._origenPartida = null
+    showView(o.view, o.label || '')
+    if (o.init && typeof window[o.init] === 'function') window[o.init]()
+    return true
+  }
+  return false
+}
+
 window.volverDesdePartida = () => {
+  if (_retornoPartida()) return
   if (window._facturaContadoId) {
     window._facturaContadoId = null
     showView('pendientes', 'Facturas pendientes')
@@ -1973,6 +1988,7 @@ window.eliminarPartida = async () => {
     toast('Partida anulada ✓', 'success')
   }
   editingPartidaId = null
+  if (_retornoPartida()) return
   showView('partidas', 'Partidas contables')
 }
 
@@ -2743,8 +2759,9 @@ window.guardarPartida = async (estado) => {
   }
 
   if (volverAPendientes) {
+    window._origenPartida = null
     showView('pendientes', 'Facturas pendientes')
-  } else {
+  } else if (!_retornoPartida()) {
     showView('partidas', 'Partidas contables')
   }
   } finally {

@@ -210,6 +210,9 @@
           <div class="nav-item" id="nav-rentabilidad-taxis" onclick="showView('rentabilidad-taxis','Rentabilidad por unidad');initRentabilidadTaxis()">
             <span class="nav-dot"></span>Rentabilidad Taxis
           </div>
+          <div class="nav-item" id="nav-gastos-huerfanos" onclick="showView('gastos-huerfanos','Gastos huérfanos de taxis')">
+            <span class="nav-dot"></span>Gastos huérfanos
+          </div>
           <div class="nav-item" id="nav-actividad" onclick="showView('actividad','Actividad de usuarios')">
             <span class="nav-dot"></span>Actividad
           </div>
@@ -1251,6 +1254,24 @@
             <div id="cp-zona-conciliados" style="display:none"></div>
           </div>
         </div>
+      </div>
+
+      <div id="view-gastos-huerfanos" class="view">
+        <div class="page-title">🚕 Gastos huérfanos de taxis financiados</div>
+        <div class="page-sub">Gastos con número de unidad financiada que NO se han cobrado en recibo. Los de taxis propios (no financiados) se excluyen.</div>
+
+        <div class="form-card">
+          <div class="form-card-title"><span>Filtros</span></div>
+          <div class="form-grid" style="gap:12px">
+            <div class="fld"><label>Desde</label><input type="date" id="gh-fecha-ini"></div>
+            <div class="fld"><label>Hasta</label><input type="date" id="gh-fecha-fin"></div>
+          </div>
+          <div style="text-align:right;margin-top:8px">
+            <button class="btn btn-gold" id="gh-btn-consultar" onclick="ghConsultar()">Consultar &rarr;</button>
+          </div>
+        </div>
+
+        <div id="gh-resultado" class="hidden"></div>
       </div>
 
       <div class="view" id="view-balance-comp">
@@ -3105,9 +3126,10 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260612d"></script>
+<script type="module" src="js/app.js?v=20260612e"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
+<script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260610a"></script>
 <script defer src="js/rrhh.js?v=20260612e"></script>
