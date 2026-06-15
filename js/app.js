@@ -9086,7 +9086,9 @@ window.verArqueoCajaChica = async () => {
 
   const conteos = [...(conteosDirect || []), ...conteosFromPartidas]
 
-  const validConteos = (conteos || []).filter(c => c.partida?.estado === 'aprobada')
+  // Válido si: la partida está aprobada, O es un cambio de billetes sin partida
+  // (partida_id null = cambio de denominaciones, que es un movimiento válido por sí mismo).
+  const validConteos = (conteos || []).filter(c => c.partida?.estado === 'aprobada' || !c.partida_id)
   
   let totalIng = 0, totalEgr = 0, totalCaja = 0, totalValor = 0
   const tbody = document.getElementById('tbody-arqueo-cc')
