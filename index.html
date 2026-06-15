@@ -143,6 +143,9 @@
           <div class="nav-item" id="nav-proveedores" onclick="showView('proveedores','Proveedores y rangos SAR')">
             <span class="nav-dot"></span>Proveedores
           </div>
+          <div class="nav-item" id="nav-verif-compras" onclick="showView('verif-compras','Verificar compras')">
+            <span class="nav-dot"></span>Verificar compras
+          </div>
         </div>
       </div>
       <div class="sidebar-section" id="section-importar">
@@ -317,6 +320,10 @@
               </div>
             </div>
             <div class="fld">
+              <label>RTN del proveedor</label>
+              <input type="text" id="fc-rtn" placeholder="Si aparece en la factura (opcional)" autocomplete="off">
+            </div>
+            <div class="fld">
               <label>¿Quién pidió la compra? *</label>
               <div class="ac-wrap">
                 <input type="text" id="fc-quien-pidio" placeholder="Nombre de quien autorizó" autocomplete="off" oninput="acBuscar(this,'quien_pidio')" onfocus="acBuscar(this,'quien_pidio')" onblur="setTimeout(()=>acCerrar(this),200)" style="text-transform:uppercase">
@@ -339,7 +346,7 @@
             </div>
             <div class="fld">
               <label>N° de factura *</label>
-              <input type="text" id="fc-numero" placeholder="S/F o número">
+              <input type="text" id="fc-numero" placeholder="S/F o número" onblur="completarNumeroFactura()">
             </div>
             <div class="fld">
               <label>Monto (L.) *</label>
@@ -371,7 +378,7 @@
         </div>
 
         <div class="form-card">
-          <div class="form-card-title">📎 Imagen de factura</div>
+          <div class="form-card-title">📎 Imagen de factura <span id="fc-img-req" style="font-size:11px;font-weight:400;color:var(--text3)"></span></div>
           <div class="upload-zone" id="upload-zone" onclick="document.getElementById('fc-file').click()">
             <div class="upload-icon">📷</div>
             <div class="upload-text">Toca, arrastrá o pegá (Ctrl+V) la imagen</div>
@@ -1283,6 +1290,22 @@
         <div id="pv-lista"></div>
       </div>
 
+      <div id="view-verif-compras" class="view">
+        <div class="page-title">🛡️ Verificar compras (SAR)</div>
+        <div class="page-sub">Regularizá facturas no verificadas: validá su número contra los rangos del proveedor y marcá el crédito fiscal. Prioriza las que tienen ISV.</div>
+        <div class="form-card">
+          <div class="form-card-title"><span>Filtros</span></div>
+          <div class="form-grid" style="gap:12px">
+            <div class="fld"><label>Desde</label><input type="date" id="vc-fecha-ini"></div>
+            <div class="fld"><label>Hasta</label><input type="date" id="vc-fecha-fin"></div>
+          </div>
+          <div style="text-align:right;margin-top:8px">
+            <button class="btn btn-gold" id="vc-btn-consultar" onclick="vcConsultar()">Consultar &rarr;</button>
+          </div>
+        </div>
+        <div id="vc-resultado" class="hidden"></div>
+      </div>
+
       <div class="view" id="view-balance-comp">
         <div class="page-header">
           <div>
@@ -1883,9 +1906,37 @@
       <div class="fld col-full"><label>Nombre del proveedor</label><input type="text" id="pv-nombre" style="text-transform:uppercase"></div>
       <div class="fld col-full"><label>RTN</label><input type="text" id="pv-rtn" placeholder="14 dígitos"></div>
     </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="document.getElementById('modal-proveedor').classList.remove('open')">Cancelar</button>
-      <button class="btn btn-gold" onclick="pvGuardarProveedor()">Guardar</button>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn btn-ghost" id="pv-btn-eliminar" onclick="pvEliminarProveedor()" style="color:var(--red);display:none">Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-proveedor').classList.remove('open')">Cancelar</button>
+        <button class="btn btn-gold" onclick="pvGuardarProveedor()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-vc-asignar">
+  <div class="modal" style="width:460px">
+    <div class="modal-title">Asignar proveedor a la factura</div>
+    <input type="text" id="vc-asignar-buscar" placeholder="🔎 Buscar proveedor..." oninput="vcAsignarFiltrar(this.value)" style="width:100%;font-size:13px;padding:8px 10px;margin-bottom:8px">
+    <div id="vc-asignar-lista" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-vc-asignar').classList.remove('open')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-fusion">
+  <div class="modal" style="width:480px">
+    <div class="modal-title">🔀 Fusionar proveedor</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:4px">Mover las facturas de:</div>
+    <div id="pv-fusion-origen" style="font-weight:600;color:var(--red);margin-bottom:10px"></div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:8px">hacia el proveedor correcto (elegí uno):</div>
+    <input type="text" id="pv-fusion-buscar" placeholder="🔎 Buscar proveedor destino..." oninput="pvFusionFiltrar(this.value)" style="width:100%;font-size:13px;padding:8px 10px;margin-bottom:8px">
+    <div id="pv-fusion-lista" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:8px"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-fusion').classList.remove('open')">Cancelar</button>
     </div>
   </div>
 </div>
@@ -3174,11 +3225,12 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260612f"></script>
+<script type="module" src="js/app.js?v=20260613f"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
-<script defer src="js/proveedores.js?v=20260612a"></script>
+<script defer src="js/proveedores.js?v=20260613c"></script>
+<script defer src="js/verif_compras.js?v=20260613b"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260612d"></script>
 <script defer src="js/rrhh.js?v=20260612e"></script>

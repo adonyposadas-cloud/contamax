@@ -9,6 +9,7 @@ const pvFmt = n => (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractio
 
 let pvProveedores = []
 let pvCaiPorProv = {}     // proveedor_id -> [cai...]
+let pvFacturasPorProv = {} // proveedor_id -> num facturas
 let pvFiltro = ''
 let pvEditProvId = null
 let pvEditCaiId = null
@@ -31,6 +32,11 @@ async function pvCargar() {
     .select('id, nombre, rtn, verificado').order('nombre').limit(5000)
   if (error) { window.toast?.('Error cargando proveedores: ' + error.message, 'error'); return }
   pvProveedores = provs || []
+
+  // Conteo de facturas por proveedor (para proteger borrado y mostrar uso)
+  pvFacturasPorProv = {}
+  const { data: facs } = await pvSb().from('facturas_compras').select('proveedor_id').limit(50000)
+  for (const f of (facs || [])) if (f.proveedor_id) pvFacturasPorProv[f.proveedor_id] = (pvFacturasPorProv[f.proveedor_id] || 0) + 1
 
   const { data: cais } = await pvSb().from('proveedor_cai')
     .select('*').order('fecha_limite', { ascending: true }).limit(20000)
@@ -107,11 +113,12 @@ function pvRender() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="flex:1">
           <div style="font-weight:600">${p.nombre}${tieneAlerta ? ' <span style="color:var(--red);font-size:11px">⚠ revisar</span>' : ''}</div>
-          <div style="font-size:12px;color:var(--text3)">RTN: ${p.rtn || '— sin RTN —'}</div>
+          <div style="font-size:12px;color:var(--text3)">RTN: ${p.rtn || '— sin RTN —'} · ${pvFacturasPorProv[p.id] || 0} factura(s)</div>
           ${caisHtml}
         </div>
-        ${pvPuedeEditar() ? `<div style="display:flex;gap:4px">
+        ${pvPuedeEditar() ? `<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
           <button class="btn btn-ghost" onclick="pvAgregarCai('${p.id}')" style="padding:4px 10px;font-size:11px">+ Rango</button>
+          <button class="btn btn-ghost" onclick="pvFusionar('${p.id}')" style="padding:4px 8px;font-size:11px" title="Fusionar con otro proveedor (mueve sus facturas)">🔀</button>
           <button class="btn btn-ghost" onclick="pvEditarProveedor('${p.id}')" style="padding:4px 8px;font-size:11px">✏️</button>
         </div>` : ''}
       </div>
@@ -141,7 +148,34 @@ window.pvEditarProveedor = (id) => {
   document.getElementById('pv-modal-title').textContent = p ? 'Editar proveedor' : 'Nuevo proveedor'
   document.getElementById('pv-nombre').value = p?.nombre || ''
   document.getElementById('pv-rtn').value = p?.rtn || ''
+  // Botón eliminar: solo en edición. Muestra cuántas facturas tiene (si tiene, no se podrá borrar).
+  const btnDel = document.getElementById('pv-btn-eliminar')
+  if (btnDel) {
+    const n = id ? (pvFacturasPorProv[id] || 0) : 0
+    btnDel.style.display = id ? '' : 'none'
+    btnDel.textContent = n > 0 ? `🔒 ${n} factura(s) — no se puede borrar` : 'Eliminar'
+    btnDel.disabled = n > 0
+    btnDel.style.opacity = n > 0 ? '0.5' : '1'
+    btnDel.style.cursor = n > 0 ? 'not-allowed' : 'pointer'
+  }
   document.getElementById('modal-proveedor').classList.add('open')
+}
+
+window.pvEliminarProveedor = async () => {
+  if (!pvEditProvId) return
+  const n = pvFacturasPorProv[pvEditProvId] || 0
+  if (n > 0) { window.toast?.('No se puede borrar: tiene facturas. Usá Fusionar.', 'error'); return }
+  const p = pvProveedores.find(x => x.id === pvEditProvId)
+  if (!confirm(`¿Eliminar el proveedor "${p?.nombre}"? Esta acción no se puede deshacer.`)) return
+  // Borra primero sus CAI (por si los tuviera) y luego el proveedor
+  await pvSb().from('proveedor_cai').delete().eq('proveedor_id', pvEditProvId)
+  const { error } = await pvSb().from('proveedores').delete().eq('id', pvEditProvId)
+  if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
+  window.invalidarAcCache?.('proveedor')
+  window.toast?.('Proveedor eliminado ✓', 'success')
+  window.logActividad?.('proveedor_eliminado', 'compras', p?.nombre || '')
+  document.getElementById('modal-proveedor').classList.remove('open')
+  await pvCargar()
 }
 
 window.pvGuardarProveedor = async () => {
@@ -153,6 +187,7 @@ window.pvGuardarProveedor = async () => {
   if (pvEditProvId) res = await pvSb().from('proveedores').update(payload).eq('id', pvEditProvId)
   else res = await pvSb().from('proveedores').insert(payload)
   if (res.error) { window.toast?.('Error: ' + res.error.message, 'error'); return }
+  window.invalidarAcCache?.('proveedor')   // que el autocompletado de compras lo tome de inmediato
   window.toast?.('Proveedor guardado ✓', 'success')
   document.getElementById('modal-proveedor').classList.remove('open')
   await pvCargar()
@@ -208,5 +243,73 @@ window.pvEliminarCai = async () => {
   const { error } = await pvSb().from('proveedor_cai').delete().eq('id', pvEditCaiId)
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
   document.getElementById('modal-proveedor-cai').classList.remove('open')
+  await pvCargar()
+}
+
+// ── Fusionar proveedor (mueve facturas del duplicado al bueno y lo borra) ──
+let pvFusionOrigenId = null
+
+window.pvFusionar = (idOrigen) => {
+  const origen = pvProveedores.find(p => p.id === idOrigen)
+  if (!origen) return
+  const candidatos = pvProveedores.filter(p => p.id !== idOrigen)
+  if (!candidatos.length) { window.toast?.('No hay otro proveedor para fusionar', 'error'); return }
+  pvFusionOrigenId = idOrigen
+  const nOrigen = pvFacturasPorProv[idOrigen] || 0
+  document.getElementById('pv-fusion-origen').textContent = `${origen.nombre} (${nOrigen} factura/s)`
+  document.getElementById('pv-fusion-buscar').value = ''
+  pvFusionRenderLista('')
+  document.getElementById('modal-fusion').classList.add('open')
+}
+
+window.pvFusionFiltrar = (txt) => pvFusionRenderLista(txt)
+
+function pvFusionRenderLista(filtro) {
+  const q = (filtro || '').trim().toLowerCase()
+  const cont = document.getElementById('pv-fusion-lista')
+  if (!cont) return
+  const candidatos = pvProveedores
+    .filter(p => p.id !== pvFusionOrigenId)
+    .filter(p => !q || (p.nombre || '').toLowerCase().includes(q) || (p.rtn || '').toLowerCase().includes(q))
+  if (!candidatos.length) {
+    cont.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3)">Sin coincidencias para "${q}"</div>`
+    return
+  }
+  cont.innerHTML = candidatos.map(p => `
+    <div onclick="pvFusionConfirmar('${p.id}')" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;align-items:center"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+      <div>
+        <div style="font-weight:500">${p.nombre}</div>
+        <div style="font-size:11px;color:var(--text3)">RTN: ${p.rtn || '—'} · ${pvFacturasPorProv[p.id] || 0} factura(s)</div>
+      </div>
+      <span style="color:var(--gold);font-size:12px">elegir →</span>
+    </div>`).join('')
+}
+
+window.pvFusionConfirmar = async (destinoId) => {
+  const origen = pvProveedores.find(p => p.id === pvFusionOrigenId)
+  const destino = pvProveedores.find(p => p.id === destinoId)
+  if (!origen || !destino) return
+  const nOrigen = pvFacturasPorProv[pvFusionOrigenId] || 0
+  if (!confirm(`¿Confirmás?\n\nMover ${nOrigen} factura(s) de:\n  "${origen.nombre}"\nhacia:\n  "${destino.nombre}"\n\nY eliminar "${origen.nombre}". Esta acción no se puede deshacer.`)) return
+
+  // 1. Reapuntar facturas del origen al destino
+  if (nOrigen > 0) {
+    const { error: e1 } = await pvSb().from('facturas_compras')
+      .update({ proveedor_id: destino.id }).eq('proveedor_id', pvFusionOrigenId)
+    if (e1) { window.toast?.('Error moviendo facturas: ' + e1.message, 'error'); return }
+  }
+  // 2. Mover los CAI del origen al destino
+  await pvSb().from('proveedor_cai').update({ proveedor_id: destino.id }).eq('proveedor_id', pvFusionOrigenId)
+  // 3. Heredar RTN si el destino no tiene y el origen sí
+  if (!destino.rtn && origen.rtn) await pvSb().from('proveedores').update({ rtn: origen.rtn }).eq('id', destino.id)
+  // 4. Borrar el origen
+  const { error: e2 } = await pvSb().from('proveedores').delete().eq('id', pvFusionOrigenId)
+  if (e2) { window.toast?.('Facturas movidas, pero no se pudo borrar el origen: ' + e2.message, 'error'); document.getElementById('modal-fusion').classList.remove('open'); await pvCargar(); return }
+
+  window.invalidarAcCache?.('proveedor')
+  window.toast?.(`Fusionado: ${nOrigen} factura(s) movidas a "${destino.nombre}" ✓`, 'success')
+  window.logActividad?.('proveedor_fusionado', 'compras', `${origen.nombre} → ${destino.nombre} (${nOrigen} fact.)`)
+  document.getElementById('modal-fusion').classList.remove('open')
   await pvCargar()
 }

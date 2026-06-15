@@ -248,6 +248,7 @@ window.showView = (id, label) => {
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
   if (id === 'gastos-huerfanos' && window.initGastosHuerfanos) window.initGastosHuerfanos()
   if (id === 'proveedores' && window.initProveedores) window.initProveedores()
+  if (id === 'verif-compras' && window.initVerifCompras) window.initVerifCompras()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
@@ -785,10 +786,26 @@ window.toggleCentro = async (id, activa, nombre) => {
 // Cache de autocompletado por tipo
 let acCache = {}
 
+// Permite a otros módulos (ej. pantalla de Proveedores) invalidar el cache
+// para que un valor recién creado aparezca en el autocompletado sin recargar.
+window.invalidarAcCache = (tipo) => { if (tipo) delete acCache[tipo]; else acCache = {} }
+
 async function loadAcCache(tipo) {
   if (acCache[tipo]) return acCache[tipo]
   const { data } = await sb.from('autocomplete_valores').select('valor').eq('tipo', tipo).order('valor')
-  acCache[tipo] = (data || []).map(d => d.valor)
+  let valores = (data || []).map(d => d.valor)
+  // Para 'proveedor': combinar también con la tabla oficial de proveedores
+  // (la pantalla de Proveedores es la fuente nueva). Sin duplicar nombres.
+  if (tipo === 'proveedor') {
+    const { data: provs } = await sb.from('proveedores').select('nombre').order('nombre').limit(5000)
+    const set = new Set(valores.map(v => (v || '').toUpperCase().trim()))
+    for (const p of (provs || [])) {
+      const n = (p.nombre || '').toUpperCase().trim()
+      if (n && !set.has(n)) { valores.push(p.nombre); set.add(n) }
+    }
+    valores.sort()
+  }
+  acCache[tipo] = valores
   return acCache[tipo]
 }
 
@@ -826,6 +843,36 @@ window.acBuscar = async (input, tipo) => {
   else lista.classList.add('hidden')
 }
 
+// Autocompleta el número de factura: si compras escribió solo el correlativo
+// (puros dígitos) y el proveedor tiene UN solo prefijo activo, antepone el
+// prefijo y rellena el correlativo a 8 dígitos (formato SAR). Si el proveedor
+// tiene varios prefijos o ninguno, deja el número como lo escribió (la auxiliar
+// lo completará al verificar).
+window.completarNumeroFactura = async () => {
+  const numInput = document.getElementById('fc-numero')
+  const provInput = document.getElementById('fc-proveedor-nombre')
+  if (!numInput || !provInput) return
+  const raw = (numInput.value || '').trim()
+  if (!raw) return
+  // Solo actuar si parece un correlativo suelto: únicamente dígitos (sin guiones
+  // ni formato). Si ya tiene guiones o letras (S/F), no se toca.
+  if (!/^\d+$/.test(raw)) return
+  const nombre = (provInput.value || '').toUpperCase().trim()
+  if (!nombre) return
+  // Buscar el proveedor y sus CAI activos
+  const { data: prov } = await sb.from('proveedores').select('id').eq('nombre', nombre).limit(1).maybeSingle()
+  if (!prov) return
+  const { data: cais } = await sb.from('proveedor_cai')
+    .select('prefijo, activo').eq('proveedor_id', prov.id).eq('activo', true)
+  const conPrefijo = (cais || []).filter(c => c.prefijo && c.prefijo.trim())
+  // Solo autocompletar si hay EXACTAMENTE un prefijo activo (opción A)
+  if (conPrefijo.length !== 1) return
+  const prefijo = conPrefijo[0].prefijo.trim()
+  const correlativo = raw.padStart(8, '0')   // rellenar a 8 dígitos
+  numInput.value = `${prefijo}-${correlativo}`
+  toast(`Número completado con el prefijo del proveedor`, 'success')
+}
+
 window.acSelect = (el, valor) => {
   const wrap = el.closest('.ac-wrap')
   const input = wrap.querySelector('input')
@@ -845,6 +892,31 @@ window.acSelect = (el, valor) => {
       toast(`"${valor}" agregado ✓`, 'success')
     }
   }
+  // Si es el campo proveedor de compras, autollenar y proteger el RTN del proveedor
+  if (input.id === 'fc-proveedor-nombre') aplicarRtnProveedor(valor, !el.classList.contains('ac-new'))
+}
+
+// Autollena el RTN del proveedor seleccionado (si existe en la tabla). Si el
+// proveedor ya tiene RTN, el campo se bloquea para no sobrescribirlo por error.
+// Si no tiene RTN (o es nuevo), el campo queda editable para capturarlo.
+async function aplicarRtnProveedor(nombre, existente) {
+  const rtnInput = document.getElementById('fc-rtn')
+  if (!rtnInput) return
+  const n = (nombre || '').toUpperCase().trim()
+  if (!n) { rtnInput.value = ''; rtnInput.readOnly = false; rtnInput.title = ''; rtnInput.style.opacity = '1'; return }
+  const { data } = await sb.from('proveedores').select('rtn').eq('nombre', n).limit(1).maybeSingle()
+  if (data && data.rtn) {
+    rtnInput.value = data.rtn
+    rtnInput.readOnly = true                 // protegido: no se puede sobrescribir
+    rtnInput.style.opacity = '0.7'
+    rtnInput.title = 'RTN registrado del proveedor (protegido). Para cambiarlo, editá el proveedor en la pantalla Proveedores.'
+  } else {
+    // Proveedor sin RTN o nuevo: dejar editable para capturarlo
+    rtnInput.readOnly = false
+    rtnInput.style.opacity = '1'
+    rtnInput.title = ''
+    if (data && !data.rtn) rtnInput.value = ''   // existe pero sin RTN → vacío para que lo capturen
+  }
 }
 
 window.acCerrar = (input) => {
@@ -852,6 +924,8 @@ window.acCerrar = (input) => {
   if (lista) lista.classList.add('hidden')
   // Forzar mayúsculas al salir
   if (input.value) input.value = input.value.toUpperCase().trim()
+  // Si es el proveedor, intentar autollenar/proteger su RTN al salir del campo
+  if (input.id === 'fc-proveedor-nombre') aplicarRtnProveedor(input.value, true)
 }
 
 function initForm() {
@@ -859,6 +933,12 @@ function initForm() {
   document.getElementById('fc-fecha').value = today
   // Pre-cargar caches de autocompletado
   ;['proveedor', 'quien_pidio', 'entregado_a', 'tipo_gasto'].forEach(t => loadAcCache(t))
+  // Imagen: obligatoria para compras, opcional para los demás roles
+  const reqLbl = document.getElementById('fc-img-req')
+  if (reqLbl) reqLbl.textContent = (currentProfile?.rol === 'compras') ? '· obligatoria' : '· opcional'
+  // RTN editable al iniciar
+  const rtnInput = document.getElementById('fc-rtn')
+  if (rtnInput) { rtnInput.readOnly = false; rtnInput.style.opacity = '1'; rtnInput.title = '' }
 }
 
 window.calcISV = () => {
@@ -879,7 +959,7 @@ window.togglePagoFields = () => {
 }
 
 window.resetForm = () => {
-  ;['fc-numero','fc-proveedor-nombre','fc-quien-pidio','fc-descripcion','fc-monto','fc-tipo-gasto','fc-entregado-a','fc-obs'].forEach(id => {
+  ;['fc-numero','fc-proveedor-nombre','fc-rtn','fc-quien-pidio','fc-descripcion','fc-monto','fc-tipo-gasto','fc-entregado-a','fc-obs'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
   document.getElementById('fc-file').value = ''
@@ -988,6 +1068,7 @@ window.guardarCompra = async () => {
   const tipoGasto = (document.getElementById('fc-tipo-gasto').value || '').toUpperCase().trim()
   const entregadoA = (document.getElementById('fc-entregado-a').value || '').toUpperCase().trim()
   const formaPago = document.getElementById('fc-pago').value
+  const rtn = (document.getElementById('fc-rtn')?.value || '').trim()
 
   const btn = document.getElementById('btn-guardar-compra')
   if (!fecha) { toast('Ingresa la fecha de la factura', 'error'); return }
@@ -998,6 +1079,12 @@ window.guardarCompra = async () => {
   if (monto <= 0) { toast('El monto debe ser mayor a 0', 'error'); return }
   if (!tipoGasto) { toast('Ingresa el tipo de gasto', 'error'); return }
   if (!entregadoA) { toast('Ingresa a quién se le entregó', 'error'); return }
+  // La imagen es obligatoria solo para el rol 'compras'; los demás roles pueden
+  // registrar sin imagen (la auxiliar la adjunta al verificar si hace falta).
+  const esRolCompras = currentProfile?.rol === 'compras'
+  if (esRolCompras && !document.getElementById('fc-file').files?.[0]) {
+    toast('La imagen de la factura es obligatoria para compras', 'error'); return
+  }
 
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...'
 
@@ -1035,15 +1122,27 @@ window.guardarCompra = async () => {
     quien_pidio: quienPidio,
     descripcion_compra: descripcion,
     entregado_a: entregadoA,
+    rtn_proveedor: rtn || null,
+    proveedor_verificado: false,
     estado: 'pendiente'
   }
 
-  // Buscar o crear proveedor
-  const { data: provExist } = await sb.from('proveedores').select('id').eq('nombre', proveedorNombre).limit(1).single()
+  // Buscar o crear proveedor. Identificar por RTN si viene; si no, por nombre.
+  let provExist = null
+  if (rtn) {
+    const { data } = await sb.from('proveedores').select('id, rtn').eq('rtn', rtn).limit(1).maybeSingle()
+    provExist = data
+  }
+  if (!provExist) {
+    const { data } = await sb.from('proveedores').select('id, rtn').eq('nombre', proveedorNombre).limit(1).maybeSingle()
+    provExist = data
+  }
   if (provExist) {
     payload.proveedor_id = provExist.id
+    // Si el proveedor no tenía RTN y ahora lo capturamos, completarlo
+    if (rtn && !provExist.rtn) await sb.from('proveedores').update({ rtn }).eq('id', provExist.id)
   } else {
-    const { data: newProv } = await sb.from('proveedores').insert({ nombre: proveedorNombre }).select('id').single()
+    const { data: newProv } = await sb.from('proveedores').insert({ nombre: proveedorNombre, rtn: rtn || null }).select('id').single()
     if (newProv) payload.proveedor_id = newProv.id
   }
 
@@ -1188,11 +1287,13 @@ window.eliminarFactura = async (facturaId) => {
 
 // ── REVISAR FACTURA (MODAL AUXILIAR CONTABLE) ──
 let facturaEnRevision = null
+let fiscResultado = null
 
 window.abrirRevisarFactura = async (facturaId) => {
   const f = pendientesData.find(x => x.id === facturaId)
   if (!f) return
   facturaEnRevision = f
+  fiscResultado = null
 
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
 
@@ -1275,6 +1376,20 @@ window.abrirRevisarFactura = async (facturaId) => {
         </div>
       </div>
       ${f.observaciones ? `<div style="margin-top:12px;font-size:12px;color:var(--text3)">Obs: ${f.observaciones}</div>` : ''}
+    </div>
+
+    <!-- VERIFICACIÓN FISCAL (SAR) -->
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:16px;margin-bottom:16px;border-left:3px solid var(--gold)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--gold);font-weight:500">🛡️ Verificación fiscal (SAR)</div>
+        <span id="fisc-estado-badge"></span>
+      </div>
+      <div id="fisc-contenido" style="font-size:13px;color:var(--text3)">Revisá el proveedor y el número, luego tocá "Verificar rango".</div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="fiscVerificar()" style="font-size:12px;padding:6px 14px;border-color:var(--gold);color:var(--gold)">Verificar rango y CAI</button>
+        <button class="btn btn-ghost" id="fisc-btn-imagen" onclick="document.getElementById('fisc-file').click()" style="font-size:12px;padding:6px 12px">📎 Adjuntar imagen</button>
+        <input type="file" id="fisc-file" accept="image/*,.pdf" class="hidden" onchange="fiscSubirImagen(this)">
+      </div>
     </div>`
 
   document.getElementById('modal-revisar-factura-title').textContent = `🧾 Revisar · ${f.proveedor?.nombre || 'Factura'} · ${f.numero_factura}`
@@ -1282,6 +1397,141 @@ window.abrirRevisarFactura = async (facturaId) => {
   const btnAnular = document.getElementById('btn-anular-factura')
   if (btnAnular) btnAnular.classList.toggle('hidden', currentProfile?.rol !== 'super_admin')
   document.getElementById('modal-revisar-factura').classList.add('open')
+}
+
+// ── VERIFICACIÓN FISCAL (SAR) ──
+// Valida el número de factura contra los rangos/CAI del proveedor.
+function fiscCorrelativo(num) {
+  if (!num) return null
+  const m = String(num).match(/(\d+)\s*$/)
+  return m ? parseInt(m[1], 10) : null
+}
+
+window.fiscVerificar = async () => {
+  const cont = document.getElementById('fisc-contenido')
+  const badge = document.getElementById('fisc-estado-badge')
+  if (!facturaEnRevision || !cont) return
+  const nombre = (document.getElementById('rev-proveedor')?.value || '').toUpperCase().trim()
+  const numero = (document.getElementById('rev-numero')?.value || '').trim()
+  if (!nombre) { cont.innerHTML = '<span style="color:var(--red)">Falta el nombre del proveedor.</span>'; return }
+  if (!numero) { cont.innerHTML = '<span style="color:var(--red)">Falta el número de factura.</span>'; return }
+
+  // Buscar proveedor (por RTN de la factura si hay, si no por nombre)
+  let prov = null
+  const rtn = facturaEnRevision.rtn_proveedor
+  if (rtn) { const { data } = await sb.from('proveedores').select('id, nombre, rtn').eq('rtn', rtn).maybeSingle(); prov = data }
+  if (!prov) { const { data } = await sb.from('proveedores').select('id, nombre, rtn').eq('nombre', nombre).maybeSingle(); prov = data }
+  if (!prov) {
+    cont.innerHTML = `<span style="color:var(--amber)">⚠ El proveedor "${nombre}" no existe en el catálogo. Crealo en la pantalla Proveedores con su CAI y rangos, luego verificá.</span>`
+    badge.innerHTML = '<span style="font-size:11px;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:2px 8px">Sin proveedor</span>'
+    fiscResultado = { ok: false, motivo: 'sin_proveedor', provId: null, caiId: null }
+    return
+  }
+
+  // Traer sus CAI activos
+  const { data: cais } = await sb.from('proveedor_cai').select('*').eq('proveedor_id', prov.id).eq('activo', true)
+  if (!cais?.length) {
+    cont.innerHTML = `<span style="color:var(--amber)">⚠ "${prov.nombre}" no tiene rangos CAI cargados. Agregalos en Proveedores para validar el crédito fiscal.</span>`
+    badge.innerHTML = '<span style="font-size:11px;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:2px 8px">Sin rangos</span>'
+    fiscResultado = { ok: false, motivo: 'sin_cai', provId: prov.id, caiId: null }
+    return
+  }
+
+  // Validar el número contra cada CAI
+  const correlativo = fiscCorrelativo(numero)
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+  let match = null, motivoFalla = null
+  for (const c of cais) {
+    const desde = fiscCorrelativo(c.rango_desde), hasta = fiscCorrelativo(c.rango_hasta)
+    const enRango = correlativo != null && desde != null && hasta != null && correlativo >= desde && correlativo <= hasta
+    // Si tiene prefijo, validar también que el número lo contenga
+    const prefijoOk = !c.prefijo || String(numero).startsWith(c.prefijo)
+    const vencido = c.fecha_limite && (new Date(c.fecha_limite + 'T00:00:00') < hoy)
+    if (enRango && prefijoOk && !vencido) { match = c; break }
+    if (enRango && prefijoOk && vencido) { motivoFalla = 'vencido'; match = c }   // cae en rango pero CAI vencido
+  }
+
+  if (match && motivoFalla !== 'vencido') {
+    const fl = match.fecha_limite ? new Date(match.fecha_limite + 'T00:00:00') : null
+    const dias = fl ? Math.round((fl - hoy) / 864e5) : null
+    const aviso = dias != null && dias <= 30 ? ` <span style="color:${dias <= 7 ? 'var(--red)' : 'var(--amber)'}">(vence en ${dias}d)</span>` : ''
+    cont.innerHTML = `<span style="color:var(--green)">✓ Factura válida.</span> Cae en el rango <span style="font-family:var(--mono)">${match.rango_desde}→${match.rango_hasta}</span>${match.sucursal ? ' · ' + match.sucursal : ''}. CAI vigente${aviso}.<div style="margin-top:10px"><button class="btn btn-gold" onclick="fiscGuardarValida()" style="font-size:12px;padding:6px 14px">Guardar verificación ✓</button></div>`
+    badge.innerHTML = '<span style="font-size:11px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:2px 8px">✓ Con crédito fiscal</span>'
+    fiscResultado = { ok: true, motivo: 'valido', provId: prov.id, caiId: match.id, credito: true }
+  } else if (motivoFalla === 'vencido') {
+    cont.innerHTML = `<span style="color:var(--red)">✗ El número cae en el rango, pero el CAI venció el ${match.fecha_limite}.</span> Esta factura no da crédito fiscal salvo que el proveedor la reemplace. Elegí cómo marcarla:` + fiscBotonesDecision()
+    badge.innerHTML = '<span style="font-size:11px;color:var(--red);border:1px solid var(--red);border-radius:4px;padding:2px 8px">⚠ CAI vencido</span>'
+    fiscResultado = { ok: false, motivo: 'vencido', provId: prov.id, caiId: match.id, credito: false }
+  } else {
+    cont.innerHTML = `<span style="color:var(--red)">✗ El número ${numero} no cae en ningún rango autorizado vigente de ${prov.nombre}.</span> Verificá el número, o si el rango es nuevo cargalo en Proveedores. Elegí cómo marcarla:` + fiscBotonesDecision()
+    badge.innerHTML = '<span style="font-size:11px;color:var(--red);border:1px solid var(--red);border-radius:4px;padding:2px 8px">⚠ Fuera de rango</span>'
+    fiscResultado = { ok: false, motivo: 'fuera_rango', provId: prov.id, caiId: null, credito: false }
+  }
+}
+
+// Cuando la validación falla, la auxiliar decide explícitamente (fricción)
+function fiscBotonesDecision() {
+  return `<div style="display:flex;gap:8px;margin-top:10px">
+    <button class="btn btn-ghost" onclick="fiscMarcar('sin_credito')" style="font-size:11px;padding:5px 10px;border-color:var(--red);color:var(--red)">Verificar SIN crédito fiscal</button>
+    <button class="btn btn-ghost" onclick="fiscMarcar('pendiente')" style="font-size:11px;padding:5px 10px">Dejar pendiente</button>
+  </div>`
+}
+
+
+// Guarda el resultado de verificación en la factura
+window.fiscMarcar = async (decision) => {
+  if (!facturaEnRevision) return
+  const prof = currentProfile
+  let payload = { verificado_por: prof?.id || null, verificado_fecha: new Date().toISOString() }
+  if (decision === 'sin_credito') {
+    payload.proveedor_verificado = true
+    payload.credito_fiscal_valido = false
+    payload.nota_verificacion = 'Verificada sin crédito fiscal (' + (fiscResultado?.motivo || '') + ')'
+    if (fiscResultado?.provId) payload.proveedor_id = fiscResultado.provId
+  } else if (decision === 'pendiente') {
+    payload.proveedor_verificado = false
+    payload.credito_fiscal_valido = null
+    payload.nota_verificacion = 'Pendiente: ' + (fiscResultado?.motivo || '')
+  }
+  const { error } = await sb.from('facturas_compras').update(payload).eq('id', facturaEnRevision.id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(decision === 'sin_credito' ? 'Marcada sin crédito fiscal' : 'Dejada pendiente', 'success')
+  logActividad('factura_verificada', 'compras', `${facturaEnRevision.numero_factura} · ${decision}`)
+}
+
+// Verificación exitosa al pulsar Verificar: si fue válida, guarda con crédito fiscal
+window.fiscGuardarValida = async () => {
+  if (!facturaEnRevision || !fiscResultado?.ok) return
+  const prof = currentProfile
+  const payload = {
+    proveedor_verificado: true, credito_fiscal_valido: true,
+    cai_usado_id: fiscResultado.caiId || null,
+    proveedor_id: fiscResultado.provId || facturaEnRevision.proveedor_id,
+    verificado_por: prof?.id || null, verificado_fecha: new Date().toISOString(),
+    nota_verificacion: 'Verificada con crédito fiscal'
+  }
+  const { error } = await sb.from('facturas_compras').update(payload).eq('id', facturaEnRevision.id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  // Actualizar ultimo_usado del CAI (para la alerta de rango agotado)
+  if (fiscResultado.caiId) {
+    const numero = (document.getElementById('rev-numero')?.value || '').trim()
+    await sb.from('proveedor_cai').update({ ultimo_usado: numero }).eq('id', fiscResultado.caiId)
+  }
+  toast('Factura verificada con crédito fiscal ✓', 'success')
+  logActividad('factura_verificada', 'compras', `${facturaEnRevision.numero_factura} · con crédito`)
+}
+
+// Subir imagen desde la verificación (la auxiliar la adjunta si compras no la puso)
+window.fiscSubirImagen = async (input) => {
+  if (!input.files?.[0] || !facturaEnRevision) return
+  const file = input.files[0]
+  const ext = file.name.split('.').pop()
+  const path = `facturas/${Date.now()}.${ext}`
+  const { error: upErr } = await sb.storage.from('facturas-compras').upload(path, file)
+  if (upErr) { toast('Error subiendo imagen: ' + upErr.message, 'error'); return }
+  const { error } = await sb.from('facturas_compras').update({ foto_url: path }).eq('id', facturaEnRevision.id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast('Imagen adjuntada ✓', 'success')
 }
 
 window.eliminarFacturaDesdeModal = async () => {
