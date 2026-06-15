@@ -229,6 +229,9 @@
         <div class="nav-item hidden" id="nav-declaracion-isv" onclick="showView('declaracion-isv','Declaración de ISV')">
           <span class="nav-dot"></span>Declaración ISV
         </div>
+        <div class="nav-item" id="nav-rangos-ventas" onclick="showView('rangos-ventas','Control de rango de ventas')">
+          <span class="nav-dot"></span>Rango de ventas
+        </div>
       </div>
     </div>
 
@@ -1306,6 +1309,12 @@
         <div id="vc-resultado" class="hidden"></div>
       </div>
 
+      <div id="view-rangos-ventas" class="view">
+        <div class="page-title">🧾 Control de rango de ventas (SAR)</div>
+        <div class="page-sub">Tus rangos de facturación autorizados por centro de costo. Avisa cuándo se acerca la fecha límite o el fin del rango, y detecta saltos en el correlativo del libro de ventas.</div>
+        <div id="rv-lista"></div>
+      </div>
+
       <div class="view" id="view-balance-comp">
         <div class="page-header">
           <div>
@@ -1911,6 +1920,32 @@
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" onclick="document.getElementById('modal-proveedor').classList.remove('open')">Cancelar</button>
         <button class="btn btn-gold" onclick="pvGuardarProveedor()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-rango-venta">
+  <div class="modal" style="width:480px">
+    <div class="modal-title"><span id="rv-modal-title">Nuevo rango de venta</span></div>
+    <div class="form-grid" style="gap:12px">
+      <div class="fld col-full"><label>Centro de costo</label><select id="rv-centro"></select></div>
+      <div class="fld col-full"><label>CAI</label><input type="text" id="rv-cai" placeholder="Clave de Autorización de Impresión"></div>
+      <div class="fld col-full"><label>Prefijo (NNN-NNN-NN)</label><input type="text" id="rv-prefijo" placeholder="000-001-01"></div>
+      <div class="fld"><label>Rango desde</label><input type="text" id="rv-desde" placeholder="000-001-01-00000001"></div>
+      <div class="fld"><label>Rango hasta</label><input type="text" id="rv-hasta" placeholder="000-001-01-00001000"></div>
+      <div class="fld"><label>Fecha límite emisión</label><input type="date" id="rv-fecha"></div>
+      <div class="fld"><label>Descripción (opcional)</label><input type="text" id="rv-desc"></div>
+      <div class="fld col-full" style="flex-direction:row;align-items:center;gap:8px">
+        <input type="checkbox" id="rv-activo" checked style="width:auto;accent-color:var(--gold)">
+        <label style="margin:0;text-transform:none;font-size:13px">Activo (vigente para validar)</label>
+      </div>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="btn btn-ghost" id="rv-btn-eliminar" onclick="rvEliminar()" style="color:var(--red);display:none">Eliminar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-rango-venta').classList.remove('open')">Cancelar</button>
+        <button class="btn btn-gold" onclick="rvGuardar()">Guardar</button>
       </div>
     </div>
   </div>
@@ -3225,12 +3260,13 @@
     if (arrow) arrow.classList.toggle('collapsed')
   }
 </script>
-<script type="module" src="js/app.js?v=20260613f"></script>
+<script type="module" src="js/app.js?v=20260613i"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
 <script defer src="js/proveedores.js?v=20260613c"></script>
 <script defer src="js/verif_compras.js?v=20260613b"></script>
+<script defer src="js/rangos_ventas.js?v=20260613a"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260612d"></script>
 <script defer src="js/rrhh.js?v=20260612e"></script>

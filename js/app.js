@@ -121,9 +121,9 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
     contador_fiscal: ['nav-declaracion-isv']
   }
@@ -141,14 +141,14 @@ function setupUI() {
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
   })
 
   // Ocultar sección Contabilidad completa si no tiene ningún módulo contable
-  const contabItems = ['nav-catalogo', 'nav-partidas']
+  const contabItems = ['nav-catalogo', 'nav-partidas', 'nav-tipos-origen', 'nav-proveedores', 'nav-verif-compras']
   const tieneContab = contabItems.some(id => visibles.includes(id))
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 
@@ -159,17 +159,17 @@ function setupUI() {
   if (sectionImport) sectionImport.classList.toggle('hidden', !tieneImport)
 
   // Ocultar sección Reportes si no tiene ningún módulo de reportes
-  const reporteItems = ['nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados']
+  const reporteItems = ['nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-actividad']
   const tieneReportes = reporteItems.some(id => visibles.includes(id))
   const sectionReportes = document.getElementById('section-reportes')
   if (sectionReportes) sectionReportes.classList.toggle('hidden', !tieneReportes)
 
   // Ocultar sección Fiscal si no tiene el módulo
   const sectionFiscal = document.getElementById('section-fiscal')
-  if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv'))
+  if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv') && !visibles.includes('nav-rangos-ventas'))
 
   // Ocultar sección RRHH si no tiene ningún módulo
-  const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla']
+  const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones']
   const tieneRRHH = rrhhItems.some(id => visibles.includes(id))
   const sectionRRHH = document.getElementById('section-rrhh')
   if (sectionRRHH) sectionRRHH.classList.toggle('hidden', !tieneRRHH)
@@ -249,6 +249,7 @@ window.showView = (id, label) => {
   if (id === 'gastos-huerfanos' && window.initGastosHuerfanos) window.initGastosHuerfanos()
   if (id === 'proveedores' && window.initProveedores) window.initProveedores()
   if (id === 'verif-compras' && window.initVerifCompras) window.initVerifCompras()
+  if (id === 'rangos-ventas' && window.initRangosVentas) window.initRangosVentas()
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
@@ -458,10 +459,11 @@ const MODULOS_CATALOGO = [
     ['nav-caja', 'Caja General'], ['nav-caja-chica', 'Caja Chica'], ['nav-cxp', 'Cuentas x Pagar'],
     ['nav-cuentas-cobrar', 'Cuentas x Cobrar'], ['nav-aprobaciones', 'Aprobaciones'], ['nav-vehiculos', 'Vehículos VIN'],
     ['nav-unidades-taxis', 'Unidades Taxis'], ['nav-financiamiento', 'Financiamiento'], ['nav-cierre-recibos', 'Cierre Recibos'],
-    ['nav-conciliacion', 'Conciliación Bancaria']
+    ['nav-conciliacion', 'Conciliación Bancaria'], ['nav-conciliacion-puente', 'Conciliación Puente']
   ]},
   { grupo: 'Contabilidad', items: [
-    ['nav-catalogo', 'Catálogo de cuentas'], ['nav-partidas', 'Partidas'], ['nav-tipos-origen', 'Tipos de origen']
+    ['nav-catalogo', 'Catálogo de cuentas'], ['nav-partidas', 'Partidas'], ['nav-tipos-origen', 'Tipos de origen'],
+    ['nav-proveedores', 'Proveedores'], ['nav-verif-compras', 'Verificar compras']
   ]},
   { grupo: 'Importaciones', items: [
     ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'],
@@ -469,14 +471,14 @@ const MODULOS_CATALOGO = [
   ]},
   { grupo: 'RRHH', items: [
     ['nav-empleados', 'Empleados'], ['nav-planilla', 'Planilla'], ['nav-prestamos-emp', 'Préstamos'],
-    ['nav-asistencia', 'Asistencia'], ['nav-config-planilla', 'Config. planilla']
+    ['nav-asistencia', 'Asistencia'], ['nav-config-planilla', 'Config. planilla'], ['nav-vacaciones', 'Vacaciones']
   ]},
   { grupo: 'Reportes', items: [
     ['nav-auxiliar', 'Auxiliar de cuentas'], ['nav-balance-comp', 'Balance comprobación'],
-    ['nav-estado-resultados', 'Estado de resultados'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-actividad', 'Actividad']
+    ['nav-estado-resultados', 'Estado de resultados'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-gastos-huerfanos', 'Gastos huérfanos'], ['nav-actividad', 'Actividad']
   ]},
   { grupo: 'Fiscal', items: [
-    ['nav-declaracion-isv', 'Declaración ISV']
+    ['nav-declaracion-isv', 'Declaración ISV'], ['nav-rangos-ventas', 'Rango de ventas']
   ]}
 ]
 
@@ -4187,6 +4189,46 @@ window.procesarImport = async () => {
         alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: Ventas exentas confirmado` })
       }
     }
+
+    // ── Aviso de control de rango SAR propio (fecha límite y fin de rango) ──
+    try {
+      const { data: rangosP } = await sb.from('rangos_propios').select('*').eq('activo', true)
+      if (rangosP?.length) {
+        const corrDe = (num) => { const m = String(num || '').match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : null }
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+        // Mapa centro nombre → reportes (para saber el último correlativo facturado)
+        for (const r of reportes) {
+          if (!r) continue
+          // Buscar el rango propio cuyo centro coincida con el del reporte (por nombre de centro)
+          const facturasR = r.todasFacturas || r.facturas || []
+          let maxN = null, prefijoFact = ''
+          for (const f of facturasR) {
+            const n = corrDe(f.factura_electronica)
+            if (n != null && (maxN == null || n > maxN)) maxN = n
+            if (!prefijoFact && f.factura_electronica) { const p = String(f.factura_electronica).split('-'); if (p.length >= 4) prefijoFact = p.slice(0, -1).join('-') }
+          }
+          // Casar por prefijo del rango con el de las facturas
+          const rango = rangosP.find(rp => rp.prefijo && prefijoFact && prefijoFact.startsWith(rp.prefijo))
+          if (!rango) continue
+          // Fecha límite
+          if (rango.fecha_limite) {
+            const dias = Math.round((new Date(rango.fecha_limite + 'T00:00:00') - hoy) / 864e5)
+            if (dias < 0) alertas.push({ tipo: 'error', msg: `🛑 ${r.empresaRaw}: tu CAI venció hace ${-dias} día(s) (${rango.fecha_limite}). Renová antes de seguir facturando.` })
+            else if (dias <= 7) alertas.push({ tipo: 'error', msg: `⏰ ${r.empresaRaw}: tu CAI vence en ${dias} día(s) (${rango.fecha_limite}). Gestioná la renovación YA.` })
+            else if (dias <= 30) alertas.push({ tipo: 'warning', msg: `📅 ${r.empresaRaw}: tu CAI vence en ${dias} día(s) (${rango.fecha_limite}).` })
+          }
+          // Fin de rango (5%)
+          const desde = corrDe(rango.rango_desde), hasta = corrDe(rango.rango_hasta)
+          if (desde != null && hasta != null && maxN != null && hasta >= desde) {
+            const total = hasta - desde + 1
+            const restantes = hasta - maxN
+            const pct = (restantes / total) * 100
+            if (restantes < 0) alertas.push({ tipo: 'error', msg: `🛑 ${r.empresaRaw}: estás facturando FUERA de tu rango autorizado (último: ${maxN}, tope: ${hasta}).` })
+            else if (pct <= 5) alertas.push({ tipo: 'warning', msg: `📉 ${r.empresaRaw}: te quedan ${restantes} factura(s) de tu rango autorizado (tope ${hasta}). Gestioná un nuevo rango.` })
+          }
+        }
+      }
+    } catch (e) { console.log('Aviso rango propio no disponible:', e) }
 
     importData = { tecnimax_fiscal, tecnimax_interno, yonker_fiscal, yonker_interno, alertas }
 
