@@ -4570,7 +4570,7 @@ window.guardarImportPartida = async () => {
 
   // Cargar cuentas detalle si no están
   if (!cuentasDetalle.length) {
-    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').order('codigo')
     cuentasDetalle = data || []
   }
 
@@ -4682,6 +4682,19 @@ window.guardarImportPartida = async () => {
       descripcion: '',
       aplica_fiscal: cr.fiscal
     })
+  }
+
+  // Fallback: rellenar cuenta_id de líneas que tengan código pero no id (el flag
+  // es_detalle pudo dejarlas fuera de cuentasDetalle). Sin esto, el cuadre no
+  // cuenta esas líneas y la partida aparece descuadrada hasta reescribir la cuenta.
+  const sinId = partidaLineas.filter(l => l.cuenta_codigo && !l.cuenta_id)
+  if (sinId.length) {
+    const codigos = [...new Set(sinId.map(l => l.cuenta_codigo))]
+    const { data: ctasBD } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').in('codigo', codigos)
+    for (const l of sinId) {
+      const cta = (ctasBD || []).find(c => c.codigo === l.cuenta_codigo)
+      if (cta) { l.cuenta_id = cta.id; if (!l.cuenta_nombre) l.cuenta_nombre = cta.nombre }
+    }
   }
 
   renderLineas()
