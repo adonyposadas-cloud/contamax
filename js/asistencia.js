@@ -154,18 +154,40 @@ window.procesarReloj = async () => {
   window.toast?.(`${dayRecords.length} registros · ${asistenciaResumen.length} empleados · ${quincena}`, 'success')
 }
 
+// Minutos de HE a partir de los minutos marcados DESPUÉS de la hora de salida.
+// Regla (acordada con Maximino):
+//   · 0–29 min  → 0   gracia: no acumula HE (margen para cerrar/arreglarse y marcar tarde)
+//   · ≥ 30 min  → se pagan TODOS los minutos marcados (ej. 35→35, 116→116)
+function calcularMinutosHE(extraMin, graciaMin) {
+  const gracia = graciaMin || 30
+  if (extraMin < gracia) return 0   // primeros (gracia-1) min no acumulan
+  return extraMin                    // a partir de la gracia → se paga el total marcado
+}
+
+// HE en minutos de un día, a partir del día de la semana y la hora de salida (en minutos).
+// Centraliza la regla para que SIEMPRE coincidan la pantalla de Asistencia, la planilla
+// y el historial. Al recalcular desde la hora de salida (en vez de confiar en el valor
+// guardado en asistencia_reloj.minutos_he), un cambio de regla aplica en todos lados sin
+// necesidad de re-importar el reloj.
+function heMinutosDia(weekday, salidaMin, graciaMin) {
+  if (salidaMin == null) return 0
+  if (weekday === 0) return 0                                   // domingo → sin HE
+  const horaSalida = weekday === 6 ? (13 * 60) : (17 * 60)      // 13:00 sábado, 17:00 L-V
+  const extraMin = salidaMin - horaSalida
+  if (extraMin <= 0) return 0
+  return calcularMinutosHE(extraMin, graciaMin)
+}
+
 // ── CALCULATE ATTENDANCE PER DAY ──
 function calcularAsistencia(dayRecords, permisos) {
   const HORA_ENTRADA = 8 * 60
   const HORA_SALIDA_LV = 17 * 60
   const HORA_SALIDA_SAB = 13 * 60
   const GRACIA_HE_LV = configPlanilla.he_gracia_lv_min || 30
-  const BLOQUE_HE = configPlanilla.he_bloque_min || 30
 
   return dayRecords.map(d => {
     const result = { ...d, minutos_tarde: 0, minutos_he: 0, minutos_negativos: 0,
       sin_salida: false, tiene_permiso: false, permiso_id: null, notas: [] }
-    const esSabado = d.weekday === 6
     const esDomingo = d.weekday === 0
     const esLaboral = d.weekday >= 1 && d.weekday <= 5
 
@@ -188,23 +210,12 @@ function calcularAsistencia(dayRecords, permisos) {
     }
     if (!d.salida) return result
 
-    if (esSabado) {
-      if (d.salidaMin > HORA_SALIDA_SAB) {
-        const extraMin = d.salidaMin - HORA_SALIDA_SAB
-        result.minutos_he = Math.floor(extraMin / BLOQUE_HE) * BLOQUE_HE
-        if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
-      }
-    } else if (esLaboral) {
-      const inicioHE = HORA_SALIDA_LV + GRACIA_HE_LV
-      if (d.salidaMin > inicioHE) {
-        const extraMin = d.salidaMin - HORA_SALIDA_LV
-        result.minutos_he = Math.floor(extraMin / BLOQUE_HE) * BLOQUE_HE
-        if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
-      }
-      if (d.salidaMin < HORA_SALIDA_LV && !result.tiene_permiso) {
-        result.minutos_negativos = HORA_SALIDA_LV - d.salidaMin
-        result.notas.push(`Negativo: ${result.minutos_negativos}min`)
-      }
+    result.minutos_he = heMinutosDia(d.weekday, d.salidaMin, GRACIA_HE_LV)
+    if (result.minutos_he > 0) result.notas.push(`HE: ${result.minutos_he}min`)
+
+    if (esLaboral && d.salidaMin < HORA_SALIDA_LV && !result.tiene_permiso) {
+      result.minutos_negativos = HORA_SALIDA_LV - d.salidaMin
+      result.notas.push(`Negativo: ${result.minutos_negativos}min`)
     }
     return result
   })
@@ -283,40 +294,98 @@ function _tratamiento(p) {
   return p.a_cuenta_vacaciones ? 'vacaciones' : 'goce'
 }
 
-// Días-equivalentes de un permiso (1 día completo, o fracción para salida anticipada)
-function _diasDePermiso(p) {
-  if (p.tipo === 'permiso_dia' || p.tipo === 'falta_justificada') return 1
-  if (p.tipo === 'salida_anticipada' && p.hora_salida) {
-    const [hh, mm] = String(p.hora_salida).split(':').map(Number)
-    const salidaMin = (hh || 0) * 60 + (mm || 0)
-    const [y, m, d] = String(p.fecha).split('-').map(Number)
-    const dow = new Date(y, (m || 1) - 1, d || 1).getDay()   // 0=Dom … 6=Sáb
-    const finJornada = dow === 6 ? 13 * 60 : 17 * 60          // 13:00 sábado, 17:00 L-V
-    const horas = Math.max(0, (finJornada - salidaMin) / 60)
-    return horas / 8
+// Fracción de día (jornada = 8h) cubierta por el permiso, desde la hora de salida marcada
+// hasta el fin de jornada, EXCLUYENDO la hora de almuerzo (12:00–13:00, solo L-V; el sábado
+// termina a las 13:00 y no tiene almuerzo). Ej. salida 12:04 un L-V →
+// (17:00−12:04) − almuerzo(12:04→13:00) = 4h = 0.5 día.
+function _fraccionDiaDesdeSalida(fecha, salidaMin) {
+  if (salidaMin == null) return 0
+  const [y, m, d] = String(fecha).split('-').map(Number)
+  const dow = new Date(y, (m || 1) - 1, d || 1).getDay()   // 0=Dom … 6=Sáb
+  const fin = dow === 6 ? 13 * 60 : 17 * 60                 // fin de jornada
+  if (salidaMin >= fin) return 0
+  let span = fin - salidaMin
+  if (dow !== 6) {                                          // descontar almuerzo 12:00–13:00 (L-V)
+    const ov = Math.max(0, Math.min(fin, 13 * 60) - Math.max(salidaMin, 12 * 60))
+    span -= ov
+  }
+  return Math.max(0, span) / 60 / 8
+}
+
+// Fracción de día (jornada = 8h) PERDIDA por una llegada tarde, desde el inicio de jornada
+// (08:00) hasta la hora en que llegó, EXCLUYENDO el almuerzo (12:00–13:00, solo L-V) si la
+// llegada lo cruza. Ej. llegó 10:00 un L-V → (10:00−08:00) = 2h = 0.25 día.
+// Llegó 13:30 → (13:30−08:00) − almuerzo(60) = 4.5h = 0.5625 día.
+function _fraccionMananaPerdida(fecha, entradaMin) {
+  if (entradaMin == null) return 0
+  const ini = 8 * 60                                       // inicio de jornada 08:00
+  if (entradaMin <= ini) return 0
+  const [y, m, d] = String(fecha).split('-').map(Number)
+  const dow = new Date(y, (m || 1) - 1, d || 1).getDay()   // 0=Dom … 6=Sáb
+  const fin = dow === 6 ? 13 * 60 : 17 * 60                 // fin de jornada
+  const llegada = Math.min(entradaMin, fin)                // no contar más allá del fin
+  let span = llegada - ini
+  if (dow !== 6) {                                          // descontar almuerzo 12:00–13:00 (L-V)
+    const ov = Math.max(0, Math.min(llegada, 13 * 60) - Math.max(ini, 12 * 60))
+    span -= ov
+  }
+  return Math.max(0, span) / 60 / 8
+}
+
+// Días-equivalentes de un permiso. Usa la hora de salida marcada del reloj ese día:
+//  · salida_anticipada → hora del permiso (o, si no la tiene, la marcada en el reloj)
+//  · llegada_tarde → fracción de la mañana perdida desde 08:00 hasta la hora de entrada
+//    declarada en el permiso (p.hora_entrada); el resto del día se paga como trabajado.
+//  · permiso_dia / falta_justificada → si ese día marcó salida (trabajó parte del día),
+//    se cobra solo la fracción desde la salida hasta el fin de jornada (menos almuerzo);
+//    si no marcó (ausencia total), es 1 día completo.
+function _diasDePermiso(p, salidaMin) {
+  if (p.tipo === 'salida_anticipada') {
+    const exit = p.hora_salida ? _horaAMin(p.hora_salida) : salidaMin
+    return _fraccionDiaDesdeSalida(p.fecha, exit)
+  }
+  if (p.tipo === 'llegada_tarde') {
+    const ent = p.hora_entrada ? _horaAMin(p.hora_entrada) : null
+    return _fraccionMananaPerdida(p.fecha, ent)
+  }
+  if (p.tipo === 'permiso_dia' || p.tipo === 'falta_justificada') {
+    return salidaMin != null ? _fraccionDiaDesdeSalida(p.fecha, salidaMin) : 1
   }
   return 0
 }
 
+// ¿El empleado tiene un permiso de "llegada tarde justificada" ese día? Implica que SÍ estuvo
+// presente (solo llegó tarde), aunque el reloj no haya capturado la marca de entrada. Sirve
+// para que la lógica de faltas/séptimo no lo cuente como ausencia.
+function _tienePermisoLlegadaTarde(empleadoId, nombre, fecha, permisos) {
+  return (permisos || []).some(p =>
+    p.tipo === 'llegada_tarde' &&
+    String(p.fecha).slice(0, 10) === String(fecha).slice(0, 10) &&
+    _matchEmpleado(empleadoId, nombre, p))
+}
+
 // Suma los DÍAS de permiso marcados "a cuenta de vacaciones" (tratamiento='vacaciones').
-function _diasPermisoVac(empleadoId, nombre, permisos) {
+// salidaPorFecha: mapa { 'YYYY-MM-DD': minutosDeSalidaMarcada } para calcular fracciones.
+function _diasPermisoVac(empleadoId, nombre, permisos, salidaPorFecha) {
   let dias = 0
   for (const p of (permisos || [])) {
     if (_tratamiento(p) !== 'vacaciones') continue
     if (!_matchEmpleado(empleadoId, nombre, p)) continue
-    dias += _diasDePermiso(p)
+    const sal = salidaPorFecha ? salidaPorFecha[String(p.fecha).slice(0, 10)] : null
+    dias += _diasDePermiso(p, sal == null ? null : sal)
   }
   return Math.round(dias * 1000) / 1000
 }
 
-// Suma los DÍAS de permiso SIN goce de sueldo (tratamiento='sin_goce') → se
-// descuentan del salario. Misma conversión hora/día que las vacaciones.
-function _diasPermisoSinGoce(empleadoId, nombre, permisos) {
+// Suma los DÍAS de permiso SIN goce de sueldo (tratamiento='sin_goce') → se descuentan
+// del salario. Misma conversión hora/día que las vacaciones.
+function _diasPermisoSinGoce(empleadoId, nombre, permisos, salidaPorFecha) {
   let dias = 0
   for (const p of (permisos || [])) {
     if (_tratamiento(p) !== 'sin_goce') continue
     if (!_matchEmpleado(empleadoId, nombre, p)) continue
-    dias += _diasDePermiso(p)
+    const sal = salidaPorFecha ? salidaPorFecha[String(p.fecha).slice(0, 10)] : null
+    dias += _diasDePermiso(p, sal == null ? null : sal)
   }
   return Math.round(dias * 1000) / 1000
 }
@@ -399,6 +468,7 @@ function _aplicarSeptimo(r, presentes, fechaInicio, fechaFin, baseDias, permisos
   let faltas = 0
   for (const f of esperados) {
     if (presentes.has(f)) continue
+    if (_tienePermisoLlegadaTarde(r.empleado_id, r.nombre, f, permisos)) continue   // llegó tarde, pero estuvo presente
     if (_tienePermisoDiaCompleto(r.empleado_id, r.nombre, f, permisos)) continue
     if (_diaEnIncapacidad(r.empleado_id, r.nombre, f, incaps)) continue   // incapacidad justifica
     faltas++
@@ -458,7 +528,8 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
     const presentes = new Set()
     for (const d of r.dias) {
       if (d.entrada) { r.diasTrabajados++; presentes.add(d.fecha) }
-      r.totalTarde += d.minutos_tarde
+      const _llegoTarde = _tienePermisoLlegadaTarde(r.empleado_id, r.nombre, d.fecha, permisosCache)
+      r.totalTarde += _llegoTarde ? 0 : d.minutos_tarde
       r.totalHE += d.minutos_he
       r.totalNegativo += d.minutos_negativos
       if (d.sin_salida) r.sinSalida.push(d.fecha)
@@ -484,8 +555,10 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
     } else {
       r.diasPagados = r.diasTrabajados // sin rango no se puede evaluar el séptimo (compat.)
     }
-    r.diasPermisoVac = _diasPermisoVac(r.empleado_id, r.nombre, permisosCache)
-    r.diasPermisoSinGoce = _diasPermisoSinGoce(r.empleado_id, r.nombre, permisosCache)
+    const _salPorFecha = {}
+    for (const dd of r.dias) { if (dd.salidaMin != null) _salPorFecha[String(dd.fecha).slice(0, 10)] = dd.salidaMin }
+    r.diasPermisoVac = _diasPermisoVac(r.empleado_id, r.nombre, permisosCache, _salPorFecha)
+    r.diasPermisoSinGoce = _diasPermisoSinGoce(r.empleado_id, r.nombre, permisosCache, _salPorFecha)
     if (fechaInicio && fechaFin) {
       const incap = _incapacidadEnPeriodo(r.empleado_id, r.nombre, incapacidadesCache, fechaInicio, fechaFin)
       r.diasIncapacidad = incap.dias
@@ -815,6 +888,7 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
 
   await loadConfig()
   const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
+  const GRACIA_HE = configPlanilla.he_gracia_lv_min || 30
   const bounds = _periodoBounds(parseInt(anio), parseInt(mes), quincena)
 
   // Permisos del período (justifican faltas → conservan el domingo)
@@ -839,11 +913,16 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     if (!byEmp[r.empleado_nombre]) {
       byEmp[r.empleado_nombre] = { nombre: r.empleado_nombre, empleado_id: r.empleado_id,
         totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], alertas: [],
-        presentes: new Set(), es_socio: !!sociosMap[r.empleado_id] }
+        presentes: new Set(), salidaPorFecha: {}, es_socio: !!sociosMap[r.empleado_id] }
     }
     const e = byEmp[r.empleado_nombre]
+    r.minutos_he = r.hora_salida ? heMinutosDia(r.dia_semana, _horaAMin(r.hora_salida), GRACIA_HE) : 0
+    if (r.hora_salida) e.salidaPorFecha[String(r.fecha).slice(0, 10)] = _horaAMin(r.hora_salida)
     if (r.hora_entrada) { e.diasTrabajados++; e.presentes.add(r.fecha) }
-    e.totalTarde += r.minutos_tarde || 0
+    // Un permiso de "llegada tarde justificada" gobierna ese día (goce / sin goce / vacaciones):
+    // no se aplica el descuento automático por tardanza para no duplicar el cobro.
+    const _llegoTarde = _tienePermisoLlegadaTarde(r.empleado_id, r.nombre, r.fecha, permisos || [])
+    e.totalTarde += _llegoTarde ? 0 : (r.minutos_tarde || 0)
     e.totalHE += r.minutos_he || 0
     e.totalNeg += r.minutos_negativos || 0
     if (r.sin_salida) e.sinSalida.push(r.fecha)
@@ -855,8 +934,8 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     e.heNeto = e.totalHE                              // HE en bruto (sin neteo)
     e.minNoTrabajados = e.totalNeg                    // salidas tempranas SIN permiso → descuento de sueldo
     _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [], incapacidades || [])
-    e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisos || [])
-    e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisos || [])
+    e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisos || [], e.salidaPorFecha)
+    e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisos || [], e.salidaPorFecha)
     const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapacidades || [], bounds.inicio, bounds.fin)
     e.diasIncapacidad = incap.dias
     e.diasIncapEmpresa = incap.empresa
@@ -922,6 +1001,9 @@ window.onPermTipoChange = () => {
   document.getElementById('fld-perm-hora').style.display = esIncap ? 'none' : ''
   document.getElementById('fld-perm-acuenta').style.display = esIncap ? 'none' : ''
   document.getElementById('perm-fecha-label').textContent = esIncap ? 'Fecha de inicio' : 'Fecha'
+  // La misma casilla de hora significa "salida" (salida anticipada) o "entrada" (llegada tarde)
+  const lblHora = document.querySelector('#fld-perm-hora label')
+  if (lblHora) lblHora.textContent = tipo === 'llegada_tarde' ? 'Hora de entrada (a la que llegó)' : 'Hora de salida'
   if (esIncap) onPermContinuacionChange()
 }
 
@@ -989,7 +1071,12 @@ window.guardarPermiso = async () => {
     reg.a_cuenta_vacaciones = false   // la incapacidad nunca toca vacaciones
     reg.tratamiento = 'incapacidad'
   } else {
-    reg.hora_salida = horaSalida || null
+    if (tipo === 'llegada_tarde') {
+      reg.hora_entrada = horaSalida || null   // la casilla de hora = hora de entrada en este tipo
+      reg.hora_salida = null
+    } else {
+      reg.hora_salida = horaSalida || null
+    }
     const trat = document.getElementById('perm-tratamiento')?.value || 'sin_goce'
     reg.tratamiento = trat
     reg.a_cuenta_vacaciones = (trat === 'vacaciones')   // compatibilidad con lógica/exportes viejos
@@ -1016,7 +1103,7 @@ async function cargarPermisos() {
 
   await _ensureFiltroPermisos(filtroNombre)
   
-  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)' }
+  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)', llegada_tarde: 'Llegada tarde justificada' }
 
   _permisosLista = data || []
   tbody.innerHTML = (data || []).map(p => `
@@ -1083,7 +1170,7 @@ window.verPermiso = (id) => {
   const p = _permisosLista.find(x => String(x.id) === String(id))
   if (!p) return
   ensurePermisoModal()
-  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)' }
+  const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)', llegada_tarde: 'Llegada tarde justificada' }
   const fila = (lbl, val) => (val == null || val === '') ? '' :
     `<div style="display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text3);font-size:13px">${lbl}</span><span style="font-weight:500;text-align:right">${val}</span></div>`
   document.getElementById('ver-permiso-body').innerHTML =
@@ -1094,6 +1181,7 @@ window.verPermiso = (id) => {
     (p.tipo === 'incapacidad' ? fila('Días', p.dias) : '') +
     (p.tipo === 'salida_anticipada' ? fila('Hora salida', p.hora_salida) : '') +
     (p.tipo === 'salida_anticipada' ? fila('Hora entrada', p.hora_entrada) : '') +
+    (p.tipo === 'llegada_tarde' ? fila('Hora de entrada', p.hora_entrada) : '') +
     (p.tipo === 'incapacidad' ? fila('Diagnóstico', p.diagnostico) : '') +
     fila('Motivo', p.motivo) +
     fila('Tratamiento', ({goce:'Con goce de sueldo', vacaciones:'A cuenta de vacaciones 🏖️', sin_goce:'Sin goce (descuenta salario)'})[_tratamiento(p)] || '') +
@@ -1139,6 +1227,7 @@ window.cargarHistorialAsistencia = async () => {
 
   await loadConfig()
   const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
+  const GRACIA_HE = configPlanilla.he_gracia_lv_min || 30
 
   // Group by employee
   const byEmp = {}
@@ -1149,6 +1238,7 @@ window.cargarHistorialAsistencia = async () => {
         presentes: new Set(), diasPagados: 0, faltasInjustificadas: 0, semanasConFalta: 0, faltasDetalle: [] }
     }
     const e = byEmp[r.empleado_nombre]
+    r.minutos_he = r.hora_salida ? heMinutosDia(r.dia_semana, _horaAMin(r.hora_salida), GRACIA_HE) : 0
     e.dias.push(r)
     if (r.hora_entrada) { e.diasTrabajados++; e.presentes.add(r.fecha) }
     e.totalTarde += r.minutos_tarde || 0
@@ -1189,8 +1279,10 @@ window.cargarHistorialAsistencia = async () => {
   for (const e of Object.values(byEmp)) {
     e.es_socio = !!sociosMap[e.empleado_id]
     _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [], incapsHist || [])
-    e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisosPeriodo || [])
-    e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisosPeriodo || [])
+    const _salPorFecha = {}
+    for (const dd of (e.dias || [])) { if (dd.hora_salida) _salPorFecha[String(dd.fecha).slice(0, 10)] = _horaAMin(dd.hora_salida) }
+    e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisosPeriodo || [], _salPorFecha)
+    e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisosPeriodo || [], _salPorFecha)
     const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapsHist || [], histBounds.inicio, histBounds.fin)
     e.diasIncapacidad = incap.dias
     e.diasIncapEmpresa = incap.empresa

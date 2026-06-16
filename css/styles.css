@@ -128,7 +128,7 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
 .col-full{grid-column:1/-1}
 .fld{display:flex;flex-direction:column;gap:6px}
 .fld label{font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500}
-.fld input,.fld select,.fld textarea{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s}
+.fld input,.fld select,.fld textarea{width:100%;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s}
 .fld input:focus,.fld select:focus,.fld textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px #f0a50010}
 .fld select option{background:var(--bg3)}
 .fld textarea{resize:vertical;min-height:72px}
@@ -166,7 +166,7 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
 /* MODAL */
 .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
 .modal-backdrop.open{display:flex}
-.modal{background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--radius-lg);padding:32px;width:460px;max-width:90vw;animation:fadeIn .2s ease}
+.modal{background:var(--bg2);border:0.5px solid var(--border2);border-radius:var(--radius-lg);padding:32px;width:460px;max-width:90vw;max-height:90vh;overflow-y:auto;animation:fadeIn .2s ease}
 .modal-title{font-size:17px;font-weight:500;margin-bottom:22px}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
 

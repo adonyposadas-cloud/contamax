@@ -14,6 +14,8 @@ let filteredEmpleados = []
 let editingEmpleadoId = null
 let currentPlanilla = null       // planilla header
 let currentDetalle = []          // detalle rows
+let currentSeccionFilter = ''    // filtro de sección activo (pestaña)
+let currentNombreFilter = ''     // filtro de búsqueda por nombre (mayúsculas)
 let editingDetalleIdx = null     // index in currentDetalle being edited
 let allPrestamosEmp = []
 
@@ -193,6 +195,8 @@ function _syncConfUI(e) {
   if (chk) chk.checked = !!e?.planilla_confidencial
   if (selC) selC.value = e?.conf_centro || 'TECNIMAX'
   if (prov) prov.checked = !!e?.conf_provisiona
+  const sc = document.getElementById('emp-sueldo-confidencial')
+  if (sc) sc.value = e?.sueldo_confidencial || ''
   if (extra) extra.style.display = chk?.checked ? 'flex' : 'none'
 }
 
@@ -283,6 +287,7 @@ window.guardarEmpleado = async () => {
     forma_pago: document.getElementById('emp-forma-pago').value,
     es_socio: document.getElementById('emp-es-socio').checked,
     planilla_confidencial: document.getElementById('emp-confidencial')?.checked || false,
+    sueldo_confidencial: parseFloat(document.getElementById('emp-sueldo-confidencial')?.value) || 0,
     conf_centro: document.getElementById('emp-conf-centro')?.value || 'TECNIMAX',
     conf_provisiona: document.getElementById('emp-conf-provisiona')?.checked || false,
     updated_at: new Date().toISOString()
@@ -495,9 +500,20 @@ window.generarPlanilla = async () => {
     allEmpleados = data || []
   }
 
-  // General: excluye confidenciales · Confidencial: solo confidenciales
-  const activos = allEmpleados.filter(e => e.activo && !!e.planilla_confidencial === planillaModoConf)
-  if (planillaModoConf && !activos.length) { window.toast?.('No hay empleados marcados como confidenciales', 'error'); return }
+  // Salario partido / confidencial. El campo sueldo_confidencial = sueldo REAL total.
+  // Si supera al visible (sueldo_mensual), hay "complemento" = real − visible, que se paga en
+  // la confidencial; el empleado sale en AMBAS planillas (visible en general, complemento en conf).
+  // planilla_confidencial marcado SIN complemento = 100% confidencial (solo en la confidencial).
+  const _esSplit = e => (parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0)
+  const _esFullConf = e => !!e.planilla_confidencial && !_esSplit(e)
+  const _complemento = e => Math.round(((parseFloat(e.sueldo_confidencial) || 0) - (e.sueldo_mensual || 0)) * 100) / 100
+
+  // General: todos los que NO son 100% confidenciales (normales + partidos, con su sueldo visible).
+  // Confidencial: los 100% confidenciales + los partidos (estos como complemento).
+  const activos = planillaModoConf
+    ? allEmpleados.filter(e => e.activo && (_esFullConf(e) || _esSplit(e)))
+    : allEmpleados.filter(e => e.activo && !_esFullConf(e))
+  if (planillaModoConf && !activos.length) { window.toast?.('No hay empleados confidenciales ni partidos', 'error'); return }
 
   // Create planilla header
   const { data: planilla, error: pErr } = await getSb().from('planillas').insert({
@@ -556,34 +572,47 @@ window.generarPlanilla = async () => {
     .eq('activo', true).eq('tipo', 'prestamo')
   if (prestErr) { console.warn('Error leyendo préstamos:', prestErr.message); window.toast?.('Aviso: no se pudieron leer préstamos → ' + prestErr.message, 'error') }
 
+  // Overrides SALARIALES (sin deducciones) derivados de la asistencia, a una base de sueldo dada.
+  // Se usa en la general (base = sueldo visible) y en el complemento confidencial (base =
+  // complemento), para que el complemento refleje días, vacaciones, incapacidad y HE a su tasa.
+  const overridesSalariales = (e, ast, base) => {
+    const ov = {}
+    if (!ast) { ov.dias_trabajados = 15; return ov }
+    ov.horas_extra = Math.round((ast.heNeto || 0) / 60 * 100) / 100
+    const rate = (base || 0) / 30
+    const diasPagados = ast.diasPagados ?? ast.diasTrabajados ?? 15
+    if (e.es_socio) { ov.dias_trabajados = diasPagados; return ov }
+    const vacTotal = ast.diasPermisoVac || 0
+    const sinGoce = ast.diasPermisoSinGoce || 0
+    const noTrabajados = (ast.minNoTrabajados || 0) / 60 / 8
+    const incapDias = ast.diasIncapacidad || 0
+    const incapEmpresa = ast.diasIncapEmpresa || 0
+    // "A cuenta de vacaciones" SIEMPRE paga el día y lo descuenta del saldo, aunque éste
+    // quede negativo (adelanto contra vacaciones futuras: ej. empleado con pocos meses).
+    // El saldo se compensa solo cuando se le acreditan los días ganados (Sumar días) y se
+    // muestra en rojo en el módulo de vacaciones. La rebaja real ocurre al aprobar.
+    const diasCubiertos = vacTotal
+    ov.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - sinGoce - noTrabajados - incapDias) * 100) / 100)
+    if (diasCubiertos > 0) ov.vacaciones = Math.round(diasCubiertos * rate * 100) / 100
+    if (incapEmpresa > 0) ov.incapacidad = Math.round(incapEmpresa * rate * 100) / 100
+    return ov
+  }
+
   const detalles = activos.map(e => {
     const overrides = {}
-    // Asistencia
+    // Complemento confidencial: empleado partido en la planilla confidencial. Paga solo la
+    // porción oculta (real − visible), ESPEJANDO el cálculo salarial de la general (días,
+    // vacaciones, incapacidad y HE) pero a la tasa del complemento. Sin IHSS, vecinal ni
+    // deducciones (todo eso va en la general sobre el sueldo visible).
+    if (planillaModoConf && _esSplit(e)) {
+      const astC = asistencia.find(a => a.empleado_id === e.id)
+      const empComp = { ...e, sueldo_mensual: _complemento(e), planilla_confidencial: true }
+      return calcularDetalleEmpleado(empComp, planilla.id, overridesSalariales(e, astC, _complemento(e)))
+    }
+    // Asistencia (general): salario sobre el sueldo visible + deducción por tardanza.
     const ast = asistencia.find(a => a.empleado_id === e.id)
     if (ast) {
-      overrides.horas_extra = Math.round(ast.heNeto / 60 * 100) / 100
-      const rate = (e.sueldo_mensual || 0) / 30
-      const diasPagados = ast.diasPagados ?? ast.diasTrabajados ?? 15
-      if (e.es_socio) {
-        overrides.dias_trabajados = diasPagados
-      } else {
-        const vacTotal = ast.diasPermisoVac || 0                 // días de permiso a cuenta de vacaciones
-        const sinGoce = ast.diasPermisoSinGoce || 0              // días de permiso SIN goce → se descuentan
-        const noTrabajados = (ast.minNoTrabajados || 0) / 60 / 8 // salidas tempranas sin permiso
-        const incapDias = ast.diasIncapacidad || 0               // días calendario de incapacidad en el período
-        const incapEmpresa = ast.diasIncapEmpresa || 0           // días-equivalentes que paga la empresa (100%/34%)
-        const saldoVac = parseFloat(e.vacaciones_saldo_dias) || 0
-        const diasCubiertos = Math.min(vacTotal, saldoVac)       // lo que alcanza a pagar vacaciones
-        // Días trabajados (base) = pagados − permiso vacaciones − sin goce − no trabajados − incapacidad.
-        // Vacaciones cubiertas vuelven como ingreso Vacaciones (neutro); incapacidad vuelve
-        // (total/parcial) en Incapacidad; sin goce y no cubierto reducen el neto.
-        overrides.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - sinGoce - noTrabajados - incapDias) * 100) / 100)
-        if (diasCubiertos > 0) overrides.vacaciones = Math.round(diasCubiertos * rate * 100) / 100
-        if (incapEmpresa > 0) overrides.incapacidad = Math.round(incapEmpresa * rate * 100) / 100
-        // Permiso sin goce: el descuento ya ocurre arriba al restar 'sinGoce' de
-        // dias_trabajados (el empleado cobra menos días). No se añade deducción
-        // aparte para no descontar doble.
-      }
+      Object.assign(overrides, overridesSalariales(e, ast, e.sueldo_mensual))
       if (ast.tardeDeducir > 0) {
         const valorMinuto = (e.sueldo_mensual || 0) / 30 / 8 / 60
         overrides.otras_deducciones = Math.round(ast.tardeDeducir * valorMinuto * 100) / 100
@@ -595,24 +624,29 @@ window.generarPlanilla = async () => {
       overrides.anticipos = Math.round(cxc.anticipos * 100) / 100
       overrides.trucha = Math.round(cxc.trucha * 100) / 100
     }
-    // Préstamos: deducir cuota si la 1ª deducción ya cae dentro de este período (≤ fin)
-    const prestamo = (prestamosActivos || []).find(p => p.empleado_id === e.id)
-    if (prestamo) {
+    // Préstamos: sumar la cuota de TODOS los préstamos activos del empleado cuya 1ª
+    // deducción ya cae dentro de este período (≤ fin). Un empleado puede tener varios.
+    const prestamosEmp = (prestamosActivos || []).filter(p => p.empleado_id === e.id)
+    let totalCuotaPrest = 0
+    for (const prestamo of prestamosEmp) {
       const fpd = (prestamo.fecha_primera_deduccion || '').slice(0, 10)  // normaliza por si trae hora
-      if (!fpd || fpd <= fin) {
-        const cuota = parseFloat(prestamo.cuota_quincenal) || 0
-        const saldoPrest = parseFloat(prestamo.saldo) || 0
-        overrides.cxc = Math.round(Math.min(cuota, saldoPrest) * 100) / 100
-      }
+      if (fpd && fpd > fin) continue
+      const cuota = parseFloat(prestamo.cuota_quincenal) || 0
+      const saldoPrest = parseFloat(prestamo.saldo) || 0
+      totalCuotaPrest += Math.min(cuota, saldoPrest)
     }
-    return calcularDetalleEmpleado(e, planilla.id, overrides)
+    if (totalCuotaPrest > 0) overrides.cxc = Math.round(totalCuotaPrest * 100) / 100
+    // En la planilla GENERAL, un empleado partido se trata como normal (IHSS/vecinal sobre el
+    // sueldo visible), aunque tenga marcada la casilla confidencial (esa solo aplica a la conf).
+    const eCalc = (!planillaModoConf && e.planilla_confidencial) ? { ...e, planilla_confidencial: false } : e
+    return calcularDetalleEmpleado(eCalc, planilla.id, overrides)
   })
 
-  // Insert all details
-  const { error: dErr } = await getSb().from('detalle_planilla').insert(detalles)
+  // Insert all details (recuperando el id generado por la BD para poder editarlos luego)
+  const { data: detInsertados, error: dErr } = await getSb().from('detalle_planilla').insert(detalles).select()
   if (dErr) { window.toast?.('Error generando detalle: ' + dErr.message, 'error'); return }
 
-  currentDetalle = detalles
+  currentDetalle = detInsertados || detalles
   // Update planilla totals
   await actualizarTotalesPlanilla()
   renderPlanilla()
@@ -657,13 +691,30 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
     impVecinal = overrides.imp_vecinal ?? 0
   }
 
-  const anticipos = overrides.anticipos ?? 0
-  const cxc = overrides.cxc ?? 0
+  let anticipos = overrides.anticipos ?? 0
+  let cxc = overrides.cxc ?? 0
   const trucha = overrides.trucha ?? 0
   const otrasDeducciones = overrides.otras_deducciones ?? 0
 
-  const totalDeducciones = ihssLaboral + impVecinal + anticipos + cxc + trucha + otrasDeducciones
-  const sueldoNeto = totalDevengado - totalDeducciones
+  // Piso de neto en L.1: si el neto quedaría por debajo de 1, se recorta lo deducido por
+  // anticipos (primero) y cuota de préstamo (después) hasta que el neto sea 1.00. IHSS,
+  // impuesto vecinal y trucha SIEMPRE se pagan completos. Lo que no se alcanza a deducir
+  // queda como saldo en el auxiliar CXC del empleado (se arrastra al próximo mes).
+  const PISO_NETO = 1
+  const fijasMasTrucha = ihssLaboral + impVecinal + trucha + otrasDeducciones
+  let netoCalc = totalDevengado - (fijasMasTrucha + anticipos + cxc)
+  if (netoCalc < PISO_NETO && !emp.es_socio) {
+    let porRecortar = Math.round((PISO_NETO - netoCalc) * 100) / 100   // monto a NO deducir
+    const recAnt = Math.min(anticipos, porRecortar)
+    anticipos = Math.round((anticipos - recAnt) * 100) / 100
+    porRecortar = Math.round((porRecortar - recAnt) * 100) / 100
+    const recCxc = Math.min(cxc, porRecortar)
+    cxc = Math.round((cxc - recCxc) * 100) / 100
+    netoCalc = totalDevengado - (fijasMasTrucha + anticipos + cxc)
+  }
+
+  const totalDeducciones = fijasMasTrucha + anticipos + cxc
+  const sueldoNeto = netoCalc
 
   return {
     planilla_id: planillaId,
@@ -705,6 +756,12 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
 function renderPlanilla() {
   document.getElementById('planilla-resultado').classList.remove('hidden')
 
+  // Reset de filtros al cargar/regenerar una planilla
+  currentSeccionFilter = ''
+  currentNombreFilter = ''
+  const plBuscar = document.getElementById('pl-buscar')
+  if (plBuscar) plBuscar.value = ''
+
   // Stats
   const totalBruto = currentDetalle.reduce((s, d) => s + (d.total_devengado || 0), 0)
   const totalDeduc = currentDetalle.reduce((s, d) => s + (d.total_deducciones || 0), 0)
@@ -723,7 +780,7 @@ function renderPlanilla() {
   tabsDiv.innerHTML = `<button class="btn btn-ghost pl-tab active" onclick="filterPlanillaTab('')" style="font-size:12px;padding:4px 12px">Todas</button>` +
     secciones.map(s => `<button class="btn btn-ghost pl-tab" onclick="filterPlanillaTab('${s}')" style="font-size:12px;padding:4px 12px">${s}</button>`).join('')
 
-  renderPlanillaTable('')
+  renderPlanillaTable()
 
   // Disable approve button if already approved
   const btnAprobar = document.getElementById('btn-aprobar-planilla')
@@ -746,11 +803,18 @@ function renderPlanilla() {
 window.filterPlanillaTab = (seccion) => {
   document.querySelectorAll('.pl-tab').forEach(t => t.classList.remove('active'))
   event.target.classList.add('active')
-  renderPlanillaTable(seccion)
+  currentSeccionFilter = seccion
+  renderPlanillaTable()
 }
 
-function renderPlanillaTable(seccionFilter) {
-  const data = seccionFilter ? currentDetalle.filter(d => d.seccion === seccionFilter) : currentDetalle
+window.filtrarPlanillaNombre = (q) => {
+  currentNombreFilter = (q || '').trim().toUpperCase()
+  renderPlanillaTable()
+}
+
+function renderPlanillaTable() {
+  let data = currentSeccionFilter ? currentDetalle.filter(d => d.seccion === currentSeccionFilter) : currentDetalle
+  if (currentNombreFilter) data = data.filter(d => (d.nombre || '').toUpperCase().includes(currentNombreFilter))
   const tbody = document.getElementById('tbody-planilla')
   const isEditable = currentPlanilla?.estado === 'borrador'
 
@@ -758,8 +822,9 @@ function renderPlanillaTable(seccionFilter) {
     const globalIdx = currentDetalle.indexOf(d)
     const otrosIng = (d.ajuste_sueldo || 0) + (d.vacaciones || 0) + (d.incapacidad || 0) +
                      (d.bonificaciones || 0) + (d.otros_ingresos || 0) + (d.comisiones_venta || 0)
+    const topado = (d.sueldo_neto || 0) <= 1   // neto topado al piso de L.1 → resaltar en rojo
     return `
-    <tr>
+    <tr style="${topado ? 'background:#ff000012' : ''}">
       <td>${i + 1}</td>
       <td style="white-space:nowrap;font-size:12px">${d.nombre}</td>
       <td style="text-align:right">${fmt(d.sueldo_mensual)}</td>
@@ -775,7 +840,7 @@ function renderPlanillaTable(seccionFilter) {
       <td style="text-align:right">${d.trucha > 0 ? fmt(d.trucha) : '—'}</td>
       <td style="text-align:right">${d.otras_deducciones > 0 ? fmt(d.otras_deducciones) : '—'}</td>
       <td style="text-align:right;color:var(--red)">${fmt(d.total_deducciones)}</td>
-      <td style="text-align:right;font-weight:600;color:var(--green)">${fmt(d.sueldo_neto)}</td>
+      <td style="text-align:right;font-weight:600;color:${topado ? 'var(--red)' : 'var(--green)'}">${fmt(d.sueldo_neto)}</td>
       <td style="text-align:center">${isEditable ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px" onclick="editarDetallePlanilla(${globalIdx})">✏️</button>` : ''}</td>
     </tr>`
   }).join('')
@@ -1289,30 +1354,39 @@ window.aprobarPlanilla = async () => {
   // Candado por préstamo+período (no rebaja dos veces); inactiva el préstamo al llegar a 0.
   let prestAbonados = 0
   const { data: prestActivos } = await sb.from('prestamos_empleados')
-    .select('id, empleado_id, saldo').eq('activo', true).eq('tipo', 'prestamo')
+    .select('id, empleado_id, saldo, cuota_quincenal, fecha_primera_deduccion').eq('activo', true).eq('tipo', 'prestamo')
   const { data: abonosPrev, error: abErr } = await sb.from('abonos_prestamo_emp')
     .select('prestamo_id').eq('periodo', periodo)
   if (abErr) { window.toast?.('No se aprobó: no se pudo verificar abonos de préstamo → ' + abErr.message, 'error'); return }
   const yaAbonado = new Set((abonosPrev || []).map(a => a.prestamo_id))
   const errP = []
   for (const d of currentDetalle) {
-    const cuota = d.cxc || 0
-    if (cuota <= 0 || !d.empleado_id) continue
-    const prest = (prestActivos || []).find(p => p.empleado_id === d.empleado_id)
-    if (!prest || yaAbonado.has(prest.id)) continue
-    const saldoActual = parseFloat(prest.saldo) || 0
-    const abono = Math.round(Math.min(cuota, saldoActual) * 100) / 100
-    if (abono <= 0) continue
-    const saldoNuevo = Math.round((saldoActual - abono) * 100) / 100
-    // 1) Abono primero (traza). 2) Solo si grabó, se rebaja el saldo.
-    const { error: aErr } = await sb.from('abonos_prestamo_emp').insert({
-      prestamo_id: prest.id, empleado_id: d.empleado_id, empleado_nombre: d.nombre,
-      fecha: fechaMov, monto: abono, saldo_resultante: saldoNuevo,
-      periodo, origen: 'planilla', created_by: quienId
-    })
-    if (aErr) { errP.push(`${d.nombre}: ${aErr.message}`); continue }
-    await sb.from('prestamos_empleados').update({ saldo: saldoNuevo, activo: saldoNuevo > 0 }).eq('id', prest.id)
-    prestAbonados++
+    let restante = Math.round((d.cxc || 0) * 100) / 100   // total de préstamo deducido en planilla
+    if (restante <= 0 || !d.empleado_id) continue
+    // Préstamos del empleado, vigentes (1ª deducción ya llegó) y no abonados este período.
+    // Se reparte 'restante' entre ellos (cada uno topado por su cuota y su saldo).
+    const prestamosEmp = (prestActivos || [])
+      .filter(p => p.empleado_id === d.empleado_id && !yaAbonado.has(p.id))
+      .filter(p => { const fpd = (p.fecha_primera_deduccion || '').slice(0, 10); return !fpd || fpd <= fechaMov })
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)))   // orden estable
+    for (const prest of prestamosEmp) {
+      if (restante <= 0) break
+      const saldoActual = parseFloat(prest.saldo) || 0
+      const cuota = parseFloat(prest.cuota_quincenal) || 0
+      const abono = Math.round(Math.min(cuota, saldoActual, restante) * 100) / 100
+      if (abono <= 0) continue
+      const saldoNuevo = Math.round((saldoActual - abono) * 100) / 100
+      // 1) Abono primero (traza). 2) Solo si grabó, se rebaja el saldo.
+      const { error: aErr } = await sb.from('abonos_prestamo_emp').insert({
+        prestamo_id: prest.id, empleado_id: d.empleado_id, empleado_nombre: d.nombre,
+        fecha: fechaMov, monto: abono, saldo_resultante: saldoNuevo,
+        periodo, origen: 'planilla', created_by: quienId
+      })
+      if (aErr) { errP.push(`${d.nombre}: ${aErr.message}`); break }
+      await sb.from('prestamos_empleados').update({ saldo: saldoNuevo, activo: saldoNuevo > 0 }).eq('id', prest.id)
+      restante = Math.round((restante - abono) * 100) / 100
+      prestAbonados++
+    }
   }
   if (errP.length) { window.toast?.('No se aprobó: error abonando préstamos → ' + errP[0], 'error'); return }
 
@@ -1422,6 +1496,111 @@ window.reabrirPlanilla = async () => {
 }
 
 // ── Exportar a Excel ──
+// ── Vouchers de pago: 6 por página (A4) para recortar y entregar ──
+window.imprimirVouchersPlanilla = () => {
+  if (!currentDetalle.length) { window.toast?.('No hay planilla para imprimir', 'error'); return }
+  // Respeta el filtro visible (sección + nombre): permite imprimir por sección o un empleado.
+  let data = currentSeccionFilter ? currentDetalle.filter(d => d.seccion === currentSeccionFilter) : currentDetalle
+  if (currentNombreFilter) data = data.filter(d => (d.nombre || '').toUpperCase().includes(currentNombreFilter))
+  if (!data.length) { window.toast?.('No hay empleados en el filtro actual', 'error'); return }
+
+  const fechaTxt = s => { if (!s) return ''; const [y, m, dd] = String(s).slice(0, 10).split('-'); return `${dd}/${m}/${y}` }
+  const ini = fechaTxt(currentPlanilla?.fecha_inicio)
+  const finP = fechaTxt(currentPlanilla?.fecha_fin)
+  const periodoTxt = (ini && finP) ? `${ini} al ${finP}` : (currentPlanilla?.periodo || '')
+
+  const filas = arr => arr.map(([label, val, always]) => {
+    const n = Number(val) || 0
+    if (!always && Math.abs(n) < 0.005) return ''
+    return `<tr><td>${label}</td><td class="num">${fmt(n)}</td></tr>`
+  }).join('')
+
+  const voucher = d => {
+    const ingresos = filas([
+      ['Sueldo quincenal', d.sueldo_quincenal, true],
+      [`Horas extra${d.horas_extra ? ` (${d.horas_extra} h)` : ''}`, d.monto_he],
+      ['Vacaciones', d.vacaciones],
+      ['Incapacidad', d.incapacidad],
+      ['Bonificaciones', d.bonificaciones],
+      ['Ajuste de sueldo', d.ajuste_sueldo],
+      ['Otros ingresos', d.otros_ingresos],
+      ['Comisiones', d.comisiones_venta]
+    ])
+    const deducciones = filas([
+      ['IHSS', d.ihss_laboral],
+      ['Impuesto vecinal', d.imp_vecinal],
+      ['Anticipos', d.anticipos],
+      ['Préstamo', d.cxc],
+      ['Trucha', d.trucha],
+      ['Otras deducciones', d.otras_deducciones]
+    ]) || '<tr><td colspan="2" class="muted">Sin deducciones</td></tr>'
+    return `
+      <div class="voucher">
+        <div class="vh">
+          <div class="vh-co">TECNIMAX</div>
+          <div class="vh-sub">Comprobante de pago de planilla</div>
+          <div class="vh-per">Quincena: ${periodoTxt}</div>
+        </div>
+        <div class="vemp">
+          <div class="vname">${d.nombre || ''}</div>
+          <div class="vmeta">${d.seccion || ''} · Días: ${d.dias_trabajados ?? ''} · Pago: ${d.forma_pago || ''}</div>
+        </div>
+        <table class="vt">
+          <tr class="sec"><td colspan="2">INGRESOS</td></tr>
+          ${ingresos}
+          <tr class="tot"><td>Total devengado</td><td class="num">${fmt(d.total_devengado)}</td></tr>
+          <tr class="sec"><td colspan="2">DEDUCCIONES</td></tr>
+          ${deducciones}
+          <tr class="tot"><td>Total deducciones</td><td class="num">${fmt(d.total_deducciones)}</td></tr>
+        </table>
+        <div class="vneto"><span>NETO A PAGAR</span><span>L.&nbsp;${fmt(d.sueldo_neto)}</span></div>
+        <div class="vfirma">Recibí conforme: ____________________</div>
+      </div>`
+  }
+
+  const paginas = []
+  for (let i = 0; i < data.length; i += 6) {
+    paginas.push(`<div class="page">${data.slice(i, i + 6).map(voucher).join('')}</div>`)
+  }
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Vouchers ${currentPlanilla?.periodo || ''}</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111}
+    .page{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,1fr);gap:5mm;padding:6mm;width:210mm;height:296mm;overflow:hidden;page-break-after:always}
+    .page:last-child{page-break-after:auto}
+    .voucher{border:1px dashed #888;border-radius:3px;padding:4mm;overflow:hidden;display:flex;flex-direction:column;font-size:10px;line-height:1.35}
+    .vh{text-align:center;border-bottom:1px solid #000;padding-bottom:2mm;margin-bottom:2mm}
+    .vh-co{font-size:14px;font-weight:700;letter-spacing:1px}
+    .vh-sub,.vh-per{font-size:9px;color:#444}
+    .vemp{margin-bottom:2mm}
+    .vname{font-weight:700;font-size:11px}
+    .vmeta{font-size:9px;color:#555}
+    .vt{width:100%;border-collapse:collapse}
+    .vt td{padding:.5mm 0}
+    .vt td.num{text-align:right;font-variant-numeric:tabular-nums}
+    .vt tr.sec td{font-weight:700;font-size:9px;color:#fff;background:#333;padding:.8mm 1.5mm;letter-spacing:.5px}
+    .vt tr.tot td{font-weight:700;border-top:1px solid #000}
+    .vt td.muted{color:#888;font-style:italic}
+    .vneto{margin-top:auto;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:12px;background:#f0a500;color:#000;padding:1.5mm 2mm;border-radius:3px}
+    .vfirma{font-size:8px;color:#555;margin-top:2mm}
+    @page{size:A4 portrait;margin:0}
+    @media print{.noprint{display:none}}
+  </style></head>
+  <body>
+    <div class="noprint" style="padding:10px;text-align:center">
+      <button onclick="window.print()" style="padding:8px 16px;font-size:14px;cursor:pointer">🖨️ Imprimir</button>
+      <span style="color:#666;margin-left:10px">${data.length} vouchers · ${paginas.length} página(s)</span>
+    </div>
+    ${paginas.join('')}
+  </body></html>`
+
+  const win = window.open('', '_blank')
+  if (!win) { window.toast?.('Permití las ventanas emergentes para imprimir los vouchers', 'error'); return }
+  win.document.write(html)
+  win.document.close()
+}
+
 window.exportarPlanillaExcel = () => {
   if (!currentDetalle.length) return
   const XLSX = window.XLSX
