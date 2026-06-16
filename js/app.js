@@ -6449,10 +6449,11 @@ window.guardarImportCostos = async () => {
   const ctaCosto = getCuenta(COSTOS_CUENTAS.costo_venta.codigo)
   const ctaInventario = getCuenta(COSTOS_CUENTAS.inventario.codigo)
 
-  // Calcular rango del mes
+  // Calcular rango del mes como [inicio, inicioMesSiguiente) — robusto para meses de 28/30/31 días
   const [anio, mes] = fecha.split('-')
   const mesInicio = `${anio}-${mes}-01`
-  const mesFin = `${anio}-${mes}-31`
+  const yNum = parseInt(anio, 10), mNum = parseInt(mes, 10)
+  const mesSiguiente = mNum === 12 ? `${yNum + 1}-01-01` : `${yNum}-${String(mNum + 1).padStart(2, '0')}-01`
 
   // Agrupar reportes: Tecnimax (fiscal+interno) y XPlantel Taxis
   const grupos = {}
@@ -6478,14 +6479,22 @@ window.guardarImportCostos = async () => {
     const costoTotal = Math.round(grupo.costo * 100) / 100
     const descLinea = `${grupo.label} · ${grupo.facturas} facturas`
 
-    // Buscar partida existente del mes
+    // Buscar partida existente del mes (activa, no anulada). Toma la más reciente si hubiera varias.
     const searchPattern = `Costo de venta · ${grupo.label} %[IMP-COSTO]`
-    const { data: existentes } = await sb.from('partidas_contables')
+    const { data: existentes, error: errBusca } = await sb.from('partidas_contables')
       .select('id')
       .like('descripcion', searchPattern)
       .gte('fecha_partida', mesInicio)
-      .lte('fecha_partida', mesFin)
+      .lt('fecha_partida', mesSiguiente)
+      .neq('estado', 'anulada')
+      .order('fecha_partida', { ascending: false })
+      .order('numero_partida', { ascending: false })
       .limit(1)
+    if (errBusca) {
+      errores++
+      log.push(`<span style="color:var(--red)">✕</span> ${grupo.label}: no se pudo verificar si ya existe partida (${errBusca.message}). Omitido para no duplicar.`)
+      continue
+    }
 
     const partidaExistente = existentes?.[0]
     const descripcion = `Costo de venta · ${grupo.label} · ${fecha} [IMP-COSTO]`
