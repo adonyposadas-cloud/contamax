@@ -1497,7 +1497,7 @@ window.reabrirPlanilla = async () => {
 
 // ── Exportar a Excel ──
 // ── Vouchers de pago: 6 por página (A4) para recortar y entregar ──
-window.imprimirVouchersPlanilla = () => {
+window.imprimirVouchersPlanilla = async () => {
   if (!currentDetalle.length) { window.toast?.('No hay planilla para imprimir', 'error'); return }
   // Respeta el filtro visible (sección + nombre): permite imprimir por sección o un empleado.
   let data = currentSeccionFilter ? currentDetalle.filter(d => d.seccion === currentSeccionFilter) : currentDetalle
@@ -1508,6 +1508,60 @@ window.imprimirVouchersPlanilla = () => {
   const ini = fechaTxt(currentPlanilla?.fecha_inicio)
   const finP = fechaTxt(currentPlanilla?.fecha_fin)
   const periodoTxt = (ini && finP) ? `${ini} al ${finP}` : (currentPlanilla?.periodo || '')
+
+  // ── Desglose de préstamos por empleado (descripción + monto) ───────────────
+  // Para que el voucher liste cada préstamo con su descripción. Tras aprobar se usan
+  // los abonos reales del período (suman exacto a d.cxc); en borrador se proyecta
+  // repartiendo d.cxc entre los préstamos activos vigentes (mismo reparto que la
+  // aprobación, sorteado por id), así la suma siempre cuadra con el total deducido.
+  const periodo = currentPlanilla?.periodo || ''
+  const finP10 = String(currentPlanilla?.fecha_fin || '').slice(0, 10)
+  const empIds = [...new Set(data.map(d => d.empleado_id).filter(Boolean))]
+  const prestBreakdown = {}   // empleado_id → [{desc, monto}]
+  if (empIds.length) {
+    const sb = getSb()
+    const [{ data: loans }, { data: abonos }] = await Promise.all([
+      sb.from('prestamos_empleados')
+        .select('id, empleado_id, descripcion, cuota_quincenal, saldo, fecha_primera_deduccion, tipo')
+        .in('empleado_id', empIds),
+      sb.from('abonos_prestamo_emp')
+        .select('prestamo_id, empleado_id, monto').eq('periodo', periodo)
+    ])
+    const descById = {}
+    ;(loans || []).forEach(l => { descById[l.id] = l.descripcion || '' })
+    const abonosByEmp = {}
+    ;(abonos || []).forEach(a => { (abonosByEmp[a.empleado_id] ||= []).push(a) })
+    for (const d of data) {
+      const eid = d.empleado_id
+      if (!eid) continue
+      const cxc = Math.round((d.cxc || 0) * 100) / 100
+      if (cxc <= 0) continue
+      const lista = []
+      if (abonosByEmp[eid]?.length) {
+        // Planilla aprobada: montos reales por préstamo.
+        for (const a of abonosByEmp[eid]) {
+          const m = Math.round((a.monto || 0) * 100) / 100
+          if (m > 0) lista.push({ desc: descById[a.prestamo_id] || '', monto: m })
+        }
+      } else {
+        // Borrador: proyección repartiendo cxc entre préstamos activos vigentes.
+        const activos = (loans || [])
+          .filter(l => l.empleado_id === eid && (l.tipo || 'prestamo') === 'prestamo')
+          .filter(l => { const fpd = String(l.fecha_primera_deduccion || '').slice(0, 10); return !fpd || !finP10 || fpd <= finP10 })
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+        let restante = cxc
+        for (const l of activos) {
+          if (restante <= 0.005) break
+          const cuota = parseFloat(l.cuota_quincenal) || 0
+          const saldo = parseFloat(l.saldo) || 0
+          const m = Math.round(Math.min(cuota, saldo, restante) * 100) / 100
+          if (m > 0) { lista.push({ desc: l.descripcion || '', monto: m }); restante = Math.round((restante - m) * 100) / 100 }
+        }
+        if (restante > 0.005) lista.push({ desc: '', monto: restante })   // remanente sin info de préstamo
+      }
+      prestBreakdown[eid] = lista
+    }
+  }
 
   const filas = arr => arr.map(([label, val, always]) => {
     const n = Number(val) || 0
@@ -1526,14 +1580,20 @@ window.imprimirVouchersPlanilla = () => {
       ['Otros ingresos', d.otros_ingresos],
       ['Comisiones', d.comisiones_venta]
     ])
-    const deducciones = filas([
+    const prestLineas = prestBreakdown[d.empleado_id] || []
+    const dedArr = [
       ['IHSS', d.ihss_laboral],
       ['Impuesto vecinal', d.imp_vecinal],
-      ['Anticipos', d.anticipos],
-      ['Préstamo', d.cxc],
-      ['Trucha', d.trucha],
-      ['Otras deducciones', d.otras_deducciones]
-    ]) || '<tr><td colspan="2" class="muted">Sin deducciones</td></tr>'
+      ['Anticipos', d.anticipos]
+    ]
+    if (prestLineas.length) {
+      prestLineas.forEach(p => dedArr.push([`Préstamo${p.desc ? ' · ' + p.desc : ''}`, p.monto]))
+    } else if ((d.cxc || 0) > 0.005) {
+      dedArr.push(['Préstamo', d.cxc])
+    }
+    dedArr.push(['Trucha', d.trucha])
+    dedArr.push(['Otras deducciones', d.otras_deducciones])
+    const deducciones = filas(dedArr) || '<tr><td colspan="2" class="muted">Sin deducciones</td></tr>'
     return `
       <div class="voucher">
         <div class="vh">
@@ -1558,41 +1618,37 @@ window.imprimirVouchersPlanilla = () => {
       </div>`
   }
 
-  const paginas = []
-  for (let i = 0; i < data.length; i += 6) {
-    paginas.push(`<div class="page">${data.slice(i, i + 6).map(voucher).join('')}</div>`)
-  }
+  const cuerpo = data.map(voucher).join('')
 
   const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Vouchers ${currentPlanilla?.periodo || ''}</title>
   <style>
     *{box-sizing:border-box}
     body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#111}
-    .page{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(3,1fr);gap:5mm;padding:6mm;width:210mm;height:296mm;overflow:hidden;page-break-after:always}
-    .page:last-child{page-break-after:auto}
-    .voucher{border:1px dashed #888;border-radius:3px;padding:4mm;overflow:hidden;display:flex;flex-direction:column;font-size:10px;line-height:1.35}
+    .sheet{columns:2;column-gap:6mm}
+    .voucher{border:1px dashed #888;border-radius:4px;padding:5mm;margin:0 0 6mm;display:block;font-size:11px;line-height:1.45;break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid}
     .vh{text-align:center;border-bottom:1px solid #000;padding-bottom:2mm;margin-bottom:2mm}
-    .vh-co{font-size:14px;font-weight:700;letter-spacing:1px}
-    .vh-sub,.vh-per{font-size:9px;color:#444}
-    .vemp{margin-bottom:2mm}
-    .vname{font-weight:700;font-size:11px}
-    .vmeta{font-size:9px;color:#555}
+    .vh-co{font-size:16px;font-weight:700;letter-spacing:1px}
+    .vh-sub,.vh-per{font-size:10px;color:#444}
+    .vemp{margin-bottom:2.5mm}
+    .vname{font-weight:700;font-size:12.5px}
+    .vmeta{font-size:10px;color:#555}
     .vt{width:100%;border-collapse:collapse}
-    .vt td{padding:.5mm 0}
+    .vt td{padding:.8mm 0}
     .vt td.num{text-align:right;font-variant-numeric:tabular-nums}
-    .vt tr.sec td{font-weight:700;font-size:9px;color:#fff;background:#333;padding:.8mm 1.5mm;letter-spacing:.5px}
+    .vt tr.sec td{font-weight:700;font-size:10px;color:#fff;background:#333;padding:1mm 1.5mm;letter-spacing:.5px}
     .vt tr.tot td{font-weight:700;border-top:1px solid #000}
     .vt td.muted{color:#888;font-style:italic}
-    .vneto{margin-top:auto;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:12px;background:#f0a500;color:#000;padding:1.5mm 2mm;border-radius:3px}
-    .vfirma{font-size:8px;color:#555;margin-top:2mm}
-    @page{size:A4 portrait;margin:0}
+    .vneto{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13.5px;background:#f0a500;color:#000;padding:2mm 2.5mm;border-radius:3px;margin-top:3mm}
+    .vfirma{font-size:9px;color:#555;margin-top:3mm}
+    @page{size:A4 portrait;margin:8mm}
     @media print{.noprint{display:none}}
   </style></head>
   <body>
     <div class="noprint" style="padding:10px;text-align:center">
       <button onclick="window.print()" style="padding:8px 16px;font-size:14px;cursor:pointer">🖨️ Imprimir</button>
-      <span style="color:#666;margin-left:10px">${data.length} vouchers · ${paginas.length} página(s)</span>
+      <span style="color:#666;margin-left:10px">${data.length} voucher(s)</span>
     </div>
-    ${paginas.join('')}
+    <div class="sheet">${cuerpo}</div>
   </body></html>`
 
   const win = window.open('', '_blank')

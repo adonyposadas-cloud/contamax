@@ -690,7 +690,13 @@ async function calcularNovedades() {
   const GRACIA_TARDE = configPlanilla.gracia_tarde_min || 30
   const hoy = new Date()
   const fHoy = _localYMD(hoy)
-  const fAyer = _addDaysStr(fHoy, -1)
+  // "Ayer" = ÚLTIMO día con marcajes antes de hoy (no el día anterior literal). Así el lunes
+  // muestra el sábado, y tras un feriado muestra el último día efectivamente marcado.
+  const { data: ultMarc } = await sb.from('marcaciones_raw')
+    .select('fecha').lt('fecha', fHoy).order('fecha', { ascending: false }).limit(1)
+  const fAyer = ultMarc?.[0]?.fecha || _addDaysStr(fHoy, -1)
+  // Fin de jornada del día anterior: sábado 1:00pm, resto 5:00pm (para "salió temprano").
+  const finAyer = new Date(fAyer + 'T12:00:00').getDay() === 6 ? 13 * 60 : HORA_SALIDA_LV
   const hace60 = _addDaysStr(fHoy, -60)
 
   const { data: mapas } = await sb.from('reloj_empleados').select('pin, empleado_nombre, activo')
@@ -727,7 +733,7 @@ async function calcularNovedades() {
       const d = dias[key]
       if (d.fecha !== fAyer || tienePermiso(d.nombre, fAyer)) continue
       if (d.entrada && !d.salida) sinSalidaAyer.push({ nombre: d.nombre, entrada: d.entrada })
-      else if (d.salida && d.salidaMin < HORA_SALIDA_LV) salioTempranoAyer.push({ nombre: d.nombre, salida: d.salida, min: HORA_SALIDA_LV - d.salidaMin })
+      else if (d.salida && d.salidaMin < finAyer) salioTempranoAyer.push({ nombre: d.nombre, salida: d.salida, min: finAyer - d.salidaMin })
     }
   }
 
@@ -755,7 +761,7 @@ async function calcularNovedades() {
   const byName = (a, b) => a.nombre.localeCompare(b.nombre)
   sinSalidaAyer.sort(byName); tardeHoy.sort((a, b) => b.min - a.min)
   ausentesHoy.sort(byName); conPermisoHoy.sort(byName); salioTempranoAyer.sort(byName)
-  return { fHoy, fAyer, sinSalidaAyer, tardeHoy, ausentesHoy, conPermisoHoy, salioTempranoAyer }
+  return { fHoy, fAyer, finAyerTxt: finAyer === 13 * 60 ? '1:00pm' : '5:00pm', sinSalidaAyer, tardeHoy, ausentesHoy, conPermisoHoy, salioTempranoAyer }
 }
 
 async function actualizarContadorNovedades() {
@@ -789,11 +795,11 @@ function renderNovedades(n) {
       ${items.length ? `<div style="display:flex;flex-direction:column;gap:4px">${items.map(fmtItem).join('')}</div>` : `<div style="font-size:12px;color:var(--text3);padding:2px 0">${vacio}</div>`}
     </div>`
   return `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Hoy: <strong>${n.fHoy}</strong> · Ayer: <strong>${n.fAyer}</strong></div>
-    ${sec('var(--red)', '🚪', 'No marcó SALIDA ayer — citar a firmar deducción', n.sinSalidaAyer, d => linea(d.nombre, 'entró ' + d.entrada), 'Nadie ✓')}
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Hoy: <strong>${n.fHoy}</strong> · Día anterior marcado: <strong>${n.fAyer}</strong></div>
+    ${sec('var(--red)', '🚪', 'No marcó SALIDA el día anterior — citar a firmar deducción', n.sinSalidaAyer, d => linea(d.nombre, 'entró ' + d.entrada), 'Nadie ✓')}
     ${sec('var(--amber)', '⏰', 'Llegó TARDE hoy', n.tardeHoy, d => linea(d.nombre + (d.excede ? ' ⚠️ excede gracia' : ''), d.entrada + ' · ' + d.min + 'min'), 'Nadie ✓')}
     ${sec('var(--text2)', '🚫', 'No marcó ENTRADA hoy — ausente / no ha llegado', n.ausentesHoy, d => linea(d.nombre), 'Todos presentes ✓')}
-    ${n.salioTempranoAyer.length ? sec('var(--amber)', '🏃', 'Salió temprano ayer (antes de 5:00pm)', n.salioTempranoAyer, d => linea(d.nombre, 'salió ' + d.salida + ' · ' + d.min + 'min antes'), '') : ''}
+    ${n.salioTempranoAyer.length ? sec('var(--amber)', '🏃', `Salió temprano el día anterior (antes de ${n.finAyerTxt})`, n.salioTempranoAyer, d => linea(d.nombre, 'salió ' + d.salida + ' · ' + d.min + 'min antes'), '') : ''}
     ${sec('#60a5fa', '🔓', 'Con permiso / incapacidad hoy (informativo)', n.conPermisoHoy, d => linea(d.nombre), '—')}`
 }
 
