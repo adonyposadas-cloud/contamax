@@ -194,7 +194,7 @@ function calcularAsistencia(dayRecords, permisos) {
     if (esDomingo) return result
 
     const permiso = permisos.find(p =>
-      p.empleado_nombre?.toUpperCase() === d.nombre?.toUpperCase() && p.fecha === d.fecha)
+      _matchEmpleado(d.empleado_id, d.nombre, p) && String(p.fecha).slice(0, 10) === String(d.fecha).slice(0, 10))
     if (permiso) { result.tiene_permiso = true; result.permiso_id = permiso.id }
 
     if (d.entrada && !d.salida) {
@@ -364,6 +364,17 @@ function _tienePermisoLlegadaTarde(empleadoId, nombre, fecha, permisos) {
     _matchEmpleado(empleadoId, nombre, p))
 }
 
+// hora_salida (en minutos) declarada en un permiso para ese día, si existe. Se usa como
+// salida efectiva para calcular HE cuando el empleado estuvo PRESENTE pero NO marcó salida
+// (ej. se fue a dejar una encomienda y la salida quedó justificada por permiso). heMinutosDia
+// devuelve 0 si la hora es anterior al fin de jornada, así que es seguro para cualquier tipo.
+function _horaSalidaPermiso(empleadoId, nombre, fecha, permisos) {
+  const p = (permisos || []).find(x => x.hora_salida &&
+    String(x.fecha).slice(0, 10) === String(fecha).slice(0, 10) &&
+    _matchEmpleado(empleadoId, nombre, x))
+  return p ? _horaAMin(p.hora_salida) : null
+}
+
 // Suma los DÍAS de permiso marcados "a cuenta de vacaciones" (tratamiento='vacaciones').
 // salidaPorFecha: mapa { 'YYYY-MM-DD': minutosDeSalidaMarcada } para calcular fracciones.
 function _diasPermisoVac(empleadoId, nombre, permisos, salidaPorFecha) {
@@ -526,14 +537,24 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
     }
 
     const presentes = new Set()
+    const _penalFechasP = new Set()
     for (const d of r.dias) {
       if (d.entrada) { r.diasTrabajados++; presentes.add(d.fecha) }
       const _llegoTarde = _tienePermisoLlegadaTarde(r.empleado_id, r.nombre, d.fecha, permisosCache)
       r.totalTarde += _llegoTarde ? 0 : d.minutos_tarde
       r.totalHE += d.minutos_he
       r.totalNegativo += d.minutos_negativos
-      if (d.sin_salida) r.sinSalida.push(d.fecha)
+      if (d.sin_salida) {
+        r.sinSalida.push(d.fecha)
+        // Sin salida y SIN permiso que justifique el no marcaje → penalidad ½ día.
+        // Justificado por permiso de salida, permiso de día completo, o día dentro de una incapacidad.
+        const _justif = _horaSalidaPermiso(r.empleado_id, r.nombre, d.fecha, permisosCache) != null
+          || _tienePermisoDiaCompleto(r.empleado_id, r.nombre, d.fecha, permisosCache)
+          || _diaEnIncapacidad(r.empleado_id, r.nombre, String(d.fecha).slice(0, 10), incapacidadesCache || [])
+        if (!_justif) { _penalFechasP.add(String(d.fecha).slice(0, 10)); if (Array.isArray(d.notas)) d.notas.push('½ día descontado (sin salida)') }
+      }
     }
+    r.diasSinSalidaPenal = _penalFechasP.size
 
     if (r.totalTarde > GRACIA_TARDE) {
       r.tardeDeducir = r.totalTarde
@@ -548,6 +569,7 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
     r.minNoTrabajados = r.totalNegativo            // salidas tempranas SIN permiso → descuento de sueldo
     if (r.totalNegativo > 0) r.alertas.push(`📉 ${r.totalNegativo}min no trabajados (descuento de sueldo)`)
     if (r.sinSalida.length) r.alertas.push(`❌ Sin salida: ${r.sinSalida.join(', ')}`)
+    if (r.diasSinSalidaPenal > 0) r.alertas.push(`❌ ${r.diasSinSalidaPenal} día(s) sin salida sin permiso → ½ día descontado c/u`)
 
     // Séptimo día: días pagados según faltas injustificadas (Lun-Sáb sin entrada y sin permiso)
     if (fechaInicio && fechaFin) {
@@ -918,11 +940,17 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
   for (const r of data) {
     if (!byEmp[r.empleado_nombre]) {
       byEmp[r.empleado_nombre] = { nombre: r.empleado_nombre, empleado_id: r.empleado_id,
-        totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], alertas: [],
+        totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [], diasSinSalidaPenal: 0, sinSalidaPenalFechas: new Set(), alertas: [],
         presentes: new Set(), salidaPorFecha: {}, es_socio: !!sociosMap[r.empleado_id] }
     }
     const e = byEmp[r.empleado_nombre]
-    r.minutos_he = r.hora_salida ? heMinutosDia(r.dia_semana, _horaAMin(r.hora_salida), GRACIA_HE) : 0
+    // HE del día: usa la salida marcada; si no marcó salida pero estuvo presente, usa la
+    // hora de salida justificada por un permiso (ej. encomienda → trabajó hasta esa hora).
+    let _salidaHE = r.hora_salida ? _horaAMin(r.hora_salida) : null
+    if (_salidaHE == null && r.hora_entrada) {
+      _salidaHE = _horaSalidaPermiso(r.empleado_id, r.empleado_nombre, r.fecha, permisos || [])
+    }
+    r.minutos_he = _salidaHE != null ? heMinutosDia(r.dia_semana, _salidaHE, GRACIA_HE) : 0
     if (r.hora_salida) e.salidaPorFecha[String(r.fecha).slice(0, 10)] = _horaAMin(r.hora_salida)
     if (r.hora_entrada) { e.diasTrabajados++; e.presentes.add(r.fecha) }
     // Un permiso de "llegada tarde justificada" gobierna ese día (goce / sin goce / vacaciones):
@@ -931,7 +959,18 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     e.totalTarde += _llegoTarde ? 0 : (r.minutos_tarde || 0)
     e.totalHE += r.minutos_he || 0
     e.totalNeg += r.minutos_negativos || 0
-    if (r.sin_salida) e.sinSalida.push(r.fecha)
+    if (r.sin_salida) {
+      e.sinSalida.push(r.fecha)
+      // Entrada SIN salida y SIN permiso que justifique el no marcaje → penalidad fija de ½ día.
+      // Se considera justificado si: hay permiso que cubra la salida (hora_salida, ej. encomienda),
+      // un permiso de día completo, o el día cae dentro de una INCAPACIDAD (se fue al seguro).
+      // Un permiso de "llegada tarde" NO justifica el no marcar salida.
+      const _fYMD = String(r.fecha).slice(0, 10)
+      const _justif = _horaSalidaPermiso(r.empleado_id, r.empleado_nombre, r.fecha, permisos || []) != null
+        || _tienePermisoDiaCompleto(r.empleado_id, r.empleado_nombre, r.fecha, permisos || [])
+        || _diaEnIncapacidad(r.empleado_id, r.empleado_nombre, _fYMD, incapacidades || [])
+      if (!_justif) e.sinSalidaPenalFechas.add(_fYMD)   // por FECHA, no por fila (filas duplicadas no inflan)
+    }
   }
 
   const out = []
@@ -939,6 +978,8 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     e.tardeDeducir = e.totalTarde > GRACIA_TARDE ? e.totalTarde : 0
     e.heNeto = e.totalHE                              // HE en bruto (sin neteo)
     e.minNoTrabajados = e.totalNeg                    // salidas tempranas SIN permiso → descuento de sueldo
+    e.diasSinSalidaPenal = e.sinSalidaPenalFechas.size
+    if (e.diasSinSalidaPenal > 0) e.alertas.push(`❌ ${e.diasSinSalidaPenal} día(s) sin salida sin permiso → ½ día descontado c/u`)
     _aplicarSeptimo(e, e.presentes, bounds.inicio, bounds.fin, bounds.base, permisos || [], incapacidades || [])
     e.diasPermisoVac = _diasPermisoVac(e.empleado_id, e.nombre, permisos || [], e.salidaPorFecha)
     e.diasPermisoSinGoce = _diasPermisoSinGoce(e.empleado_id, e.nombre, permisos || [], e.salidaPorFecha)
@@ -1053,6 +1094,16 @@ window.guardarPermiso = async () => {
   const tipo = document.getElementById('perm-tipo').value
 
   if (!empleadoId || !fecha) { window.toast?.('Seleccioná el empleado y la fecha', 'error'); return }
+
+  // Aviso anti-error AM/PM: una hora de salida antes de las 8:00am es de madrugada
+  // (imposible salir antes de entrar). Casi siempre es PM mal capturado (ej. 04:00 → 16:00),
+  // y descontaría casi todo el día sin goce. Confirmar antes de guardar.
+  if (tipo !== 'incapacidad' && tipo !== 'llegada_tarde' && horaSalida && _horaAMin(horaSalida) < 8 * 60) {
+    const hh = parseInt(horaSalida.split(':')[0], 10) || 0
+    const mm = horaSalida.split(':')[1] || '00'
+    const pm = String(hh + 12).padStart(2, '0') + ':' + mm
+    if (!confirm(`La hora de salida ${horaSalida} es de madrugada (antes de las 8:00am).\n¿Quizás querías ${pm} (PM)?\n\nAceptar = guardar ${horaSalida} de todos modos\nCancelar = volver y corregir`)) return
+  }
 
   const reg = {
     empleado_id: empleadoId,
@@ -1284,6 +1335,29 @@ window.cargarHistorialAsistencia = async () => {
     .select('*').eq('tipo', 'incapacidad')
   for (const e of Object.values(byEmp)) {
     e.es_socio = !!sociosMap[e.empleado_id]
+    // HE: si un día no tuvo salida marcada pero el empleado estuvo presente, usar la hora de
+    // salida justificada por un permiso (ej. encomienda → trabajó hasta esa hora) para el extra.
+    e.diasSinSalidaPenal = 0
+    const _penalFechasH = new Set()
+    for (const dd of (e.dias || [])) {
+      if (!dd.hora_salida && dd.hora_entrada) {
+        const ps = _horaSalidaPermiso(e.empleado_id, e.nombre, dd.fecha, permisosPeriodo || [])
+        if (ps != null) {
+          const nuevoHE = heMinutosDia(dd.dia_semana, ps, GRACIA_HE)
+          e.totalHE += (nuevoHE - (dd.minutos_he || 0))
+          dd.minutos_he = nuevoHE
+        }
+        // Sin salida y SIN permiso que justifique el no marcaje → penalidad ½ día (igual que en planilla).
+        // Justificado por permiso de salida, permiso de día completo, o día dentro de una incapacidad.
+        const _justif = ps != null
+          || _tienePermisoDiaCompleto(e.empleado_id, e.nombre, dd.fecha, permisosPeriodo || [])
+          || _diaEnIncapacidad(e.empleado_id, e.nombre, String(dd.fecha).slice(0, 10), incapsHist || [])
+        if (!_justif) { _penalFechasH.add(String(dd.fecha).slice(0, 10)); dd.notas = (dd.notas ? dd.notas + ' · ' : '') + '½ día descontado (sin salida)' }
+      }
+    }
+    e.diasSinSalidaPenal = _penalFechasH.size
+    if (e.diasSinSalidaPenal > 0) e.alertas.push(`❌ ${e.diasSinSalidaPenal} día(s) sin salida sin permiso → ½ día descontado c/u`)
+    e.heNeto = e.totalHE
     _aplicarSeptimo(e, e.presentes, histBounds.inicio, histBounds.fin, histBounds.base, permisosPeriodo || [], incapsHist || [])
     const _salPorFecha = {}
     for (const dd of (e.dias || [])) { if (dd.hora_salida) _salPorFecha[String(dd.fecha).slice(0, 10)] = _horaAMin(dd.hora_salida) }
@@ -1292,6 +1366,14 @@ window.cargarHistorialAsistencia = async () => {
     const incap = _incapacidadEnPeriodo(e.empleado_id, e.nombre, incapsHist || [], histBounds.inicio, histBounds.fin)
     e.diasIncapacidad = incap.dias
     e.diasIncapEmpresa = incap.empresa
+    // El ícono "🔓 Permiso" se guardaba al importar la asistencia; si el permiso se registró
+    // DESPUÉS, el flag quedaba en false y no se veía (caso Omar). Recalcular contra los
+    // permisos / incapacidades ACTUALES para que el ícono siempre refleje la realidad.
+    for (const dd of (e.dias || [])) {
+      const _f = String(dd.fecha).slice(0, 10)
+      dd.tiene_permiso = (permisosPeriodo || []).some(p => _matchEmpleado(e.empleado_id, e.nombre, p) && String(p.fecha).slice(0, 10) === _f)
+        || _diaEnIncapacidad(e.empleado_id, e.nombre, _f, incapsHist || [])
+    }
   }
 
   const empleados = Object.values(byEmp).sort((a, b) => a.nombre.localeCompare(b.nombre))

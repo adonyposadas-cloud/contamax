@@ -17,7 +17,9 @@ let currentDetalle = []          // detalle rows
 let currentSeccionFilter = ''    // filtro de sección activo (pestaña)
 let currentNombreFilter = ''     // filtro de búsqueda por nombre (mayúsculas)
 let editingDetalleIdx = null     // index in currentDetalle being edited
+let editingDetalleSnapshot = null // valores mostrados al abrir el modal (para detectar qué cambió)
 let allPrestamosEmp = []
+let editandoPrestamoId = null   // id del préstamo en edición (null = creando uno nuevo)
 
 // ── Configuración de cuentas contables por sección ──
 const CUENTAS_SECCION = {
@@ -515,6 +517,16 @@ window.generarPlanilla = async () => {
     : allEmpleados.filter(e => e.activo && !_esFullConf(e))
   if (planillaModoConf && !activos.length) { window.toast?.('No hay empleados confidenciales ni partidos', 'error'); return }
 
+  // Ajustes MANUALES del período (ediciones que el usuario hizo al cuadrar). Se reaplican
+  // sobre el cálculo automático para que NO se pierdan al regenerar. Solo contienen los
+  // campos que el usuario realmente cambió (el resto se recalcula normal).
+  const manualOverrides = {}
+  try {
+    const { data: ovs } = await getSb().from('planilla_overrides')
+      .select('empleado_id, overrides').eq('periodo', periodo).eq('es_confidencial', planillaModoConf)
+    for (const o of (ovs || [])) manualOverrides[o.empleado_id] = o.overrides || {}
+  } catch (e) { console.warn('overrides manuales:', e) }
+
   // Create planilla header
   const { data: planilla, error: pErr } = await getSb().from('planillas').insert({
     periodo,
@@ -540,11 +552,13 @@ window.generarPlanilla = async () => {
   } catch (e) { console.error('resumenAsistenciaDesdeDB:', e) }
   if (!asistencia.length) asistencia = window._asistenciaResumen || []
 
-  // ── Cargar anticipos y trucha de cuentas 110301-XXX ──
+  // ── Cargar anticipos y trucha de cuentas 110301-XXX (NETEANDO cargos vs abonos) ──
+  // Es un auxiliar: traemos débitos (cargos) Y créditos (abonos) del período y los neteamos
+  // por rubro, para no cobrar dos veces algo que ya se saldó dentro de la misma quincena
+  // (ej. un cargo de tarifas que luego se abona con un crédito).
   const { data: lineasCxC } = await getSb().from('lineas_partida')
     .select('monto, tipo, cuenta_codigo, descripcion, partida:partidas_contables(fecha_partida, estado)')
     .like('cuenta_codigo', '110301-%')
-    .eq('tipo', 'debito')
 
   const ini = fechaInicio.toISOString().slice(0, 10)
   const fin = fechaFin.toISOString().slice(0, 10)
@@ -555,16 +569,51 @@ window.generarPlanilla = async () => {
   const cxcPorCuenta = {}
   for (const l of cxcFiltradas) {
     const cc = l.cuenta_codigo
-    if (!cxcPorCuenta[cc]) cxcPorCuenta[cc] = { anticipos: 0, trucha: 0 }
     const desc = (l.descripcion || '').toUpperCase()
-    if (desc.includes('TRUCHA')) {
-      cxcPorCuenta[cc].trucha += parseFloat(l.monto) || 0
-    } else if (desc.includes('PRESTAMO') || desc.includes('PRÉSTAMO')) {
+    // Saltar SOLO los abonos (créditos) que genera la propia planilla (desc "PLANILLA {periodo}"),
+    // para no restar su propia recuperación. Un CARGO (débito) de adelanto que mencione "planilla"
+    // en su glosa (ej. "ADELANTO PENDIENTE DE PLANILLA DE MAYO") SÍ se recupera.
+    if (l.tipo === 'credito' && desc.includes('PLANILLA')) continue
+    if (!cxcPorCuenta[cc]) cxcPorCuenta[cc] = { anticipos: 0, trucha: 0 }
+    const monto = parseFloat(l.monto) || 0
+    const signo = l.tipo === 'credito' ? -1 : 1   // crédito (abono) resta; débito (cargo) suma
+    if (desc.includes('PRESTAMO') || desc.includes('PRÉSTAMO')) {
       // Préstamos se deducen por cuota, no como anticipo
+    } else if (desc.includes('TRUCHA')) {
+      cxcPorCuenta[cc].trucha += signo * monto
     } else {
-      cxcPorCuenta[cc].anticipos += parseFloat(l.monto) || 0
+      cxcPorCuenta[cc].anticipos += signo * monto
     }
   }
+  // No permitir netos negativos: si los abonos del período superan los cargos, no se deduce
+  // nada de ese rubro (el saldo a favor no se suma al sueldo).
+  for (const cc in cxcPorCuenta) {
+    cxcPorCuenta[cc].anticipos = Math.max(0, Math.round(cxcPorCuenta[cc].anticipos * 100) / 100)
+    cxcPorCuenta[cc].trucha = Math.max(0, Math.round(cxcPorCuenta[cc].trucha * 100) / 100)
+  }
+
+  // ── Validación: cuentas CXC con cargos que NINGÚN empleado tiene asignada en su ficha ──
+  // Caza desajustes como el de Jonathan (cargos en 110301-040 pero la ficha apuntaba a otra
+  // cuenta): esos anticipos/trucha no se descontarían a nadie. Avisa antes de continuar.
+  try {
+    const cuentasEmpleados = new Set((allEmpleados || []).filter(e => e.cuenta_cxc).map(e => String(e.cuenta_cxc)))
+    const huerfanas = Object.entries(cxcPorCuenta)
+      .filter(([cc, v]) => (v.anticipos + v.trucha) > 0.005 && !cuentasEmpleados.has(String(cc)))
+      .map(([cc, v]) => ({ cc, monto: Math.round((v.anticipos + v.trucha) * 100) / 100 }))
+    if (huerfanas.length) {
+      const nombres = {}
+      try {
+        const { data: cat } = await getSb().from('catalogo_cuentas').select('codigo, nombre').in('codigo', huerfanas.map(h => h.cc))
+        ;(cat || []).forEach(c => { nombres[c.codigo] = c.nombre })
+      } catch (_) { /* sin nombres, se muestra solo el código */ }
+      const detalle = huerfanas.map(h => `• ${h.cc}${nombres[h.cc] ? ' — ' + nombres[h.cc] : ''}: L. ${fmt(h.monto)}`).join('\n')
+      console.warn('CXC con cargos sin empleado asignado (no se descontarán):', huerfanas)
+      alert('⚠️ ATENCIÓN — Cuentas CXC con cargos que NINGÚN empleado tiene asignada en su ficha.\n' +
+        'Esos anticipos/trucha NO se descontarán hasta corregir la cuenta CXC del empleado:\n\n' +
+        detalle +
+        '\n\nRevisá la cuenta CXC en la ficha de esos empleados y regenerá la planilla.')
+    }
+  } catch (e) { console.warn('validación CXC:', e) }
 
   // Cargar préstamos activos
   const { data: prestamosActivos, error: prestErr } = await getSb().from('prestamos_empleados')
@@ -587,12 +636,15 @@ window.generarPlanilla = async () => {
     const noTrabajados = (ast.minNoTrabajados || 0) / 60 / 8
     const incapDias = ast.diasIncapacidad || 0
     const incapEmpresa = ast.diasIncapEmpresa || 0
+    // Día con entrada pero SIN salida y SIN permiso que lo justifique → penalidad fija de ½ día.
+    const PENAL_SIN_SALIDA_DIAS = 0.5
+    const penalSinSalida = (ast.diasSinSalidaPenal || 0) * PENAL_SIN_SALIDA_DIAS
     // "A cuenta de vacaciones" SIEMPRE paga el día y lo descuenta del saldo, aunque éste
     // quede negativo (adelanto contra vacaciones futuras: ej. empleado con pocos meses).
     // El saldo se compensa solo cuando se le acreditan los días ganados (Sumar días) y se
     // muestra en rojo en el módulo de vacaciones. La rebaja real ocurre al aprobar.
     const diasCubiertos = vacTotal
-    ov.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - sinGoce - noTrabajados - incapDias) * 100) / 100)
+    ov.dias_trabajados = Math.max(0, Math.round((diasPagados - vacTotal - sinGoce - noTrabajados - incapDias - penalSinSalida) * 100) / 100)
     if (diasCubiertos > 0) ov.vacaciones = Math.round(diasCubiertos * rate * 100) / 100
     if (incapEmpresa > 0) ov.incapacidad = Math.round(incapEmpresa * rate * 100) / 100
     return ov
@@ -607,7 +659,7 @@ window.generarPlanilla = async () => {
     if (planillaModoConf && _esSplit(e)) {
       const astC = asistencia.find(a => a.empleado_id === e.id)
       const empComp = { ...e, sueldo_mensual: _complemento(e), planilla_confidencial: true }
-      return calcularDetalleEmpleado(empComp, planilla.id, overridesSalariales(e, astC, _complemento(e)))
+      return calcularDetalleEmpleado(empComp, planilla.id, { ...overridesSalariales(e, astC, _complemento(e)), ...(manualOverrides[e.id] || {}) })
     }
     // Asistencia (general): salario sobre el sueldo visible + deducción por tardanza.
     const ast = asistencia.find(a => a.empleado_id === e.id)
@@ -639,6 +691,8 @@ window.generarPlanilla = async () => {
     // En la planilla GENERAL, un empleado partido se trata como normal (IHSS/vecinal sobre el
     // sueldo visible), aunque tenga marcada la casilla confidencial (esa solo aplica a la conf).
     const eCalc = (!planillaModoConf && e.planilla_confidencial) ? { ...e, planilla_confidencial: false } : e
+    // Reaplicar los ajustes manuales del usuario (solo los campos editados) sobre lo automático.
+    Object.assign(overrides, manualOverrides[e.id] || {})
     return calcularDetalleEmpleado(eCalc, planilla.id, overrides)
   })
 
@@ -693,28 +747,33 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
 
   let anticipos = overrides.anticipos ?? 0
   let cxc = overrides.cxc ?? 0
-  const trucha = overrides.trucha ?? 0
-  const otrasDeducciones = overrides.otras_deducciones ?? 0
+  let trucha = overrides.trucha ?? 0
+  let otrasDeducciones = overrides.otras_deducciones ?? 0
 
-  // Piso de neto en L.1: si el neto quedaría por debajo de 1, se recorta lo deducido por
-  // anticipos (primero) y cuota de préstamo (después) hasta que el neto sea 1.00. IHSS,
-  // impuesto vecinal y trucha SIEMPRE se pagan completos. Lo que no se alcanza a deducir
-  // queda como saldo en el auxiliar CXC del empleado (se arrastra al próximo mes).
+  // Piso de neto: el neto NUNCA queda negativo. Si las deducciones superan lo que el devengado
+  // puede cubrir, se DIFIEREN (no se deducen este período) en orden de prioridad:
+  //   anticipos → préstamo (cxc) → trucha → otras → IHSS → impuesto vecinal.
+  // Lo diferido queda como saldo pendiente del empleado, para cobrarse cuando tenga sueldo.
+  // Objetivo: dejar el neto en L.1; si el devengado no alcanza ni para L.1 (ej. 0 días
+  // trabajados, devengado 0), el neto queda en el devengado (0) — nunca negativo.
   const PISO_NETO = 1
-  const fijasMasTrucha = ihssLaboral + impVecinal + trucha + otrasDeducciones
-  let netoCalc = totalDevengado - (fijasMasTrucha + anticipos + cxc)
-  if (netoCalc < PISO_NETO && !emp.es_socio) {
-    let porRecortar = Math.round((PISO_NETO - netoCalc) * 100) / 100   // monto a NO deducir
-    const recAnt = Math.min(anticipos, porRecortar)
-    anticipos = Math.round((anticipos - recAnt) * 100) / 100
-    porRecortar = Math.round((porRecortar - recAnt) * 100) / 100
-    const recCxc = Math.min(cxc, porRecortar)
-    cxc = Math.round((cxc - recCxc) * 100) / 100
-    netoCalc = totalDevengado - (fijasMasTrucha + anticipos + cxc)
+  if (!emp.es_socio) {
+    const objetivo = Math.min(PISO_NETO, Math.max(0, totalDevengado))
+    const totalDed = ihssLaboral + impVecinal + trucha + otrasDeducciones + anticipos + cxc
+    let exceso = Math.round((totalDed - (totalDevengado - objetivo)) * 100) / 100   // monto que NO se puede deducir
+    if (exceso > 0.005) {
+      const recortar = (m) => { const r = Math.min(m, exceso); exceso = Math.round((exceso - r) * 100) / 100; return Math.round((m - r) * 100) / 100 }
+      anticipos = recortar(anticipos)
+      cxc = recortar(cxc)
+      trucha = recortar(trucha)
+      otrasDeducciones = recortar(otrasDeducciones)
+      ihssLaboral = recortar(ihssLaboral)
+      impVecinal = recortar(impVecinal)
+    }
   }
 
-  const totalDeducciones = fijasMasTrucha + anticipos + cxc
-  const sueldoNeto = netoCalc
+  const totalDeducciones = Math.round((ihssLaboral + impVecinal + trucha + otrasDeducciones + anticipos + cxc) * 100) / 100
+  const sueldoNeto = Math.round((totalDevengado - totalDeducciones) * 100) / 100
 
   return {
     planilla_id: planillaId,
@@ -850,6 +909,8 @@ function renderPlanillaTable() {
   const totals = data.reduce((acc, d) => {
     acc.quincenal += d.sueldo_quincenal || 0
     acc.he += d.monto_he || 0
+    acc.otros_ing += (d.ajuste_sueldo || 0) + (d.vacaciones || 0) + (d.incapacidad || 0) +
+                     (d.bonificaciones || 0) + (d.otros_ingresos || 0) + (d.comisiones_venta || 0)
     acc.devengado += d.total_devengado || 0
     acc.ihss += d.ihss_laboral || 0
     acc.vecinal += d.imp_vecinal || 0
@@ -860,14 +921,14 @@ function renderPlanillaTable() {
     acc.deducciones += d.total_deducciones || 0
     acc.neto += d.sueldo_neto || 0
     return acc
-  }, { quincenal: 0, he: 0, devengado: 0, ihss: 0, vecinal: 0, anticipos: 0, prestamo: 0, trucha: 0, otras_ded: 0, deducciones: 0, neto: 0 })
+  }, { quincenal: 0, he: 0, otros_ing: 0, devengado: 0, ihss: 0, vecinal: 0, anticipos: 0, prestamo: 0, trucha: 0, otras_ded: 0, deducciones: 0, neto: 0 })
 
   tfoot.innerHTML = `
     <tr style="font-weight:600;border-top:2px solid var(--border)">
       <td colspan="4">TOTAL (${data.length} empleados)</td>
       <td style="text-align:right">${fmt(totals.quincenal)}</td>
       <td style="text-align:right">${fmt(totals.he)}</td>
-      <td style="text-align:right">—</td>
+      <td style="text-align:right">${totals.otros_ing > 0 ? fmt(totals.otros_ing) : '—'}</td>
       <td style="text-align:right">${fmt(totals.devengado)}</td>
       <td style="text-align:right">${fmt(totals.ihss)}</td>
       <td style="text-align:right">${fmt(totals.vecinal)}</td>
@@ -899,6 +960,13 @@ window.editarDetallePlanilla = (idx) => {
   document.getElementById('dpl-cxc').value = d.cxc || 0
   document.getElementById('dpl-trucha').value = d.trucha || 0
   document.getElementById('dpl-otras-ded').value = d.otras_deducciones || 0
+  // Snapshot de lo mostrado, para detectar al guardar QUÉ campos cambió el usuario.
+  editingDetalleSnapshot = {
+    dias_trabajados: +(d.dias_trabajados || 0), horas_extra: +(d.horas_extra || 0), ajuste_sueldo: +(d.ajuste_sueldo || 0),
+    vacaciones: +(d.vacaciones || 0), incapacidad: +(d.incapacidad || 0), bonificaciones: +(d.bonificaciones || 0),
+    otros_ingresos: +(d.otros_ingresos || 0), comisiones_venta: +(d.comisiones_venta || 0), anticipos: +(d.anticipos || 0),
+    cxc: +(d.cxc || 0), trucha: +(d.trucha || 0), otras_deducciones: +(d.otras_deducciones || 0)
+  }
   openModal('modal-detalle-pl')
 }
 
@@ -945,11 +1013,54 @@ window.guardarDetallePlanilla = async () => {
   const { error } = await getSb().from('detalle_planilla').update(recalc).eq('id', d.id)
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
 
+  // Guardar como AJUSTE MANUAL del período solo los campos que el usuario cambió (vs lo
+  // mostrado), merged con los ajustes previos. Así sobreviven a "Regenerar planilla".
+  try {
+    const campos = ['dias_trabajados', 'horas_extra', 'ajuste_sueldo', 'vacaciones', 'incapacidad', 'bonificaciones', 'otros_ingresos', 'comisiones_venta', 'anticipos', 'cxc', 'trucha', 'otras_deducciones']
+    const snap = editingDetalleSnapshot || {}
+    const cambios = {}
+    for (const c of campos) {
+      const nuevo = Math.round((overrides[c] || 0) * 100) / 100
+      const viejo = Math.round((snap[c] || 0) * 100) / 100
+      if (nuevo !== viejo) cambios[c] = nuevo
+    }
+    if (Object.keys(cambios).length && currentPlanilla?.periodo && d.empleado_id) {
+      const { data: prev } = await getSb().from('planilla_overrides')
+        .select('overrides').eq('periodo', currentPlanilla.periodo)
+        .eq('es_confidencial', !!currentPlanilla.es_confidencial).eq('empleado_id', d.empleado_id).maybeSingle()
+      const merged = { ...(prev?.overrides || {}), ...cambios }
+      await getSb().from('planilla_overrides').upsert({
+        periodo: currentPlanilla.periodo,
+        es_confidencial: !!currentPlanilla.es_confidencial,
+        empleado_id: d.empleado_id,
+        overrides: merged,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'periodo,es_confidencial,empleado_id' })
+    }
+  } catch (e) { console.warn('guardar ajuste manual:', e) }
+
   currentDetalle[idx] = { ...d, ...recalc }
   closeModal('modal-detalle-pl')
   await actualizarTotalesPlanilla()
   renderPlanilla()
   window.toast?.('Detalle actualizado y recalculado', 'ok')
+}
+
+// Quitar los ajustes manuales guardados de un empleado (escape si te equivocaste). Al
+// regenerar la planilla, ese empleado vuelve a calcularse 100% automático.
+window.quitarAjusteManualDetalle = async () => {
+  const idx = editingDetalleIdx
+  if (idx === null) return
+  const d = currentDetalle[idx]
+  if (!currentPlanilla?.periodo || !d?.empleado_id) { window.toast?.('No hay ajustes que quitar', 'error'); return }
+  if (!confirm('¿Quitar los ajustes manuales de ' + d.nombre + '? Volverá a calcularse automático cuando regenerés la planilla.')) return
+  const { error } = await getSb().from('planilla_overrides').delete()
+    .eq('periodo', currentPlanilla.periodo)
+    .eq('es_confidencial', !!currentPlanilla.es_confidencial)
+    .eq('empleado_id', d.empleado_id)
+  if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
+  closeModal('modal-detalle-pl')
+  window.toast?.('Ajustes manuales quitados. Regenerá la planilla para recalcular este empleado.', 'ok')
 }
 
 async function actualizarTotalesPlanilla() {
@@ -999,8 +1110,10 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
     addC(C.ihss_laboral, d.ihss_laboral || 0)
     addC(C.ihss_patronal_cxp, d.ihss_patronal || 0)
     addC(C.imp_vecinal, d.imp_vecinal || 0)
-    addC(C.trucha, d.trucha || 0)
-    const antCxc = (d.anticipos || 0) + (d.cxc || 0)
+    // La trucha es cuenta por cobrar del empleado (se carga a su CXC al consumir, contra el
+    // ingreso 410305-002). En planilla se RECUPERA abonando a su CXC 110301-XXX — NO se abona
+    // a 210404-001 (ese doble registro descuadraba). Por eso la trucha entra en antCxc.
+    const antCxc = (d.anticipos || 0) + (d.cxc || 0) + (d.trucha || 0)
     if (antCxc > 0) {
       if (!d.cuenta_cxc) sinCxc.push(d.nombre)
       else addC(d.cuenta_cxc, antCxc)
@@ -1212,8 +1325,9 @@ async function generarPartidaConfidencial(periodo, fechaPartida) {
     const gasto = (d.total_devengado || 0) - (d.otras_deducciones || 0)
     if (gasto > 0) debGasto[ck] = (debGasto[ck] || 0) + gasto
     addC(CONF_CFG.imp_vecinal[ck], d.imp_vecinal || 0)
-    addC(CONF_CFG.trucha[ck], d.trucha || 0)
-    const antCxc = (d.anticipos || 0) + (d.cxc || 0)
+    // Trucha → se recupera por la CXC del empleado (no a la cuenta de trucha). Ver nota en
+    // generarPartidaPlanilla: el ingreso ya se reconoció al consumir; aquí solo se cobra.
+    const antCxc = (d.anticipos || 0) + (d.cxc || 0) + (d.trucha || 0)
     if (antCxc > 0) {
       if (!d.cuenta_cxc) sinCxc.push(d.nombre)
       else addC(d.cuenta_cxc, antCxc)
@@ -1741,6 +1855,7 @@ function renderPrestamosEmpTable(lista) {
     : t === 'adelanto_aguinaldo' ? 'Adelanto aguinaldo'
     : t === 'adelanto_catorceavo' ? 'Adelanto catorceavo' : t
   const sinCuota = (t) => t === 'prestaciones' || t === 'adelanto_aguinaldo' || t === 'adelanto_catorceavo'
+  const esSuper = window._currentProfile?.()?.rol === 'super_admin'
   tbody.innerHTML = lista.map(p => `
     <tr style="${!p.activo ? 'opacity:0.5' : ''}">
       <td><strong>${p.empleado?.nombre || '—'}</strong></td>
@@ -1752,7 +1867,8 @@ function renderPrestamosEmpTable(lista) {
       <td style="font-size:12px;color:var(--text3)">${p.fecha_prestamo || '—'}</td>
       <td style="font-size:12px;color:var(--text3)">${sinCuota(p.tipo) ? '— (en planilla bono)' : (p.fecha_primera_deduccion || '—')}</td>
       <td>${p.activo ? '<span style="color:var(--gold)">● Activo</span>' : '<span style="color:var(--green)">● Pagado</span>'}</td>
-      <td>
+      <td style="white-space:nowrap">
+        ${esSuper ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarPrestamoEmp('${p.id}')">✏️ Editar</button>` : ''}
         ${p.activo ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="liquidarPrestamoEmp('${p.id}')">💰 Liquidar</button>` : ''}
       </td>
     </tr>
@@ -1788,6 +1904,7 @@ function cuentaPrestaciones(seccion) {
 }
 
 window.openModalPrestamoEmp = () => {
+  editandoPrestamoId = null
   document.getElementById('pe-monto').value = ''
   document.getElementById('pe-cuota').value = ''
   document.getElementById('pe-descripcion').value = ''
@@ -1797,8 +1914,36 @@ window.openModalPrestamoEmp = () => {
   document.getElementById('pe-fecha-prestamo').value = new Date().toLocaleDateString('en-CA')
   document.getElementById('pe-fecha-deduccion').value = ''
   const ga = document.getElementById('pe-generar-asiento'); if (ga) ga.checked = (window._peGenerarAsiento !== false)
+  // Restaurar campos/título por si venía de una edición
+  ;['pe-empleado', 'pe-tipo', 'pe-monto', 'pe-forma-entrega'].forEach(qid => { const el = document.getElementById(qid); if (el) el.disabled = false })
+  const aw = document.getElementById('pe-asiento-wrap'); if (aw) aw.style.display = ''
+  const tt = document.getElementById('pe-modal-title'); if (tt) tt.textContent = 'Nuevo préstamo / anticipo'
   ensureAdelantoOptions()
   onPrestamoTipoChange()
+  openModal('modal-prestamo-emp')
+}
+
+// Editar préstamo (solo super_admin): corrige cuota quincenal, descripción y fecha de 1ª
+// deducción. No toca empleado/tipo/monto ni re-genera el asiento contable, para no
+// descuadrar la partida ya posteada (si el monto está mal, liquidar y recrear).
+window.editarPrestamoEmp = (id) => {
+  if (window._currentProfile?.()?.rol !== 'super_admin') { window.toast?.('Solo super_admin puede editar préstamos', 'error'); return }
+  const p = (allPrestamosEmp || []).find(x => String(x.id) === String(id))
+  if (!p) { window.toast?.('Préstamo no encontrado', 'error'); return }
+  editandoPrestamoId = id
+  ensureAdelantoOptions()
+  document.getElementById('pe-empleado').value = p.empleado_id || ''
+  document.getElementById('pe-tipo').value = p.tipo || 'prestamo'
+  document.getElementById('pe-monto').value = p.monto_original ?? ''
+  document.getElementById('pe-cuota').value = p.cuota_quincenal ?? ''
+  document.getElementById('pe-descripcion').value = p.descripcion || ''
+  document.getElementById('pe-fecha-prestamo').value = (p.fecha_prestamo || '').slice(0, 10)
+  document.getElementById('pe-fecha-deduccion').value = (p.fecha_primera_deduccion || '').slice(0, 10)
+  onPrestamoTipoChange()
+  // Bloquear lo que no debe cambiarse en edición y ocultar el asiento
+  ;['pe-empleado', 'pe-tipo', 'pe-monto', 'pe-forma-entrega'].forEach(qid => { const el = document.getElementById(qid); if (el) el.disabled = true })
+  const aw = document.getElementById('pe-asiento-wrap'); if (aw) aw.style.display = 'none'
+  const tt = document.getElementById('pe-modal-title'); if (tt) tt.textContent = '✏️ Editar préstamo (cuota / descripción / fecha)'
   openModal('modal-prestamo-emp')
 }
 
@@ -1817,6 +1962,23 @@ window.guardarPrestamoEmp = async () => {
   if (!empleadoId) { window.toast?.('Seleccioná un empleado', 'error'); return }
   if (monto <= 0) { window.toast?.('Ingresá un monto válido', 'error'); return }
   if (!fechaPrestamo) { window.toast?.('Ingresá la fecha del préstamo', 'error'); return }
+
+  // ── Modo EDICIÓN (solo super_admin): actualiza cuota, descripción y fecha 1ª deducción.
+  // No re-postea asiento ni cambia empleado/tipo/monto (evita descuadrar la partida).
+  if (editandoPrestamoId) {
+    if (window._currentProfile?.()?.rol !== 'super_admin') { window.toast?.('Solo super_admin puede editar préstamos', 'error'); return }
+    const { error: errUpd } = await getSb().from('prestamos_empleados').update({
+      cuota_quincenal: cuota,
+      descripcion,
+      fecha_primera_deduccion: fechaDeduccion || null
+    }).eq('id', editandoPrestamoId)
+    if (errUpd) { window.toast?.('Error: ' + errUpd.message, 'error'); return }
+    editandoPrestamoId = null
+    closeModal('modal-prestamo-emp')
+    window.toast?.('Préstamo actualizado ✓', 'success')
+    if (typeof window.loadPrestamosEmp === 'function') window.loadPrestamosEmp()
+    return
+  }
 
   const { data: prestamo, error } = await getSb().from('prestamos_empleados').insert({
     empleado_id: empleadoId,
