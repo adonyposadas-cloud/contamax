@@ -650,6 +650,29 @@ window.generarPlanilla = async () => {
     return ov
   }
 
+  // Salario partido: el faltante de ANTICIPOS que la general no alcanzó a cobrar (por el piso
+  // de L.1) se corre al complemento confidencial para cobrarlo contra el sueldo oculto. Solo
+  // anticipos — la trucha y los préstamos se cobran completos en la general. Requiere que la
+  // planilla GENERAL del período ya exista (se genera antes que la confidencial).
+  const anticipoRecuperadoGeneral = {}
+  let puedeCorrerFaltante = false   // solo true si confirmamos qué recuperó la general (evita cobro doble)
+  if (planillaModoConf) {
+    const { data: plGen } = await getSb().from('planillas')
+      .select('id').eq('periodo', periodo).eq('es_confidencial', false).maybeSingle()
+    if (!plGen) {
+      window.toast?.('Aviso: no hay planilla GENERAL de este período. El faltante de anticipos NO se correrá al complemento confidencial (genera primero la general).', 'error')
+    } else {
+      const { data: detGen, error: dgErr } = await getSb().from('detalle_planilla')
+        .select('empleado_id, anticipos').eq('planilla_id', plGen.id)
+      if (dgErr) {
+        window.toast?.('Aviso: no se pudo leer el detalle de la planilla general → ' + dgErr.message + '. El faltante de anticipos NO se correrá.', 'error')
+      } else {
+        for (const dg of (detGen || [])) anticipoRecuperadoGeneral[dg.empleado_id] = parseFloat(dg.anticipos) || 0
+        puedeCorrerFaltante = true
+      }
+    }
+  }
+
   const detalles = activos.map(e => {
     const overrides = {}
     // Complemento confidencial: empleado partido en la planilla confidencial. Paga solo la
@@ -659,7 +682,15 @@ window.generarPlanilla = async () => {
     if (planillaModoConf && _esSplit(e)) {
       const astC = asistencia.find(a => a.empleado_id === e.id)
       const empComp = { ...e, sueldo_mensual: _complemento(e), planilla_confidencial: true }
-      return calcularDetalleEmpleado(empComp, planilla.id, { ...overridesSalariales(e, astC, _complemento(e)), ...(manualOverrides[e.id] || {}) })
+      // Faltante de anticipos no cobrado en la general = adelanto original (del auxiliar CXC)
+      // − lo que la general efectivamente recuperó. Se carga aquí como anticipo y se cobra
+      // contra el sueldo oculto; si ni el oculto alcanza, el piso de L.1 difiere el resto.
+      const adelOriginal = (e.cuenta_cxc && cxcPorCuenta[e.cuenta_cxc]) ? (cxcPorCuenta[e.cuenta_cxc].anticipos || 0) : 0
+      const recupGeneral = anticipoRecuperadoGeneral[e.id] || 0
+      const faltanteAnt = puedeCorrerFaltante ? Math.max(0, Math.round((adelOriginal - recupGeneral) * 100) / 100) : 0
+      const ovComp = { ...overridesSalariales(e, astC, _complemento(e)) }
+      if (faltanteAnt > 0) ovComp.anticipos = faltanteAnt
+      return calcularDetalleEmpleado(empComp, planilla.id, { ...ovComp, ...(manualOverrides[e.id] || {}) })
     }
     // Asistencia (general): salario sobre el sueldo visible + deducción por tardanza.
     const ast = asistencia.find(a => a.empleado_id === e.id)
