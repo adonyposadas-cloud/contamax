@@ -1809,20 +1809,39 @@ let editingPartidaId = null
 
 let allPartidas = []
 
+// PostgREST corta cada respuesta a ~1000 filas y .limit() no sube ese tope. Para traer
+// el listado completo hay que paginar. buildQuery() debe devolver una consulta NUEVA con
+// un .order estable (incluyendo un desempate único como id) en cada llamada.
+async function _fetchAllPag(buildQuery, pageSize = 1000) {
+  const all = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+    if (error) throw error
+    if (!data || !data.length) break
+    all.push(...data)
+    if (data.length < pageSize) break
+  }
+  return all
+}
+
 async function loadPartidas() {
   const tbody = document.getElementById('tbody-partidas')
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
-  let query = sb.from('partidas_contables')
-    .select('*, centro_costo:centros_costo(nombre), generador:usuarios!generada_por(nombre)')
-    .order('numero_partida', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(5000)
-  // Si el usuario tiene "solo sus partidas", filtrar por las que él generó
-  if (window._soloSusPartidas && currentProfile?.id) {
-    query = query.eq('generada_por', currentProfile.id)
+  let data
+  try {
+    data = await _fetchAllPag(() => {
+      let q = sb.from('partidas_contables')
+        .select('*, centro_costo:centros_costo(nombre), generador:usuarios!generada_por(nombre)')
+        .order('numero_partida', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })   // desempate único para paginar sin perder filas
+      // Si el usuario tiene "solo sus partidas", filtrar por las que él generó
+      if (window._soloSusPartidas && currentProfile?.id) q = q.eq('generada_por', currentProfile.id)
+      return q
+    })
+  } catch (error) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--red)">${error.message}</td></tr>`; return
   }
-  const { data, error } = await query
-  if (error) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--red)">${error.message}</td></tr>`; return }
   allPartidas = data || []
   if (!allPartidas.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay partidas registradas. Crea la primera.</td></tr>'
