@@ -187,16 +187,35 @@ document.addEventListener('click', (e) => {
   }
 })
 
+// PostgREST corta cada respuesta a ~1000 filas y .limit() NO sube ese tope. Para reportes
+// que agregan muchas líneas (balanza, estado de resultados, saldo anterior del auxiliar) hay
+// que paginar o se pierden filas en silencio (descuadra el reporte). buildQuery() debe
+// construir una consulta NUEVA en cada llamada y traer un .order estable (ej. .order('id')).
+async function _fetchAllPaginado(buildQuery, pageSize = 1000) {
+  const all = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+    if (error) throw error
+    if (!data || !data.length) break
+    all.push(...data)
+    if (data.length < pageSize) break
+  }
+  return all
+}
+
 // Saldo acumulado de la cuenta ANTES de fechaIni (el "vienen")
 async function _auxSaldoAnterior(cuenta, fechaIni, centroId, libro, estadoFiltro) {
-  let query = getSb().from('lineas_partida')
-    .select('tipo, monto, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
-    .eq('cuenta_id', cuenta.id)
-    .lt('partida.fecha_partida', fechaIni)
-  if (centroId) query = query.eq('centro_costo_id', centroId)
-  if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
-  if (libro === 'interno') query = query.eq('aplica_fiscal', false)
-  const { data: lineas } = await query.limit(20000)
+  const lineas = await _fetchAllPaginado(() => {
+    let q = getSb().from('lineas_partida')
+      .select('tipo, monto, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
+      .eq('cuenta_id', cuenta.id)
+      .lt('partida.fecha_partida', fechaIni)
+      .order('id', { ascending: true })
+    if (centroId) q = q.eq('centro_costo_id', centroId)
+    if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+    if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+    return q
+  })
   let filtered = (lineas || []).filter(l => l.partida && l.partida.fecha_partida)
   if (estadoFiltro !== 'todos') filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
   if (!centroId && !esSuperAdmin()) {
@@ -263,18 +282,18 @@ window.generarAuxiliar = async () => {
   for (const cuenta of cuentasConsultar) {
     if (esCuentaSensible(cuenta.codigo) && !puedeVerSensibles()) continue
 
-    let query = getSb().from('lineas_partida')
-      .select('*, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado, tipo_origen)')
-      .eq('cuenta_id', cuenta.id)
-      .gte('partida.fecha_partida', fechaIni)
-      .lte('partida.fecha_partida', fechaFin)
-      .order('id', { ascending: true })
-
-    if (centroId) query = query.eq('centro_costo_id', centroId)
-    if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
-    if (libro === 'interno') query = query.eq('aplica_fiscal', false)
-
-    const { data: lineas } = await query.limit(5000)
+    const lineas = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('*, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado, tipo_origen)')
+        .eq('cuenta_id', cuenta.id)
+        .gte('partida.fecha_partida', fechaIni)
+        .lte('partida.fecha_partida', fechaFin)
+        .order('id', { ascending: true })
+      if (centroId) q = q.eq('centro_costo_id', centroId)
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
     let filtered = (lineas || []).filter(l => l.partida && l.partida.fecha_partida)
     if (estadoFiltro !== 'todos') filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
     if (!centroId && !esSuperAdmin()) {
@@ -566,21 +585,27 @@ window.generarBalance = async () => {
   const btn = document.getElementById('btn-balance')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
-  // Traer todas las líneas del período
-  let query = getSb().from('lineas_partida')
-    .select('cuenta_id, cuenta_codigo, cuenta_nombre, tipo, monto, aplica_fiscal, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
-    .gte('partida.fecha_partida', fechaIni)
-    .lte('partida.fecha_partida', fechaFin)
+  // Traer todas las líneas del período (paginado: PostgREST corta a ~1000 por respuesta)
+  let lineas
+  try {
+    lineas = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('cuenta_id, cuenta_codigo, cuenta_nombre, tipo, monto, aplica_fiscal, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
+        .gte('partida.fecha_partida', fechaIni)
+        .lte('partida.fecha_partida', fechaFin)
+        .order('id', { ascending: true })
+      if (centroId) q = q.eq('centro_costo_id', centroId)
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
+  } catch (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Consultar →'; return }
 
-  if (centroId) query = query.eq('centro_costo_id', centroId)
-  if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
-  if (libro === 'interno') query = query.eq('aplica_fiscal', false)
-
-  const { data: lineas, error } = await query.limit(50000)
-  if (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Consultar →'; return }
-
-  // Solo partidas aprobadas con fecha válida
-  const validas = (lineas || []).filter(l => l.partida?.estado === 'aprobada' && l.partida?.fecha_partida)
+  // Solo partidas aprobadas, revalidando el rango en JS (defensa por si el filtro embebido falla)
+  const validas = (lineas || []).filter(l => {
+    const f = (l.partida?.fecha_partida || '').slice(0, 10)
+    return l.partida?.estado === 'aprobada' && f >= fechaIni && f <= fechaFin
+  })
 
   // ── Privacidad: separar líneas de centros privados ──
   const idsPriv = getIdsPrivados()
@@ -765,19 +790,25 @@ window.generarEstadoResultados = async () => {
   const btn = document.getElementById('btn-er')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
-  let query = getSb().from('lineas_partida')
-    .select('cuenta_id, cuenta_codigo, cuenta_nombre, tipo, monto, aplica_fiscal, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
-    .gte('partida.fecha_partida', fechaIni)
-    .lte('partida.fecha_partida', fechaFin)
+  let lineas
+  try {
+    lineas = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('cuenta_id, cuenta_codigo, cuenta_nombre, tipo, monto, aplica_fiscal, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
+        .gte('partida.fecha_partida', fechaIni)
+        .lte('partida.fecha_partida', fechaFin)
+        .order('id', { ascending: true })
+      if (centroId) q = q.eq('centro_costo_id', centroId)
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
+  } catch (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Consultar →'; return }
 
-  if (centroId) query = query.eq('centro_costo_id', centroId)
-  if (libro === 'fiscal') query = query.eq('aplica_fiscal', true)
-  if (libro === 'interno') query = query.eq('aplica_fiscal', false)
-
-  const { data: lineas, error } = await query.limit(50000)
-  if (error) { toast('Error: ' + error.message, 'error'); btn.disabled = false; btn.textContent = 'Consultar →'; return }
-
-  const validas = (lineas || []).filter(l => l.partida?.estado === 'aprobada' && l.partida?.fecha_partida)
+  const validas = (lineas || []).filter(l => {
+    const f = (l.partida?.fecha_partida || '').slice(0, 10)
+    return l.partida?.estado === 'aprobada' && f >= fechaIni && f <= fechaFin
+  })
 
   // ── Privacidad ──
   const idsPriv = getIdsPrivados()
