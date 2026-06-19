@@ -213,6 +213,9 @@
           <div class="nav-item" id="nav-estado-resultados" onclick="showView('estado-resultados','Estado de resultados')">
             <span class="nav-dot"></span>Estado de resultados
           </div>
+          <div class="nav-item" id="nav-flujo-efectivo" onclick="showView('flujo-efectivo','Flujo de efectivo')">
+            <span class="nav-dot"></span>Flujo de efectivo
+          </div>
           <div class="nav-item" id="nav-rentabilidad-taxis" onclick="showView('rentabilidad-taxis','Rentabilidad por unidad');initRentabilidadTaxis()">
             <span class="nav-dot"></span>Rentabilidad Taxis
           </div>
@@ -1403,6 +1406,39 @@
         </div>
       </div>
 
+      <!-- ═══════════════ FLUJO DE EFECTIVO ═══════════════ -->
+      <div class="view" id="view-flujo-efectivo">
+        <div class="page-header">
+          <div>
+            <div class="page-title">💵 Flujo de efectivo</div>
+            <div class="page-sub">Entradas y salidas de efectivo por actividad (método directo)</div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:20px">
+          <div class="form-card-title">Período del reporte</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px">
+            <div class="fld"><label>Fecha inicio</label><input type="date" id="fe-fecha-ini"></div>
+            <div class="fld"><label>Fecha fin</label><input type="date" id="fe-fecha-fin"></div>
+            <div class="fld">
+              <label>Libro</label>
+              <select id="fe-libro">
+                <option value="todos">Todos los movimientos</option>
+                <option value="fiscal">Solo fiscal</option>
+                <option value="interno">Solo interno</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-gold" id="btn-fe" onclick="generarFlujoEfectivo()">Consultar →</button>
+            <button class="btn btn-ghost" id="btn-fe-xlsx" onclick="exportarFlujoXLSX()" style="display:none">📥 Exportar Excel</button>
+          </div>
+        </div>
+        <div id="fe-resultado" class="hidden">
+          <div id="fe-resumen" style="margin-bottom:16px"></div>
+          <div id="fe-tabla" class="table-wrap" style="max-height:600px;overflow-y:auto"></div>
+        </div>
+      </div>
+
       <!-- ═══════════════ RRHH: EMPLEADOS ═══════════════ -->
       <div class="view" id="view-actividad">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -2369,9 +2405,9 @@
               <input type="date" id="cierre-hasta">
             </div>
             <div class="fld">
-              <label>Centro de costo</label>
-              <select id="cierre-centro">
-                <option value="">— Seleccionar —</option>
+              <label>Propietario</label>
+              <select id="cierre-propietario">
+                <option value="">Todos</option>
               </select>
             </div>
           </div>
@@ -3279,8 +3315,9 @@
 <script defer src="js/rangos_ventas.js?v=20260613a"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260613a"></script>
+<script defer src="js/cierre_recibos.js?v=20260619f"></script>
 <script defer src="js/rrhh.js?v=20260612e"></script>
-<script defer src="js/asistencia.js?v=20260617e"></script>
+<script defer src="js/asistencia.js?v=20260612e"></script>
 <script defer src="js/vacaciones.js"></script>
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260603c"></script>

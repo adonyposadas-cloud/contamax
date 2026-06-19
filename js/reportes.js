@@ -1059,6 +1059,162 @@ window.exportarERXLSX = () => {
   toast('Excel exportado ✓', 'success')
 }
 
+// ══════════════════ FLUJO DE EFECTIVO (método directo) ══════════════════
+let feData = null
+const _FE_EFECTIVO = ['110101', '110102', '110103']  // caja chica, caja general, bancos
+const _feEsEfectivo = (cod) => _FE_EFECTIVO.some(p => (cod || '').startsWith(p))
+function _feCategoria(cod) {
+  cod = cod || ''
+  if (cod.startsWith('12')) return 'inversion'               // activo fijo (incl. 120103 construcciones)
+  if (cod.startsWith('2104') || cod.startsWith('3')) return 'financiamiento'  // préstamos y capital
+  return 'operacion'
+}
+
+window.generarFlujoEfectivo = async () => {
+  const fechaIni = document.getElementById('fe-fecha-ini').value
+  const fechaFin = document.getElementById('fe-fecha-fin').value
+  const libro = document.getElementById('fe-libro')?.value || 'todos'
+  if (!fechaIni || !fechaFin) { toast('Selecciona el rango de fechas', 'error'); return }
+  const btn = document.getElementById('btn-fe')
+  btn.disabled = true; btn.textContent = 'Calculando...'
+  try {
+    // 1) Líneas aprobadas del rango (paginado)
+    const lineas = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('partida_id, cuenta_codigo, cuenta_nombre, tipo, monto, partida:partidas_contables(fecha_partida, estado)')
+        .gte('partida.fecha_partida', fechaIni)
+        .lte('partida.fecha_partida', fechaFin)
+        .order('id', { ascending: true })
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
+    const validas = (lineas || []).filter(l => {
+      const f = (l.partida?.fecha_partida || '').slice(0, 10)
+      return l.partida?.estado === 'aprobada' && f >= fechaIni && f <= fechaFin
+    })
+
+    // 2) Agrupar por partida y, para las que tocan efectivo, atribuir el movimiento de caja
+    //    a las contracuentas (crédito = entrada de efectivo, débito = salida).
+    const porPartida = {}
+    for (const l of validas) (porPartida[l.partida_id] = porPartida[l.partida_id] || []).push(l)
+    const cats = { operacion: {}, inversion: {}, financiamiento: {} }
+    for (const lns of Object.values(porPartida)) {
+      if (!lns.some(l => _feEsEfectivo(l.cuenta_codigo))) continue   // la partida no mueve efectivo
+      for (const l of lns) {
+        if (_feEsEfectivo(l.cuenta_codigo)) continue                 // la línea de caja es el efectivo, no el concepto
+        const flujo = (l.tipo === 'credito' ? 1 : -1) * (parseFloat(l.monto) || 0)
+        if (!flujo) continue
+        const cat = _feCategoria(l.cuenta_codigo)
+        const key = l.cuenta_codigo || l.cuenta_nombre
+        if (!cats[cat][key]) cats[cat][key] = { codigo: l.cuenta_codigo, nombre: l.cuenta_nombre, monto: 0 }
+        cats[cat][key].monto += flujo
+      }
+    }
+
+    // 3) Efectivo al inicio = movimientos de caja/banco ANTES de fechaIni (paginado)
+    const lineasAntes = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('cuenta_codigo, tipo, monto, partida:partidas_contables(fecha_partida, estado)')
+        .like('cuenta_codigo', '1101%')
+        .lt('partida.fecha_partida', fechaIni)
+        .order('id', { ascending: true })
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
+    let efectivoInicial = 0
+    for (const l of (lineasAntes || [])) {
+      const f = (l.partida?.fecha_partida || '').slice(0, 10)
+      if (l.partida?.estado !== 'aprobada' || !(f < fechaIni)) continue
+      if (!_feEsEfectivo(l.cuenta_codigo)) continue
+      efectivoInicial += (l.tipo === 'debito' ? 1 : -1) * (parseFloat(l.monto) || 0)
+    }
+
+    const r2 = x => Math.round(x * 100) / 100
+    const totCat = c => r2(Object.values(cats[c]).reduce((s, x) => s + x.monto, 0))
+    const totOp = totCat('operacion'), totInv = totCat('inversion'), totFin = totCat('financiamiento')
+    const flujoNeto = r2(totOp + totInv + totFin)
+    efectivoInicial = r2(efectivoInicial)
+    const efectivoFinal = r2(efectivoInicial + flujoNeto)
+
+    feData = { fechaIni, fechaFin, cats, totOp, totInv, totFin, flujoNeto, efectivoInicial, efectivoFinal }
+    renderFlujoEfectivo(feData)
+    document.getElementById('fe-resultado').classList.remove('hidden')
+    document.getElementById('btn-fe-xlsx').style.display = ''
+  } catch (error) {
+    toast('Error: ' + error.message, 'error')
+  } finally {
+    btn.disabled = false; btn.textContent = 'Consultar →'
+  }
+}
+
+function renderFlujoEfectivo(d) {
+  const seccion = (titulo, cat, total) => {
+    const items = Object.values(d.cats[cat]).filter(x => Math.round(x.monto * 100) / 100 !== 0).sort((a, b) => a.monto - b.monto)
+    if (!items.length) return `<div style="margin-bottom:8px;color:var(--text3);font-size:13px">${titulo}: sin movimientos</div>`
+    return `<div style="margin-bottom:16px">
+      <div style="font-weight:600;margin-bottom:6px">${titulo}</div>
+      <table><tbody>
+        ${items.map(x => `<tr>
+          <td style="font-family:var(--mono);color:var(--gold);font-size:12px">${x.codigo || ''}</td>
+          <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.nombre || ''}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${x.monto >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(x.monto)}</td>
+        </tr>`).join('')}
+        <tr style="border-top:1px solid var(--border);font-weight:600">
+          <td colspan="2" style="text-align:right">Subtotal ${titulo.toLowerCase()}</td>
+          <td style="text-align:right;font-family:var(--mono)">L. ${fmtL(total)}</td>
+        </tr>
+      </tbody></table>
+    </div>`
+  }
+  document.getElementById('fe-resumen').innerHTML = `
+    <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Flujo de efectivo (método directo)</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Período: ${d.fechaIni} al ${d.fechaFin}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div class="stat-card"><div class="stat-num" style="font-size:16px">L. ${fmtL(d.totOp)}</div><div class="stat-label">Operación</div></div>
+        <div class="stat-card"><div class="stat-num" style="font-size:16px">L. ${fmtL(d.totInv)}</div><div class="stat-label">Inversión</div></div>
+        <div class="stat-card"><div class="stat-num" style="font-size:16px">L. ${fmtL(d.totFin)}</div><div class="stat-label">Financiamiento</div></div>
+        <div class="stat-card"><div class="stat-num" style="font-size:16px;color:${d.flujoNeto >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(d.flujoNeto)}</div><div class="stat-label">Flujo neto</div></div>
+      </div>
+    </div>`
+  document.getElementById('fe-tabla').innerHTML = `
+    ${seccion('Actividades de operación', 'operacion', d.totOp)}
+    ${seccion('Actividades de inversión', 'inversion', d.totInv)}
+    ${seccion('Actividades de financiamiento', 'financiamiento', d.totFin)}
+    <div style="border-top:2px solid var(--border);padding-top:12px;margin-top:6px">
+      <table><tbody>
+        <tr><td>Flujo neto del período</td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${d.flujoNeto >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(d.flujoNeto)}</td></tr>
+        <tr><td>Efectivo al inicio <span style="color:var(--text3);font-size:11px">(depende de saldos de apertura)</span></td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(d.efectivoInicial)}</td></tr>
+        <tr style="font-weight:700;border-top:1px solid var(--border)"><td>Efectivo al final</td><td style="text-align:right;font-family:var(--mono)">L. ${fmtL(d.efectivoFinal)}</td></tr>
+      </tbody></table>
+    </div>`
+}
+
+window.exportarFlujoXLSX = () => {
+  if (!feData) return
+  const d = feData
+  const rows = [['Flujo de efectivo (método directo)'], [`Período: ${d.fechaIni} al ${d.fechaFin}`], []]
+  const seccionXls = (titulo, cat, total) => {
+    rows.push([titulo])
+    Object.values(d.cats[cat]).filter(x => Math.round(x.monto * 100) / 100 !== 0).sort((a, b) => a.monto - b.monto)
+      .forEach(x => rows.push([x.codigo || '', x.nombre || '', x.monto]))
+    rows.push(['', 'Subtotal', total]); rows.push([])
+  }
+  seccionXls('Actividades de operación', 'operacion', d.totOp)
+  seccionXls('Actividades de inversión', 'inversion', d.totInv)
+  seccionXls('Actividades de financiamiento', 'financiamiento', d.totFin)
+  rows.push(['', 'Flujo neto del período', d.flujoNeto])
+  rows.push(['', 'Efectivo al inicio (depende de saldos de apertura)', d.efectivoInicial])
+  rows.push(['', 'Efectivo al final', d.efectivoFinal])
+  const ws = window.XLSX.utils.aoa_to_sheet(rows)
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Flujo Efectivo')
+  window.XLSX.writeFile(wb, `Flujo_Efectivo_${d.fechaIni}_${d.fechaFin}.xlsx`)
+  toast('Excel exportado ✓', 'success')
+}
+
 // ══════════════════════════════════════════════
 // ── REPORTE: RENTABILIDAD POR UNIDAD (TAXIS) · vista autoinyectada
 // ══════════════════════════════════════════════
