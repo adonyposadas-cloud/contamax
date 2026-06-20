@@ -1120,23 +1120,25 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
   if (exErr) return { ok: false, error: 'No se pudo verificar partidas: ' + exErr.message }
   if ((existe || []).length) return { ok: true, skipped: true, numero: existe[0].numero_partida }
 
-  // Acumular montos por código de cuenta
+  // Acumular montos. Los gastos (débitos) se acumulan por código + zona (Taller/Yonker)
+  // para asignarles el centro de costo correcto; los créditos solo por código.
   const deb = {}, cre = {}
-  const addD = (cod, m) => { if (cod && m) deb[cod] = (deb[cod] || 0) + m }
+  const addD = (cod, zona, m) => { if (cod && m) { const k = `${cod}|${zona || ''}`; deb[k] = (deb[k] || 0) + m } }
   const addC = (cod, m) => { if (cod && m) cre[cod] = (cre[cod] || 0) + m }
   const faltantes = new Set(), sinCxc = []
 
   for (const d of currentDetalle) {
     const C = CUENTAS_SECCION[d.seccion]
     if (!C) { faltantes.add(d.seccion || `(sin sección: ${d.nombre})`); continue }
+    const zona = (d.seccion || '').includes('Yonker') ? 'Yonker' : ((d.seccion || '').includes('Taller') ? 'Taller' : '')
     // Débitos (gastos). "Otras deducciones" (tardanza) reduce el gasto de sueldo.
-    addD(C.sueldos, (d.sueldo_quincenal || 0) - (d.otras_deducciones || 0))
-    addD(C.he, d.monto_he || 0)
-    addD(C.vacaciones, d.vacaciones || 0)
-    addD(C.incapacidades, d.incapacidad || 0)
-    addD(C.bonificaciones, d.bonificaciones || 0)
-    addD(C.otros, (d.otros_ingresos || 0) + (d.ajuste_sueldo || 0) + (d.comisiones_venta || 0))
-    addD(C.ihss_patronal_gasto, d.ihss_patronal || 0)
+    addD(C.sueldos, zona, (d.sueldo_quincenal || 0) - (d.otras_deducciones || 0))
+    addD(C.he, zona, d.monto_he || 0)
+    addD(C.vacaciones, zona, d.vacaciones || 0)
+    addD(C.incapacidades, zona, d.incapacidad || 0)
+    addD(C.bonificaciones, zona, d.bonificaciones || 0)
+    addD(C.otros, zona, (d.otros_ingresos || 0) + (d.ajuste_sueldo || 0) + (d.comisiones_venta || 0))
+    addD(C.ihss_patronal_gasto, zona, d.ihss_patronal || 0)
     // Créditos (por pagar / banco)
     addC(C.ihss_laboral, d.ihss_laboral || 0)
     addC(C.ihss_patronal_cxp, d.ihss_patronal || 0)
@@ -1155,8 +1157,15 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
   if (faltantes.size) return { ok: false, error: `Secciones sin cuentas mapeadas: ${[...faltantes].join(', ')}` }
   if (sinCxc.length) return { ok: false, error: `Empleados con anticipo/CXC sin cuenta_cxc: ${sinCxc.join(', ')}` }
 
-  // Traer cuentas del catálogo
-  const codigos = [...new Set([...Object.keys(deb), ...Object.keys(cre)])]
+  // Resolver centros de costo reales para los gastos (Taller → Tecnicentro)
+  const { data: centrosCC } = await sb.from('centros_costo').select('id, nombre')
+  const centroZona = {
+    Taller: (centrosCC || []).find(c => /tecnicentro/i.test(c.nombre))?.id || null,
+    Yonker: (centrosCC || []).find(c => /yonker/i.test(c.nombre))?.id || null
+  }
+
+  // Traer cuentas del catálogo (las claves de débito son `codigo|zona`)
+  const codigos = [...new Set([...Object.keys(deb).map(k => k.split('|')[0]), ...Object.keys(cre)])]
   const { data: cuentas, error: cErr } = await sb.from('catalogo_cuentas')
     .select('id, codigo, nombre').in('codigo', codigos)
   if (cErr) return { ok: false, error: 'Error leyendo catálogo: ' + cErr.message }
@@ -1168,16 +1177,17 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
   const r2 = x => Math.round(x * 100) / 100
   const lineas = []
   let totalDeb = 0, totalCre = 0
-  for (const [cod, m] of Object.entries(deb)) {
+  for (const [key, m] of Object.entries(deb)) {
     const monto = r2(m); if (monto <= 0) continue
+    const [cod, zona] = key.split('|')
     const c = mapC[cod]
-    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'debito', monto, descripcion: `PLANILLA ${periodo}`, aplica_fiscal: false })
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, centro_costo_id: centroZona[zona] || null, tipo: 'debito', monto, descripcion: `PLANILLA ${periodo}${zona ? ' · ' + zona.toUpperCase() : ''}`, aplica_fiscal: false })
     totalDeb = r2(totalDeb + monto)
   }
   for (const [cod, m] of Object.entries(cre)) {
     const monto = r2(m); if (monto <= 0) continue
     const c = mapC[cod]
-    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'credito', monto, descripcion: `PLANILLA ${periodo}`, aplica_fiscal: false })
+    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, centro_costo_id: null, tipo: 'credito', monto, descripcion: `PLANILLA ${periodo}`, aplica_fiscal: false })
     totalCre = r2(totalCre + monto)
   }
 

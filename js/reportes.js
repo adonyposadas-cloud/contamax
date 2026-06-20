@@ -23,6 +23,15 @@ const getCentrosPrivados = () => {
 
 const getIdsPrivados = () => new Set(getCentrosPrivados().map(c => c.id))
 
+// Centros que se consolidan en una sola cuenta en reportes consolidados (ej. Adony Posadas → 110202-001).
+// Devuelve Map<centro_id, codigo_cuenta_destino> leído de centros_costo.consolidar_en_cuenta
+const getCentrosConsolidacion = () => {
+  const todos = window._todosLosCentros ? window._todosLosCentros() : []
+  const m = new Map()
+  todos.forEach(c => { if (c.consolidar_en_cuenta) m.set(c.id, c.consolidar_en_cuenta) })
+  return m
+}
+
 const getNombreCentro = (id) => {
   const todos = window._todosLosCentros ? window._todosLosCentros() : []
   const c = todos.find(x => x.id === id)
@@ -222,6 +231,11 @@ async function _auxSaldoAnterior(cuenta, fechaIni, centroId, libro, estadoFiltro
     const idsPriv = getIdsPrivados()
     filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
   }
+  // Excluir centros consolidados (ej. Adony Posadas) en vista "todos", para todos los usuarios
+  if (!centroId) {
+    const mapCons = getCentrosConsolidacion()
+    if (mapCons.size) filtered = filtered.filter(l => !(l.centro_costo_id && mapCons.has(l.centro_costo_id)))
+  }
   const naturaleza = cuenta.naturaleza || 'deudora'
   let saldo = 0
   for (const l of filtered) {
@@ -299,6 +313,11 @@ window.generarAuxiliar = async () => {
     if (!centroId && !esSuperAdmin()) {
       const idsPriv = getIdsPrivados()
       filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
+    }
+    // Excluir centros consolidados (ej. Adony Posadas) en vista "todos", para todos los usuarios
+    if (!centroId) {
+      const mapCons = getCentrosConsolidacion()
+      if (mapCons.size) filtered = filtered.filter(l => !(l.centro_costo_id && mapCons.has(l.centro_costo_id)))
     }
     filtered.sort((a, b) => {
       const da = a.partida.fecha_partida, db = b.partida.fecha_partida
@@ -607,17 +626,30 @@ window.generarBalance = async () => {
     return l.partida?.estado === 'aprobada' && f >= fechaIni && f <= fechaFin
   })
 
+  // ── Consolidar centros marcados (ej. Adony Posadas → 110202-001) en vista "Todos" ──
+  // Remapea sus líneas a la cuenta destino (centro=null) para que se sumen a los
+  // movimientos directos de esa cuenta; el cuadre se preserva porque no se elimina ninguna pierna.
+  const _mapCons = getCentrosConsolidacion()
+  const validasBC = (!centroId && _mapCons.size)
+    ? validas.map(l => {
+        const dest = l.centro_costo_id && _mapCons.get(l.centro_costo_id)
+        if (!dest) return l
+        const cat = getCatalogo().find(x => x.codigo === dest)
+        return { ...l, cuenta_codigo: dest, cuenta_nombre: cat?.nombre || dest, cuenta_id: cat?.id || l.cuenta_id, centro_costo_id: null }
+      })
+    : validas
+
   // ── Privacidad: separar líneas de centros privados ──
   const idsPriv = getIdsPrivados()
   const esAdmin = esSuperAdmin()
   const necesitaConsolidar = !esAdmin && !centroId // consolidar solo en vista "Todos"
 
-  let lineasNormales = validas
+  let lineasNormales = validasBC
   let lineasPrivadas = []
 
   if (necesitaConsolidar) {
-    lineasNormales = validas.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
-    lineasPrivadas = validas.filter(l => l.centro_costo_id && idsPriv.has(l.centro_costo_id))
+    lineasNormales = validasBC.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
+    lineasPrivadas = validasBC.filter(l => l.centro_costo_id && idsPriv.has(l.centro_costo_id))
   }
 
   // Agrupar líneas normales por cuenta
@@ -810,17 +842,24 @@ window.generarEstadoResultados = async () => {
     return l.partida?.estado === 'aprobada' && f >= fechaIni && f <= fechaFin
   })
 
+  // ── Excluir centros consolidados del Estado de Resultados (vista consolidada) ──
+  // Su P&L es contabilidad personal y no debe afectar la utilidad de la empresa.
+  const _mapCons = getCentrosConsolidacion()
+  const validasER = (!centroId && _mapCons.size)
+    ? validas.filter(l => !(l.centro_costo_id && _mapCons.has(l.centro_costo_id)))
+    : validas
+
   // ── Privacidad ──
   const idsPriv = getIdsPrivados()
   const esAdmin = esSuperAdmin()
   const necesitaConsolidar = !esAdmin && !centroId
 
-  let lineasNormales = validas
+  let lineasNormales = validasER
   let lineasPrivadas = []
 
   if (necesitaConsolidar) {
-    lineasNormales = validas.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
-    lineasPrivadas = validas.filter(l => l.centro_costo_id && idsPriv.has(l.centro_costo_id))
+    lineasNormales = validasER.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
+    lineasPrivadas = validasER.filter(l => l.centro_costo_id && idsPriv.has(l.centro_costo_id))
   }
 
   // Agrupar por cuenta (líneas normales)
@@ -1081,7 +1120,7 @@ window.generarFlujoEfectivo = async () => {
     // 1) Líneas aprobadas del rango (paginado)
     const lineas = await _fetchAllPaginado(() => {
       let q = getSb().from('lineas_partida')
-        .select('partida_id, cuenta_codigo, cuenta_nombre, tipo, monto, partida:partidas_contables(fecha_partida, estado)')
+        .select('partida_id, cuenta_codigo, cuenta_nombre, tipo, monto, centro_costo_id, partida:partidas_contables(fecha_partida, estado)')
         .gte('partida.fecha_partida', fechaIni)
         .lte('partida.fecha_partida', fechaFin)
         .order('id', { ascending: true })
@@ -1096,8 +1135,19 @@ window.generarFlujoEfectivo = async () => {
 
     // 2) Agrupar por partida y, para las que tocan efectivo, atribuir el movimiento de caja
     //    a las contracuentas (crédito = entrada de efectivo, débito = salida).
+    // Consolidar centros marcados (ej. Adony Posadas → 110202-001), igual que el balance
+    const _mapCons = getCentrosConsolidacion()
+    const validasFE = _mapCons.size
+      ? validas.map(l => {
+          const dest = l.centro_costo_id && _mapCons.get(l.centro_costo_id)
+          if (!dest) return l
+          const cat = getCatalogo().find(x => x.codigo === dest)
+          return { ...l, cuenta_codigo: dest, cuenta_nombre: cat?.nombre || dest }
+        })
+      : validas
+
     const porPartida = {}
-    for (const l of validas) (porPartida[l.partida_id] = porPartida[l.partida_id] || []).push(l)
+    for (const l of validasFE) (porPartida[l.partida_id] = porPartida[l.partida_id] || []).push(l)
     const cats = { operacion: {}, inversion: {}, financiamiento: {} }
     for (const lns of Object.values(porPartida)) {
       if (!lns.some(l => _feEsEfectivo(l.cuenta_codigo))) continue   // la partida no mueve efectivo
