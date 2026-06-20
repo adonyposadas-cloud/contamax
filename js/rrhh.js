@@ -311,6 +311,15 @@ window.guardarEmpleado = async () => {
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
   closeModal('modal-empleado')
   window.toast?.(editingEmpleadoId ? 'Empleado actualizado' : 'Empleado creado', 'ok')
+  // Auditoría
+  if (editingEmpleadoId) {
+    const _orig = allEmpleados.find(e => e.id === editingEmpleadoId) || {}
+    const _campos = { nombre: 'nombre', seccion: 'sección', sueldo_mensual: 'sueldo', forma_pago: 'forma pago', banco: 'banco', cuenta_bancaria: 'cuenta', es_socio: 'es_socio', centro_costo: 'centro', identidad: 'identidad', puesto: 'puesto', cuenta_cxc: 'cuenta CxC' }
+    const _cambios = Object.keys(_campos).filter(k => String(_orig[k] ?? '') !== String(payload[k] ?? '')).map(k => _campos[k])
+    window.logActividad?.('empleado_editado', 'rrhh', `${nombre}${_cambios.length ? ' · cambió: ' + _cambios.join(', ') : ''}`)
+  } else {
+    window.logActividad?.('empleado_creado', 'rrhh', `${nombre}${payload.seccion ? ' · ' + payload.seccion : ''} · ${payload.codigo}`)
+  }
   await loadEmpleados()
 }
 
@@ -319,6 +328,8 @@ window.toggleEmpleadoActivo = async (id, activo) => {
   const { error } = await getSb().from('empleados').update({ activo: !activo, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
   window.toast?.(activo ? 'Empleado desactivado' : 'Empleado reactivado', 'ok')
+  const _empT = allEmpleados.find(e => e.id === id)
+  window.logActividad?.(activo ? 'empleado_desactivado' : 'empleado_activado', 'rrhh', _empT?.nombre || String(id))
   await loadEmpleados()
 }
 

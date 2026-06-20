@@ -9692,6 +9692,22 @@ window.loadActividad = async () => {
   }
   const partidaNum = (partidaEl.value || '').trim().replace(/^#/, '')
 
+  // ── Inyectar el filtro por módulo (una sola vez) ──
+  let moduloEl = document.getElementById('act-modulo')
+  if (!moduloEl) {
+    const userSel = document.getElementById('act-usuario')
+    moduloEl = document.createElement('select')
+    moduloEl.id = 'act-modulo'
+    moduloEl.title = 'Filtrar por módulo'
+    moduloEl.style.cssText = 'margin-left:8px'
+    if (userSel) moduloEl.className = userSel.className
+    moduloEl.innerHTML = '<option value="">Todos los módulos</option>'
+      + ['rrhh', 'partidas', 'compras', 'importar', 'auth', 'caja'].map(m => `<option value="${m}">${m.toUpperCase()}</option>`).join('')
+    moduloEl.addEventListener('change', () => loadActividad())
+    if (userSel && userSel.parentNode) userSel.parentNode.insertBefore(moduloEl, userSel.nextSibling)
+  }
+  const moduloFilter = moduloEl.value
+
   // ════════════════════════════════════════════════════════════════
   //  MODO 1 · Historial de UNA partida específica (por número)
   // ════════════════════════════════════════════════════════════════
@@ -9733,6 +9749,7 @@ window.loadActividad = async () => {
     .limit(500)
 
   if (userFilter) query = query.eq('usuario_nombre', userFilter)
+  if (moduloFilter) query = query.eq('modulo', moduloFilter)
   const { data, error } = await query
   if (error) { toast(error.message, 'error'); return }
 
@@ -9803,7 +9820,23 @@ const _accionLabels = {
   prestamo_creado: '🆕 Préstamo creado',
   prestamo_editado: '✏️ Préstamo editado',
   prestamo_baja: '⏹ Préstamo baja',
-  caja_chica_aprobada: '💰 Caja chica aprobada'
+  caja_chica_aprobada: '💰 Caja chica aprobada',
+  // ── RRHH ──
+  permiso_creado: '🟢 Permiso creado',
+  permiso_eliminado: '🔴 Permiso eliminado',
+  empleado_creado: '🆕 Empleado creado',
+  empleado_editado: '✏️ Empleado editado',
+  empleado_activado: '🔵 Empleado reactivado',
+  empleado_desactivado: '⚫ Empleado desactivado',
+  planilla_aprobada: '✅ Planilla aprobada',
+  planilla_reabierta: '↩️ Planilla reabierta',
+  planilla_bono_generada: '🎁 Bono generado',
+  bono_educativo_generado: '🎓 Bono educativo',
+  prestamo_emp_creado: '🆕 Préstamo empleado',
+  prestamo_liquidado: '✅ Préstamo liquidado',
+  vacaciones_pago: '🏖️ Vacaciones pagadas',
+  vacaciones_ajuste: '🔧 Ajuste vacaciones',
+  asistencia_importada: '📥 Asistencia importada'
 }
 
 // ── Historial completo de una partida específica ──

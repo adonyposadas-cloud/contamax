@@ -1144,6 +1144,12 @@ window.guardarPermiso = async () => {
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
   window.closeModal('modal-permiso-emp')
   window.toast?.(tipo === 'incapacidad' ? 'Incapacidad registrada ✓' : 'Permiso registrado ✓', 'success')
+  // Auditoría
+  const _tlPerm = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)', llegada_tarde: 'Llegada tarde justificada' }
+  const _detPerm = tipo === 'incapacidad'
+    ? `${reg.empleado_nombre} · ${fecha} · ${_tlPerm[tipo]} · ${reg.dias || 0} día(s)${reg.diagnostico ? ' · ' + reg.diagnostico : ''}`
+    : `${reg.empleado_nombre} · ${fecha} · ${_tlPerm[tipo] || tipo}${reg.hora_salida ? ' · ' + reg.hora_salida : ''}${reg.tratamiento ? ' · ' + reg.tratamiento : ''}`
+  window.logActividad?.('permiso_creado', 'rrhh', _detPerm)
   cargarPermisos()
 }
 
@@ -1202,8 +1208,18 @@ window._onFiltroPermisos = () => cargarPermisos()
 
 window.eliminarPermiso = async (id) => {
   if (!confirm('¿Eliminar este permiso?')) return
+  // Capturar los datos ANTES de borrar, para dejar rastro de qué se eliminó
+  const _p = (_permisosLista || []).find(x => x.id === id) || null
   await getSb().from('permisos_empleados').delete().eq('id', id)
   window.toast?.('Permiso eliminado', 'success')
+  // Auditoría
+  if (_p) {
+    const _tlPerm = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)', llegada_tarde: 'Llegada tarde justificada' }
+    const _ex = _p.tipo === 'incapacidad' ? ` · ${_p.dias || 0} día(s)` : (_p.hora_salida ? ` · ${_p.hora_salida}` : '')
+    window.logActividad?.('permiso_eliminado', 'rrhh', `${_p.empleado_nombre} · ${_p.fecha} · ${_tlPerm[_p.tipo] || _p.tipo}${_ex}${_p.motivo ? ' · ' + _p.motivo : ''}`)
+  } else {
+    window.logActividad?.('permiso_eliminado', 'rrhh', `Permiso ${id} eliminado`)
+  }
   cargarPermisos()
 }
 
