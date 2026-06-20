@@ -6609,91 +6609,74 @@ let itxEntregasFile = null
 let itxKmFile = null
 let itxData = null // { entregas: [], km: [] }
 
+// Tokeniza UN registro CSV respetando comillas y "" como comilla escapada.
+function _csvTokenize(str) {
+  const out = []; let cur = ''; let inQ = false
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i]
+    if (inQ) {
+      if (c === '"') { if (str[i + 1] === '"') { cur += '"'; i++ } else inQ = false }
+      else cur += c
+    } else {
+      if (c === '"') inQ = true
+      else if (c === ',') { out.push(cur); cur = '' }
+      else cur += c
+    }
+  }
+  out.push(cur)
+  return out
+}
+
+// Separa el texto en registros respetando saltos de línea dentro de comillas.
+function _splitRecords(text) {
+  const recs = []; let cur = ''; let inQ = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '"') {
+      if (inQ && text[i + 1] === '"') { cur += '""'; i++; continue }
+      inQ = !inQ; cur += c
+    } else if ((c === '\n' || c === '\r') && !inQ) {
+      if (c === '\r' && text[i + 1] === '\n') i++
+      if (cur.length) recs.push(cur); cur = ''
+    } else cur += c
+  }
+  if (cur.length) recs.push(cur)
+  return recs
+}
+
+// Devuelve array de objetos { 'Header': valor, ... }.
+// Maneja el doble-encoding de Timar: si una fila colapsa a 1 campo que a su vez
+// es un CSV completo (caso de las filas con Desglose JSON), lo vuelve a parsear.
+function parseTaxiCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1) // quitar BOM
+  const recs = _splitRecords(text)
+  if (!recs.length) return []
+  const header = _csvTokenize(recs[0]).map(h => h.trim())
+  const ncol = header.length
+  const rows = []
+  for (let i = 1; i < recs.length; i++) {
+    let fields = _csvTokenize(recs[i])
+    if (fields.length < ncol && fields[0] && fields[0].indexOf(',') > -1) {
+      const reparsed = _csvTokenize(fields[0])
+      if (reparsed.length >= ncol - 1) fields = reparsed
+    }
+    if (fields.length === 1 && !fields[0].trim()) continue // línea vacía
+    const obj = {}
+    header.forEach((h, idx) => { obj[h] = (fields[idx] !== undefined ? fields[idx] : '').trim() })
+    rows.push(obj)
+  }
+  return rows
+}
+
 function parseCSVorXLSX(arrayBuffer, fileName) {
   const ext = fileName.toLowerCase().split('.').pop()
   if (ext === 'csv') {
-    let text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
-
-    // Pre-process: Google Sheets wraps entire rows in quotes when a field
-    // contains commas (e.g. JSON Desglose). Fix by removing the wrapping quotes
-    // and replacing the Desglose JSON quotes with a safe placeholder.
-    text = preprocessTaxiCSV(text)
-
-    const wb = XLSX.read(text, { type: 'string', raw: true, cellDates: false })
-    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true, defval: '' })
+    const text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
+    return parseTaxiCSV(text)
   } else {
     const wb = XLSX.read(arrayBuffer, { type: 'array', raw: true, cellDates: false })
-    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true })
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { raw: true, defval: '' })
   }
-}
-
-function preprocessTaxiCSV(text) {
-  // Split into lines properly (handling quoted multiline fields)
-  const rawLines = text.split(/\r?\n/)
-  const header = rawLines[0]
-  const processed = [header]
-
-  for (let i = 1; i < rawLines.length; i++) {
-    let line = rawLines[i]
-    if (!line.trim()) continue
-
-    // Detect if the entire row is wrapped in a leading quote due to
-    // Google Sheets quoting a row that contains a JSON Desglose field.
-    // Pattern: line starts with " but the ID field (first field) should NOT be quoted.
-    // Actual IDs look like: mpia6evsnm8y (alphanumeric, no commas)
-    if (line.startsWith('"') && /^"[a-z0-9]/.test(line)) {
-      // Accumulate continuation lines if the row spans multiple lines
-      // (the closing quote for the whole row hasn't been found)
-      let quoteCount = (line.match(/"/g) || []).length
-      while (quoteCount % 2 !== 0 && i + 1 < rawLines.length) {
-        i++
-        line += '\n' + rawLines[i]
-        quoteCount = (line.match(/"/g) || []).length
-      }
-
-      // Remove the outer wrapping quotes
-      if (line.startsWith('"')) line = line.substring(1)
-      if (line.endsWith('"')) line = line.substring(0, line.length - 1)
-      // The remaining line may end with ", (trailing comma after Desglose close)
-      if (line.endsWith('",')) line = line.substring(0, line.length - 1)
-
-      // Now find and neutralize the Desglose JSON field.
-      // The Desglose is typically the second-to-last or last field and contains {""key"":val}
-      // Replace the Desglose JSON with a safe version (no commas)
-      line = line.replace(/"\{""[^}]*\}"/g, (match) => {
-        // Replace commas inside the JSON with a placeholder
-        return match.replace(/,/g, '§')
-      })
-
-      // Also handle the case where the Desglose has nested arrays with commas
-      // Look for the pattern: "{...}" that spans a large section
-      const desgloseStart = line.indexOf('"{')
-      if (desgloseStart > -1) {
-        const beforeDesglose = line.substring(0, desgloseStart)
-        let rest = line.substring(desgloseStart)
-        // Find the closing }"
-        let depth = 0
-        let endIdx = -1
-        for (let j = 1; j < rest.length; j++) {
-          if (rest[j] === '{') depth++
-          else if (rest[j] === '}') {
-            depth--
-            if (depth < 0) { endIdx = j + 1; break }
-          }
-        }
-        if (endIdx > -1) {
-          const desglose = rest.substring(0, endIdx + 1)
-          const afterDesglose = rest.substring(endIdx + 1)
-          const safeDesglose = desglose.replace(/,/g, '§')
-          line = beforeDesglose + safeDesglose + afterDesglose
-        }
-      }
-    }
-
-    processed.push(line)
-  }
-
-  return processed.join('\n')
 }
 
 function parseMontoTaxi(val) {
@@ -6809,6 +6792,21 @@ window.procesarImportTaxis = async () => {
         })(),
       }
     }).filter(e => e.id && e.unidad)
+
+    // ── Guard de fecha: descartar filas sin fecha de depósito válida ──
+    // (filas dañadas en la hoja origen: comilla suelta, fecha mal escrita, etc.)
+    {
+      const _fechaOK = e => /^\d{4}-\d{2}-\d{2}$/.test(e.fecha_deposito || '')
+      const _omitidas = entregas.filter(e => !_fechaOK(e))
+      if (_omitidas.length) {
+        console.warn('[IMPORT TAXIS] Omitidas por fecha de depósito inválida:',
+          _omitidas.map(e => ({ id: e.id, unidad: e.unidad, fecha: e.fecha_deposito, motivo: e.motivo })))
+        toast(`${_omitidas.length} fila(s) omitida(s) por fecha de depósito inválida — revisa la hoja origen`, 'error')
+      }
+      const _validas = entregas.filter(_fechaOK)
+      entregas.length = 0
+      entregas.push(..._validas)
+    }
 
     // Parse km if provided
     let km = []
