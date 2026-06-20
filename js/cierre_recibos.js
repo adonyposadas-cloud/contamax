@@ -213,9 +213,19 @@ window.generarPartidaCierre = async function () {
     if (g.neto <= 0 || g.debito <= 0) { logs.push(`⏭️ ${g.prop}: neto/débito ≤ 0 (${_fmtL(g.neto)}) — omitido, revisar`); continue }
     if (map.centroAdony && !ccAdony) { logs.push(`⚠️ ${g.prop}: no encontré el centro "Adony Posadas" — omitido`); continue }
 
-    const { data: existe } = await sb.from('partidas_contables').select('id')
-      .ilike('descripcion', `%[CIERRE-TAXI] ${g.prop}%`).eq('fecha_partida', hasta).limit(1)
-    if (existe?.length) { logs.push(`⏭️ ${g.prop}: ya existe partida de cierre para ${hasta} — omitido`); continue }
+    let regenerado = false
+    const { data: existe } = await sb.from('partidas_contables').select('id, estado, numero_partida')
+      .ilike('descripcion', `%[CIERRE-TAXI] ${g.prop}%`).eq('fecha_partida', hasta)
+    if (existe?.length) {
+      const aprobadas = existe.filter(p => p.estado !== 'borrador')
+      if (aprobadas.length) { logs.push(`⏭️ ${g.prop}: ya existe partida APROBADA (#${aprobadas[0].numero_partida}) para ${hasta} — no se toca`); continue }
+      // Solo hay borrador(es): se eliminan para regenerar con datos actuales
+      const ids = existe.map(p => p.id)
+      await sb.from('lineas_partida').delete().in('partida_id', ids)
+      const { error: delErr } = await sb.from('partidas_contables').delete().in('id', ids)
+      if (delErr) { logs.push(`⚠️ ${g.prop}: no se pudo borrar el borrador anterior — ${delErr.message}`); continue }
+      regenerado = true
+    }
 
     const cRenta = mapC[_CUENTA_RENTA], cAdmin = mapC[_CUENTA_ADMIN], cSocio = mapC[map.codigo]
     const desc = `[CIERRE-TAXI] ${g.prop} · ${periodo}`
@@ -237,7 +247,7 @@ window.generarPartidaCierre = async function () {
     const { error: lErr } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id })))
     if (lErr) { await sb.from('partidas_contables').delete().eq('id', partida.id); logs.push(`❌ ${g.prop}: error líneas — ${lErr.message}`); continue }
     creadas++
-    logs.push(`✓ ${g.prop}: partida #${numero} · neto L. ${_fmtL(g.neto)} · admin L. ${_fmtL(g.admin)}`)
+    logs.push(`${regenerado ? '♻️' : '✓'} ${g.prop}: partida #${numero} · neto L. ${_fmtL(g.neto)} · admin L. ${_fmtL(g.admin)}${regenerado ? ' (regenerada)' : ''}`)
   }
 
   if (btn) { btn.disabled = false; btn.textContent = 'Generar partida de cierre →' }

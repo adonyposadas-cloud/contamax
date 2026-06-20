@@ -244,6 +244,7 @@ window.showView = (id, label) => {
   if (id === 'unidades-taxis') loadUnidadesTaxis()
   if (id === 'financiamiento') loadFinanciamiento()
   if (id === 'cierre-recibos') initCierreMensual()
+  if (id === 'vencimientos' && window.initVencimientos) window.initVencimientos()
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
   if (id === 'gastos-huerfanos' && window.initGastosHuerfanos) window.initGastosHuerfanos()

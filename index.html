@@ -134,6 +134,9 @@
           <div class="nav-item" id="nav-catalogo" onclick="showView('catalogo','Catálogo de cuentas')">
             <span class="nav-dot"></span>Catálogo de cuentas
           </div>
+          <div class="nav-item" id="nav-vencimientos" onclick="showView('vencimientos','Vencimiento de documentos')">
+            <span class="nav-dot"></span>Vencimientos
+          </div>
           <div class="nav-item" id="nav-partidas" onclick="showView('partidas','Partidas contables')">
             <span class="nav-dot"></span>Partidas
           </div>
@@ -2431,6 +2434,61 @@
         </div>
       </div>
 
+      <!-- VENCIMIENTO DE DOCUMENTOS -->
+      <div class="view" id="view-vencimientos">
+        <div class="page-header">
+          <div>
+            <div class="page-title">📅 Vencimiento de documentos</div>
+            <div class="page-sub">Seguimiento de documentos y obligaciones próximas a vencer</div>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="stat-card"><div class="stat-num" id="venc-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="venc-stat-vencidos" style="color:var(--red)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Vencidos</div></div>
+          <div class="stat-card"><div class="stat-num" id="venc-stat-porvencer" style="color:var(--gold)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Por vencer</div></div>
+          <div class="stat-card"><div class="stat-num" id="venc-stat-vigentes" style="color:var(--green)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Vigentes</div></div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-card-title" id="venc-form-title">Nuevo documento</div>
+          <input type="hidden" id="venc-id">
+          <div class="form-grid">
+            <div class="fld"><label>Documento *</label><input type="text" id="venc-nombre" placeholder="Ej. Registro de beneficiario final"></div>
+            <div class="fld"><label>Tipo</label>
+              <select id="venc-tipo">
+                <option value="">—</option>
+                <option>Legal</option><option>Fiscal</option><option>Permiso</option>
+                <option>Licencia</option><option>Seguro</option><option>Contrato</option>
+                <option>CAI</option><option>Otro</option>
+              </select>
+            </div>
+            <div class="fld"><label>Ente / entidad</label><input type="text" id="venc-entidad" placeholder="Ej. CNBS, SAR, Municipalidad"></div>
+            <div class="fld"><label>Fecha de vencimiento</label><input type="date" id="venc-fecha"></div>
+            <div class="fld"><label>Alertar (días antes)</label><input type="number" id="venc-alerta" value="30" min="1"></div>
+            <div class="fld"><label>Responsable</label><input type="text" id="venc-responsable"></div>
+            <div class="fld"><label>Estado</label>
+              <select id="venc-estado">
+                <option value="pendiente">Pendiente</option>
+                <option value="en_tramite">En trámite</option>
+                <option value="renovado">Renovado</option>
+                <option value="no_aplica">No aplica</option>
+              </select>
+            </div>
+            <div class="fld" style="grid-column:1/-1"><label>Notas</label><input type="text" id="venc-notas"></div>
+          </div>
+          <div class="form-actions" style="margin-top:18px;gap:12px">
+            <button class="btn btn-ghost" onclick="limpiarFormVenc()">Limpiar</button>
+            <button class="btn btn-gold" id="btn-guardar-venc" onclick="guardarVencimiento()">Guardar documento →</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <div class="table-header"><span class="table-title">Documentos</span><span id="venc-count" style="font-size:11px;color:var(--text3)"></span></div>
+          <div id="venc-lista"></div>
+        </div>
+      </div>
+
       <!-- VEHÍCULOS VIN -->
       <div class="view" id="view-vehiculos">
         <div class="page-header">
@@ -3315,7 +3373,8 @@
 <script defer src="js/rangos_ventas.js?v=20260613a"></script>
 <script src="js/jspdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260613a"></script>
-<script defer src="js/cierre_recibos.js?v=20260619f"></script>
+<script defer src="js/cierre_recibos.js?v=20260619g"></script>
+<script defer src="js/vencimientos.js?v=20260619a"></script>
 <script defer src="js/rrhh.js?v=20260612e"></script>
 <script defer src="js/asistencia.js?v=20260612e"></script>
 <script defer src="js/vacaciones.js"></script>
