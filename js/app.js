@@ -9673,10 +9673,54 @@ window.loadActividad = async () => {
   const hoy = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD en hora local
   const iniEl = document.getElementById('act-fecha-ini')
   const finEl = document.getElementById('act-fecha-fin')
-  if (!iniEl.value) iniEl.value = hoy
-  if (!finEl.value) finEl.value = hoy
-  // Construir los límites del rango en hora LOCAL y pasarlos a ISO/UTC,
-  // para que coincidan con cómo se muestra created_at (hora local de Honduras).
+  if (iniEl && !iniEl.value) iniEl.value = hoy
+  if (finEl && !finEl.value) finEl.value = hoy
+
+  // ── Inyectar el buscador por # de partida (una sola vez) ──
+  let partidaEl = document.getElementById('act-partida')
+  if (!partidaEl) {
+    const userSel = document.getElementById('act-usuario')
+    partidaEl = document.createElement('input')
+    partidaEl.id = 'act-partida'
+    partidaEl.type = 'text'
+    partidaEl.placeholder = '# de partida'
+    partidaEl.title = 'Buscar el historial completo de una partida específica'
+    partidaEl.style.cssText = 'width:130px;margin-left:8px'
+    if (userSel) partidaEl.className = userSel.className
+    partidaEl.addEventListener('keydown', e => { if (e.key === 'Enter') loadActividad() })
+    if (userSel && userSel.parentNode) userSel.parentNode.insertBefore(partidaEl, userSel.nextSibling)
+  }
+  const partidaNum = (partidaEl.value || '').trim().replace(/^#/, '')
+
+  // ════════════════════════════════════════════════════════════════
+  //  MODO 1 · Historial de UNA partida específica (por número)
+  // ════════════════════════════════════════════════════════════════
+  if (partidaNum) {
+    // numero_partida puede repetirse (sin UNIQUE), así que traemos todas las que coincidan
+    const { data: parts, error: ep } = await getSb().from('partidas_contables')
+      .select('*')
+      .eq('numero_partida', partidaNum)
+    if (ep) { toast(ep.message, 'error'); return }
+    if (!parts || !parts.length) {
+      document.getElementById('act-stats').innerHTML = ''
+      document.getElementById('act-tabla').innerHTML =
+        `<div style="text-align:center;padding:40px;color:var(--text3)">No se encontró ninguna partida #${partidaNum}</div>`
+      return
+    }
+    const ids = parts.map(p => String(p.id))
+    const { data: logsP, error: el } = await getSb().from('actividad_log')
+      .select('*')
+      .in('referencia_id', ids)
+      .order('created_at', { ascending: true })
+      .limit(500)
+    if (el) { toast(el.message, 'error'); return }
+    await renderHistorialPartida(partidaNum, parts, logsP || [])
+    return
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  MODO 2 · Actividad general por rango de fechas / usuario
+  // ════════════════════════════════════════════════════════════════
   const desde = new Date(iniEl.value + 'T00:00:00').toISOString()
   const hasta = new Date(finEl.value + 'T23:59:59.999').toISOString()
   const userFilter = document.getElementById('act-usuario').value
@@ -9709,23 +9753,6 @@ window.loadActividad = async () => {
     byUser[u].acciones[l.accion] = (byUser[u].acciones[l.accion] || 0) + 1
   })
 
-  const accionLabels = {
-    login: '🔑 Login',
-    partida_aprobada: '✅ Partidas aprobadas',
-    partida_borrador: '📝 Borradores guardados',
-    partida_anulada: '🚫 Partidas anuladas',
-    compra_registrada: '🛒 Compras registradas',
-    import_ventas_alpha: '📥 Import ventas',
-    recibo_generado: '🧾 Recibos generados',
-    prestamo_creado: '🆕 Préstamos creados',
-    prestamo_editado: '✏️ Préstamos editados',
-    prestamo_baja: '⏹ Préstamos baja',
-    partida_modificada: '🔄 Partidas modificadas',
-    caja_chica_aprobada: '💰 Caja chica aprobada'
-  }
-
-  const fmtL = v => v.toLocaleString('es-HN', {minimumFractionDigits:2, maximumFractionDigits:2})
-
   // Stats cards
   const statsHtml = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
@@ -9733,7 +9760,7 @@ window.loadActividad = async () => {
         <div class="stat-card" style="padding:14px">
           <div style="font-weight:600;margin-bottom:6px">${u.nombre} <span class="badge badge-blue" style="font-size:10px">${u.rol}</span></div>
           <div style="font-size:24px;font-weight:700;color:var(--gold)">${u.total}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px">${Object.entries(u.acciones).map(([a, n]) => `${accionLabels[a] || a}: ${n}`).join(' · ')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">${Object.entries(u.acciones).map(([a, n]) => `${_accionLabels[a] || a}: ${n}`).join(' · ')}</div>
         </div>
       `).join('')}
     </div>`
@@ -9752,11 +9779,94 @@ window.loadActividad = async () => {
           <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fecha} ${hora}</td>
           <td style="font-weight:500">${l.usuario_nombre || '—'}</td>
           <td><span class="badge badge-blue" style="font-size:10px">${l.usuario_rol || ''}</span></td>
-          <td><span class="badge badge-amber" style="font-size:10px">${accionLabels[l.accion] || l.accion}</span></td>
+          <td><span class="badge badge-amber" style="font-size:10px">${_accionLabels[l.accion] || l.accion}</span></td>
           <td style="font-size:12px;color:var(--text3)">${l.modulo || '—'}</td>
           <td style="font-size:12px;max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.detalle || ''}">${l.detalle || '—'}</td>
         </tr>`
       }).join('')}</tbody>
     </table>`
   document.getElementById('act-tabla').innerHTML = logs.length ? tablaHtml : '<div style="text-align:center;padding:40px;color:var(--text3)">No hay actividad en este período</div>'
+}
+
+// Etiquetas de acciones (compartidas por ambos modos)
+const _accionLabels = {
+  login: '🔑 Login',
+  partida_aprobada: '✅ Partida aprobada',
+  partida_borrador: '📝 Borrador guardado',
+  partida_anulada: '🚫 Partida anulada',
+  partida_modificada: '🔄 Partida modificada',
+  compra_registrada: '🛒 Compra registrada',
+  factura_verificada: '🧾 Factura verificada',
+  import_ventas_alpha: '📥 Import ventas',
+  sync_credito_libro: '🔗 Sync crédito libro',
+  recibo_generado: '🧾 Recibo generado',
+  prestamo_creado: '🆕 Préstamo creado',
+  prestamo_editado: '✏️ Préstamo editado',
+  prestamo_baja: '⏹ Préstamo baja',
+  caja_chica_aprobada: '💰 Caja chica aprobada'
+}
+
+// ── Historial completo de una partida específica ──
+async function renderHistorialPartida(num, parts, logs) {
+  const fmtFechaHora = ts => {
+    const f = new Date(ts).toLocaleDateString('es-HN')
+    const h = new Date(ts).toLocaleString('es-HN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+    return `${f} ${h}`
+  }
+
+  // Resolver nombres de registrado_por (fallback para partidas sin log, p. ej. importadas)
+  const userIds = [...new Set(parts.map(p => p.registrado_por).filter(Boolean))]
+  const nombres = {}
+  if (userIds.length) {
+    const { data: us } = await getSb().from('usuarios').select('id, nombre').in('id', userIds)
+    ;(us || []).forEach(u => { nombres[u.id] = u.nombre })
+  }
+
+  // Eventos clave a partir del log
+  const creLog = logs.find(l => l.accion === 'partida_aprobada' || l.accion === 'partida_borrador')
+  const mods = logs.filter(l => l.accion === 'partida_modificada')
+  const anulLog = logs.find(l => l.accion === 'partida_anulada')
+
+  // Tarjetas resumen por cada partida que coincida con el número
+  const tarjetas = parts.map(p => {
+    const creadorNombre = creLog?.usuario_nombre || nombres[p.registrado_por] || '—'
+    const creadoFecha = creLog ? fmtFechaHora(creLog.created_at) : (p.created_at ? fmtFechaHora(p.created_at) : '—')
+    const estadoBadge = p.estado === 'aprobada' ? 'badge-green' : (p.estado === 'anulada' ? 'badge-red' : 'badge-amber')
+    return `
+      <div class="stat-card" style="padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-weight:700;font-size:16px">Partida #${p.numero_partida}</div>
+          <span class="badge ${estadoBadge}" style="font-size:10px">${p.estado || '—'}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px">${p.descripcion || ''} · ${p.fecha_partida || ''}</div>
+        <div style="display:grid;gap:6px;font-size:13px">
+          <div>👤 <b>Creada por:</b> ${creadorNombre}</div>
+          <div>🕐 <b>Fecha de creación:</b> ${creadoFecha}</div>
+          <div>🔄 <b>Modificaciones:</b> ${mods.length}${mods.length ? ` · última por ${mods[mods.length-1].usuario_nombre} (${fmtFechaHora(mods[mods.length-1].created_at)})` : ''}</div>
+          ${anulLog ? `<div style="color:var(--red)">🚫 <b>Anulada por:</b> ${anulLog.usuario_nombre} (${fmtFechaHora(anulLog.created_at)})</div>` : ''}
+        </div>
+        ${!creLog ? `<div style="font-size:11px;color:var(--text3);margin-top:8px;font-style:italic">Sin registro de creación en el log (partida importada o anterior al registro de actividad). Se muestra el dato de "registrado_por".</div>` : ''}
+      </div>`
+  }).join('')
+
+  document.getElementById('act-stats').innerHTML =
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">${tarjetas}</div>`
+
+  // Línea de tiempo (cronológica)
+  const filas = logs.map(l => `
+    <tr>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtFechaHora(l.created_at)}</td>
+      <td style="font-weight:500">${l.usuario_nombre || '—'}</td>
+      <td><span class="badge badge-blue" style="font-size:10px">${l.usuario_rol || ''}</span></td>
+      <td><span class="badge badge-amber" style="font-size:10px">${_accionLabels[l.accion] || l.accion}</span></td>
+      <td style="font-size:12px;max-width:480px;white-space:normal">${l.detalle || '—'}</td>
+    </tr>`).join('')
+
+  document.getElementById('act-tabla').innerHTML = logs.length ? `
+    <div style="font-weight:600;margin:10px 0 6px">Línea de tiempo de la Partida #${num}</div>
+    <table>
+      <thead><tr><th>Fecha / Hora</th><th>Usuario</th><th>Rol</th><th>Acción</th><th>Detalle del cambio</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>`
+    : `<div style="text-align:center;padding:40px;color:var(--text3)">La partida #${num} existe pero no tiene eventos registrados en el log de actividad.</div>`
 }
