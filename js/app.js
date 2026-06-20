@@ -9639,7 +9639,75 @@ window.verSeleccionesCxP = async () => {
       </div>`
     }).join('')
   }
+  // Encabezado de la sección de programados + historial de pagos realizados
+  list.innerHTML = `<div style="font-weight:600;font-size:13px;margin:0 0 10px;color:var(--text2)">📋 Pagos programados (pendientes)</div>` + list.innerHTML
+  await renderHistorialPagosCxP(list)
   document.getElementById('modal-selecciones-cxp').classList.add('open')
+}
+
+// ── Historial de pagos realizados (reconstruido agrupando líneas pagadas por pagado_at) ──
+// Cada grupo de pagado_at = un pago. Muestra fecha, total y el desglose de facturas.
+let _histPagosCxP = []
+async function renderHistorialPagosCxP(list) {
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const { data, error } = await getSb().from('lineas_partida')
+    .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, pagado_at, partida:partidas_contables(numero_partida, fecha_partida, descripcion, estado)')
+    .eq('pagado', true)
+    .order('pagado_at', { ascending: false })
+    .limit(1000)
+
+  let html = `<div style="font-weight:600;font-size:13px;margin:22px 0 10px;color:var(--text2);border-top:1px solid var(--bg3);padding-top:16px">💸 Pagos realizados</div>`
+
+  if (error || !data || !data.length) {
+    list.innerHTML += html + `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">${error ? 'Error: ' + error.message : 'Aún no hay pagos registrados'}</div>`
+    return
+  }
+
+  const grupos = {}
+  data.forEach(l => {
+    if (!l.pagado_at) return
+    const k = l.pagado_at
+    if (!grupos[k]) grupos[k] = { pagado_at: k, total: 0, lineas: [] }
+    grupos[k].total = Math.round((grupos[k].total + (parseFloat(l.monto) || 0)) * 100) / 100
+    grupos[k].lineas.push(l)
+  })
+  _histPagosCxP = Object.values(grupos).sort((a, b) => (b.pagado_at || '').localeCompare(a.pagado_at || ''))
+
+  html += _histPagosCxP.map((g, i) => {
+    const f = new Date(g.pagado_at)
+    const fecha = f.toLocaleDateString('es-HN')
+    const hora = f.toLocaleString('es-HN', { hour: '2-digit', minute: '2-digit', hour12: true })
+    const detalle = g.lineas.map(l => `
+      <tr>
+        <td style="font-size:11px;color:var(--gold)">${l.partida?.numero_partida || '—'}</td>
+        <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
+        <td style="font-size:12px;max-width:280px">${l.partida?.descripcion || l.descripcion || l.cuenta_nombre || '—'}</td>
+        <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${fmt(l.monto)}</td>
+      </tr>`).join('')
+    return `
+      <div style="background:var(--bg3);border-radius:var(--radius);margin-bottom:8px;border-left:3px solid var(--green)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer" onclick="window._togglePagoCxP(${i})">
+          <div>
+            <div style="font-weight:600">📅 ${fecha} <span style="font-size:11px;color:var(--text3)">· ${hora}</span></div>
+            <div style="font-size:11px;color:var(--text3)">${g.lineas.length} factura(s) · clic para ver detalle</div>
+          </div>
+          <div style="font-family:var(--mono);font-weight:600;color:var(--green)">L. ${fmt(g.total)}</div>
+        </div>
+        <div id="pago-cxp-det-${i}" style="display:none;padding:0 14px 12px">
+          <table style="width:100%"><thead><tr>
+            <th style="font-size:10px;text-align:left">PARTIDA</th><th style="font-size:10px;text-align:left">CUENTA</th><th style="font-size:10px;text-align:left">FACTURA / DESCRIPCIÓN</th><th style="font-size:10px;text-align:right">MONTO</th>
+          </tr></thead><tbody>${detalle}</tbody></table>
+        </div>
+      </div>`
+  }).join('')
+
+  if (data.length >= 1000) html += `<div style="font-size:11px;color:var(--text3);text-align:center;padding:6px">Mostrando los pagos más recientes</div>`
+  list.innerHTML += html
+}
+
+window._togglePagoCxP = (i) => {
+  const d = document.getElementById(`pago-cxp-det-${i}`)
+  if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none'
 }
 
 window.cargarSelCxP = async (selId) => {
