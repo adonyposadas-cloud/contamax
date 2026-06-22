@@ -67,6 +67,32 @@ window.initAuxiliar = function() {
   // Llenar centros de costo (sin privados para no-super_admin)
   const sel = document.getElementById('aux-centro')
   sel.innerHTML = '<option value="">Todos</option>' + getEmpresasReporte().map(e => `<option value="${e.id}">${e.nombre}</option>`).join('')
+
+  injectAuxBusquedaGlobal()
+  const bg = document.getElementById('aux-buscar-global'); if (bg) bg.value = ''
+}
+
+// Pequeño escape para el render de la búsqueda global
+function auxEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+}
+
+// Inyecta el campo de búsqueda global (texto libre en descripción de líneas y partidas),
+// una sola vez, entre los filtros y el área de resultados. No requiere tocar index.html.
+function injectAuxBusquedaGlobal() {
+  if (document.getElementById('aux-buscar-global')) return
+  const resultado = document.getElementById('aux-resultado')
+  if (!resultado || !resultado.parentNode) return
+  const cont = document.createElement('div')
+  cont.id = 'aux-busqueda-global-card'
+  cont.style.cssText = 'margin:0 0 16px 0;padding:12px 14px;border-radius:var(--radius);background:var(--bg3);border:1px dashed var(--gold)'
+  cont.innerHTML = `
+    <label style="display:block;font-size:11px;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">🔎 BUSCAR EN DESCRIPCIÓN · TODAS LAS CUENTAS</label>
+    <input type="text" id="aux-buscar-global" placeholder="ej. 7191 alquiler — busca en el rango de fechas, sin importar la cuenta"
+      style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();generarAuxiliar()}">
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">Con texto aquí la cuenta es opcional: barre todas las cuentas y muestra en qué partida y cuenta quedó cada coincidencia. Varias palabras = todas deben aparecer. Clic en una fila abre la partida.</div>`
+  resultado.parentNode.insertBefore(cont, resultado)
 }
 
 window.openAuxCuentaDD = () => {
@@ -255,6 +281,13 @@ window.generarAuxiliar = async () => {
   const estadoFiltro = document.getElementById('aux-estado').value
   const grupoCodigo = document.getElementById('aux-cuenta-es-grupo').value
 
+  // ── Modo búsqueda global por descripción (cuenta opcional) ──
+  const termGlobal = (document.getElementById('aux-buscar-global')?.value || '').trim()
+  if (termGlobal) {
+    if (!fechaIni || !fechaFin) { toast('Selecciona rango de fechas', 'error'); return }
+    return generarAuxiliarBusqueda(termGlobal, fechaIni, fechaFin, centroId, libro, estadoFiltro)
+  }
+
   if (!fechaIni || !fechaFin) { toast('Selecciona rango de fechas', 'error'); return }
   if (!cuentaId && !grupoCodigo) { toast('Selecciona una cuenta contable', 'error'); return }
 
@@ -365,6 +398,151 @@ window.generarAuxiliar = async () => {
 
   // Si venimos de drill-down del Estado de Resultados, mostrar botón de regreso
   injectAuxBackBtn()
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BÚSQUEDA GLOBAL POR DESCRIPCIÓN (transversal a todas las cuentas)
+// Busca el texto en la descripción de la LÍNEA y de la PARTIDA, dentro del
+// rango de fechas. Útil para hallar un registro mal cargado sin saber la cuenta.
+// ════════════════════════════════════════════════════════════════════
+
+// Trae las líneas de un conjunto de partidas, en lotes para no chocar con el
+// truncado silencioso de .in() de PostgREST (~1000) ni perder filas.
+async function _auxLineasPorPartidas(ids, centroId, libro) {
+  const out = []
+  for (let i = 0; i < ids.length; i += 300) {
+    const chunk = ids.slice(i, i + 300)
+    const data = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('*, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado, tipo_origen)')
+        .in('partida_id', chunk)
+        .order('id', { ascending: true })
+      if (centroId) q = q.eq('centro_costo_id', centroId)
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
+    out.push(...(data || []))
+  }
+  return out
+}
+
+window.generarAuxiliarBusqueda = async (termino, fechaIni, fechaFin, centroId, libro, estadoFiltro) => {
+  const btn = document.getElementById('btn-auxiliar')
+  btn.disabled = true; btn.textContent = 'Buscando...'
+  try {
+    const tokens = termino.toLowerCase().split(/\s+/).filter(Boolean)
+    // token más selectivo (el más largo) para acotar en el servidor; el resto se afina en memoria
+    const seed = tokens.slice().sort((a, b) => b.length - a.length)[0] || termino
+
+    // A) líneas cuya propia descripción contiene el seed
+    const lineasA = await _fetchAllPaginado(() => {
+      let q = getSb().from('lineas_partida')
+        .select('*, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado, tipo_origen)')
+        .ilike('descripcion', `%${seed}%`)
+        .gte('partida.fecha_partida', fechaIni)
+        .lte('partida.fecha_partida', fechaFin)
+        .order('id', { ascending: true })
+      if (centroId) q = q.eq('centro_costo_id', centroId)
+      if (libro === 'fiscal') q = q.eq('aplica_fiscal', true)
+      if (libro === 'interno') q = q.eq('aplica_fiscal', false)
+      return q
+    })
+
+    // B) partidas cuya descripción contiene el seed -> sus líneas (capta casos donde el
+    //    texto está en la cabecera de la partida pero no en la línea, ej. "Banco")
+    const partsB = await _fetchAllPaginado(() => getSb().from('partidas_contables')
+      .select('id')
+      .ilike('descripcion', `%${seed}%`)
+      .gte('fecha_partida', fechaIni)
+      .lte('fecha_partida', fechaFin)
+      .order('id', { ascending: true }))
+    const lineasB = partsB.length ? await _auxLineasPorPartidas(partsB.map(p => p.id), centroId, libro) : []
+
+    // Unir y deduplicar por id de línea
+    const map = new Map()
+    ;[...lineasA, ...lineasB].forEach(l => { if (l && l.id != null) map.set(l.id, l) })
+    let filtered = [...map.values()].filter(l => l.partida && l.partida.fecha_partida)
+
+    // Mismos filtros de estado y privacidad que el auxiliar normal
+    if (estadoFiltro !== 'todos') filtered = filtered.filter(l => l.partida.estado === estadoFiltro)
+    if (!centroId && !esSuperAdmin()) {
+      const idsPriv = getIdsPrivados()
+      filtered = filtered.filter(l => !l.centro_costo_id || !idsPriv.has(l.centro_costo_id))
+    }
+    // NOTA: a diferencia del auxiliar de totales, la búsqueda NO excluye centros de
+    // consolidación (ej. Adony Posadas). Es un buscador: cada línea tiene un solo centro,
+    // así que mostrarla no duplica saldos, y el objetivo es hallar el registro esté donde esté.
+    if (!puedeVerSensibles()) filtered = filtered.filter(l => !esCuentaSensible(l.cuenta_codigo))
+
+    // Todas las palabras deben aparecer (en descripción de línea + de partida)
+    filtered = filtered.filter(l => {
+      const hay = ((l.descripcion || '') + ' ' + (l.partida.descripcion || '')).toLowerCase()
+      return tokens.every(t => hay.includes(t))
+    })
+
+    filtered.sort((a, b) => {
+      const da = a.partida.fecha_partida, db = b.partida.fecha_partida
+      if (da !== db) return da.localeCompare(db)
+      return (a.partida.numero_partida || 0) - (b.partida.numero_partida || 0)
+    })
+
+    const cm = {}; getEmpresasReporte().forEach(e => { cm[e.id] = e.nombre })
+    const rows = filtered.map(l => {
+      const debe = l.tipo === 'debito' ? parseFloat(l.monto) || 0 : 0
+      const haber = l.tipo === 'credito' ? parseFloat(l.monto) || 0 : 0
+      return {
+        fecha: l.partida.fecha_partida, partida: l.partida.numero_partida || '—', partidaId: l.partida.id,
+        cuentaCod: l.cuenta_codigo || '', cuentaNom: l.cuenta_nombre || '',
+        centro: l.centro_costo_id ? (cm[l.centro_costo_id] || '—') : '—',
+        descripcion: l.descripcion || l.partida.descripcion || '', debe, haber, estado: l.partida.estado
+      }
+    })
+
+    auxData = { busqueda: true, termino, rows, fechaIni, fechaFin }
+    renderAuxiliarBusqueda(rows, termino, fechaIni, fechaFin)
+    document.getElementById('btn-auxiliar-xlsx').style.display = 'none'
+  } catch (e) {
+    toast('Error en la búsqueda: ' + (e.message || e), 'error')
+  } finally {
+    btn.disabled = false; btn.textContent = 'Consultar →'
+  }
+}
+
+function renderAuxiliarBusqueda(rows, termino, fechaIni, fechaFin) {
+  document.getElementById('aux-resultado').classList.remove('hidden')
+  const totDebe = rows.reduce((s, r) => s + r.debe, 0)
+  const totHaber = rows.reduce((s, r) => s + r.haber, 0)
+
+  document.getElementById('aux-resumen').innerHTML = `
+    <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">🔎 Resultados de "${auxEsc(termino)}"</div>
+      <div style="font-size:12px;color:var(--text3)">${rows.length} coincidencia(s) en descripción de líneas y partidas · ${fechaIni} a ${fechaFin}</div>
+    </div>`
+
+  document.getElementById('aux-tabla').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Fecha</th><th>N° Part.</th><th>Cuenta</th><th>Descripción</th><th>Centro</th>
+        <th style="text-align:right">Debe</th><th style="text-align:right">Haber</th>
+      </tr></thead>
+      <tbody>${rows.length ? rows.map(r => `
+        <tr style="cursor:pointer" onclick="verPartida('${r.partidaId}')" title="Abrir partida ${r.partida}">
+          <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${r.fecha}</td>
+          <td style="font-family:var(--mono);color:var(--gold)">${r.partida}</td>
+          <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${auxEsc(r.cuentaCod)} <span style="color:var(--text3)">${auxEsc(r.cuentaNom)}</span></td>
+          <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${auxEsc(r.descripcion)}">${auxEsc(r.descripcion)}</td>
+          <td style="font-size:12px;color:var(--text2)">${auxEsc(r.centro)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${r.debe ? 'var(--green)' : 'var(--text3)'}">${r.debe ? fmtL(r.debe) : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${r.haber ? 'var(--red)' : 'var(--text3)'}">${r.haber ? fmtL(r.haber) : '—'}</td>
+        </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">Sin coincidencias para "${auxEsc(termino)}" en ese rango de fechas</td></tr>`}
+      </tbody>
+      ${rows.length ? `<tfoot><tr style="background:var(--bg3);font-weight:600">
+        <td colspan="5" style="text-align:right">TOTALES (${rows.length})</td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${fmtL(totDebe)}</td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totHaber)}</td>
+      </tr></tfoot>` : ''}
+    </table>`
 }
 
 function renderAuxiliarSingle(b, fechaIni, fechaFin) {
