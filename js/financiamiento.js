@@ -537,35 +537,42 @@ window.reimprimirRecibo = async (reciboId) => {
   const { data: r, error } = await getSb().from('recibos_prestamos').select('*').eq('id', reciboId).single()
   if (error || !r) { ventanaRecibo?.close(); window.toast('Error cargando recibo: ' + (error?.message || 'no encontrado'), 'error'); return }
 
-  // Cargar entregas y facturas vinculadas a este recibo
-  const { data: entregas } = await getSb().from('entregas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha_deposito')
-  
-  const { data: facturas } = await getSb().from('facturas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha')
-
-  // Buscar abonos de partida vinculados
-  let abonosPartida = []
-  try {
-    const codigoSinCero = String(r.registro).replace(/^0+/, '')
-    const codigoStr = String(r.registro).trim()
-    const prefijos = [
-      `descripcion.ilike.%TAXI ${codigoSinCero}%`,
-      `descripcion.ilike.%TAXI_${codigoSinCero}%`,
-      `descripcion.ilike.%VIP ${codigoSinCero}%`,
-      `descripcion.ilike.%VIP_${codigoSinCero}%`,
-      `descripcion.ilike.%T_${codigoSinCero}%`,
-      `descripcion.ilike.%VIP  ${codigoSinCero}%`,
-      `descripcion.ilike.%TAXI  ${codigoSinCero}%`,
-    ]
-    if (codigoStr !== codigoSinCero) {
-      prefijos.push(`descripcion.ilike.%TAXI ${codigoStr}%`, `descripcion.ilike.%VIP ${codigoStr}%`, `descripcion.ilike.%T_${codigoStr}%`)
+  // ── CAMINO 1: recibo con snapshot → se reimprime EXACTO a como se tiró ──
+  // No se vuelve a consultar nada: el detalle quedó congelado al generarlo,
+  // así que aunque después hayan entrado/cambiado líneas, el recibo no cambia.
+  if (r.detalle_snapshot) {
+    try {
+      const s = typeof r.detalle_snapshot === 'string' ? JSON.parse(r.detalle_snapshot) : r.detalle_snapshot
+      const d = {
+        codigo: s.codigo, numRecibo: s.numRecibo, motorista: s.motorista, esTaxi: !!s.esTaxi,
+        fechaRecibo: s.fechaRecibo, concepto: s.concepto || '',
+        arrendadorNombre: s.arrendadorNombre || '', arrendadorDni: s.arrendadorDni || '',
+        montoRecibo: s.montoRecibo || 0, abonoCapital: s.abonoCapital || 0, intereses: s.intereses || 0,
+        diasTranscurridos: s.diasTranscurridos || 0,
+        saldoInicial: s.saldoInicial || 0, nuevoSaldoPrestamo: s.nuevoSaldoPrestamo || 0,
+        nuevoSaldoMes: s.nuevoSaldoMes || 0, saldoMesAnterior: s.saldoMesAnterior || 0, saldoDelMes: s.saldoDelMes || 0,
+        gps: s.gps || 0, alquiler: s.alquiler || 0,
+        totalEntregas: s.totalEntregas || 0, totalFacturas: s.totalFacturas || 0,
+        totalCargosPartida: s.totalCargosPartida || 0, totalAbonosPartida: s.totalAbonosPartida || 0,
+        entregas: (s.entregas || []).map(e => ({ fecha_deposito: e.fecha_deposito, banco: e.banco || '', monto: e.monto })),
+        abonosPartida: (s.abonosPartida || []).map(a => ({ descripcion: a.descripcion || '', monto: a.monto, partida: { fecha_partida: a.fecha_partida || '' } })),
+        facturas: (s.facturas || []).map(f => ({ fecha: f.fecha, descripcion: f.descripcion || '', monto: f.monto })),
+        cargosPartida: (s.cargosPartida || []).map(c => ({ descripcion: c.descripcion || '', cuenta_nombre: c.cuenta_nombre || '', monto: c.monto, partida: { fecha_partida: c.fecha_partida || '' } })),
+      }
+      imprimirRecibo(d, ventanaRecibo)
+      return
+    } catch (e) {
+      console.warn('Snapshot ilegible, usando reconstrucción:', e)
+      // continúa al CAMINO 2
     }
-    const { data: lineas } = await getSb().from('lineas_partida')
-      .select('id, monto, descripcion, tipo, cuenta_codigo, cuenta_nombre, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
-      .eq('tipo', 'credito')
-      .eq('usado_en_recibo', true)
-      .or(prefijos.join(','))
-    abonosPartida = lineas || []
-  } catch(e) {}
+  }
+
+  // ── CAMINO 2 (recibos viejos sin snapshot): reconstrucción FIEL A LOS TOTALES ──
+  // Los totales del recibo (total_del_mes, facturas, capital, saldos…) quedaron
+  // congelados en la fila al tirarlo → se usan TAL CUAL, NO se recalculan. Así,
+  // aunque después hayan entrado líneas nuevas, el monto del recibo viejo no cambia.
+  const { data: entregas } = await getSb().from('entregas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha_deposito')
+  const { data: facturas } = await getSb().from('facturas_taxis').select('*').eq('recibo_prestamo_id', reciboId).order('fecha')
 
   // Determinar si es taxi
   let prestamo = null
@@ -579,37 +586,40 @@ window.reimprimirRecibo = async (reciboId) => {
   }
   const esTaxi = prestamo?.categoria?.toLowerCase().includes('taxi')
 
-  // Reconstruir datos para impresión
-  const totalEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
-  const totalFacturas = parseFloat(r.facturas) || 0
+  // El total del mes se toma del recibo (congelado). La parte de abonos por
+  // partida = total guardado − entregas vinculadas; se muestra como UNA línea
+  // sintética para que el detalle cuadre EXACTO con el total impreso (en vez de
+  // re-buscar líneas por texto, que era lo que inflaba el recibo).
+  const totalEntregasGuardado = parseFloat(r.total_del_mes) || 0
+  const sumEntregas = (entregas || []).reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const abonoPartidaMonto = Math.round((totalEntregasGuardado - sumEntregas) * 100) / 100
+  const abonosPartida = abonoPartidaMonto > 0.01
+    ? [{ descripcion: 'Abonos por partida contable', monto: abonoPartidaMonto, partida: { fecha_partida: r.fecha } }]
+    : []
 
   const d = {
-    codigo: r.registro,
-    numRecibo: r.numero_recibo,
-    motorista: r.nombre,
+    codigo: r.registro, numRecibo: r.numero_recibo, motorista: r.nombre, esTaxi,
+    fechaRecibo: r.fecha, concepto: r.concepto || '',
+    arrendadorNombre: r.propietario || '', arrendadorDni: r.dni || '',
     montoRecibo: parseFloat(r.monto_recibo) || 0,
     abonoCapital: parseFloat(r.capital) || 0,
     intereses: parseFloat(r.intereses) || 0,
+    diasTranscurridos: '',
     saldoInicial: parseFloat(r.saldo_inicial) || 0,
     nuevoSaldoPrestamo: parseFloat(r.saldo_actual) || 0,
-    totalEntregas,
-    totalFacturas,
-    totalAbonosPartida: abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0),
+    nuevoSaldoMes: parseFloat(r.saldo_del_mes) || 0,
+    saldoMesAnterior: parseFloat(r.saldo_anterior) || 0,
+    saldoDelMes: parseFloat(r.saldo_del_mes) || 0,
     gps: Math.abs(parseFloat(r.gps) || 0),
     alquiler: Math.abs(parseFloat(r.numero_alquiler) || 0),
-    saldoMesAnterior: parseFloat(r.saldo_anterior) || 0,
-    nuevoSaldoMes: parseFloat(r.saldo_del_mes) || 0,
-    saldoDelMes: parseFloat(r.saldo_del_mes) || 0,
-    concepto: r.concepto || '',
-    arrendadorNombre: r.propietario || '', arrendadorDni: r.dni || '',
-    diasTranscurridos: '',
-    esTaxi,
-    entregas: entregas || [],
-    facturas: facturas || [],
-    cargosPartida: [],          // en reimpresión el total ya viene agregado en totalFacturas
+    totalEntregas: totalEntregasGuardado,
+    totalFacturas: parseFloat(r.facturas) || 0,
     totalCargosPartida: 0,
+    totalAbonosPartida: abonoPartidaMonto > 0.01 ? abonoPartidaMonto : 0,
+    entregas: entregas || [],
     abonosPartida,
-    fechaRecibo: r.fecha,
+    facturas: facturas || [],
+    cargosPartida: [],
   }
 
   imprimirRecibo(d, ventanaRecibo)
@@ -641,17 +651,35 @@ window.eliminarRecibo = async (reciboId, codigo, numRecibo, prestamoId) => {
       }
     }
 
-    // 4. Liberar abonos de partidas contables (buscar por usado_en_recibo = true y descripción con código)
-    const codigoSinCero = String(codigo).replace(/^0+/, '')
+    // 4. Liberar líneas de partida consumidas por ESTE recibo.
+    //    Preferido: por enlace duro (recibo_prestamo_id). Recibos viejos sin
+    //    enlace caen a prefijos acotados TAXI/VIP + código (NUNCA %codigo%
+    //    suelto como antes, que podía desmarcar líneas de OTROS recibos).
     try {
-      const { data: lineasUsadas } = await getSb().from('lineas_partida')
-        .select('id')
-        .in('tipo', ['credito', 'debito'])
-        .eq('usado_en_recibo', true)
-        .ilike('descripcion', `%${codigoSinCero}%`)
-      if (lineasUsadas?.length) {
-        for (const l of lineasUsadas) {
-          await getSb().from('lineas_partida').update({ usado_en_recibo: false }).eq('id', l.id)
+      const { data: lineasLink } = await getSb().from('lineas_partida')
+        .select('id').eq('recibo_prestamo_id', reciboId)
+      if (lineasLink?.length) {
+        for (const l of lineasLink) {
+          await getSb().from('lineas_partida').update({ usado_en_recibo: false, recibo_prestamo_id: null }).eq('id', l.id)
+        }
+      } else {
+        const codigoSinCero = String(codigo).replace(/^0+/, '')
+        const codigoStr = String(codigo).trim()
+        const prefijos = [
+          `descripcion.ilike.%TAXI ${codigoSinCero}%`, `descripcion.ilike.%TAXI_${codigoSinCero}%`,
+          `descripcion.ilike.%VIP ${codigoSinCero}%`, `descripcion.ilike.%VIP_${codigoSinCero}%`,
+          `descripcion.ilike.%T_${codigoSinCero}%`,
+        ]
+        if (codigoStr !== codigoSinCero) {
+          prefijos.push(`descripcion.ilike.%TAXI ${codigoStr}%`, `descripcion.ilike.%VIP ${codigoStr}%`, `descripcion.ilike.%T_${codigoStr}%`)
+        }
+        const { data: lineasUsadas } = await getSb().from('lineas_partida')
+          .select('id').in('tipo', ['credito', 'debito']).eq('usado_en_recibo', true)
+          .or(prefijos.join(','))
+        if (lineasUsadas?.length) {
+          for (const l of lineasUsadas) {
+            await getSb().from('lineas_partida').update({ usado_en_recibo: false, recibo_prestamo_id: null }).eq('id', l.id)
+          }
         }
       }
     } catch(e) { console.log('No se pudieron liberar abonos de partida:', e) }
@@ -716,6 +744,38 @@ window.toggleEditConcepto = () => {
   }
 }
 
+// Arma el detalle CONGELADO del recibo. Captura exactamente los campos que
+// usa imprimirRecibo(), para que la reimpresión sea idéntica a como se tiró,
+// sin volver a consultar la base (inmune a líneas/ediciones posteriores).
+function _snapshotRecibo(d) {
+  return {
+    v: 1,
+    codigo: d.codigo, numRecibo: d.numRecibo, motorista: d.motorista, esTaxi: !!d.esTaxi,
+    fechaRecibo: d.fechaRecibo, concepto: d.concepto || '',
+    arrendadorNombre: d.arrendadorNombre || '', arrendadorDni: d.arrendadorDni || '',
+    montoRecibo: d.montoRecibo, abonoCapital: d.abonoCapital, intereses: d.intereses,
+    diasTranscurridos: d.diasTranscurridos,
+    saldoInicial: d.saldoInicial, nuevoSaldoPrestamo: d.nuevoSaldoPrestamo,
+    nuevoSaldoMes: d.nuevoSaldoMes, saldoMesAnterior: d.saldoMesAnterior, saldoDelMes: d.saldoDelMes,
+    gps: d.gps, alquiler: d.alquiler,
+    totalEntregas: d.totalEntregas, totalFacturas: d.totalFacturas,
+    totalCargosPartida: d.totalCargosPartida, totalAbonosPartida: d.totalAbonosPartida,
+    entregas: (d.entregas || []).map(e => ({
+      fecha_deposito: e.fecha_deposito, banco: e.banco || '', monto: parseFloat(e.monto) || 0
+    })),
+    abonosPartida: (d.abonosPartida || []).map(a => ({
+      fecha_partida: a.partida?.fecha_partida || '', descripcion: a.descripcion || '', monto: parseFloat(a.monto) || 0
+    })),
+    facturas: (d.facturas || []).map(f => ({
+      fecha: f.fecha, descripcion: f.descripcion || '', monto: parseFloat(f.monto) || 0
+    })),
+    cargosPartida: (d.cargosPartida || []).map(c => ({
+      fecha_partida: c.partida?.fecha_partida || '', descripcion: c.descripcion || '',
+      cuenta_nombre: c.cuenta_nombre || '', monto: parseFloat(c.monto) || 0
+    })),
+  }
+}
+
 window.confirmarRecibo = async () => {
   const d = liquidacionData
   if (!d || !selectedPrestamo) return
@@ -756,7 +816,8 @@ window.confirmarRecibo = async () => {
     cuota_mes: d.montoRecibo,
     concepto: d.concepto,
     propietario: d.arrendadorNombre || '', dni: d.arrendadorDni || '',
-    prestamo_id: selectedPrestamo.id
+    prestamo_id: selectedPrestamo.id,
+    detalle_snapshot: _snapshotRecibo(d)   // ← detalle "en piedra" para reimpresión fiel
   }).select().single()
 
   if (recErr) { ventanaRecibo?.close(); btn.disabled = false; btn.textContent = 'Confirmar y generar recibo →'; window.toast('Error: ' + recErr.message, 'error'); return }
@@ -776,12 +837,12 @@ window.confirmarRecibo = async () => {
   // 3b. Marcar abonos y cargos de partidas contables como usados
   if (d.abonosPartida?.length) {
     for (const a of d.abonosPartida) {
-      await getSb().from('lineas_partida').update({ usado_en_recibo: true }).eq('id', a.id)
+      await getSb().from('lineas_partida').update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id }).eq('id', a.id)
     }
   }
   if (d.cargosPartida?.length) {
     for (const c of d.cargosPartida) {
-      await getSb().from('lineas_partida').update({ usado_en_recibo: true }).eq('id', c.id)
+      await getSb().from('lineas_partida').update({ usado_en_recibo: true, recibo_prestamo_id: recibo.id }).eq('id', c.id)
       // Marcar también su espejo en facturas_taxis (misma partida) para que el
       // detalle de unidad no la muestre como pendiente de cobro.
       if (c.partida?.id) {
