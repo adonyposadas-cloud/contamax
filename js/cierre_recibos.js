@@ -593,7 +593,7 @@ window.generarPartidaCentralizacion = async function () {
   let numero
   try { numero = await window.siguienteNumeroPartida() } catch (e) { window.toast?.('No se pudo obtener número de partida', 'error'); reset(); return }
   const quienId = window._currentProfile?.()?.id || null
-  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({ centro_costo_id: null, fecha_partida: hasta, numero_partida: numero, descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: totalDebe, generada_por: quienId }).select('id').single()
+  const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({ centro_costo_id: null, fecha_partida: hasta, numero_partida: numero, descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: totalDebe, generada_por: quienId, es_sensible: true }).select('id').single()
   if (pErr) { window.toast?.('Error creando partida: ' + pErr.message, 'error'); reset(); return }
   const { data: lineasIns, error: lErr } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id }))).select('id')
   if (lErr) { await sb.from('partidas_contables').delete().eq('id', partida.id); window.toast?.('Error en líneas: ' + lErr.message, 'error'); reset(); return }

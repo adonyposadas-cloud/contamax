@@ -1858,6 +1858,23 @@ async function loadPartidas() {
 }
 window.loadPartidas = loadPartidas
 
+// Marca/desmarca una partida como SENSIBLE (visible solo para super_admin).
+// El bloqueo real lo hace la RLS; esto es la UI para prenderlo/apagarlo.
+window.toggleSensible = async (id, valor) => {
+  const v = (valor === true || valor === 'true')
+  if (currentProfile?.rol !== 'super_admin') { toast('Solo super admin puede marcar partidas sensibles', 'error'); return }
+  const msg = v
+    ? '¿Marcar esta partida como SENSIBLE? Solo los super admin podrán verla; desaparece para el resto (listados, detalle y reportes).'
+    : '¿Quitar la marca de sensible? Volverá a ser visible para todos los roles con acceso a partidas.'
+  if (!confirm(msg)) return
+  const { error } = await sb.from('partidas_contables').update({ es_sensible: v }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  const p = allPartidas.find(x => x.id === id); if (p) p.es_sensible = v
+  toast(v ? '🔒 Partida marcada como sensible' : '🔓 Partida visible para todos', 'success')
+  logActividad(v ? 'marcar_sensible' : 'quitar_sensible', 'partidas', `Partida ${p?.numero_partida || id} ${v ? 'marcada sensible' : 'desmarcada'}`, id)
+  filtrarPartidas()
+}
+
 window.filtrarPartidas = () => {
   const buscar = (document.getElementById('fp-buscar')?.value || '').toLowerCase()
   const desde = document.getElementById('fp-desde')?.value || ''
@@ -1903,6 +1920,7 @@ function _renderPaginaPartidas() {
   const countEl = document.getElementById('fp-count')
   const pagEl = document.getElementById('partidas-paginacion')
   const data = _partidasFiltradas
+  const esSuper = currentProfile?.rol === 'super_admin'
   if (!data?.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text3)">No hay partidas con estos filtros</td></tr>'
     if (countEl) countEl.textContent = '0 resultados'
@@ -1923,10 +1941,10 @@ function _renderPaginaPartidas() {
     <tr style="cursor:pointer" onclick="verPartida('${p.id}')">
       <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td class="mono" style="color:var(--text3)">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
-      <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.descripcion}</td>
+      <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.es_sensible ? '<span title="Partida sensible — solo super admin" style="margin-right:5px">🔒</span>' : ''}${p.descripcion}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${getOrigenLabel(p.tipo_origen)}</span></td>
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
-      <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar">✏️</button></td>
+      <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar">✏️</button>${esSuper ? `<button onclick="event.stopPropagation();window.toggleSensible('${p.id}', ${p.es_sensible ? 'false' : 'true'})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="${p.es_sensible ? 'Quitar sensible (la verán todos)' : 'Marcar sensible (solo super admin)'}">${p.es_sensible ? '🔒' : '🔓'}</button>` : ''}</td>
     </tr>`).join('')
 
   if (pagEl) {
