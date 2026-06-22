@@ -288,14 +288,60 @@ function _partidaDeLinea(l) { const p = l.partidas_contables; return Array.isArr
 
 // Vista de flota: cuántas unidades del pool tuvieron ingreso vs no, por modalidad
 function _computeFlota(poolUnits, ingresoRegs) {
-  const F = { VIP: { con: 0, sin: 0, total: 0 }, TAXI: { con: 0, sin: 0, total: 0 } }
+  const F = { VIP: { con: 0, sin: 0, total: 0, sinList: [], conList: [] }, TAXI: { con: 0, sin: 0, total: 0, sinList: [], conList: [] } }
   for (const u of poolUnits) {
     const esTaxi = String(u.modalidad || '').toUpperCase() === 'TAXI'
     const b = esTaxi ? F.TAXI : F.VIP
     b.total++
-    if (ingresoRegs.has(_normReg(u.registro))) b.con++; else b.sin++
+    const item = { registro: u.registro, propietario: u.propietario || '', modalidad: u.modalidad || '' }
+    if (ingresoRegs.has(_normReg(u.registro))) { b.con++; b.conList.push(item) } else { b.sin++; b.sinList.push(item) }
   }
+  const byReg = (a, b) => String(a.registro).localeCompare(String(b.registro), undefined, { numeric: true })
+  F.VIP.sinList.sort(byReg); F.TAXI.sinList.sort(byReg)
   return F
+}
+
+// Modal: unidades del pool que NO reportaron ingreso en el período (para pedir cuentas).
+window.verUnidadesSinIngreso = function (modalidad) {
+  const F = (typeof _centCalc !== 'undefined' && _centCalc) ? _centCalc.F : null
+  if (!F || !F[modalidad]) { window.toast?.('Primero tocá "Calcular"', 'info'); return }
+  const lista = F[modalidad].sinList || []
+  const titulo = modalidad === 'TAXI' ? 'Flota Taxi' : 'Flota VIP'
+  let ov = document.getElementById('modal-sin-ingreso')
+  if (!ov) {
+    ov = document.createElement('div')
+    ov.id = 'modal-sin-ingreso'
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:40px 16px'
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove() })
+    document.body.appendChild(ov)
+  }
+  const filas = lista.length
+    ? lista.map((u, i) => `<tr style="border-bottom:1px solid var(--border,#333)"><td style="padding:7px 10px;color:var(--text3,#999)">${i + 1}</td><td style="padding:7px 10px;font-weight:600">${u.registro}</td></tr>`).join('')
+    : '<tr><td colspan="2" style="padding:18px;text-align:center;color:var(--text3,#999)">Todas reportaron ingreso 🎉</td></tr>'
+  ov.innerHTML = `
+    <div style="background:var(--bg2,#1a1a1a);border-radius:12px;max-width:420px;width:100%;padding:20px;color:var(--text,#eee);box-shadow:0 10px 40px rgba(0,0,0,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:16px;font-weight:700">🚕 ${titulo} — sin ingreso (${lista.length})</div>
+        <button onclick="document.getElementById('modal-sin-ingreso').remove()" style="background:none;border:none;color:var(--text3,#999);font-size:22px;cursor:pointer">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--text3,#999);margin-bottom:12px">Unidades mapeadas al pool que no registraron ningún depósito en el período (${_centCalc.desde} a ${_centCalc.hasta}).</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:1px solid var(--border,#444);text-align:left;color:var(--text3,#999)"><th style="padding:7px 10px;width:40px">#</th><th style="padding:7px 10px">Registro</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      ${lista.length ? `<div style="margin-top:14px;text-align:right"><button onclick="window.copiarSinIngreso('${modalidad}')" style="background:var(--gold,#d4a017);color:#1a1a1a;font-weight:600;border:none;border-radius:8px;padding:7px 14px;cursor:pointer">📋 Copiar registros</button></div>` : ''}
+    </div>`
+}
+
+window.copiarSinIngreso = function (modalidad) {
+  const F = (typeof _centCalc !== 'undefined' && _centCalc) ? _centCalc.F : null
+  if (!F || !F[modalidad]) return
+  const txt = (F[modalidad].sinList || []).map(u => u.registro).join('\n')
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(txt).then(() => window.toast?.('Registros copiados', 'success'), () => window.toast?.('No se pudo copiar', 'error'))
+  } else {
+    window.toast?.('Copia no disponible en este navegador', 'info')
+  }
 }
 
 // Resultado real del CC Taxis leído del mayor (líneas pendientes de centralizar)
@@ -327,7 +373,7 @@ function _computeDistribucion(neto, distrib, params) {
 
 // Carga: flota (unidades + quién reportó ingreso en el período) y líneas pendientes del mayor del CC Taxis
 async function _loadDatosPool(sb, desde, hasta, ccTaxisId) {
-  const { data: unidades } = await sb.from('unidades_taxis').select('registro, propietario, modalidad')
+  const { data: unidades } = await sb.from('unidades_taxis').select('registro, propietario, modalidad').eq('activo', true)
   const poolUnits = (unidades || []).filter(u => _normProp(u.propietario) === 'TAXIS')
   const entregas = await _fetchAllPag(() => sb.from('entregas_taxis').select('unidad, fecha_deposito').gte('fecha_deposito', desde).lte('fecha_deposito', hasta).order('id'))
   const ingresoRegs = new Set((entregas || []).map(e => _normReg(e.unidad)))
@@ -532,11 +578,11 @@ window.calcularCentralizacion = async function () {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div style="background:var(--bg3,#222);border-radius:8px;padding:12px">
         <div style="font-weight:600;margin-bottom:6px">Flota VIP <span style="font-weight:400;font-size:11px;color:var(--text3,#999)">(${desde} a ${hasta})</span></div>
-        <div style="font-size:13px">Con ingreso: <b>${F.VIP.con}</b> · Sin ingreso: <b>${F.VIP.sin}</b> · Total mapeadas: <b>${F.VIP.total}</b></div>
+        <div style="font-size:13px">Con ingreso: <b>${F.VIP.con}</b> · Sin ingreso: <b onclick="window.verUnidadesSinIngreso('VIP')" style="cursor:pointer;color:var(--gold,#d4a017);text-decoration:underline" title="Ver unidades sin ingreso">${F.VIP.sin}</b> · Total mapeadas: <b>${F.VIP.total}</b></div>
       </div>
       <div style="background:var(--bg3,#222);border-radius:8px;padding:12px">
         <div style="font-weight:600;margin-bottom:6px">Flota Taxi</div>
-        <div style="font-size:13px">Con ingreso: <b>${F.TAXI.con}</b> · Sin ingreso: <b>${F.TAXI.sin}</b> · Total mapeadas: <b>${F.TAXI.total}</b></div>
+        <div style="font-size:13px">Con ingreso: <b>${F.TAXI.con}</b> · Sin ingreso: <b onclick="window.verUnidadesSinIngreso('TAXI')" style="cursor:pointer;color:var(--gold,#d4a017);text-decoration:underline" title="Ver unidades sin ingreso">${F.TAXI.sin}</b> · Total mapeadas: <b>${F.TAXI.total}</b></div>
       </div>
     </div>
     <div style="background:var(--bg3,#222);border-radius:8px;padding:12px;margin-bottom:14px">
