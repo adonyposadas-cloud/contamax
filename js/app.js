@@ -7131,13 +7131,15 @@ window.consultarEntregasTaxis = async () => {
   const hasta = document.getElementById('ptx-hasta').value
   if (!desde || !hasta) { toast('Selecciona el rango de fechas', 'error'); return }
 
-  const { data, error } = await sb.from('entregas_taxis')
-    .select('*')
-    .gte('fecha_deposito', desde)
-    .lte('fecha_deposito', hasta)
-    .order('fecha_deposito')
-
-  if (error) { toast('Error: ' + error.message, 'error'); return }
+  let data
+  try {
+    data = await _fetchAllPag(() => sb.from('entregas_taxis')
+      .select('*')
+      .gte('fecha_deposito', desde)
+      .lte('fecha_deposito', hasta)
+      .order('fecha_deposito')
+      .order('id'))   // desempate único para paginar sin perder ni duplicar filas
+  } catch (e) { toast('Error: ' + e.message, 'error'); return }
   if (!data?.length) { toast('No hay entregas en ese rango', 'info'); return }
 
   // Agrupar por fecha

@@ -11,6 +11,8 @@
   let fVentas = []
   let fCompras = []
   let fSoloAlertas = false
+  let fBuscaCompra = ''   // buscador de proveedor / factura / RTN en libro de compras
+  let fActCompra = ''     // filtro por actividad en libro de compras
 
   const getSb = () => window._sb
   const fmt = (v) => (Math.round((+v || 0) * 100) / 100).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -373,9 +375,20 @@
 
     // ── LIBRO DE COMPRAS (seleccionable + rodaje con tope legal + actividad) ──
     let subC = 0, isvC = 0
+    const qBuscaC = fBuscaCompra.trim().toLowerCase()
+    let nVisiblesC = 0
     const filasC = fCompras.map(c => {
       const incl = !!c.incluir_fiscal
-      if (incl) { subC += +c.subtotal || 0; isvC += +c.isv || 0 }
+      if (incl) { subC += +c.subtotal || 0; isvC += +c.isv || 0 }   // total del período completo (no lo afecta el filtro)
+
+      // Filtro de visualización (solo oculta filas; no cambia los totales ni la declaración)
+      if (qBuscaC) {
+        const heno = `${c.numero_factura || ''} ${c.proveedor || ''} ${c.rtn_proveedor || ''}`.toLowerCase()
+        if (!heno.includes(qBuscaC)) return ''
+      }
+      if (fActCompra && tipoActividad(c.centro_costo_id) !== fActCompra) return ''
+      nVisiblesC++
+
       const sinProv = !((c.proveedor || '').trim())
       const chk = `<input type="checkbox" ${incl ? 'checked' : ''} ${editable ? '' : 'disabled'} onchange="window.fiscToggleCompra('${c.id}', this.checked)" style="width:auto;margin:0;cursor:pointer">`
       // Botón rodar con tope legal de 3 meses calculado desde la fecha de la factura
@@ -428,7 +441,18 @@
       <div class="form-card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div class="form-card-title" style="margin:0">🧾 Libro de Compras · ${etiquetaMes(fPeriodo)} <span style="font-weight:400;color:var(--text3);font-size:12px">(marcá las que entran al crédito)</span></div>
-          <span style="font-size:12px;color:var(--text3)">${fCompras.length} factura(s)</span>
+          <span style="font-size:12px;color:var(--text3)">${(qBuscaC || fActCompra) ? `${nVisiblesC} de ${fCompras.length}` : fCompras.length} factura(s)</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <input type="text" value="${esc(fBuscaCompra)}" placeholder="Buscar proveedor, n° de factura o RTN…  (Enter)" onchange="window.fiscBuscaCompra(this.value)" onkeydown="if(event.key==='Enter')window.fiscBuscaCompra(this.value)" style="flex:1;min-width:220px;padding:7px 10px;font-size:13px">
+          <select onchange="window.fiscActCompra(this.value)" style="width:auto;padding:7px 10px;font-size:13px">
+            <option value=""${fActCompra === '' ? ' selected' : ''}>Toda actividad</option>
+            <option value="gravada"${fActCompra === 'gravada' ? ' selected' : ''}>Gravada</option>
+            <option value="exenta"${fActCompra === 'exenta' ? ' selected' : ''}>Exenta</option>
+            <option value="comun"${fActCompra === 'comun' ? ' selected' : ''}>Común</option>
+            <option value="personal"${fActCompra === 'personal' ? ' selected' : ''}>Personal</option>
+          </select>
+          ${(qBuscaC || fActCompra) ? `<button class="btn btn-ghost" style="padding:6px 10px;font-size:12px" onclick="window.fiscLimpiarFiltroCompra()">✕ Limpiar</button>` : ''}
         </div>
         <div class="table-wrap" style="max-height:380px;overflow:auto">
           <table>
@@ -436,9 +460,9 @@
               <th style="text-align:center">Incluir</th><th>Fecha</th><th>Factura</th><th>Proveedor</th><th>RTN</th>
               <th style="text-align:center">Actividad</th><th style="text-align:right">Subtotal</th><th style="text-align:right">ISV</th><th style="text-align:center">Rodar</th>
             </tr></thead>
-            <tbody>${filasC || '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:18px">Sin compras asignadas a este período</td></tr>'}</tbody>
+            <tbody>${filasC || `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:18px">${(qBuscaC || fActCompra) ? 'Ninguna factura coincide con el filtro' : 'Sin compras asignadas a este período'}</td></tr>`}</tbody>
             <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
-              <td colspan="6" style="text-align:right">ISV incluido (bruto, antes de prorrata):</td>
+              <td colspan="6" style="text-align:right">ISV incluido (bruto, antes de prorrata)${(qBuscaC || fActCompra) ? ' · período completo, no el filtro' : ''}:</td>
               <td style="text-align:right;font-family:var(--mono)">${fmt(subC)}</td>
               <td style="text-align:right;font-family:var(--mono)">${fmt(isvC)}</td>
               <td></td>
@@ -453,6 +477,11 @@
 
   // ── Filtro "ver solo con alertas" ──
   window.fiscToggleAlertas = (checked) => { fSoloAlertas = !!checked; render() }
+
+  // ── Filtro del libro de compras (búsqueda de texto + actividad) ──
+  window.fiscBuscaCompra = (v) => { fBuscaCompra = v || ''; render() }
+  window.fiscActCompra = (v) => { fActCompra = v || ''; render() }
+  window.fiscLimpiarFiltroCompra = () => { fBuscaCompra = ''; fActCompra = ''; render() }
 
   // ── Toggle incluir/excluir una compra del crédito ──
   window.fiscToggleCompra = async (id, checked) => {
