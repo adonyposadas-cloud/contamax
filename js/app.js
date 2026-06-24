@@ -3794,6 +3794,12 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
   // TODAS las líneas de ISV con monto > 0 (puede haber varias facturas en una partida)
   const isvLines = lineasValidas.filter(l => l.cuenta_codigo?.startsWith('110402') && (+l.monto || 0) > 0)
 
+  // Clasificación costo/gasto: costo si la partida tiene un débito en 510101 (costo de
+  // adquisición) o en 110501 (inventario). Si no, se considera gasto.
+  const tipoCompra = lineasValidas.some(l => l.tipo === 'debito'
+    && (l.cuenta_codigo?.startsWith('510101') || l.cuenta_codigo?.startsWith('110501')))
+    ? 'costo' : 'gasto'
+
   const cuentaProv = lineaProveedor?.cuenta_codigo || ''
   const formaPago = lineaProveedor ? 'credito' : (lineaCaja ? 'contado' : 'otro')
   const centroCostoId = lineaInventario?.centro_costo_id
@@ -3874,6 +3880,7 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
       forma_pago: formaPago,
       productos: b.productos,
       incluir_fiscal: prev ? prev.incluir_fiscal : true,
+      tipo_compra: tipoCompra,
       origen: 'manual',
       partida_id: partidaId,
     }

@@ -130,7 +130,7 @@
 
     // COMPRAS: por periodo_fiscal asignado
     let qC = sb.from('libro_compras')
-      .select('id,fecha,numero_factura,proveedor,rtn_proveedor,subtotal,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id')
+      .select('id,fecha,numero_factura,proveedor,rtn_proveedor,subtotal,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id,tipo_compra')
       .eq('periodo_fiscal', fPeriodo).order('fecha')
     if (fCentro) qC = qC.eq('centro_costo_id', fCentro)
 
@@ -373,25 +373,25 @@
         </div>`
     }).join('')
 
-    // ── LIBRO DE COMPRAS (seleccionable + rodaje con tope legal + actividad) ──
-    let subC = 0, isvC = 0
+    // ── LIBRO DE COMPRAS · separado en COSTOS y GASTOS ──
     const qBuscaC = fBuscaCompra.trim().toLowerCase()
-    let nVisiblesC = 0
-    const filasC = fCompras.map(c => {
-      const incl = !!c.incluir_fiscal
-      if (incl) { subC += +c.subtotal || 0; isvC += +c.isv || 0 }   // total del período completo (no lo afecta el filtro)
+    const filtroActivoC = !!(qBuscaC || fActCompra)
 
-      // Filtro de visualización (solo oculta filas; no cambia los totales ni la declaración)
+    // ¿la compra pasa el filtro de texto / actividad?
+    const pasaFiltroC = (c) => {
       if (qBuscaC) {
         const heno = `${c.numero_factura || ''} ${c.proveedor || ''} ${c.rtn_proveedor || ''}`.toLowerCase()
-        if (!heno.includes(qBuscaC)) return ''
+        if (!heno.includes(qBuscaC)) return false
       }
-      if (fActCompra && tipoActividad(c.centro_costo_id) !== fActCompra) return ''
-      nVisiblesC++
+      if (fActCompra && tipoActividad(c.centro_costo_id) !== fActCompra) return false
+      return true
+    }
 
+    // Renderiza una fila <tr> de compra
+    const filaCompra = (c) => {
+      const incl = !!c.incluir_fiscal
       const sinProv = !((c.proveedor || '').trim())
       const chk = `<input type="checkbox" ${incl ? 'checked' : ''} ${editable ? '' : 'disabled'} onchange="window.fiscToggleCompra('${c.id}', this.checked)" style="width:auto;margin:0;cursor:pointer">`
-      // Botón rodar con tope legal de 3 meses calculado desde la fecha de la factura
       const destinoRow = mesSiguiente(c.periodo_fiscal || fPeriodo)
       const limiteRow = periodoMaximoCredito(c.fecha)
       const enTope = limiteRow && destinoRow > limiteRow
@@ -418,7 +418,41 @@
         <td style="text-align:right;font-family:var(--mono)">${fmt(c.isv)}</td>
         <td style="text-align:center;white-space:nowrap">${btnMover}${btnEdit}</td>
       </tr>`
-    }).join('')
+    }
+
+    // Construye una ventana (card) para una lista (costos o gastos)
+    const ventanaCompras = (titulo, icono, lista) => {
+      let sub = 0, isv = 0   // total del período completo de la ventana (no lo afecta el filtro)
+      lista.forEach(c => { if (c.incluir_fiscal) { sub += +c.subtotal || 0; isv += +c.isv || 0 } })
+      const visibles = lista.filter(pasaFiltroC)
+      const filas = visibles.map(filaCompra).join('')
+      const cuenta = filtroActivoC ? `${visibles.length} de ${lista.length}` : `${lista.length}`
+      return `
+      <div class="form-card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="form-card-title" style="margin:0">${icono} ${titulo} <span style="font-weight:400;color:var(--text3);font-size:12px">(marcá las que entran al crédito)</span></div>
+          <span style="font-size:12px;color:var(--text3)">${cuenta} factura(s)</span>
+        </div>
+        <div class="table-wrap" style="max-height:340px;overflow:auto">
+          <table>
+            <thead><tr>
+              <th style="text-align:center">Incluir</th><th>Fecha</th><th>Factura</th><th>Proveedor</th><th>RTN</th>
+              <th style="text-align:center">Actividad</th><th style="text-align:right">Subtotal</th><th style="text-align:right">ISV</th><th style="text-align:center">Rodar</th>
+            </tr></thead>
+            <tbody>${filas || `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:18px">${filtroActivoC ? 'Ninguna factura coincide con el filtro' : 'Sin facturas en esta ventana'}</td></tr>`}</tbody>
+            <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+              <td colspan="6" style="text-align:right">ISV incluido (bruto, antes de prorrata)${filtroActivoC ? ' · período completo, no el filtro' : ''}:</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmt(sub)}</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmt(isv)}</td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+        </div>
+      </div>`
+    }
+
+    const comprasCosto = fCompras.filter(c => c.tipo_compra === 'costo')
+    const comprasGasto = fCompras.filter(c => c.tipo_compra !== 'costo')
 
     cont.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -438,40 +472,25 @@
       </div>` : ''}
       ${ventanasV || '<div class="form-card" style="margin-bottom:18px;text-align:center;color:var(--text3);padding:18px">Sin ventas en el período</div>'}
 
-      <div class="form-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <div class="form-card-title" style="margin:0">🧾 Libro de Compras · ${etiquetaMes(fPeriodo)} <span style="font-weight:400;color:var(--text3);font-size:12px">(marcá las que entran al crédito)</span></div>
-          <span style="font-size:12px;color:var(--text3)">${(qBuscaC || fActCompra) ? `${nVisiblesC} de ${fCompras.length}` : fCompras.length} factura(s)</span>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-          <input type="text" value="${esc(fBuscaCompra)}" placeholder="Buscar proveedor, n° de factura o RTN…  (Enter)" onchange="window.fiscBuscaCompra(this.value)" onkeydown="if(event.key==='Enter')window.fiscBuscaCompra(this.value)" style="flex:1;min-width:220px;padding:7px 10px;font-size:13px">
-          <select onchange="window.fiscActCompra(this.value)" style="width:auto;padding:7px 10px;font-size:13px">
-            <option value=""${fActCompra === '' ? ' selected' : ''}>Toda actividad</option>
-            <option value="gravada"${fActCompra === 'gravada' ? ' selected' : ''}>Gravada</option>
-            <option value="exenta"${fActCompra === 'exenta' ? ' selected' : ''}>Exenta</option>
-            <option value="comun"${fActCompra === 'comun' ? ' selected' : ''}>Común</option>
-            <option value="personal"${fActCompra === 'personal' ? ' selected' : ''}>Personal</option>
-          </select>
-          ${(qBuscaC || fActCompra) ? `<button class="btn btn-ghost" style="padding:6px 10px;font-size:12px" onclick="window.fiscLimpiarFiltroCompra()">✕ Limpiar</button>` : ''}
-        </div>
-        <div class="table-wrap" style="max-height:380px;overflow:auto">
-          <table>
-            <thead><tr>
-              <th style="text-align:center">Incluir</th><th>Fecha</th><th>Factura</th><th>Proveedor</th><th>RTN</th>
-              <th style="text-align:center">Actividad</th><th style="text-align:right">Subtotal</th><th style="text-align:right">ISV</th><th style="text-align:center">Rodar</th>
-            </tr></thead>
-            <tbody>${filasC || `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:18px">${(qBuscaC || fActCompra) ? 'Ninguna factura coincide con el filtro' : 'Sin compras asignadas a este período'}</td></tr>`}</tbody>
-            <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
-              <td colspan="6" style="text-align:right">ISV incluido (bruto, antes de prorrata)${(qBuscaC || fActCompra) ? ' · período completo, no el filtro' : ''}:</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmt(subC)}</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmt(isvC)}</td>
-              <td></td>
-            </tr></tfoot>
-          </table>
-        </div>
-        <div class="form-actions" style="margin-top:14px">
-          <button class="btn btn-ghost" onclick="window.fiscExportar()">📥 Exportar libros (Excel)</button>
-        </div>
+      <div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div class="form-card-title" style="margin:0">🧾 Libro de Compras · ${etiquetaMes(fPeriodo)} <span style="font-weight:400;color:var(--text3);font-size:12px">(separado en costos y gastos)</span></div>
+        <span style="font-size:12px;color:var(--text3)">${fCompras.length} factura(s) en total</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <input type="text" value="${esc(fBuscaCompra)}" placeholder="Buscar proveedor, n° de factura o RTN…  (Enter)" onchange="window.fiscBuscaCompra(this.value)" onkeydown="if(event.key==='Enter')window.fiscBuscaCompra(this.value)" style="flex:1;min-width:220px;padding:7px 10px;font-size:13px">
+        <select onchange="window.fiscActCompra(this.value)" style="width:auto;padding:7px 10px;font-size:13px">
+          <option value=""${fActCompra === '' ? ' selected' : ''}>Toda actividad</option>
+          <option value="gravada"${fActCompra === 'gravada' ? ' selected' : ''}>Gravada</option>
+          <option value="exenta"${fActCompra === 'exenta' ? ' selected' : ''}>Exenta</option>
+          <option value="comun"${fActCompra === 'comun' ? ' selected' : ''}>Común</option>
+          <option value="personal"${fActCompra === 'personal' ? ' selected' : ''}>Personal</option>
+        </select>
+        ${filtroActivoC ? `<button class="btn btn-ghost" style="padding:6px 10px;font-size:12px" onclick="window.fiscLimpiarFiltroCompra()">✕ Limpiar</button>` : ''}
+      </div>
+      ${ventanaCompras('Costos · mercadería (510101 / 110501)', '📦', comprasCosto)}
+      ${ventanaCompras('Gastos', '🧾', comprasGasto)}
+      <div class="form-actions" style="margin-top:4px">
+        <button class="btn btn-ghost" onclick="window.fiscExportar()">📥 Exportar libros (Excel)</button>
       </div>`
   }
 
