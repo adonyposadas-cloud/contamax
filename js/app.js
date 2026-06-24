@@ -2580,6 +2580,9 @@ function calcTotales() {
 window.openCuentaDD = (lid, input) => {
   // Close any other open dropdowns first
   document.querySelectorAll('.cuenta-dropdown.open').forEach(d => d.classList.remove('open'))
+  // Seleccionar todo el texto al enfocar (con timeout para que el clic del mouse no
+  // deshaga la selección al soltar). Así, al hacer clic, se puede reemplazar la cuenta directo.
+  setTimeout(() => { try { input.select() } catch (e) {} }, 0)
   filterCuentas(lid, input.value)
   positionDropdown(lid, input)
   document.getElementById('dd-' + lid).classList.add('open')
