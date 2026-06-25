@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Taxi Timer · Recepción</title>
+<style>
+  :root{
+    --bg:#0d1117;--bg2:#161b22;--bg3:#1e2530;--bg4:#252d3a;
+    --border:#2a3340;--border2:#3a4452;--text:#e6edf3;--text2:#8b949e;
+    --gold:#f0a500;--gold2:#fbbf24;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;
+    --radius:10px;--radius-lg:16px;
+    --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    --mono:'SF Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100%}
+  body{padding:18px 14px 40px;max-width:520px;margin:0 auto}
+  .brand{text-align:center;margin:8px 0 22px}
+  .brand h1{font-family:var(--mono);font-size:24px;letter-spacing:4px;color:var(--gold);font-weight:600}
+  .brand p{color:var(--text2);font-size:13px;margin-top:4px;letter-spacing:1px}
+  .brand .rule{width:48px;height:2px;background:var(--gold);opacity:.5;margin:14px auto 0;border-radius:2px}
+
+  .card{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:20px 18px;margin-bottom:16px}
+  .card h2{font-size:13px;color:var(--text2);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:16px;font-weight:600}
+
+  .choose{display:flex;flex-direction:column;gap:14px;margin-top:10px}
+  .choose button{padding:22px;font-size:17px;font-weight:600;border-radius:var(--radius-lg);border:0.5px solid var(--border2);
+    background:var(--bg3);color:var(--text);cursor:pointer;display:flex;flex-direction:column;gap:6px;align-items:center;transition:border-color .2s,transform .1s}
+  .choose button:active{transform:scale(.99)}
+  .choose button .sub{font-size:12px;color:var(--text2);font-weight:400}
+  .choose button.moto{border-color:#f0a50050}
+  .choose button.caja{border-color:#3b82f650}
+
+  .field{margin-bottom:15px}
+  .field label{display:block;font-size:12px;color:var(--text2);margin-bottom:7px;letter-spacing:.3px}
+  .field input,.field select{width:100%;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);
+    padding:14px;color:var(--text);font-family:var(--font);font-size:16px;outline:none;transition:border-color .2s,box-shadow .2s}
+  .field input:focus,.field select:focus{border-color:var(--gold);box-shadow:0 0 0 3px #f0a50012}
+  .field .hint{font-size:11px;color:var(--text2);margin-top:5px}
+  .row{display:flex;gap:10px}.row>*{flex:1}
+
+  .unidad-row{display:flex;gap:10px;align-items:flex-end}
+  .unidad-row .field{flex:1;margin-bottom:0}
+  .btn-buscar{padding:14px 18px;background:var(--bg4);border:0.5px solid var(--border2);border-radius:var(--radius);
+    color:var(--text);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+
+  .moto-info{background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px;margin:6px 0 16px;display:none}
+  .moto-info.show{display:block;animation:fade .25s ease}
+  .moto-info .nm{font-size:17px;font-weight:600;color:var(--text)}
+  .moto-info .un{font-size:12px;color:var(--text2);margin-top:2px}
+  .moto-info .grid{display:flex;gap:10px;margin-top:13px}
+  .moto-info .box{flex:1;background:var(--bg2);border-radius:8px;padding:10px 12px}
+  .moto-info .box .lbl{font-size:10px;color:var(--text2);letter-spacing:.5px;text-transform:uppercase}
+  .moto-info .box .val{font-size:18px;font-weight:600;margin-top:3px;font-family:var(--mono)}
+  .moto-info .box.saldo .val{color:var(--amber)}
+  .moto-info .box.esperado .val{color:var(--gold)}
+
+  .foto-drop{border:1.5px dashed var(--border2);border-radius:var(--radius);padding:22px;text-align:center;cursor:pointer;background:var(--bg3);transition:border-color .2s}
+  .foto-drop:active{border-color:var(--gold)}
+  .foto-drop .ic{font-size:22px;color:var(--text2)}
+  .foto-drop .t{font-size:14px;color:var(--text);font-weight:600;margin-top:6px}
+  .foto-drop .s{font-size:12px;color:var(--text2);margin-top:2px}
+  .foto-prev{margin-top:10px;border-radius:8px;max-width:100%;max-height:180px;display:none}
+  .foto-prev.show{display:block}
+
+  .btn-primary{width:100%;padding:16px;background:var(--gold);border:none;border-radius:var(--radius);color:#0d1117;
+    font-family:var(--font);font-weight:700;font-size:16px;cursor:pointer;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px}
+  .btn-primary:disabled{opacity:.45;cursor:not-allowed}
+  .btn-ghost{width:100%;padding:13px;background:transparent;border:0.5px solid var(--border2);border-radius:var(--radius);
+    color:var(--text2);font-size:14px;cursor:pointer;margin-top:10px}
+
+  .msg{padding:12px 14px;border-radius:var(--radius);font-size:13px;margin-top:12px;display:none}
+  .msg.show{display:block}
+  .msg.err{background:#ef444415;border:0.5px solid #ef444430;color:#f87171}
+  .msg.ok{background:#22c55e15;border:0.5px solid #22c55e30;color:#4ade80}
+
+  .spinner{width:17px;height:17px;border:2px solid #0d111740;border-top-color:#0d1117;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+  .hidden{display:none!important}
+
+  /* Modal resultado */
+  .overlay{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
+  .overlay.show{display:flex}
+  .modal{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:26px 22px;max-width:380px;width:100%;text-align:center;animation:fade .25s ease}
+  .modal .check{width:54px;height:54px;border-radius:50%;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;font-size:28px}
+  .modal .check.ok{background:#22c55e20;color:var(--green)}
+  .modal .check.warn{background:#f59e0b20;color:var(--amber)}
+  .modal h3{font-size:18px;margin-bottom:4px}
+  .modal .who{font-size:13px;color:var(--text2);margin-bottom:18px}
+  .modal .lines{text-align:left;background:var(--bg3);border-radius:var(--radius);padding:14px 16px;margin-bottom:18px}
+  .modal .ln{display:flex;justify-content:space-between;padding:5px 0;font-size:14px}
+  .modal .ln span:first-child{color:var(--text2)}
+  .modal .ln span:last-child{font-family:var(--mono);font-weight:600}
+  .modal .ln.total{border-top:0.5px solid var(--border);margin-top:6px;padding-top:10px}
+  .modal .ln.total span:last-child{color:var(--amber);font-size:16px}
+</style>
+</head>
+<body>
+  <div class="brand">
+    <h1>TAXI TIMER</h1>
+    <p>RECEPCIÓN DE COBROS</p>
+    <div class="rule"></div>
+  </div>
+
+  <!-- Selección de modo -->
+  <div id="scr-choose" class="card">
+    <h2>¿Quién registra?</h2>
+    <div class="choose">
+      <button class="moto" onclick="irModo('moto')">Soy motorista<span class="sub">Subir mi depósito con comprobante</span></button>
+      <button class="caja" onclick="irModo('caja')">Caja<span class="sub">Registrar cobro en efectivo o depósito</span></button>
+    </div>
+  </div>
+
+  <!-- PIN de caja -->
+  <div id="scr-pin" class="card hidden">
+    <h2>Acceso de caja</h2>
+    <div class="field"><label>PIN de caja</label><input id="pin" type="password" inputmode="numeric" placeholder="••••"></div>
+    <button class="btn-primary" id="btn-pin" onclick="entrarCaja()">Entrar</button>
+    <button class="btn-ghost" onclick="irModo('choose')">Volver</button>
+    <div id="pin-msg" class="msg err"></div>
+  </div>
+
+  <!-- Formulario (motorista y caja comparten estructura) -->
+  <div id="scr-form" class="card hidden">
+    <h2 id="form-title">Registro de depósito</h2>
+
+    <div class="unidad-row">
+      <div class="field"><label>Número de unidad</label><input id="unidad" inputmode="numeric" placeholder="Ej: 384" autocomplete="off"></div>
+      <button class="btn-buscar" onclick="buscarUnidad()">Buscar</button>
+    </div>
+
+    <div id="moto-info" class="moto-info">
+      <div class="nm" id="mi-nombre">—</div>
+      <div class="un" id="mi-unidad">—</div>
+      <div class="grid">
+        <div class="box saldo"><div class="lbl">Saldo actual</div><div class="val" id="mi-saldo">L. 0</div></div>
+        <div class="box esperado"><div class="lbl">Esperado hoy</div><div class="val" id="mi-esperado">L. 0</div></div>
+      </div>
+    </div>
+
+    <div id="campos-pago" class="hidden">
+      <div class="field"><label>Monto depositado (L.)</label><input id="monto" inputmode="decimal" placeholder="Lps."></div>
+      <div class="field"><label>Forma de pago</label>
+        <select id="medio"><option value="">Seleccionar…</option></select>
+      </div>
+      <div class="field"><label>Fecha del depósito</label><input id="fecha" type="date"></div>
+      <div class="field">
+        <label id="foto-label">Foto del comprobante</label>
+        <div class="foto-drop" onclick="document.getElementById('foto').click()">
+          <div class="ic">📷</div>
+          <div class="t" id="foto-t">Tocá para subir foto</div>
+          <div class="s" id="foto-s">Comprobante del depósito</div>
+        </div>
+        <input id="foto" type="file" accept="image/*" capture="environment" class="hidden" onchange="previewFoto()">
+        <img id="foto-prev" class="foto-prev" alt="comprobante">
+      </div>
+      <button class="btn-primary" id="btn-enviar" onclick="enviar()">Enviar solicitud</button>
+    </div>
+
+    <button class="btn-ghost" onclick="irModo('choose')">Volver al inicio</button>
+    <div id="form-msg" class="msg err"></div>
+  </div>
+
+  <!-- Modal resultado -->
+  <div id="overlay" class="overlay">
+    <div class="modal">
+      <div class="check ok" id="md-check">✓</div>
+      <h3 id="md-title">Solicitud enviada</h3>
+      <div class="who" id="md-who">—</div>
+      <div class="lines" id="md-lines"></div>
+      <button class="btn-primary" onclick="cerrarModal()">Listo</button>
+    </div>
+  </div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+const sb = createClient(
+  'https://icghaqhtvutwlkhtotyv.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljZ2hhcWh0dnV0d2xraHRvdHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzOTE3MzksImV4cCI6MjA5NDk2NzczOX0.2_sioWiJuNVwDaSggnczbzCVu8IorzBsrgbwNXXz39E'
+)
+
+const $ = id => document.getElementById(id)
+const fmt = n => 'L. ' + Number(n||0).toLocaleString('es-HN', {minimumFractionDigits:2, maximumFractionDigits:2})
+const hoy = () => new Date().toLocaleDateString('en-CA')
+
+let modo = 'moto'      // 'moto' | 'caja'
+let cajaPin = null     // PIN validado de caja (en memoria de la sesión)
+let motorista = null   // resultado de tx_motorista_info
+
+const MEDIOS = {
+  moto: ['BAC','Ficohsa'],
+  caja: ['BAC','Ficohsa','Caja Tecnimax','Caja Yonker','Caja Taxis']
+}
+
+window.irModo = (m) => {
+  ['scr-choose','scr-pin','scr-form'].forEach(s => $(s).classList.add('hidden'))
+  resetForm()
+  if (m === 'choose') { $('scr-choose').classList.remove('hidden'); return }
+  if (m === 'caja' && !cajaPin) { modo='caja'; $('scr-pin').classList.remove('hidden'); $('pin').focus(); return }
+  modo = m
+  prepararForm()
+  $('scr-form').classList.remove('hidden')
+}
+
+window.entrarCaja = async () => {
+  const pin = $('pin').value.trim()
+  if (!pin) return
+  const b = $('btn-pin'); b.disabled = true; b.innerHTML = '<span class="spinner"></span>'
+  hide('pin-msg')
+  try {
+    const { data, error } = await sb.rpc('tx_login', { p_rol: 'caja', p_pin: pin })
+    if (error) throw error
+    if (!data?.ok) { showMsg('pin-msg', data?.error || 'PIN inválido.', 'err'); return }
+    cajaPin = pin
+    irModo('caja')
+  } catch (e) { showMsg('pin-msg', 'No se pudo validar. Revisá tu conexión.', 'err') }
+  finally { b.disabled = false; b.textContent = 'Entrar' }
+}
+
+function prepararForm() {
+  $('form-title').textContent = modo === 'caja' ? 'Registro de cobro' : 'Registro de depósito'
+  const sel = $('medio')
+  sel.innerHTML = '<option value="">Seleccionar…</option>' + MEDIOS[modo].map(m => `<option value="${m}">${m}</option>`).join('')
+  $('fecha').value = hoy()
+  // Foto: obligatoria para motorista, opcional para caja
+  $('foto-label').textContent = modo === 'caja' ? 'Foto del comprobante (opcional)' : 'Foto del comprobante'
+  $('foto-s').textContent = modo === 'caja' ? 'Sólo si es un depósito' : 'Obligatoria'
+}
+
+window.buscarUnidad = async () => {
+  const u = $('unidad').value.trim()
+  if (!u) return
+  hide('form-msg'); $('moto-info').classList.remove('show'); $('campos-pago').classList.add('hidden'); motorista = null
+  try {
+    const { data, error } = await sb.rpc('tx_motorista_info', { p_unidad: u })
+    if (error) throw error
+    if (!data?.ok) { showMsg('form-msg', data?.error || 'Unidad no encontrada.', 'err'); return }
+    motorista = data
+    $('mi-nombre').textContent = data.nombre
+    $('mi-unidad').textContent = 'Unidad ' + data.unidad
+    $('mi-saldo').textContent = fmt(data.saldo_actual)
+    $('mi-esperado').textContent = fmt(data.esperado_base)
+    $('moto-info').classList.add('show')
+    $('campos-pago').classList.remove('hidden')
+    $('monto').focus()
+  } catch (e) { showMsg('form-msg', 'No se pudo buscar la unidad. Revisá tu conexión.', 'err') }
+}
+
+window.previewFoto = () => {
+  const f = $('foto').files[0]
+  if (!f) return
+  $('foto-t').textContent = 'Foto lista ✓'
+  $('foto-s').textContent = f.name.length > 28 ? f.name.slice(0,28)+'…' : f.name
+  const img = $('foto-prev'); img.src = URL.createObjectURL(f); img.classList.add('show')
+}
+
+async function subirFoto(file) {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+  const path = `${hoy()}/${Date.now()}_${(motorista?.unidad||'x')}.${ext}`
+  const { error } = await sb.storage.from('comprobantes').upload(path, file, { contentType: file.type })
+  if (error) throw error
+  return sb.storage.from('comprobantes').getPublicUrl(path).data.publicUrl
+}
+
+window.enviar = async () => {
+  hide('form-msg')
+  if (!motorista) { showMsg('form-msg', 'Primero buscá tu unidad.', 'err'); return }
+  const monto = parseFloat($('monto').value)
+  const medio = $('medio').value
+  const fecha = $('fecha').value || hoy()
+  const file  = $('foto').files[0]
+  if (!(monto > 0)) { showMsg('form-msg', 'Ingresá un monto válido.', 'err'); return }
+  if (!medio) { showMsg('form-msg', 'Elegí la forma de pago.', 'err'); return }
+  if (modo === 'moto' && !file) { showMsg('form-msg', 'La foto del comprobante es obligatoria.', 'err'); return }
+
+  const b = $('btn-enviar'); b.disabled = true; b.innerHTML = '<span class="spinner"></span> Enviando…'
+  try {
+    let imagenUrl = null
+    if (file) imagenUrl = await subirFoto(file)
+
+    let res
+    if (modo === 'moto') {
+      const { data, error } = await sb.rpc('tx_registrar_deposito', {
+        p_unidad: motorista.unidad, p_identidad: motorista.identidad,
+        p_monto: monto, p_banco: medio, p_fecha: fecha, p_imagen_url: imagenUrl
+      })
+      if (error) throw error; res = data
+    } else {
+      const { data, error } = await sb.rpc('tx_registrar_caja', {
+        p_pin: cajaPin, p_unidad: motorista.unidad, p_identidad: motorista.identidad,
+        p_monto: monto, p_medio: medio, p_fecha: fecha, p_imagen_url: imagenUrl
+      })
+      if (error) throw error; res = data
+    }
+    if (!res?.ok) { showMsg('form-msg', res?.error || 'No se pudo registrar.', 'err'); return }
+    mostrarResultado(res)
+  } catch (e) {
+    showMsg('form-msg', 'No se pudo enviar. Revisá tu conexión e intentá de nuevo.', 'err')
+  } finally { b.disabled = false; b.textContent = 'Enviar solicitud' }
+}
+
+function mostrarResultado(r) {
+  const alcanza = r.alcanza
+  $('md-check').className = 'check ' + (alcanza ? 'ok' : 'warn')
+  $('md-check').textContent = alcanza ? '✓' : '!'
+  $('md-title').textContent = alcanza ? 'Depósito registrado' : 'Registrado · quedó saldo'
+  $('md-who').textContent = `${r.nombre} · Unidad ${r.unidad}`
+  const lines = [
+    ['Esperado hoy', fmt(r.esperado)],
+    ['Entregaste', fmt(r.monto)],
+  ]
+  if (r.abono > 0) lines.push(['Abonado al saldo', fmt(r.abono)])
+  if (r.falta > 0) lines.push(['Faltó de tarifa', fmt(r.falta)])
+  lines.push(['__total__','Saldo nuevo', fmt(r.saldo_nuevo)])
+  $('md-lines').innerHTML = lines.map(l =>
+    l[0]==='__total__'
+      ? `<div class="ln total"><span>${l[1]}</span><span>${l[2]}</span></div>`
+      : `<div class="ln"><span>${l[0]}</span><span>${l[1]}</span></div>`
+  ).join('')
+  $('overlay').classList.add('show')
+}
+
+window.cerrarModal = () => { $('overlay').classList.remove('show'); resetForm(); $('unidad').focus() }
+
+function resetForm() {
+  ;['unidad','monto'].forEach(id => { const e=$(id); if(e) e.value='' })
+  const med=$('medio'); if(med) med.value=''
+  const f=$('foto'); if(f) f.value=''
+  $('foto-prev')?.classList.remove('show')
+  if($('foto-t')) $('foto-t').textContent = 'Tocá para subir foto'
+  $('moto-info')?.classList.remove('show')
+  $('campos-pago')?.classList.add('hidden')
+  hide('form-msg'); motorista = null
+}
+
+function showMsg(id, txt, cls){ const e=$(id); e.textContent=txt; e.className='msg show '+cls }
+function hide(id){ $(id)?.classList.remove('show') }
+
+// Enter en unidad = buscar
+$('unidad').addEventListener('keydown', e => { if(e.key==='Enter') buscarUnidad() })
+</script>
+</body>
+</html>
