@@ -56,6 +56,15 @@
   .moto-info .box.saldo .val{color:var(--amber)}
   .moto-info .box.esperado .val{color:var(--gold)}
 
+  .confirma{margin:0 0 16px}
+  .confirma-q{font-size:14px;color:var(--text);margin-bottom:10px;text-align:center}
+  .confirma-btns{display:flex;gap:10px}
+  .confirma-btns button{flex:1;padding:13px;border-radius:var(--radius);font-size:14px;font-weight:600;cursor:pointer;border:0.5px solid var(--border2)}
+  .btn-si{background:var(--gold);color:#0d1117;border:none!important}
+  .btn-no{background:var(--bg3);color:var(--text2)}
+  .cambio{margin:0 0 16px}
+  .btn-buscar-full{width:100%;padding:13px;background:var(--bg4);border:0.5px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:6px}
+
   .foto-drop{border:1.5px dashed var(--border2);border-radius:var(--radius);padding:22px;text-align:center;cursor:pointer;background:var(--bg3);transition:border-color .2s}
   .foto-drop:active{border-color:var(--gold)}
   .foto-drop .ic{font-size:22px;color:var(--text2)}
@@ -141,6 +150,24 @@
       </div>
     </div>
 
+    <!-- ¿Sos vos? confirmación -->
+    <div id="confirma" class="confirma hidden">
+      <p class="confirma-q">¿Sos vos quien anda esta unidad?</p>
+      <div class="confirma-btns">
+        <button class="btn-si" onclick="confirmarSi()">Sí, soy yo</button>
+        <button class="btn-no" onclick="confirmarNo()">No, cambió de conductor</button>
+      </div>
+    </div>
+
+    <!-- Cambio de conductor: el real se identifica con su cédula -->
+    <div id="cambio" class="cambio hidden">
+      <div class="field"><label id="cambio-label">Tu número de identidad</label>
+        <input id="ident-nueva" inputmode="numeric" placeholder="Ej: 0801..." autocomplete="off"></div>
+      <button class="btn-buscar-full" onclick="buscarPorIdentidad()">Buscar mis datos</button>
+      <div id="nuevo-info" class="moto-info"></div>
+      <button id="btn-confirma-cambio" class="btn-primary hidden" onclick="confirmarCambio()">Sí, soy yo · usar esta unidad</button>
+    </div>
+
     <div id="campos-pago" class="hidden">
       <div class="field"><label>Monto depositado (L.)</label><input id="monto" inputmode="decimal" placeholder="Lps."></div>
       <div class="field"><label>Forma de pago</label>
@@ -179,7 +206,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const sb = createClient(
   'https://icghaqhtvutwlkhtotyv.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljZ2hhcWh0dnV0d2xraHRvdHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzOTE3MzksImV4cCI6MjA5NDk2NzczOX0.2_sioWiJuNVwDaSggnczbzCVu8IorzBsrgbwNXXz39E'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljZ2hhcWh0dnV0d2xraHRvdHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzOTE3MzksImV4cCI6MjA5NDk2NzczOX0.2_sioWiJuNVwDaSggnczbzCVu8IorzBsrgbwNXXz39E',
+  { auth: { persistSession: false, autoRefreshToken: false } }  // formulario público: siempre anónimo, no toma la sesión de CONTAMAX
 )
 
 const $ = id => document.getElementById(id)
@@ -188,7 +216,9 @@ const hoy = () => new Date().toLocaleDateString('en-CA')
 
 let modo = 'moto'      // 'moto' | 'caja'
 let cajaPin = null     // PIN validado de caja (en memoria de la sesión)
-let motorista = null   // resultado de tx_motorista_info
+let motorista = null   // motorista confirmado para registrar
+let unidadActual = ''  // unidad tecleada
+let nuevoMot = null    // candidato al reasignar conductor
 
 const MEDIOS = {
   moto: ['BAC','Ficohsa'],
@@ -233,20 +263,84 @@ function prepararForm() {
 window.buscarUnidad = async () => {
   const u = $('unidad').value.trim()
   if (!u) return
-  hide('form-msg'); $('moto-info').classList.remove('show'); $('campos-pago').classList.add('hidden'); motorista = null
+  unidadActual = u
+  hide('form-msg'); ocultarSecciones(); motorista = null
   try {
     const { data, error } = await sb.rpc('tx_motorista_info', { p_unidad: u })
     if (error) throw error
-    if (!data?.ok) { showMsg('form-msg', data?.error || 'Unidad no encontrada.', 'err'); return }
-    motorista = data
-    $('mi-nombre').textContent = data.nombre
-    $('mi-unidad').textContent = 'Unidad ' + data.unidad
-    $('mi-saldo').textContent = fmt(data.saldo_actual)
-    $('mi-esperado').textContent = fmt(data.esperado_base)
+    if (!data?.ok) {
+      // La unidad no tiene un conductor válido: ofrecer identificarse para usarla
+      showMsg('form-msg', (data?.error || 'Unidad no encontrada.') + ' Identificate para usar esta unidad.', 'err')
+      $('cambio').classList.remove('hidden'); $('ident-nueva').focus()
+      return
+    }
+    pintarMotorista(data)
+    $('moto-info').classList.add('show')
+    $('confirma').classList.remove('hidden')   // preguntar "¿sos vos?" antes de cobrar
+  } catch (e) { showMsg('form-msg', 'No se pudo buscar la unidad. Revisá tu conexión.', 'err') }
+}
+
+function pintarMotorista(data) {
+  motorista = data
+  $('mi-nombre').textContent = data.nombre
+  $('mi-unidad').textContent = 'Unidad ' + data.unidad
+  $('mi-saldo').textContent = fmt(data.saldo_actual)
+  $('mi-esperado').textContent = fmt(data.esperado_base)
+}
+
+function ocultarSecciones() {
+  $('moto-info').classList.remove('show')
+  $('confirma').classList.add('hidden')
+  $('cambio').classList.add('hidden')
+  $('campos-pago').classList.add('hidden')
+  $('nuevo-info').classList.remove('show'); $('nuevo-info').innerHTML = ''
+  $('btn-confirma-cambio').classList.add('hidden')
+  $('ident-nueva').value = ''; nuevoMot = null
+}
+
+window.confirmarSi = () => {
+  $('confirma').classList.add('hidden')
+  $('campos-pago').classList.remove('hidden')
+  $('monto').focus()
+}
+
+window.confirmarNo = () => {
+  $('confirma').classList.add('hidden')
+  $('cambio').classList.remove('hidden')
+  $('ident-nueva').focus()
+}
+
+window.buscarPorIdentidad = async () => {
+  const id = $('ident-nueva').value.trim()
+  if (!id) return
+  hide('form-msg'); $('nuevo-info').classList.remove('show'); $('btn-confirma-cambio').classList.add('hidden'); nuevoMot = null
+  try {
+    const { data, error } = await sb.rpc('tx_motorista_por_identidad', { p_identidad: id })
+    if (error) throw error
+    if (!data?.ok) { showMsg('form-msg', data?.error || 'No encontrado.', 'err'); return }
+    nuevoMot = data
+    $('nuevo-info').innerHTML =
+      `<div class="nm">${data.nombre}</div>` +
+      `<div class="un">Saldo actual: ${fmt(data.saldo_actual)} · Esperado hoy: ${fmt(data.esperado_base)}</div>`
+    $('nuevo-info').classList.add('show')
+    $('btn-confirma-cambio').classList.remove('hidden')
+  } catch (e) { showMsg('form-msg', 'No se pudo buscar. Revisá tu conexión.', 'err') }
+}
+
+window.confirmarCambio = async () => {
+  if (!nuevoMot) return
+  const b = $('btn-confirma-cambio'); b.disabled = true; b.innerHTML = '<span class="spinner"></span>'
+  try {
+    const { data, error } = await sb.rpc('tx_asignar_unidad', { p_unidad: unidadActual, p_identidad: nuevoMot.identidad })
+    if (error) throw error
+    if (!data?.ok) { showMsg('form-msg', data?.error || 'No se pudo asignar la unidad.', 'err'); return }
+    pintarMotorista(data)
+    $('cambio').classList.add('hidden')
     $('moto-info').classList.add('show')
     $('campos-pago').classList.remove('hidden')
     $('monto').focus()
-  } catch (e) { showMsg('form-msg', 'No se pudo buscar la unidad. Revisá tu conexión.', 'err') }
+  } catch (e) { showMsg('form-msg', 'No se pudo asignar la unidad. Revisá tu conexión.', 'err') }
+  finally { b.disabled = false; b.textContent = 'Sí, soy yo · usar esta unidad' }
 }
 
 window.previewFoto = () => {
@@ -257,10 +351,28 @@ window.previewFoto = () => {
   const img = $('foto-prev'); img.src = URL.createObjectURL(f); img.classList.add('show')
 }
 
+function comprimirImagen(file, maxLado = 1280, calidad = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      let w = img.width, h = img.height
+      if (w >= h && w > maxLado) { h = Math.round(h * maxLado / w); w = maxLado }
+      else if (h > w && h > maxLado) { w = Math.round(w * maxLado / h); h = maxLado }
+      const cv = document.createElement('canvas')
+      cv.width = w; cv.height = h
+      cv.getContext('2d').drawImage(img, 0, 0, w, h)
+      cv.toBlob(b => b ? resolve(b) : reject(new Error('No se pudo procesar la imagen')), 'image/jpeg', calidad)
+      URL.revokeObjectURL(img.src)
+    }
+    img.onerror = () => reject(new Error('No se pudo leer la imagen'))
+    img.src = URL.createObjectURL(file)
+  })
+}
+
 async function subirFoto(file) {
-  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-  const path = `${hoy()}/${Date.now()}_${(motorista?.unidad||'x')}.${ext}`
-  const { error } = await sb.storage.from('comprobantes').upload(path, file, { contentType: file.type })
+  const blob = await comprimirImagen(file)         // reduce a JPEG ~1280px, evita timeouts
+  const path = `${hoy()}/${Date.now()}_${(motorista?.unidad||'x')}.jpg`
+  const { error } = await sb.storage.from('comprobantes').upload(path, blob, { contentType: 'image/jpeg' })
   if (error) throw error
   return sb.storage.from('comprobantes').getPublicUrl(path).data.publicUrl
 }
@@ -331,9 +443,8 @@ function resetForm() {
   const f=$('foto'); if(f) f.value=''
   $('foto-prev')?.classList.remove('show')
   if($('foto-t')) $('foto-t').textContent = 'Tocá para subir foto'
-  $('moto-info')?.classList.remove('show')
-  $('campos-pago')?.classList.add('hidden')
-  hide('form-msg'); motorista = null
+  ocultarSecciones()
+  hide('form-msg'); motorista = null; unidadActual = ''
 }
 
 function showMsg(id, txt, cls){ const e=$(id); e.textContent=txt; e.className='msg show '+cls }
