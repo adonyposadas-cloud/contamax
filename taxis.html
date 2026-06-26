@@ -415,18 +415,18 @@ window.enviar = async () => {
 }
 
 function mostrarResultado(r) {
-  const alcanza = r.alcanza
-  $('md-check').className = 'check ' + (alcanza ? 'ok' : 'warn')
-  $('md-check').textContent = alcanza ? '✓' : '!'
-  $('md-title').textContent = alcanza ? 'Depósito registrado' : 'Registrado · quedó saldo'
+  const cubre = Number(r.monto) >= Number(r.esperado)
+  $('md-check').className = 'check ' + (cubre ? 'ok' : 'warn')
+  $('md-check').textContent = cubre ? '✓' : '!'
+  $('md-title').textContent = 'Solicitud enviada'
   $('md-who').textContent = `${r.nombre} · Unidad ${r.unidad}`
   const lines = [
     ['Esperado hoy', fmt(r.esperado)],
     ['Entregaste', fmt(r.monto)],
   ]
-  if (r.abono > 0) lines.push(['Abonado al saldo', fmt(r.abono)])
-  if (r.falta > 0) lines.push(['Faltó de tarifa', fmt(r.falta)])
-  lines.push(['__total__','Saldo nuevo', fmt(r.saldo_nuevo)])
+  const dif = Number(r.monto) - Number(r.esperado)
+  if (dif < -0.01) lines.push(['Quedaría pendiente', fmt(Math.abs(dif))])
+  lines.push(['__total__', 'Estado', 'Pendiente de revisión'])
   $('md-lines').innerHTML = lines.map(l =>
     l[0]==='__total__'
       ? `<div class="ln total"><span>${l[1]}</span><span>${l[2]}</span></div>`
