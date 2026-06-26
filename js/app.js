@@ -9839,31 +9839,34 @@ window.loadActividad = async () => {
   const hasta = new Date(finEl.value + 'T23:59:59.999').toISOString()
   const userFilter = document.getElementById('act-usuario').value
 
-  let query = getSb().from('actividad_log')
-    .select('*')
-    .gte('created_at', desde)
-    .lte('created_at', hasta)
-    .order('created_at', { ascending: false })
-    .limit(500)
+  let logs
+  try {
+    logs = await _fetchAllPag(() => {
+      let q = getSb().from('actividad_log')
+        .select('*')
+        .gte('created_at', desde)
+        .lte('created_at', hasta)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })   // desempate para paginar sin perder ni duplicar filas
+      if (userFilter) q = q.eq('usuario_nombre', userFilter)
+      if (moduloFilter) q = q.eq('modulo', moduloFilter)
+      return q
+    })
+  } catch (error) { toast(error.message, 'error'); return }
 
-  if (userFilter) query = query.eq('usuario_nombre', userFilter)
-  if (moduloFilter) query = query.eq('modulo', moduloFilter)
-  const { data, error } = await query
-  if (error) { toast(error.message, 'error'); return }
-
-  const logs = data || []
-
-  // Populate user filter
+  // Populate user filter (solo sin filtro de usuario, para no colapsar la lista a uno solo)
   const userSelect = document.getElementById('act-usuario')
-  const usuarios = [...new Set(logs.map(l => l.usuario_nombre).filter(Boolean))]
-  const currentVal = userSelect.value
-  userSelect.innerHTML = '<option value="">Todos</option>' + usuarios.map(u => `<option value="${u}" ${u === currentVal ? 'selected' : ''}>${u}</option>`).join('')
+  if (!userFilter) {
+    const usuarios = [...new Set(logs.map(l => l.usuario_nombre).filter(Boolean))].sort()
+    userSelect.innerHTML = '<option value="">Todos</option>' + usuarios.map(u => `<option value="${u}">${u}</option>`).join('')
+  }
 
   // Stats by user
   const byUser = {}
   logs.forEach(l => {
     const u = l.usuario_nombre || 'desconocido'
-    if (!byUser[u]) byUser[u] = { nombre: u, rol: l.usuario_rol, total: 0, acciones: {} }
+    if (!byUser[u]) byUser[u] = { nombre: u, rol: l.usuario_rol, total: 0, logins: 0, acciones: {} }
+    if (l.accion === 'login') { byUser[u].logins++; return }   // los login NO suman a la actividad
     byUser[u].total++
     byUser[u].acciones[l.accion] = (byUser[u].acciones[l.accion] || 0) + 1
   })
@@ -9875,19 +9878,24 @@ window.loadActividad = async () => {
         <div class="stat-card" style="padding:14px">
           <div style="font-weight:600;margin-bottom:6px">${u.nombre} <span class="badge badge-blue" style="font-size:10px">${u.rol}</span></div>
           <div style="font-size:24px;font-weight:700;color:var(--gold)">${u.total}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:4px">${Object.entries(u.acciones).map(([a, n]) => `${_accionLabels[a] || a}: ${n}`).join(' · ')}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">${Object.entries(u.acciones).map(([a, n]) => `${_accionLabels[a] || a}: ${n}`).join(' · ') || 'Sin actividad registrada'}${u.logins ? ` · <span style="opacity:.55">🔑 ${u.logins} login${u.logins > 1 ? 's' : ''} (no cuentan)</span>` : ''}</div>
         </div>
       `).join('')}
     </div>`
   document.getElementById('act-stats').innerHTML = statsHtml
 
-  // Activity table
-  const tablaHtml = `
+  // Activity table (las tarjetas cuentan el TOTAL; la tabla muestra hasta 500 filas)
+  const MAX_TABLA = 500
+  const logsTabla = logs.slice(0, MAX_TABLA)
+  const notaTabla = logs.length > MAX_TABLA
+    ? `<div style="padding:8px 4px;font-size:12px;color:var(--text3)">Mostrando las ${MAX_TABLA} más recientes de <b>${logs.length}</b> en el período (los totales de arriba sí cuentan todo).</div>`
+    : ''
+  const tablaHtml = `${notaTabla}
     <table>
       <thead><tr>
         <th>Hora</th><th>Usuario</th><th>Rol</th><th>Acción</th><th>Módulo</th><th>Detalle</th>
       </tr></thead>
-      <tbody>${logs.map(l => {
+      <tbody>${logsTabla.map(l => {
         const hora = new Date(l.created_at).toLocaleString('es-HN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
         const fecha = new Date(l.created_at).toLocaleDateString('es-HN')
         return `<tr>
