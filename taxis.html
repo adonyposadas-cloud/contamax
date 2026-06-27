@@ -115,6 +115,9 @@
   .h-ok{background:rgba(46,160,67,.18);color:#3fb950}
   .h-bad{background:rgba(218,54,51,.18);color:#f85149}
   .h-pend{background:rgba(210,153,34,.18);color:#d29922}
+  .btn-grupo{width:100%;padding:12px;margin-bottom:8px;background:rgba(22,163,74,.16);border:1px solid rgba(22,163,74,.5);border-radius:10px;color:#3fb950;font-size:14px;font-weight:700;cursor:pointer}
+  .btn-grupo.done{background:rgba(46,160,67,.22);color:#3fb950}
+  .grupo-hint{font-size:11px;color:#8b8f98;margin-bottom:12px;text-align:center;line-height:1.4}
 </style>
 </head>
 <body>
@@ -211,6 +214,8 @@
       <h3 id="md-title">Solicitud enviada</h3>
       <div class="who" id="md-who">—</div>
       <div class="lines" id="md-lines"></div>
+      <button class="btn-grupo hidden" id="md-grupo" onclick="avisarGrupo()">📋 Copiar aviso y abrir grupo</button>
+      <div class="grupo-hint hidden" id="md-grupo-hint">Se copia el aviso. Pegalo en el grupo y enviá para que te programen.</div>
       <button class="btn-primary" onclick="cerrarModal()">Listo</button>
     </div>
   </div>
@@ -230,6 +235,9 @@ const hoy = () => new Date().toLocaleDateString('en-CA')
 let modo = 'moto'      // 'moto' | 'caja'
 let cajaPin = null     // PIN validado de caja (en memoria de la sesión)
 let motorista = null   // motorista confirmado para registrar
+let ultimoMedio = ''   // medio del último envío (para el aviso al grupo)
+let grupoLink = ''     // link del grupo del motorista
+let grupoMsg = ''      // mensaje a copiar para el grupo
 let unidadActual = ''  // unidad tecleada
 let nuevoMot = null    // candidato al reasignar conductor
 
@@ -423,6 +431,7 @@ window.enviar = async () => {
       if (error) throw error; res = data
     }
     if (!res?.ok) { showMsg('form-msg', res?.error || 'No se pudo registrar.', 'err'); return }
+    ultimoMedio = medio
     mostrarResultado(res)
   } catch (e) {
     showMsg('form-msg', 'No se pudo enviar. Revisá tu conexión e intentá de nuevo.', 'err')
@@ -450,6 +459,40 @@ function mostrarResultado(r) {
   $('overlay').classList.add('show')
   txGuardarSolicitud(r.entrega_id)
   txRenderHistorial()
+
+  // Botón "Avisar al grupo": arma el mensaje y muestra el botón si hay grupo
+  const link = motorista?.grupo_link
+  const gb = $('md-grupo'), gh = $('md-grupo-hint')
+  if (link) {
+    grupoLink = link
+    grupoMsg = `*NUEVA SOLICITUD*\nUnidad: #${r.unidad}\nTaxista: ${r.nombre}\nPago: ${ultimoMedio}\n\nPor favor revisar y programar.`
+    gb.classList.remove('hidden', 'done')
+    gb.textContent = '📋 Copiar aviso y abrir grupo'
+    gh.classList.remove('hidden')
+  } else {
+    grupoLink = ''; grupoMsg = ''
+    gb.classList.add('hidden'); gh.classList.add('hidden')
+  }
+}
+
+window.avisarGrupo = () => {
+  if (!grupoLink) return
+  // copiar el mensaje (síncrono, mantiene el gesto del usuario)
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = grupoMsg
+    ta.style.position = 'fixed'; ta.style.opacity = '0'; ta.style.top = '0'
+    document.body.appendChild(ta)
+    ta.focus(); ta.select()
+    try { document.execCommand('copy') } catch (e) {}
+    document.body.removeChild(ta)
+    if (navigator.clipboard) navigator.clipboard.writeText(grupoMsg).catch(() => {})
+  } catch (e) {}
+  // abrir el grupo
+  window.open(grupoLink, '_blank')
+  const gb = $('md-grupo')
+  gb.classList.add('done')
+  gb.textContent = '✓ Aviso copiado · pegalo en el grupo'
 }
 
 // ── Historial de solicitudes de este dispositivo ──
