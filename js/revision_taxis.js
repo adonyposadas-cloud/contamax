@@ -68,7 +68,9 @@ function rtxStartAuto() {
     if (!vista || vista.offsetParent === null) { rtxStopAuto(); return }   // salió del panel
     if (document.hidden) return                                            // pestaña en segundo plano
     if (document.querySelector('#rtx-7d-overlay.show, #rtx-overlay.show')) return  // modal abierto
-    rtxConsultar(true)                                                     // refresco silencioso
+    const pd = document.getElementById('rtx-pane-dash')
+    if (pd && !pd.classList.contains('hidden')) rtxRenderDashboard(true)  // pestaña Dashboard
+    else rtxConsultar(true)                                               // pestaña Solicitudes
   }, 15000)
 }
 
@@ -298,6 +300,35 @@ function rtx7dEnsure() {
     .rtx-chip b{color:#e8eaed;font-weight:700;margin-left:2px}
     .rtx-chip.on{background:rgba(240,165,0,.16);border-color:rgba(240,165,0,.5);color:#f0a500}
     .rtx-chip.on b{color:#f0a500}
+    /* Pestañas */
+    .rtx-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 16px}
+    .rtx-tab{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;color:#9aa0aa;cursor:pointer}
+    .rtx-tab.on{background:#2563eb;border-color:#2563eb;color:#fff}
+    /* Dashboard */
+    .dash-fecha{display:flex;align-items:center;gap:8px;background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:8px 10px;margin-bottom:14px}
+    .dash-nav{background:#1f232b;border:1px solid #2a2e37;border-radius:8px;color:#e8eaed;width:34px;height:34px;font-size:18px;cursor:pointer}
+    .dash-date{flex:1;background:transparent;border:none;color:#e8eaed;font-size:14px;text-align:center}
+    .dash-hoy{background:rgba(22,163,74,.18);border:1px solid rgba(22,163,74,.5);border-radius:8px;color:#3fb950;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+    .dash-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+    .dash-stat{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;text-align:center}
+    .dash-n{font-size:22px;font-weight:800}
+    .dash-n.green{color:#3fb950}.dash-n.blue{color:#4a90e2}.dash-n.amber{color:#f0a500}
+    .dash-l{font-size:12px;color:#9aa0aa;margin-top:4px}
+    .dash-card{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;margin-bottom:14px}
+    .dash-card-t{font-size:14px;font-weight:700;color:#e8eaed;margin-bottom:12px}
+    .dash-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #21242b;font-size:14px;color:#cfd3da}
+    .dash-row:last-child{border-bottom:none}
+    .dash-row b{color:#e8eaed}.dash-row small{color:#8b8f98;font-weight:400}
+    .dash-pend{background:#1a1d24;border:1px solid #2a2e37;border-radius:10px;padding:12px;margin-bottom:10px}
+    .dash-pend-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+    .dash-pend-id{font-size:14px;color:#e8eaed}.dash-pend-id b{color:#f0a500}
+    .dash-pend-dias{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
+    .dash-pend-dias.rojo{background:rgba(220,38,38,.18);color:#f87171}
+    .dash-pend-dias.amber{background:rgba(240,165,0,.18);color:#f0a500}
+    .dash-pend-dias.gris{background:rgba(120,128,140,.18);color:#9aa0aa}
+    .dash-pend-sub{font-size:12px;color:#9aa0aa;margin:7px 0 10px}
+    .dash-pend-acc{display:flex;flex-wrap:wrap;gap:7px}
+    .rtx-b.call{background:rgba(74,144,226,.16)!important;color:#4a90e2!important;border:1px solid rgba(74,144,226,.45)!important;text-decoration:none;display:inline-flex;align-items:center}
   `
   document.head.appendChild(st)
   const ov = document.createElement('div')
@@ -364,6 +395,147 @@ window.rtxCerrar7dias = () => document.getElementById('rtx-7d-overlay')?.classLi
 window.rtxBuscar = (v) => { rtxFBusqueda = v || ''; rtxRender() }
 window.rtxChipEstado = (v) => { rtxFEstado = v; rtxRender() }
 window.rtxChipMedio = (v) => { rtxFMedio = v; rtxRender() }
+
+// ── Pestañas (Solicitudes / Dashboard) ──
+let rtxDashFecha = ''  // yyyy-mm-dd
+let rtxDashData = null // último resultado del dashboard (para filtrar pendientes sin re-consultar)
+let rtxDashBusqueda = ''
+let rtxDashCaja = 'todas'
+
+window.rtxTab = (tab) => {
+  const ts = document.getElementById('rtx-tab-sol'), td = document.getElementById('rtx-tab-dash')
+  const ps = document.getElementById('rtx-pane-sol'), pd = document.getElementById('rtx-pane-dash')
+  if (ts) ts.classList.toggle('on', tab === 'sol')
+  if (td) td.classList.toggle('on', tab === 'dash')
+  if (ps) ps.classList.toggle('hidden', tab !== 'sol')
+  if (pd) pd.classList.toggle('hidden', tab !== 'dash')
+  if (tab === 'dash') {
+    if (!rtxDashFecha) rtxDashFecha = new Date().toISOString().slice(0, 10)
+    rtxRenderDashboard()
+  }
+}
+
+window.rtxDashCambiarFecha = (dir) => {
+  const d = new Date(rtxDashFecha + 'T12:00:00'); d.setDate(d.getDate() + dir)
+  rtxDashFecha = d.toISOString().slice(0, 10); rtxRenderDashboard()
+}
+window.rtxDashHoy = () => { rtxDashFecha = new Date().toISOString().slice(0, 10); rtxRenderDashboard() }
+window.rtxDashSetFecha = (v) => { if (v) { rtxDashFecha = v; rtxRenderDashboard() } }
+
+function rtxDashPendiente(p) {
+  const tel = p.telefono || ''
+  const sinHist = (p.dias_sin === null || p.dias_sin === undefined)
+  const diasTxt = sinHist ? 'Sin entregas registradas' : `${p.dias_sin} día(s) sin entregar`
+  const msg = encodeURIComponent(`Hola ${p.nombre || ''}, te escribimos de Tecnimax. ${sinHist ? 'No tenemos entregas recientes registradas' : `Tenés ${p.dias_sin} día(s) sin entregar (última: ${p.ultima_entrega})`}. Por favor comunicate para coordinar tu pago. Gracias.`)
+  const waBtn = tel
+    ? `<button class="rtx-b wa" onclick="rtxWa('${tel}','${msg}')">💬 WhatsApp</button>`
+    : `<button class="rtx-b ghost" disabled>Sin teléfono</button>`
+  const llamarBtn = tel ? `<a class="rtx-b call" href="tel:${tel}">📞 Llamar</a>` : ''
+  const dias = sinHist ? 'gris' : (p.dias_sin >= 7 ? 'rojo' : (p.dias_sin >= 4 ? 'amber' : 'gris'))
+  return `
+    <div class="dash-pend">
+      <div class="dash-pend-top">
+        <div class="dash-pend-id"><b>#${p.unidad}</b> · ${p.nombre || '—'}</div>
+        <div class="dash-pend-dias ${dias}">${diasTxt}</div>
+      </div>
+      <div class="dash-pend-sub">
+        Última: ${p.ultima_entrega} · Saldo: L. ${rtxFmt(p.saldo)}${p.caja ? ' · Caja: ' + p.caja : ''}${p.grupo ? ' · Grupo ' + p.grupo : ''}
+      </div>
+      <div class="dash-pend-acc">
+        <button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')">📅 7 días</button>
+        ${waBtn}${llamarBtn}
+      </div>
+    </div>`
+}
+
+window.rtxRenderDashboard = async (silent = false) => {
+  const pane = document.getElementById('rtx-pane-dash')
+  if (!pane) return
+  if (!rtxDashFecha) rtxDashFecha = new Date().toISOString().slice(0, 10)
+  if (!silent && !pane.innerHTML) pane.innerHTML = '<div class="rtx-empty">Cargando…</div>'
+  let r
+  try {
+    const { data, error } = await rtxSb().rpc('tx_dashboard', { p_fecha: rtxDashFecha })
+    if (error) throw error
+    r = data
+  } catch (e) {
+    if (!silent) pane.innerHTML = '<div class="rtx-empty">Error: ' + (e.message || e) + '</div>'
+    return
+  }
+  if (!r || !r.ok) { if (!silent) pane.innerHTML = '<div class="rtx-empty">Sin datos para esa fecha.</div>'; return }
+  rtxDashData = r
+  rtxDashPintar()
+}
+
+// Pinta el dashboard completo (lo fijo + los pendientes filtrados)
+function rtxDashPintar() {
+  const pane = document.getElementById('rtx-pane-dash')
+  const r = rtxDashData
+  if (!pane || !r) return
+
+  // preservar foco del buscador de pendientes
+  const oldS = document.getElementById('dash-search')
+  const hadFocus = oldS && document.activeElement === oldS
+  const caret = oldS ? oldS.selectionStart : null
+
+  const barra = `
+    <div class="dash-fecha">
+      <button class="dash-nav" onclick="rtxDashCambiarFecha(-1)">‹</button>
+      <input type="date" class="dash-date" value="${rtxDashFecha}" onchange="rtxDashSetFecha(this.value)">
+      <button class="dash-nav" onclick="rtxDashCambiarFecha(1)">›</button>
+      <button class="dash-hoy" onclick="rtxDashHoy()">Hoy</button>
+    </div>`
+  const resumen = `
+    <div class="dash-stats">
+      <div class="dash-stat"><div class="dash-n green">L. ${rtxFmt(r.recaudado)}</div><div class="dash-l">Recaudado</div></div>
+      <div class="dash-stat"><div class="dash-n blue">${r.depositos}</div><div class="dash-l">Depósitos</div></div>
+      <div class="dash-stat"><div class="dash-n amber">${r.faltan}</div><div class="dash-l">Faltan</div></div>
+    </div>`
+  const desg = (r.desglose || []).map(d =>
+    `<div class="dash-row"><span>${d.banco}</span><b>L. ${rtxFmt(d.monto)} <small>(${d.cantidad})</small></b></div>`).join('')
+  const desglose = `<div class="dash-card"><div class="dash-card-t">Desglose por forma de pago</div>${desg || '<div class="rtx-empty">Sin depósitos aprobados.</div>'}</div>`
+
+  // ── Pendientes con buscador + chips por caja ──
+  const todos = r.pendientes || []
+  // conteos por caja
+  const cajas = {}
+  let sinCaja = 0
+  todos.forEach(p => { const c = p.caja; if (c) cajas[c] = (cajas[c] || 0) + 1; else sinCaja++ })
+  const chipC = (val, label, n) => `<button class="rtx-chip ${rtxDashCaja === val ? 'on' : ''}" onclick="rtxDashChipCaja('${String(val).replace(/'/g, '')}')">${label} <b>${n}</b></button>`
+  let chips = chipC('todas', 'Todas', todos.length)
+  Object.keys(cajas).sort().forEach(c => { chips += chipC(c, c, cajas[c]) })
+  if (sinCaja) chips += chipC('__sin__', 'Sin caja', sinCaja)
+  const chipsHtml = `<div class="rtx-chips">${chips}</div>`
+  const search = `<input id="dash-search" class="rtx-search" type="text" placeholder="Buscar por unidad o nombre…" value="${rtxDashBusqueda.replace(/"/g, '&quot;')}" oninput="rtxDashBuscar(this.value)" autocomplete="off">`
+
+  // filtrar
+  const q = rtxDashBusqueda.trim().toLowerCase()
+  const filtrados = todos.filter(p => {
+    if (rtxDashCaja === '__sin__') { if (p.caja) return false }
+    else if (rtxDashCaja !== 'todas' && p.caja !== rtxDashCaja) return false
+    if (q) {
+      const hay = [p.unidad, p.nombre].some(x => String(x || '').toLowerCase().includes(q))
+      if (!hay) return false
+    }
+    return true
+  })
+  const pend = filtrados.map(rtxDashPendiente).join('')
+  const pendientes = `<div class="dash-card">
+    <div class="dash-card-t">Motoristas pendientes (${r.faltan})</div>
+    ${search}${chipsHtml}
+    ${pend || '<div class="rtx-empty">Sin resultados para este filtro.</div>'}
+  </div>`
+
+  pane.innerHTML = barra + resumen + desglose + pendientes
+
+  if (hadFocus) {
+    const ne = document.getElementById('dash-search')
+    if (ne) { ne.focus(); if (caret != null) { try { ne.setSelectionRange(caret, caret) } catch (e) {} } }
+  }
+}
+
+window.rtxDashBuscar = (v) => { rtxDashBusqueda = v || ''; rtxDashPintar() }
+window.rtxDashChipCaja = (v) => { rtxDashCaja = v; rtxDashPintar() }
 
 // ── WhatsApp: abre chat con el motorista y mensaje prellenado ──
 function rtxWaUrl(tel, msg) {

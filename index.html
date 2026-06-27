@@ -1282,6 +1282,12 @@
         <div class="page-title">🚕 Revisión de entregas de Taxis</div>
         <div class="page-sub">Entregas que llegan por el formulario (motoristas y caja). Revisá el comprobante y aprobá o rechazá. Rechazar revierte el saldo del motorista. No afecta la contabilidad.</div>
 
+        <div class="rtx-tabs">
+          <button class="rtx-tab on" id="rtx-tab-sol"  onclick="rtxTab('sol')">Solicitudes</button>
+          <button class="rtx-tab"    id="rtx-tab-dash" onclick="rtxTab('dash')">Dashboard</button>
+        </div>
+
+        <div id="rtx-pane-sol">
         <div class="form-card">
           <div class="form-card-title"><span>Filtros</span></div>
           <div class="form-grid" style="gap:12px">
@@ -1301,6 +1307,9 @@
         </div>
 
         <div id="rtx-resultado" class="hidden"></div>
+        </div><!-- /rtx-pane-sol -->
+
+        <div id="rtx-pane-dash" class="hidden"></div>
 
         <!-- Modal del comprobante -->
         <div id="rtx-overlay" class="rtx-overlay" onclick="rtxCerrarComprobante()">
@@ -3445,7 +3454,7 @@
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260603c"></script>
 <script defer src="js/fiscal.js?v=20260606l"></script>
-<script defer src="js/revision_taxis.js?v=20260626c"></script>
+<script defer src="js/revision_taxis.js?v=20260626a"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">
