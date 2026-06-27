@@ -105,6 +105,16 @@
   .modal .ln span:last-child{font-family:var(--mono);font-weight:600}
   .modal .ln.total{border-top:0.5px solid var(--border);margin-top:6px;padding-top:10px}
   .modal .ln.total span:last-child{color:var(--amber);font-size:16px}
+  .historial{max-width:440px;margin:18px auto 40px;padding:0 14px}
+  .h-title{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:#8b8f98;margin-bottom:8px;padding-left:2px}
+  .h-row{display:flex;justify-content:space-between;align-items:center;background:#15171c;border:1px solid #262a32;border-radius:10px;padding:10px 13px;margin-bottom:7px}
+  .h-main{display:flex;flex-direction:column;gap:2px}
+  .h-main b{font-size:13px;color:#e8eaed}
+  .h-main span{font-size:11px;color:#8b8f98}
+  .h-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap}
+  .h-ok{background:rgba(46,160,67,.18);color:#3fb950}
+  .h-bad{background:rgba(218,54,51,.18);color:#f85149}
+  .h-pend{background:rgba(210,153,34,.18);color:#d29922}
 </style>
 </head>
 <body>
@@ -126,7 +136,7 @@
   <!-- PIN de caja -->
   <div id="scr-pin" class="card hidden">
     <h2>Acceso de caja</h2>
-    <div class="field"><label>PIN de caja</label><input id="pin" type="password" inputmode="numeric" placeholder="••••"></div>
+    <div class="field"><label>PIN de caja</label><input id="pin" type="password" inputmode="numeric" placeholder="••••" autocomplete="new-password" name="pin-caja-nosave" data-lpignore="true" data-form-type="other"></div>
     <button class="btn-primary" id="btn-pin" onclick="entrarCaja()">Entrar</button>
     <button class="btn-ghost" onclick="irModo('choose')">Volver</button>
     <div id="pin-msg" class="msg err"></div>
@@ -190,6 +200,9 @@
     <button class="btn-ghost" onclick="irModo('choose')">Volver al inicio</button>
     <div id="form-msg" class="msg err"></div>
   </div>
+
+  <!-- Historial de solicitudes de este dispositivo -->
+  <div id="historial" class="historial"></div>
 
   <!-- Modal resultado -->
   <div id="overlay" class="overlay">
@@ -311,7 +324,7 @@ window.confirmarNo = () => {
 }
 
 window.buscarPorIdentidad = async () => {
-  const id = $('ident-nueva').value.trim()
+  const id = ($('ident-nueva').value || '').replace(/\D/g, '')   // solo dígitos
   if (!id) return
   hide('form-msg'); $('nuevo-info').classList.remove('show'); $('btn-confirma-cambio').classList.add('hidden'); nuevoMot = null
   try {
@@ -397,13 +410,15 @@ window.enviar = async () => {
     if (modo === 'moto') {
       const { data, error } = await sb.rpc('tx_registrar_deposito', {
         p_unidad: motorista.unidad, p_identidad: motorista.identidad,
-        p_monto: monto, p_banco: medio, p_fecha: fecha, p_imagen_url: imagenUrl
+        p_monto: monto, p_banco: medio, p_fecha: fecha, p_imagen_url: imagenUrl,
+        p_telefono: null
       })
       if (error) throw error; res = data
     } else {
       const { data, error } = await sb.rpc('tx_registrar_caja', {
         p_pin: cajaPin, p_unidad: motorista.unidad, p_identidad: motorista.identidad,
-        p_monto: monto, p_medio: medio, p_fecha: fecha, p_imagen_url: imagenUrl
+        p_monto: monto, p_medio: medio, p_fecha: fecha, p_imagen_url: imagenUrl,
+        p_telefono: null
       })
       if (error) throw error; res = data
     }
@@ -433,6 +448,48 @@ function mostrarResultado(r) {
       : `<div class="ln"><span>${l[0]}</span><span>${l[1]}</span></div>`
   ).join('')
   $('overlay').classList.add('show')
+  txGuardarSolicitud(r.entrega_id)
+  txRenderHistorial()
+}
+
+// ── Historial de solicitudes de este dispositivo ──
+function txGuardarSolicitud(id) {
+  if (!id) return
+  try {
+    let ids = JSON.parse(localStorage.getItem('tx_solicitudes') || '[]')
+    ids = ids.filter(x => x !== id)
+    ids.unshift(id)
+    ids = ids.slice(0, 10)
+    localStorage.setItem('tx_solicitudes', JSON.stringify(ids))
+  } catch (e) {}
+}
+
+function txFechaCorta(f) {
+  if (!f) return ''
+  const p = String(f).split('-')   // YYYY-MM-DD
+  return p.length === 3 ? `${p[2]}/${p[1]}` : f
+}
+
+async function txRenderHistorial() {
+  const cont = $('historial')
+  if (!cont) return
+  let ids = []
+  try { ids = JSON.parse(localStorage.getItem('tx_solicitudes') || '[]') } catch (e) {}
+  if (!ids.length) { cont.innerHTML = ''; return }
+  try {
+    const { data, error } = await sb.rpc('tx_estado_solicitudes', { p_ids: ids })
+    if (error) throw error
+    if (!data || !data.length) { cont.innerHTML = ''; return }
+    const filas = data.map(e => {
+      const est = e.estado || 'Pendiente'
+      const cls = est === 'Aprobada' ? 'h-ok' : est === 'Rechazada' ? 'h-bad' : 'h-pend'
+      return `<div class="h-row">
+        <div class="h-main"><b>Unidad ${e.unidad || '—'}</b><span>${txFechaCorta(e.fecha_deposito)} · ${fmt(e.monto)}</span></div>
+        <span class="h-badge ${cls}">${est}</span>
+      </div>`
+    }).join('')
+    cont.innerHTML = `<div class="h-title">Mis últimas solicitudes</div>${filas}`
+  } catch (e) { cont.innerHTML = '' }
 }
 
 window.cerrarModal = () => { $('overlay').classList.remove('show'); resetForm(); $('unidad').focus() }
@@ -452,6 +509,18 @@ function hide(id){ $(id)?.classList.remove('show') }
 
 // Enter en unidad = buscar
 $('unidad').addEventListener('keydown', e => { if(e.key==='Enter') buscarUnidad() })
+
+// Mostrar historial de este dispositivo al abrir (con estado actualizado)
+txRenderHistorial()
+
+// Auto-refrescar el historial cada 15s (para ver cambios de estado sin recargar).
+// Se pausa si la pestaña está en segundo plano, para no gastar datos del celular.
+setInterval(() => {
+  if (document.hidden) return
+  let ids = []
+  try { ids = JSON.parse(localStorage.getItem('tx_solicitudes') || '[]') } catch (e) {}
+  if (ids.length) txRenderHistorial()
+}, 15000)
 </script>
 </body>
 </html>
