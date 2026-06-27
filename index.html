@@ -1285,31 +1285,22 @@
         <div class="rtx-tabs">
           <button class="rtx-tab on" id="rtx-tab-sol"  onclick="rtxTab('sol')">Solicitudes</button>
           <button class="rtx-tab"    id="rtx-tab-dash" onclick="rtxTab('dash')">Dashboard</button>
+          <button class="rtx-tab"    id="rtx-tab-mot"  onclick="rtxTab('mot')">Motoristas</button>
         </div>
 
         <div id="rtx-pane-sol">
-        <div class="form-card">
-          <div class="form-card-title"><span>Filtros</span></div>
-          <div class="form-grid" style="gap:12px">
-            <div class="fld"><label>Desde</label><input type="date" id="rtx-desde"></div>
-            <div class="fld"><label>Hasta</label><input type="date" id="rtx-hasta"></div>
-            <div class="fld"><label>Estado</label>
-              <select id="rtx-estado"><option value="">Todos</option><option value="Pendiente">Pendiente</option><option value="Aprobada">Aprobada</option><option value="Rechazada">Rechazada</option></select>
-            </div>
-            <div class="fld"><label>Origen</label>
-              <select id="rtx-origen"><option value="">Todos</option><option value="motorista">Motorista</option><option value="caja">Caja</option></select>
-            </div>
-            <div class="fld"><label>Unidad</label><input type="text" id="rtx-unidad" placeholder="Ej: 384" autocomplete="off"></div>
-          </div>
-          <div style="text-align:right;margin-top:8px">
-            <button class="btn btn-gold" id="rtx-btn" onclick="rtxConsultar()">Consultar &rarr;</button>
-          </div>
+        <div class="dash-fecha">
+          <button class="dash-nav" onclick="rtxSolCambiarFecha(-1)">‹</button>
+          <input type="date" class="dash-date" id="rtx-fecha" onchange="rtxSolSetFecha(this.value)">
+          <button class="dash-nav" onclick="rtxSolCambiarFecha(1)">›</button>
+          <button class="dash-hoy" onclick="rtxSolHoy()">Hoy</button>
         </div>
 
         <div id="rtx-resultado" class="hidden"></div>
         </div><!-- /rtx-pane-sol -->
 
         <div id="rtx-pane-dash" class="hidden"></div>
+        <div id="rtx-pane-mot" class="hidden"></div>
 
         <!-- Modal del comprobante -->
         <div id="rtx-overlay" class="rtx-overlay" onclick="rtxCerrarComprobante()">

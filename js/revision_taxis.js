@@ -6,6 +6,7 @@
 // NO toca la contabilidad — las partidas se siguen generando en "Partidas Taxis".
 
 const rtxSb = () => window._sb
+const rtxEsSuper = () => { try { return window._currentProfile?.()?.rol === 'super_admin' } catch (e) { return false } }
 const rtxFmt = n => (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 let rtxEntregas = []
 let rtxTelIdent = {}   // identidad → teléfono (tx_motoristas)
@@ -13,6 +14,7 @@ let rtxTelUni = {}     // unidad → teléfono (tx_directorio)
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 let rtxFEstado = 'todas'
 let rtxFMedio = 'todas'
+let rtxFechaSol = ''   // día seleccionado en Solicitudes (yyyy-mm-dd)
 
 // Resuelve el teléfono de una entrega con prioridad: entrega → motorista → directorio
 function rtxTelefono(e) {
@@ -23,31 +25,22 @@ function rtxTelefono(e) {
 
 window.initRevisionTaxis = async () => {
   rtx7dEnsure()   // inyecta estilos (botones WhatsApp + modal 7 días)
-  const hoy = new Date()
-  const hace7 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 7)
-  const fi = document.getElementById('rtx-desde'); if (fi && !fi.value) fi.value = hace7.toISOString().split('T')[0]
-  const ff = document.getElementById('rtx-hasta'); if (ff && !ff.value) ff.value = hoy.toISOString().split('T')[0]
+  if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
+  const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
   if (rtxEntregas.length) rtxRender(); else rtxConsultar()
   rtxStartAuto()
 }
 
 window.rtxConsultar = async (silent = false) => {
-  const desde = document.getElementById('rtx-desde').value
-  const hasta = document.getElementById('rtx-hasta').value
-  const estado = document.getElementById('rtx-estado').value
-  const origen = document.getElementById('rtx-origen').value
-  const unidad = (document.getElementById('rtx-unidad').value || '').trim()
-  if (!desde || !hasta) { if (!silent) window.toast?.('Seleccioná el rango de fechas', 'error'); return }
+  if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
+  const inp = document.getElementById('rtx-fecha'); if (inp && !inp.value) inp.value = rtxFechaSol
+  const fecha = rtxFechaSol
 
-  const btn = document.getElementById('rtx-btn'); if (btn && !silent) { btn.disabled = true; btn.textContent = 'Consultando…' }
   try {
     let q = rtxSb().from('entregas_taxis').select('*')
-      .gte('fecha_deposito', desde).lte('fecha_deposito', hasta)
+      .eq('fecha_deposito', fecha)
       .in('origen', ['motorista', 'caja'])
       .order('created_at', { ascending: false })
-    if (estado) q = q.eq('estado', estado)
-    if (origen) q = q.eq('origen', origen)
-    if (unidad) q = q.eq('unidad', unidad)
     const { data, error } = await q
     if (error) throw error
     rtxEntregas = data || []
@@ -55,8 +48,22 @@ window.rtxConsultar = async (silent = false) => {
     rtxRender()
   } catch (e) {
     if (!silent) window.toast?.('Error: ' + (e.message || e), 'error')
-  } finally { if (btn && !silent) { btn.disabled = false; btn.innerHTML = 'Consultar &rarr;' } }
+  }
 }
+
+window.rtxSolCambiarFecha = (dir) => {
+  if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
+  const d = new Date(rtxFechaSol + 'T12:00:00'); d.setDate(d.getDate() + dir)
+  rtxFechaSol = d.toISOString().slice(0, 10)
+  const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
+  rtxConsultar()
+}
+window.rtxSolHoy = () => {
+  rtxFechaSol = new Date().toISOString().slice(0, 10)
+  const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
+  rtxConsultar()
+}
+window.rtxSolSetFecha = (v) => { if (v) { rtxFechaSol = v; rtxConsultar() } }
 
 // ── Auto-refresco cada 15s mientras el panel está visible ──
 let rtxTimer = null
@@ -188,6 +195,7 @@ function rtxRender() {
           <div class="rtx-acts">
             <button class="rtx-b ghost" onclick="rtxVer7dias('${e.identidad}','${e.unidad}','${e.fecha_deposito}')">📅 7 días</button>
             ${acciones}
+            ${rtxEsSuper() ? `<button class="rtx-b edit" onclick="rtxEditar('${e.id}')">✏️ Editar</button>` : ''}
             <button class="rtx-b del" onclick="rtxEliminar('${e.id}')">🗑 Eliminar</button>
           </div>
         </div>
@@ -238,6 +246,54 @@ window.rtxEliminar = async (id) => {
     rtxEntregas = rtxEntregas.filter(e => e.id !== id)
     rtxRender()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+// ── Editar entrega (solo super_admin): corrige monto / banco ──
+let rtxEditOv = null
+window.rtxEditar = (id) => {
+  if (!rtxEsSuper()) { window.toast?.('Solo super_admin puede editar', 'error'); return }
+  const e = rtxEntregas.find(x => x.id === id)
+  if (!e) return
+  const bancos = ['BAC', 'Ficohsa', 'Caja Tecnimax', 'Caja Yonker', 'Caja Taxis']
+  if (e.banco && !bancos.includes(e.banco)) bancos.unshift(e.banco)
+  const opts = bancos.map(b => `<option value="${b}" ${e.banco === b ? 'selected' : ''}>${b}</option>`).join('')
+  const ov = document.createElement('div')
+  ov.className = 'rtx-edit-ov show'
+  ov.innerHTML = `
+    <div class="rtx-edit-modal">
+      <h3>Editar entrega · Unidad ${e.unidad}</h3>
+      <div class="rtx-edit-sub">${e.nombre_conductor || ''} · ${e.estado}</div>
+      <label>Monto depositado (L.)</label>
+      <input type="number" id="rtx-edit-monto" value="${e.monto}" step="0.01" min="0" inputmode="decimal">
+      <label>Banco / medio</label>
+      <select id="rtx-edit-banco">${opts}</select>
+      ${e.estado === 'Aprobada' ? '<div class="rtx-edit-warn">⚠ Esta entrega ya está aprobada. Cambiar el monto recalculará el saldo del motorista automáticamente.</div>' : ''}
+      <div class="rtx-edit-acts">
+        <button class="rtx-b ghost" onclick="rtxEditarCerrar()">Cancelar</button>
+        <button class="rtx-b ok" onclick="rtxEditarGuardar('${id}')">Guardar cambios</button>
+      </div>
+    </div>`
+  ov.onclick = (ev) => { if (ev.target === ov) rtxEditarCerrar() }
+  document.body.appendChild(ov)
+  rtxEditOv = ov
+}
+window.rtxEditarCerrar = () => { if (rtxEditOv) { rtxEditOv.remove(); rtxEditOv = null } }
+window.rtxEditarGuardar = async (id) => {
+  const monto = parseFloat(document.getElementById('rtx-edit-monto').value)
+  const banco = document.getElementById('rtx-edit-banco').value
+  if (!monto || monto <= 0) { window.toast?.('El monto debe ser mayor a cero', 'error'); return }
+  const btn = document.querySelector('.rtx-edit-acts .rtx-b.ok'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…' }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_editar_entrega', { p_entrega_id: id, p_monto: monto, p_banco: banco })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo editar', 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios' } return }
+    window.toast?.('Entrega actualizada' + (data.reajustado ? ' · saldo recalculado' : ''), 'success')
+    rtxEditarCerrar()
+    rtxConsultar(true)  // refresca para traer el saldo recalculado
+  } catch (e) {
+    window.toast?.('Error: ' + (e.message || e), 'error')
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios' }
+  }
 }
 
 function rtxActualizarLocal(id, estado) {
@@ -323,12 +379,55 @@ function rtx7dEnsure() {
     .dash-pend-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
     .dash-pend-id{font-size:14px;color:#e8eaed}.dash-pend-id b{color:#f0a500}
     .dash-pend-dias{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
-    .dash-pend-dias.rojo{background:rgba(220,38,38,.18);color:#f87171}
-    .dash-pend-dias.amber{background:rgba(240,165,0,.18);color:#f0a500}
+    .dash-pend-dias.rojo{background:#7f1d1d;color:#fca5a5}
+    .dash-pend-dias.amber{background:#78350f;color:#fcd34d}
     .dash-pend-dias.gris{background:rgba(120,128,140,.18);color:#9aa0aa}
     .dash-pend-sub{font-size:12px;color:#9aa0aa;margin:7px 0 10px}
     .dash-pend-acc{display:flex;flex-wrap:wrap;gap:7px}
     .rtx-b.call{background:rgba(74,144,226,.16)!important;color:#4a90e2!important;border:1px solid rgba(74,144,226,.45)!important;text-decoration:none;display:inline-flex;align-items:center}
+    .rtx-b.edit{background:rgba(168,85,247,.16)!important;color:#c084fc!important;border:1px solid rgba(168,85,247,.45)!important}
+    .rtx-b.ok{background:rgba(22,163,74,.2)!important;color:#3fb950!important;border:1px solid rgba(22,163,74,.5)!important}
+    .rtx-edit-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
+    .rtx-edit-modal{background:#1a1d24;border:1px solid #2a2e37;border-radius:14px;padding:22px;width:100%;max-width:380px}
+    .rtx-edit-modal h3{margin:0 0 4px;font-size:17px;color:#e8eaed}
+    .rtx-edit-sub{font-size:13px;color:#9aa0aa;margin-bottom:16px}
+    .rtx-edit-modal label{display:block;font-size:12px;color:#9aa0aa;margin:12px 0 5px;text-transform:uppercase;letter-spacing:.04em}
+    .rtx-edit-modal input,.rtx-edit-modal select{width:100%;padding:11px 12px;background:#15171c;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:15px;box-sizing:border-box}
+    .rtx-edit-warn{background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.35);color:#f0a500;font-size:12px;padding:10px;border-radius:9px;margin-top:14px;line-height:1.4}
+    .rtx-edit-acts{display:flex;gap:9px;margin-top:18px}
+    .rtx-edit-acts .rtx-b{flex:1;justify-content:center;padding:11px}
+    .dash-subtotal{text-align:right;color:#3fb950;font-weight:700;font-size:14px;margin:4px 0 12px}
+    .dash-subtotal small{color:#8b8f98;font-weight:400}
+    .dash-orden{background:#1f232b;border:1px solid #2a2e37;border-radius:8px;color:#9aa0aa;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer}
+    .dash-orden.on{background:rgba(74,144,226,.16);border-color:rgba(74,144,226,.5);color:#4a90e2}
+    .dash-dep{padding:9px 0;border-bottom:1px solid #21242b}
+    .dash-dep:last-child{border-bottom:none}
+    .dash-dep-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;color:#e8eaed}
+    .dash-dep-top b{color:#f0a500}
+    .dash-dep-amt{color:#3fb950;font-weight:700;white-space:nowrap}
+    .dash-dep-sub{font-size:12px;color:#8b8f98;margin-top:3px}
+    .rtx-b.notas{background:rgba(120,113,108,.18)!important;color:#d6d3d1!important;border:1px solid rgba(120,113,108,.45)!important}
+    .rtx-notas-modal{max-width:440px}
+    .rtx-notas-lista{max-height:300px;overflow-y:auto;margin:14px 0}
+    .rtx-nota{background:#12131a;border-radius:7px;padding:9px 11px;margin-bottom:8px}
+    .rtx-nota-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+    .rtx-nota-autor{font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px}
+    .rtx-nota-fecha{font-size:11px;color:#8b8f98;flex:1}
+    .rtx-nota-arch{background:none;border:none;color:#8b8f98;cursor:pointer;font-size:14px;padding:0 2px}
+    .rtx-nota-txt{font-size:14px;color:#e5e7eb;line-height:1.45}
+    .rtx-notas-input{width:100%;padding:11px;background:#15171c;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit}
+    .mot-lista{margin-top:4px}
+    .mot-barra{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+    .mot-row{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:13px;margin-bottom:9px}
+    .mot-row.off{opacity:.6}
+    .mot-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .mot-id{font-size:14px;color:#e8eaed}.mot-id b{color:#f0a500}
+    .mot-estado{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
+    .mot-estado.on{background:rgba(22,163,74,.18);color:#3fb950}
+    .mot-estado.off{background:rgba(120,128,140,.18);color:#9aa0aa}
+    .mot-sub{font-size:12px;color:#9aa0aa;margin:7px 0}
+    .mot-sub b{color:#cfd3da}.mot-sub b.mot-debe{color:#f0a500}
+    .mot-acts{display:flex;gap:7px;margin-top:6px}
   `
   document.head.appendChild(st)
   const ov = document.createElement('div')
@@ -401,17 +500,22 @@ let rtxDashFecha = ''  // yyyy-mm-dd
 let rtxDashData = null // último resultado del dashboard (para filtrar pendientes sin re-consultar)
 let rtxDashBusqueda = ''
 let rtxDashCaja = 'todas'
+let rtxDepBanco = 'todas'   // filtro de banco en Depósitos del día
+let rtxDepOrden = 'hora'    // 'hora' | 'unidad'
 
 window.rtxTab = (tab) => {
-  const ts = document.getElementById('rtx-tab-sol'), td = document.getElementById('rtx-tab-dash')
-  const ps = document.getElementById('rtx-pane-sol'), pd = document.getElementById('rtx-pane-dash')
-  if (ts) ts.classList.toggle('on', tab === 'sol')
-  if (td) td.classList.toggle('on', tab === 'dash')
-  if (ps) ps.classList.toggle('hidden', tab !== 'sol')
-  if (pd) pd.classList.toggle('hidden', tab !== 'dash')
+  const tabs = ['sol', 'dash', 'mot']
+  tabs.forEach(t => {
+    const tb = document.getElementById('rtx-tab-' + t)
+    const pn = document.getElementById('rtx-pane-' + t)
+    if (tb) tb.classList.toggle('on', t === tab)
+    if (pn) pn.classList.toggle('hidden', t !== tab)
+  })
   if (tab === 'dash') {
     if (!rtxDashFecha) rtxDashFecha = new Date().toISOString().slice(0, 10)
     rtxRenderDashboard()
+  } else if (tab === 'mot') {
+    rtxMotCargar()
   }
 }
 
@@ -425,25 +529,32 @@ window.rtxDashSetFecha = (v) => { if (v) { rtxDashFecha = v; rtxRenderDashboard(
 function rtxDashPendiente(p) {
   const tel = p.telefono || ''
   const sinHist = (p.dias_sin === null || p.dias_sin === undefined)
-  const diasTxt = sinHist ? 'Sin entregas registradas' : `${p.dias_sin} día(s) sin entregar`
   const msg = encodeURIComponent(`Hola ${p.nombre || ''}, te escribimos de Tecnimax. ${sinHist ? 'No tenemos entregas recientes registradas' : `Tenés ${p.dias_sin} día(s) sin entregar (última: ${p.ultima_entrega})`}. Por favor comunicate para coordinar tu pago. Gracias.`)
   const waBtn = tel
     ? `<button class="rtx-b wa" onclick="rtxWa('${tel}','${msg}')">💬 WhatsApp</button>`
     : `<button class="rtx-b ghost" disabled>Sin teléfono</button>`
   const llamarBtn = tel ? `<a class="rtx-b call" href="tel:${tel}">📞 Llamar</a>` : ''
-  const dias = sinHist ? 'gris' : (p.dias_sin >= 7 ? 'rojo' : (p.dias_sin >= 4 ? 'amber' : 'gris'))
+  const nc = p.notas_count || 0
+  const notasBtn = `<button class="rtx-b notas" onclick="rtxNotasAbrir('${p.identidad}','${p.unidad}','${(p.nombre || '').replace(/'/g, '')}')">📝 Notas${nc ? ' (' + nc + ')' : ''}</button>`
+  // Texto y color del badge según días sin entregar (idéntico al Sheets)
+  let diasCls, diasLabel
+  if (sinHist) { diasCls = 'gris'; diasLabel = 'Sin entregas registradas' }
+  else if (p.dias_sin >= 4) { diasCls = 'rojo'; diasLabel = `${p.dias_sin} días sin entregar` }
+  else if (p.dias_sin === 3) { diasCls = 'rojo'; diasLabel = 'Pendiente tres' }
+  else if (p.dias_sin === 2) { diasCls = 'rojo'; diasLabel = 'Pendiente dos' }
+  else { diasCls = 'amber'; diasLabel = 'Pendiente hoy' }
   return `
     <div class="dash-pend">
       <div class="dash-pend-top">
         <div class="dash-pend-id"><b>#${p.unidad}</b> · ${p.nombre || '—'}</div>
-        <div class="dash-pend-dias ${dias}">${diasTxt}</div>
+        <div class="dash-pend-dias ${diasCls}">${diasLabel}</div>
       </div>
       <div class="dash-pend-sub">
         Última: ${p.ultima_entrega} · Saldo: L. ${rtxFmt(p.saldo)}${p.caja ? ' · Caja: ' + p.caja : ''}${p.grupo ? ' · Grupo ' + p.grupo : ''}
       </div>
       <div class="dash-pend-acc">
         <button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')">📅 7 días</button>
-        ${waBtn}${llamarBtn}
+        ${notasBtn}${waBtn}${llamarBtn}
       </div>
     </div>`
 }
@@ -519,14 +630,48 @@ function rtxDashPintar() {
     }
     return true
   })
-  const pend = filtrados.map(rtxDashPendiente).join('')
-  const pendientes = `<div class="dash-card">
-    <div class="dash-card-t">Motoristas pendientes (${r.faltan})</div>
-    ${search}${chipsHtml}
-    ${pend || '<div class="rtx-empty">Sin resultados para este filtro.</div>'}
+  // ── Motoristas pendientes: SOLO cuando la fecha seleccionada es hoy ──
+  // (para días pasados no aplica; el indicador "días sin entregar" ya acumula eso)
+  const esHoy = (rtxDashFecha === new Date().toISOString().slice(0, 10))
+  let pendientes = ''
+  if (esHoy) {
+    const pend = filtrados.map(rtxDashPendiente).join('')
+    pendientes = `<div class="dash-card">
+      <div class="dash-card-t">Motoristas pendientes (${r.faltan})</div>
+      ${search}${chipsHtml}
+      ${pend || '<div class="rtx-empty">Sin resultados para este filtro.</div>'}
+    </div>`
+  }
+
+  // ── Depósitos del día (entregas aprobadas, con chips por banco y orden por unidad) ──
+  const deps = r.depositos_lista || []
+  const dcajas = {}
+  deps.forEach(d => { const b = d.banco || '—'; dcajas[b] = (dcajas[b] || 0) + 1 })
+  const dChip = (val, label, n) => `<button class="rtx-chip ${rtxDepBanco === val ? 'on' : ''}" onclick="rtxDepChip('${String(val).replace(/'/g, '')}')">${label} <b>${n}</b></button>`
+  let dchips = dChip('todas', 'Todas', deps.length)
+  Object.keys(dcajas).sort().forEach(b => { dchips += dChip(b, b, dcajas[b]) })
+  // filtrar por banco
+  let dfilt = rtxDepBanco === 'todas' ? deps.slice() : deps.filter(d => (d.banco || '—') === rtxDepBanco)
+  // ordenar
+  if (rtxDepOrden === 'unidad') dfilt.sort((a, b) => (parseInt(a.unidad, 10) || 0) - (parseInt(b.unidad, 10) || 0))
+  // subtotal del filtro
+  const subTot = dfilt.reduce((s, d) => s + (parseFloat(d.monto) || 0), 0)
+  const depRows = dfilt.map(d =>
+    `<div class="dash-dep">
+       <div class="dash-dep-top"><span><b>#${d.unidad}</b> · ${d.nombre || '—'}</span><span class="dash-dep-amt">L. ${rtxFmt(d.monto)}</span></div>
+       <div class="dash-dep-sub">${d.banco} · ${d.hora || ''}</div>
+     </div>`).join('')
+  const ordenBtn = `<button class="dash-orden ${rtxDepOrden === 'unidad' ? 'on' : ''}" onclick="rtxDepToggleOrden()">${rtxDepOrden === 'unidad' ? '↕ Por unidad' : '↕ Ordenar por unidad'}</button>`
+  const depositos = `<div class="dash-card">
+    <div class="dash-card-t" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Depósitos del día</span>${ordenBtn}
+    </div>
+    <div class="rtx-chips">${dchips}</div>
+    <div class="dash-subtotal">Subtotal: L. ${rtxFmt(subTot)} <small>(${dfilt.length})</small></div>
+    ${depRows || '<div class="rtx-empty">Sin depósitos aprobados para esta fecha.</div>'}
   </div>`
 
-  pane.innerHTML = barra + resumen + desglose + pendientes
+  pane.innerHTML = barra + resumen + desglose + pendientes + depositos
 
   if (hadFocus) {
     const ne = document.getElementById('dash-search')
@@ -536,6 +681,255 @@ function rtxDashPintar() {
 
 window.rtxDashBuscar = (v) => { rtxDashBusqueda = v || ''; rtxDashPintar() }
 window.rtxDashChipCaja = (v) => { rtxDashCaja = v; rtxDashPintar() }
+window.rtxDepChip = (v) => { rtxDepBanco = v; rtxDashPintar() }
+window.rtxDepToggleOrden = () => { rtxDepOrden = (rtxDepOrden === 'unidad') ? 'hora' : 'unidad'; rtxDashPintar() }
+
+// ── Notas por motorista (con color por autor) ──
+let rtxNotasOv = null
+let rtxNotasCtx = { identidad: '', unidad: '', nombre: '' }
+// Paleta de colores; el color se asigna de forma determinística por nombre de autor
+const RTX_NOTA_COLORES = ['#ef4444', '#6366f1', '#22c55e', '#f0a500', '#a855f7', '#06b6d4', '#ec4899', '#84cc16']
+function rtxColorAutor(nombre) {
+  let h = 0; const s = String(nombre || '?')
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return RTX_NOTA_COLORES[h % RTX_NOTA_COLORES.length]
+}
+
+window.rtxNotasAbrir = (identidad, unidad, nombre) => {
+  rtxNotasCtx = { identidad, unidad, nombre }
+  const ov = document.createElement('div')
+  ov.className = 'rtx-edit-ov show'
+  ov.innerHTML = `
+    <div class="rtx-edit-modal rtx-notas-modal">
+      <h3>Notas · Unidad ${unidad}</h3>
+      <div class="rtx-edit-sub">${nombre || ''}</div>
+      <div id="rtx-notas-lista" class="rtx-notas-lista"><div class="rtx-empty">Cargando…</div></div>
+      <textarea id="rtx-notas-input" class="rtx-notas-input" rows="2" placeholder="Escribí una nota (llamada, acuerdo, aviso…)"></textarea>
+      <div class="rtx-edit-acts">
+        <button class="rtx-b ghost" onclick="rtxNotasCerrar()">Cerrar</button>
+        <button class="rtx-b ok" onclick="rtxNotasGuardar()">Agregar nota</button>
+      </div>
+    </div>`
+  ov.onclick = (ev) => { if (ev.target === ov) rtxNotasCerrar() }
+  document.body.appendChild(ov)
+  rtxNotasOv = ov
+  rtxNotasCargar()
+}
+window.rtxNotasCerrar = () => {
+  if (rtxNotasOv) { rtxNotasOv.remove(); rtxNotasOv = null }
+  // refrescar el dashboard para actualizar el conteo del botón
+  if (document.getElementById('rtx-pane-dash') && !document.getElementById('rtx-pane-dash').classList.contains('hidden')) rtxRenderDashboard(true)
+}
+async function rtxNotasCargar() {
+  const cont = document.getElementById('rtx-notas-lista')
+  if (!cont) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_notas_listar', { p_identidad: rtxNotasCtx.identidad })
+    if (error) throw error
+    const notas = data || []
+    if (!notas.length) { cont.innerHTML = '<div class="rtx-empty">Sin notas — será la primera gestión.</div>'; return }
+    const esSuper = rtxEsSuper()
+    cont.innerHTML = notas.map(n => {
+      const color = rtxColorAutor(n.autor)
+      const arch = esSuper ? `<button class="rtx-nota-arch" title="Archivar nota" onclick="rtxNotaArchivar('${n.id}')">📦</button>` : ''
+      return `<div class="rtx-nota" style="border-left:3px solid ${color}">
+        <div class="rtx-nota-top">
+          <span class="rtx-nota-autor" style="background:${color}22;color:${color}">${n.autor}</span>
+          <span class="rtx-nota-fecha">${n.fecha} ${n.hora}</span>${arch}
+        </div>
+        <div class="rtx-nota-txt">${(n.nota || '').replace(/</g, '&lt;')}</div>
+      </div>`
+    }).join('')
+  } catch (e) { cont.innerHTML = '<div class="rtx-empty">Error: ' + (e.message || e) + '</div>' }
+}
+window.rtxNotasGuardar = async () => {
+  const inp = document.getElementById('rtx-notas-input')
+  const txt = (inp?.value || '').trim()
+  if (!txt) { window.toast?.('Escribí la nota', 'error'); return }
+  const btn = document.querySelector('.rtx-notas-modal .rtx-b.ok'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…' }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_nota_agregar', { p_identidad: rtxNotasCtx.identidad, p_unidad: rtxNotasCtx.unidad, p_nota: txt })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo guardar', 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Agregar nota' } return }
+    if (inp) inp.value = ''
+    await rtxNotasCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Agregar nota' } }
+}
+window.rtxNotaArchivar = async (id) => {
+  if (!confirm('¿Archivar esta nota? Quedará en el historial para consulta.')) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_nota_archivar', { p_nota_id: id })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo archivar', 'error'); return }
+    await rtxNotasCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+// ── Pestaña Motoristas (maestro) ──
+let rtxMotData = []
+let rtxMotBusqueda = ''
+let rtxMotFiltro = 'activos'  // 'activos' | 'inactivos' | 'todos'
+let rtxMotOrden = 'nombre'    // 'nombre' | 'saldo'
+
+async function rtxMotCargar() {
+  const pane = document.getElementById('rtx-pane-mot')
+  if (!pane) return
+  if (!rtxMotData.length) pane.innerHTML = '<div class="rtx-empty">Cargando…</div>'
+  try {
+    const { data, error } = await rtxSb().rpc('tx_motoristas_listar')
+    if (error) throw error
+    rtxMotData = data || []
+    rtxMotPintar()
+  } catch (e) { pane.innerHTML = '<div class="rtx-empty">Error: ' + (e.message || e) + '</div>' }
+}
+
+function rtxMotPintar() {
+  const pane = document.getElementById('rtx-pane-mot')
+  if (!pane) return
+  const oldS = document.getElementById('rtx-mot-search')
+  const hadFocus = oldS && document.activeElement === oldS
+  const caret = oldS ? oldS.selectionStart : null
+
+  const total = rtxMotData.length
+  const nAct = rtxMotData.filter(m => m.activo).length
+  const nInact = total - nAct
+  const esSuper = rtxEsSuper()
+
+  const chip = (val, label, n) => `<button class="rtx-chip ${rtxMotFiltro === val ? 'on' : ''}" onclick="rtxMotChip('${val}')">${label} <b>${n}</b></button>`
+  const chips = `<div class="rtx-chips">${chip('activos', 'Activos', nAct)}${chip('inactivos', 'Inactivos', nInact)}${chip('todos', 'Todos', total)}</div>`
+  const search = `<input id="rtx-mot-search" class="rtx-search" type="text" placeholder="Buscar por unidad, nombre o identidad…" value="${rtxMotBusqueda.replace(/"/g, '&quot;')}" oninput="rtxMotBuscar(this.value)" autocomplete="off">`
+  const ordenBtn = `<button class="dash-orden ${rtxMotOrden === 'saldo' ? 'on' : ''}" onclick="rtxMotToggleOrden()">${rtxMotOrden === 'saldo' ? '↓ Por saldo adeudado' : '↕ Ordenar por saldo'}</button>`
+  const addBtn = esSuper ? `<button class="rtx-b ok" onclick="rtxMotAgregar()">+ Agregar motorista</button>` : ''
+  const barra = `<div class="mot-barra">${ordenBtn}${addBtn}</div>`
+
+  const q = rtxMotBusqueda.trim().toLowerCase()
+  const lista = rtxMotData.filter(m => {
+    if (rtxMotFiltro === 'activos' && !m.activo) return false
+    if (rtxMotFiltro === 'inactivos' && m.activo) return false
+    if (q) { const hay = [m.unidad, m.nombre, m.identidad].some(x => String(x || '').toLowerCase().includes(q)); if (!hay) return false }
+    return true
+  })
+  if (rtxMotOrden === 'saldo') lista.sort((a, b) => (parseFloat(b.saldo) || 0) - (parseFloat(a.saldo) || 0))
+
+  const rows = lista.map(m => {
+    const nEsc = (m.nombre || '').replace(/'/g, '\\\'')
+    const acciones = esSuper ? `
+      <div class="mot-acts">
+        <button class="rtx-b edit" onclick="rtxMotEditar('${m.identidad}')">✏️ Editar</button>
+        <button class="rtx-b ${m.activo ? 'rec' : 'ok'}" onclick="rtxMotToggle('${m.identidad}', ${!m.activo})">${m.activo ? '⏸ Desactivar' : '▶ Activar'}</button>
+      </div>` : ''
+    return `<div class="mot-row ${m.activo ? '' : 'off'}">
+      <div class="mot-top">
+        <div class="mot-id"><b>#${m.unidad}</b> · ${m.nombre}</div>
+        <span class="mot-estado ${m.activo ? 'on' : 'off'}">${m.activo ? 'Activo' : 'Inactivo'}</span>
+      </div>
+      <div class="mot-sub">Cédula: ${m.identidad} · Tarifa: L. ${rtxFmt(m.tarifa)} · Grupo ${m.grupo} · Saldo: <b class="${m.saldo > 0 ? 'mot-debe' : ''}">L. ${rtxFmt(m.saldo)}</b></div>
+      ${acciones}
+    </div>`
+  }).join('')
+
+  pane.innerHTML = `${search}${chips}${barra}<div class="mot-lista">${rows || '<div class="rtx-empty">Sin resultados.</div>'}</div>`
+
+  if (hadFocus) { const ne = document.getElementById('rtx-mot-search'); if (ne) { ne.focus(); if (caret != null) { try { ne.setSelectionRange(caret, caret) } catch (e) {} } } }
+}
+
+window.rtxMotBuscar = (v) => { rtxMotBusqueda = v || ''; rtxMotPintar() }
+window.rtxMotChip = (v) => { rtxMotFiltro = v; rtxMotPintar() }
+window.rtxMotToggleOrden = () => { rtxMotOrden = (rtxMotOrden === 'saldo') ? 'nombre' : 'saldo'; rtxMotPintar() }
+
+window.rtxMotToggle = async (identidad, nuevoEstado) => {
+  const m = rtxMotData.find(x => x.identidad === identidad)
+  if (!m) return
+  if (!confirm(`¿${nuevoEstado ? 'Activar' : 'Desactivar'} a ${m.nombre}?`)) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_motorista_toggle', { p_identidad: identidad, p_activo: nuevoEstado })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    m.activo = nuevoEstado
+    window.toast?.(nuevoEstado ? 'Motorista activado' : 'Motorista desactivado', 'success')
+    rtxMotPintar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+window.rtxMotEditar = (identidad) => {
+  const m = rtxMotData.find(x => x.identidad === identidad)
+  if (!m) return
+  rtxMotModal({
+    titulo: 'Editar motorista', sub: `Cédula: ${m.identidad}`,
+    nombre: m.nombre, tarifa: m.tarifa, grupo: m.grupo, identReadonly: true, ident: m.identidad,
+    onGuardar: 'rtxMotGuardarEdicion'
+  })
+}
+window.rtxMotAgregar = () => {
+  rtxMotModal({
+    titulo: 'Agregar motorista', sub: 'La unidad se asigna con su primera entrega.',
+    nombre: '', tarifa: 500, grupo: '1', identReadonly: false, ident: '',
+    onGuardar: 'rtxMotGuardarNuevo'
+  })
+}
+
+let rtxMotOv = null
+function rtxMotModal(o) {
+  const ov = document.createElement('div')
+  ov.className = 'rtx-edit-ov show'
+  const identFld = o.identReadonly
+    ? `<input type="text" id="rtx-mot-ident" value="${o.ident}" disabled>`
+    : `<input type="text" id="rtx-mot-ident" placeholder="Cédula (13 dígitos)" inputmode="numeric">`
+  ov.innerHTML = `
+    <div class="rtx-edit-modal">
+      <h3>${o.titulo}</h3>
+      <div class="rtx-edit-sub">${o.sub}</div>
+      ${!o.identReadonly ? '<label>Cédula</label>' + identFld : ''}
+      <label>Nombre</label>
+      <input type="text" id="rtx-mot-nombre" value="${(o.nombre || '').replace(/"/g, '&quot;')}">
+      <label>Tarifa base (L.)</label>
+      <input type="number" id="rtx-mot-tarifa" value="${o.tarifa}" step="0.01" min="0" inputmode="decimal">
+      <label>Grupo de WhatsApp (1-10)</label>
+      <input type="number" id="rtx-mot-grupo" value="${o.grupo}" min="1" max="10" inputmode="numeric">
+      <div class="rtx-edit-acts">
+        <button class="rtx-b ghost" onclick="rtxMotCerrar()">Cancelar</button>
+        <button class="rtx-b ok" onclick="${o.onGuardar}('${o.ident}')">Guardar</button>
+      </div>
+    </div>`
+  ov.onclick = (ev) => { if (ev.target === ov) rtxMotCerrar() }
+  document.body.appendChild(ov)
+  rtxMotOv = ov
+}
+window.rtxMotCerrar = () => { if (rtxMotOv) { rtxMotOv.remove(); rtxMotOv = null } }
+
+function rtxMotLeerModal() {
+  return {
+    ident: (document.getElementById('rtx-mot-ident')?.value || '').trim(),
+    nombre: (document.getElementById('rtx-mot-nombre')?.value || '').trim(),
+    tarifa: parseFloat(document.getElementById('rtx-mot-tarifa')?.value),
+    grupo: (document.getElementById('rtx-mot-grupo')?.value || '1').trim()
+  }
+}
+window.rtxMotGuardarEdicion = async (identidad) => {
+  const f = rtxMotLeerModal()
+  if (!f.nombre) { window.toast?.('El nombre es obligatorio', 'error'); return }
+  if (!f.tarifa || f.tarifa <= 0) { window.toast?.('Tarifa inválida', 'error'); return }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_motorista_editar', { p_identidad: identidad, p_nombre: f.nombre, p_tarifa: f.tarifa, p_grupo: f.grupo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo editar', 'error'); return }
+    window.toast?.('Motorista actualizado', 'success')
+    rtxMotCerrar(); rtxMotCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxMotGuardarNuevo = async () => {
+  const f = rtxMotLeerModal()
+  if (!f.ident) { window.toast?.('La cédula es obligatoria', 'error'); return }
+  if (!f.nombre) { window.toast?.('El nombre es obligatorio', 'error'); return }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_motorista_agregar', { p_identidad: f.ident, p_nombre: f.nombre, p_tarifa: f.tarifa || 500, p_grupo: f.grupo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo agregar', 'error'); return }
+    window.toast?.('Motorista agregado', 'success')
+    rtxMotCerrar(); rtxMotCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
 
 // ── WhatsApp: abre chat con el motorista y mensaje prellenado ──
 function rtxWaUrl(tel, msg) {

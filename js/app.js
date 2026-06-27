@@ -6767,7 +6767,7 @@ window.onTaxiFile = (input, tipo) => {
     document.getElementById('itx-km-info').innerHTML = file
       ? `<div class="imp-file-item"><span class="imp-file-icon">📏</span><span class="imp-file-name">${file.name}</span><span style="font-size:11px;color:var(--text3)">${(file.size/1024).toFixed(0)} KB</span></div>` : ''
   }
-  document.getElementById('btn-procesar-taxis').disabled = !itxEntregasFile
+  document.getElementById('btn-procesar-taxis').disabled = !(itxEntregasFile || itxKmFile)
 }
 
 window.resetImportTaxis = () => {
@@ -6783,16 +6783,18 @@ window.resetImportTaxis = () => {
 }
 
 window.procesarImportTaxis = async () => {
-  if (!itxEntregasFile) { toast('Selecciona el archivo de entregas', 'error'); return }
+  if (!itxEntregasFile && !itxKmFile) { toast('Seleccioná al menos un archivo (entregas o km)', 'error'); return }
   const btn = document.getElementById('btn-procesar-taxis')
   btn.disabled = true; btn.textContent = 'Procesando...'
 
   try {
-    // Parse entregas
+    // Parse entregas (solo si se subió el archivo; puede importarse solo km)
+    let entregas = []
+    if (itxEntregasFile) {
     const entregasAB = await itxEntregasFile.arrayBuffer()
     const entregasRaw = parseCSVorXLSX(entregasAB, itxEntregasFile.name)
 
-    const entregas = entregasRaw.map(r => {
+    entregas = entregasRaw.map(r => {
       const desg = extractDesglose(r['Desglose'] || r['desglose'])
       return {
         id: String(r['ID'] || '').trim().replace(/^"+|"+$/g, ''),
@@ -6835,6 +6837,7 @@ window.procesarImportTaxis = async () => {
       entregas.length = 0
       entregas.push(..._validas)
     }
+    }  // fin del bloque "if (itxEntregasFile)"
 
     // Parse km if provided
     let km = []
@@ -6842,9 +6845,9 @@ window.procesarImportTaxis = async () => {
       const kmAB = await itxKmFile.arrayBuffer()
       const kmRaw = parseCSVorXLSX(kmAB, itxKmFile.name)
       km = kmRaw.map(r => ({
-        fecha: parseFechaTaxi(r['Fecha']),
-        unidad: String(r['Unidad'] || '').trim(),
-        km_recorridos: parseFloat(r['KmRecorridos'] || r['Km'] || 0) || 0,
+        fecha: parseFechaTaxi(r['Fecha_procesado'] || r['Fecha'] || r['fecha']),
+        unidad: String(r['Vehiculo'] || r['Unidad'] || r['unidad'] || '').trim(),
+        km_recorridos: parseFloat(r['kilometraje'] || r['KmRecorridos'] || r['Km'] || 0) || 0,
       })).filter(k => k.fecha && k.unidad)
     }
 
