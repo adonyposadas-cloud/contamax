@@ -25,6 +25,7 @@ function rtxTelefono(e) {
 
 window.initRevisionTaxis = async () => {
   rtx7dEnsure()   // inyecta estilos (botones WhatsApp + modal 7 días)
+  rtxKmEnsureTab()      // crea la pestaña "KM recorridos" si no existe
   rtxAplicarPermisos()  // oculta pestañas según permisos del usuario
   if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
@@ -46,14 +47,19 @@ function rtxAplicarPermisos() {
 
   const verDash = esSuper || permisos.includes('rtx-tab-dash')
   const verMot = esSuper || permisos.includes('rtx-tab-mot')
+  const verKm = esSuper || permisos.includes('rtx-tab-km')
 
   const tbDash = document.getElementById('rtx-tab-dash')
   const tbMot = document.getElementById('rtx-tab-mot')
+  const tbKm = document.getElementById('rtx-tab-km')
   if (tbDash) tbDash.classList.toggle('hidden', !verDash)
   if (tbMot) tbMot.classList.toggle('hidden', !verMot)
+  if (tbKm) tbKm.classList.toggle('hidden', !verKm)
 
   // Si la pestaña activa quedó oculta, volver a Solicitudes
-  if ((!verDash && tbDash?.classList.contains('on')) || (!verMot && tbMot?.classList.contains('on'))) {
+  if ((!verDash && tbDash?.classList.contains('on')) ||
+      (!verMot && tbMot?.classList.contains('on')) ||
+      (!verKm && tbKm?.classList.contains('on'))) {
     rtxTab('sol')
   }
 }
@@ -141,9 +147,9 @@ function rtxRender() {
   rtxEntregas.forEach(e => { const k = e.estado || 'Pendiente'; (por[k] = por[k] || { n: 0, t: 0 }); por[k].n++; por[k].t += parseFloat(e.monto) || 0 })
   const resumen = `
     <div class="rtx-stats">
-      <div class="rtx-stat pend"><div class="rtx-stat-n">${por.Pendiente.n}</div><div class="rtx-stat-l">Pendientes · L. ${rtxFmt(por.Pendiente.t)}</div></div>
-      <div class="rtx-stat apr"><div class="rtx-stat-n">${por.Aprobada.n}</div><div class="rtx-stat-l">Aprobadas · L. ${rtxFmt(por.Aprobada.t)}</div></div>
-      <div class="rtx-stat rec"><div class="rtx-stat-n">${por.Rechazada.n}</div><div class="rtx-stat-l">Rechazadas · L. ${rtxFmt(por.Rechazada.t)}</div></div>
+      <div class="rtx-stat pend"><div class="rtx-stat-n">${por.Pendiente.n}</div><div class="rtx-stat-l">Pendientes</div></div>
+      <div class="rtx-stat apr"><div class="rtx-stat-n">${por.Aprobada.n}</div><div class="rtx-stat-l">Aprobadas</div></div>
+      <div class="rtx-stat rec"><div class="rtx-stat-n">${por.Rechazada.n}</div><div class="rtx-stat-l">Rechazadas</div></div>
     </div>`
 
   // Conteos para los chips (sobre todo lo cargado)
@@ -542,7 +548,7 @@ let rtxDepBanco = 'todas'   // filtro de banco en Depósitos del día
 let rtxDepOrden = 'hora'    // 'hora' | 'unidad'
 
 window.rtxTab = (tab) => {
-  const tabs = ['sol', 'dash', 'mot']
+  const tabs = ['sol', 'dash', 'mot', 'km']
   tabs.forEach(t => {
     const tb = document.getElementById('rtx-tab-' + t)
     const pn = document.getElementById('rtx-pane-' + t)
@@ -554,6 +560,8 @@ window.rtxTab = (tab) => {
     rtxRenderDashboard()
   } else if (tab === 'mot') {
     rtxMotCargar()
+  } else if (tab === 'km') {
+    rtxKmAbrir()
   }
 }
 
@@ -1075,41 +1083,100 @@ window.rtxCajaToggle = async (id, activo) => {
 }
 
 // ── Puntos de recolección (banco / efectivo) dentro del modal de cajas ──
+// Cuentas de DETALLE de Caja y Bancos (1101xx) para los selectores. Se cachea.
+let rtxCuentasCache = null
+async function rtxCuentasCargar() {
+  if (rtxCuentasCache) return rtxCuentasCache
+  const { data, error } = await rtxSb().from('catalogo_cuentas')
+    .select('codigo,nombre').eq('es_detalle', true).like('codigo', '1101%').order('codigo')
+  if (error) throw error
+  rtxCuentasCache = data || []
+  return rtxCuentasCache
+}
+// Formatos de banco que el parser de conciliación soporta HOY (taxis).
+const RTX_FORMATOS = ['BAC', 'Ficohsa']
+
 async function rtxPuntosCargar() {
   const body = document.getElementById('rtx-puntos-body')
   if (!body) return
   try {
-    const { data, error } = await rtxSb().rpc('tx_puntos_listar')
-    if (error) throw error
-    const arr = Array.isArray(data) ? data : []
+    const [res, cuentas] = await Promise.all([
+      rtxSb().rpc('tx_puntos_listar'),
+      rtxCuentasCargar()
+    ])
+    if (res.error) throw res.error
+    const arr = Array.isArray(res.data) ? res.data : []
     const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    const optCuentas = (sel) => ['<option value="">— sin cuenta —</option>']
+      .concat(cuentas.map(c => `<option value="${c.codigo}" ${c.codigo === sel ? 'selected' : ''}>${c.codigo} · ${esc(c.nombre)}</option>`))
+      .join('')
+    const optFormatos = (sel) => ['<option value="">— sin formato —</option>']
+      .concat(RTX_FORMATOS.map(f => `<option value="${f}" ${f === sel ? 'selected' : ''}>${f}</option>`))
+      .join('')
+
     const rows = arr.map(p => {
-      const badge = p.tipo === 'banco'
+      const esBanco = p.tipo === 'banco'
+      const badge = esBanco
         ? '<span style="background:rgba(37,99,235,.18);color:#6ea8ff;border-radius:5px;padding:1px 7px;font-size:11px">🏦 Banco</span>'
         : '<span style="background:rgba(22,163,74,.18);color:#7ee2a0;border-radius:5px;padding:1px 7px;font-size:11px">💵 Efectivo</span>'
-      return `<div class="rtx-caja-row ${p.activo ? '' : 'off'}">
-        <div><b>${p.nombre}</b> ${badge}${p.activo ? '' : ' <span style="color:#8b8f98;font-size:11px">(inactivo)</span>'}</div>
-        <div class="rtx-caja-acc">
-          <button class="rtx-b" onclick="rtxPuntoEditar('${p.id}','${esc(p.nombre)}','${p.tipo}')">✏️</button>
-          <button class="rtx-b ${p.activo ? 'rec' : 'ok'}" onclick="rtxPuntoToggle('${p.id}', ${!p.activo})">${p.activo ? '⏸' : '▶'}</button>
+      const avisos = []
+      if (esBanco && !p.formato) avisos.push('falta formato')
+      if (!p.cuenta_contable) avisos.push('falta cuenta')
+      const aviso = avisos.length ? `<span style="color:#f0a500;font-size:11px"> ⚠ ${avisos.join(' · ')}</span>` : ''
+      const formatoRow = esBanco ? `
+        <div class="rtx-punto-fld">
+          <label class="rtx-punto-lbl">Formato (lector)</label>
+          <select class="rtx-inp rtx-punto-sel" onchange="rtxPuntoSetFormato('${p.id}', this.value)">${optFormatos(p.formato)}</select>
+        </div>` : ''
+      return `<div class="rtx-caja-row rtx-punto ${p.activo ? '' : 'off'}">
+        <div class="rtx-punto-head">
+          <div><b>${p.nombre}</b> ${badge}${p.activo ? '' : ' <span style="color:#8b8f98;font-size:11px">(inactivo)</span>'}${aviso}</div>
+          <div class="rtx-caja-acc">
+            <button class="rtx-b" onclick="rtxPuntoEditar('${p.id}','${esc(p.nombre)}','${p.tipo}')">✏️</button>
+            <button class="rtx-b ${p.activo ? 'rec' : 'ok'}" onclick="rtxPuntoToggle('${p.id}', ${!p.activo})">${p.activo ? '⏸' : '▶'}</button>
+          </div>
+        </div>
+        <div class="rtx-punto-grid">
+          ${formatoRow}
+          <div class="rtx-punto-fld">
+            <label class="rtx-punto-lbl">Cuenta contable</label>
+            <select class="rtx-inp rtx-punto-sel" onchange="rtxPuntoSetCuenta('${p.id}', this.value)">${optCuentas(p.cuenta_contable)}</select>
+          </div>
         </div>
       </div>`
     }).join('')
+
     body.innerHTML = `
       <div style="margin-bottom:12px">${rows || '<div style="color:#8b8f98">Sin puntos.</div>'}</div>
       <div style="border-top:1px solid #2a2e37;padding-top:12px">
         <div style="font-weight:600;font-size:13px;margin-bottom:8px">Agregar punto nuevo</div>
         <label class="rtx-lbl">Nombre</label>
-        <input id="rtx-punto-nombre" class="rtx-inp" placeholder="Ej: Atlántida / Caja Centro" autocomplete="off">
+        <input id="rtx-punto-nombre" class="rtx-inp" placeholder="Ej: BAC 72XXXXX / Caja Centro" autocomplete="off">
         <label class="rtx-lbl">Tipo</label>
         <select id="rtx-punto-tipo" class="rtx-inp">
           <option value="banco">🏦 Banco (aparece a los motoristas)</option>
           <option value="efectivo">💵 Efectivo (solo cajas-PIN)</option>
         </select>
         <button class="rtx-b ok" style="margin-top:10px;width:100%" onclick="rtxPuntoAgregar()">+ Agregar punto</button>
+        <div style="color:#8b8f98;font-size:11px;margin-top:8px">Tras agregar un banco, asignale su <b>formato</b> y <b>cuenta</b> en la fila.</div>
       </div>`
+    rtxPuntosEnsureStyles()
   } catch (e) { body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>` }
 }
+
+function rtxPuntosEnsureStyles() {
+  if (document.getElementById('rtx-puntos-styles')) return
+  const s = document.createElement('style'); s.id = 'rtx-puntos-styles'
+  s.textContent = `
+    .rtx-caja-row.rtx-punto{flex-direction:column;align-items:stretch}
+    .rtx-punto-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .rtx-punto-grid{display:flex;gap:10px;margin-top:9px;flex-wrap:wrap}
+    .rtx-punto-fld{flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px}
+    .rtx-punto-lbl{font-size:11px;color:#9aa0aa;text-transform:uppercase;letter-spacing:.04em}
+    .rtx-punto-sel{padding:7px 9px;font-size:13px}`
+  document.head.appendChild(s)
+}
+
 window.rtxPuntoAgregar = async () => {
   const nombre = (document.getElementById('rtx-punto-nombre')?.value || '').trim()
   const tipo = document.getElementById('rtx-punto-tipo')?.value || 'banco'
@@ -1118,7 +1185,8 @@ window.rtxPuntoAgregar = async () => {
     const { data, error } = await rtxSb().rpc('tx_punto_agregar', { p_nombre: nombre, p_tipo: tipo })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
-    window.toast?.('Punto agregado', 'success'); rtxPuntosCargar()
+    window.toast?.(tipo === 'banco' ? 'Banco agregado · asigná formato y cuenta abajo' : 'Punto agregado', 'success')
+    rtxPuntosCargar()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
 window.rtxPuntoEditar = async (id, nombreActual, tipoActual) => {
@@ -1139,6 +1207,22 @@ window.rtxPuntoToggle = async (id, activo) => {
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
     window.toast?.(activo ? 'Punto activado' : 'Punto desactivado', 'success'); rtxPuntosCargar()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxPuntoSetCuenta = async (id, cuenta) => {
+  try {
+    const { data, error } = await rtxSb().rpc('tx_punto_cuenta', { p_id: id, p_cuenta: cuenta || '' })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); rtxPuntosCargar(); return }
+    window.toast?.(cuenta ? 'Cuenta asignada' : 'Cuenta quitada', 'success'); rtxPuntosCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error'); rtxPuntosCargar() }
+}
+window.rtxPuntoSetFormato = async (id, formato) => {
+  try {
+    const { data, error } = await rtxSb().rpc('tx_punto_formato', { p_id: id, p_formato: formato || '' })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); rtxPuntosCargar(); return }
+    window.toast?.(formato ? 'Formato asignado' : 'Formato quitado', 'success'); rtxPuntosCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error'); rtxPuntosCargar() }
 }
 window.rtxSalidaGuardar = async (identidad) => {
   const m = rtxMotData.find(x => x.identidad === identidad)
@@ -1357,4 +1441,346 @@ window.rtxWa = (tel, msgEnc) => {
   let msg = msgEnc
   try { msg = decodeURIComponent(msgEnc) } catch (e) {}
   window.open(rtxWaUrl(tel, msg), '_blank')
+}
+
+// ════════════════════════════════════════════════════════════
+// ── KM RECORRIDOS (GPS) · tabla km_diarios_taxis ─────────────
+// Pestaña dentro de Revisión Taxis. Importa el Excel del GPS
+// (Fecha_procesado · Vehiculo · kilometraje · Usuario) hacia km_diarios_taxis,
+// muestra el HISTORIAL de esa tabla, permite ordenar (km/unidad/usuario),
+// filtrar por unidad, por usuario, por km mayor/menor que, y validar cada
+// unidad con una nota (por qué corrió / por qué no marcó).
+// ════════════════════════════════════════════════════════════
+let rtxKmFecha = ''
+let rtxKmData = []              // filas del día (tx_km_listar)
+let rtxKmSortCampo = 'unidad'   // 'unidad' | 'km' | 'usuario'
+let rtxKmSortDir = 'asc'        // 'asc' | 'desc'
+let rtxKmFUnidad = ''           // filtro de texto por unidad
+let rtxKmFUsuario = ''          // filtro por usuario de GPS (chip)
+let rtxKmOp = ''                // '' | 'gt' | 'lt'
+let rtxKmUmbral = ''            // número para el filtro mayor/menor que
+let rtxKmEditUnidad = null      // unidad cuya validación se está editando
+const RTX_KM_NOMARCO = 5        // km por debajo de esto = "posible no marcó"
+
+const rtxKmLocalDate = (d) => (d || new Date()).toLocaleDateString('en-CA')
+
+// Crea la pestaña "KM recorridos" y su panel si no existen (sin tocar index.html)
+function rtxKmEnsureTab() {
+  if (document.getElementById('rtx-tab-km')) return
+  const barra = document.querySelector('.rtx-tabs')
+  const paneRef = document.getElementById('rtx-pane-sol')
+    || document.getElementById('rtx-pane-dash')
+    || document.getElementById('rtx-pane-mot')
+  if (!barra || !paneRef) return  // estructura no encontrada → no romper nada
+  const btn = document.createElement('button')
+  btn.id = 'rtx-tab-km'; btn.className = 'rtx-tab'
+  btn.textContent = '🛣️ KM recorridos'
+  btn.onclick = () => rtxTab('km')
+  barra.appendChild(btn)
+  const pane = document.createElement('div')
+  pane.id = 'rtx-pane-km'; pane.className = 'hidden'
+  pane.innerHTML = '<div id="rtx-km-root"></div>'
+  paneRef.parentNode.appendChild(pane)
+}
+
+window.rtxKmAbrir = async () => {
+  rtxKmEnsureStyles()
+  // arrancar en la fecha más reciente con datos (evita ver un día vacío)
+  if (!rtxKmFecha) {
+    try {
+      const { data } = await rtxSb().rpc('tx_km_fechas')
+      const fechas = Array.isArray(data) ? data : []
+      rtxKmFecha = fechas[0] || rtxKmLocalDate()
+    } catch (e) { rtxKmFecha = rtxKmLocalDate() }
+  }
+  await rtxKmCargar()
+}
+
+async function rtxKmCargar() {
+  const root = document.getElementById('rtx-km-root')
+  if (!root) return
+  rtxKmRenderShell(true)
+  try {
+    const { data, error } = await rtxSb().rpc('tx_km_listar', { p_fecha: rtxKmFecha })
+    if (error) throw error
+    rtxKmData = Array.isArray(data) ? data : []
+    rtxKmEditUnidad = null
+    rtxKmRenderShell(false)
+  } catch (e) {
+    root.innerHTML = `<div style="color:#f0a500;padding:20px">Error: ${e.message || e}</div>`
+  }
+}
+
+function rtxKmRenderShell(cargando) {
+  const root = document.getElementById('rtx-km-root')
+  if (!root) return
+  const escA = s => String(s == null ? '' : s).replace(/"/g, '&quot;')
+
+  root.innerHTML = `
+    <div class="rtx-km-bar">
+      <div class="rtx-km-fecha">
+        <button class="rtx-b" onclick="rtxKmFechaNav(-1)">◀</button>
+        <input type="date" id="rtx-km-fecha" class="rtx-inp" value="${rtxKmFecha}" onchange="rtxKmSetFecha(this.value)">
+        <button class="rtx-b" onclick="rtxKmFechaNav(1)">▶</button>
+        <button class="rtx-b" onclick="rtxKmHoy()">Hoy</button>
+      </div>
+      <label class="rtx-b ok rtx-km-import">
+        ⬆️ Importar Excel GPS
+        <input type="file" accept=".xls,.xlsx,.csv" style="display:none" onchange="rtxKmImportar(this.files[0]); this.value=''">
+      </label>
+    </div>
+    <div class="rtx-km-filtros">
+      <input id="rtx-km-funidad" class="rtx-inp rtx-km-fmini" placeholder="Filtrar por unidad…" value="${escA(rtxKmFUnidad)}" oninput="rtxKmSetFUnidad(this.value)" autocomplete="off">
+      <select id="rtx-km-op" class="rtx-inp rtx-km-fmini" onchange="rtxKmSetOp(this.value)">
+        <option value="" ${rtxKmOp === '' ? 'selected' : ''}>KM: sin filtro</option>
+        <option value="gt" ${rtxKmOp === 'gt' ? 'selected' : ''}>KM mayor que</option>
+        <option value="lt" ${rtxKmOp === 'lt' ? 'selected' : ''}>KM menor que</option>
+      </select>
+      <input id="rtx-km-umbral" type="number" step="0.001" class="rtx-inp rtx-km-fmini" placeholder="km" value="${escA(rtxKmUmbral)}" oninput="rtxKmSetUmbral(this.value)" ${rtxKmOp ? '' : 'disabled'}>
+      <button class="rtx-b ghost" onclick="rtxKmLimpiar()">Limpiar filtros</button>
+    </div>
+    <div id="rtx-km-resumen"></div>
+    <div id="rtx-km-body">${cargando ? '<div style="color:#9aa0aa;padding:20px">Cargando…</div>' : ''}</div>`
+  if (!cargando) rtxKmRenderTabla()
+}
+
+function rtxKmFiltradas() {
+  let rows = rtxKmData.slice()
+  const fu = rtxKmFUnidad.trim()
+  if (fu) rows = rows.filter(r => String(r.unidad).includes(fu))
+  if (rtxKmFUsuario) rows = rows.filter(r => (r.usuario_gps || '(sin usuario)') === rtxKmFUsuario)
+  const um = parseFloat(rtxKmUmbral)
+  if (rtxKmOp && !isNaN(um)) {
+    rows = rows.filter(r => rtxKmOp === 'gt' ? (parseFloat(r.km) > um) : (parseFloat(r.km) < um))
+  }
+  const dir = rtxKmSortDir === 'asc' ? 1 : -1
+  rows.sort((a, b) => {
+    let va, vb
+    if (rtxKmSortCampo === 'km') { va = parseFloat(a.km) || 0; vb = parseFloat(b.km) || 0 }
+    else if (rtxKmSortCampo === 'usuario') { va = (a.usuario_gps || '').toLowerCase(); vb = (b.usuario_gps || '').toLowerCase() }
+    else { va = Number(a.unidad); vb = Number(b.unidad); if (isNaN(va) || isNaN(vb)) { va = String(a.unidad); vb = String(b.unidad) } }
+    if (va < vb) return -1 * dir
+    if (va > vb) return 1 * dir
+    return 0
+  })
+  return rows
+}
+
+function rtxKmRenderTabla() {
+  const body = document.getElementById('rtx-km-body')
+  const res = document.getElementById('rtx-km-resumen')
+  if (!body) return
+  const escTxt = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const escJ = s => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+
+  // ── Resumen del día ──
+  const totUnidades = rtxKmData.length
+  const totKm = rtxKmData.reduce((s, r) => s + (parseFloat(r.km) || 0), 0)
+  const noMarcaron = rtxKmData.filter(r => (parseFloat(r.km) || 0) < RTX_KM_NOMARCO).length
+  const validados = rtxKmData.filter(r => r.validado).length
+  const porUsuario = {}
+  rtxKmData.forEach(r => {
+    const u = r.usuario_gps || '(sin usuario)'
+    if (!porUsuario[u]) porUsuario[u] = { unidades: 0, km: 0 }
+    porUsuario[u].unidades++; porUsuario[u].km += parseFloat(r.km) || 0
+  })
+  const chips = Object.entries(porUsuario).sort((a, b) => b[1].km - a[1].km).map(([u, v]) => {
+    const on = rtxKmFUsuario === u ? ' on' : ''
+    return `<span class="rtx-km-chip${on}" onclick="rtxKmFiltrarUsuario('${escJ(u)}')">${escTxt(u)} · ${v.unidades}u · ${rtxFmt(v.km)} km</span>`
+  }).join('')
+  if (res) {
+    res.innerHTML = totUnidades ? `
+      <div class="rtx-km-tot">
+        <span><b>${totUnidades}</b> unidades</span>
+        <span><b>${rtxFmt(totKm)}</b> km totales</span>
+        <span class="warn"><b>${noMarcaron}</b> posible no marcó (&lt;${RTX_KM_NOMARCO} km)</span>
+        <span class="ok"><b>${validados}</b> validados</span>
+      </div>
+      <div class="rtx-km-chips">${chips}</div>` : ''
+  }
+
+  // ── Tabla ──
+  if (!rtxKmData.length) {
+    body.innerHTML = `<div class="rtx-km-empty">No hay KM cargados para el ${rtxKmFecha}. Importá el Excel del GPS con el botón de arriba, o elegí una fecha del historial.</div>`
+    return
+  }
+  const rows = rtxKmFiltradas()
+  const arrow = (c) => rtxKmSortCampo === c ? (rtxKmSortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  const cuerpo = rows.map(r => {
+    const km = parseFloat(r.km) || 0
+    const noMarco = km < RTX_KM_NOMARCO
+    if (String(rtxKmEditUnidad) === String(r.unidad)) {
+      return `<tr class="rtx-km-editrow"><td colspan="5">
+        <div class="rtx-km-edit">
+          <div class="rtx-km-edit-h"><b>Unidad ${escTxt(r.unidad)}</b> · ${rtxFmt(km)} km · ${escTxt(r.usuario_gps || '(sin usuario)')}</div>
+          <textarea id="rtx-km-nota" class="rtx-inp" rows="2" placeholder="Por qué corrió / por qué no marcó (ej: GPS sin señal, taxi en taller, día libre…)">${escTxt(r.nota || '')}</textarea>
+          <label class="rtx-km-chk"><input type="checkbox" id="rtx-km-val" ${r.validado ? 'checked' : ''}> Marcar como revisado / validado</label>
+          <div class="rtx-km-edit-btns">
+            <button class="rtx-b ok" onclick="rtxKmValidarGuardar('${escJ(r.unidad)}')">Guardar</button>
+            <button class="rtx-b ghost" onclick="rtxKmValidarCerrar()">Cancelar</button>
+          </div>
+        </div></td></tr>`
+    }
+    const estado = r.validado
+      ? '<span class="rtx-km-bdg ok">✓ Validado</span>'
+      : (noMarco ? '<span class="rtx-km-bdg warn">⚠ posible no marcó</span>' : '<span class="rtx-km-bdg">pendiente</span>')
+    const notaTxt = r.nota ? `<span class="rtx-km-nota">${escTxt(r.nota)}</span> ` : ''
+    return `<tr class="${noMarco ? 'rtx-km-low' : ''}">
+      <td><b>${escTxt(r.unidad)}</b></td>
+      <td class="rtx-km-kmcell">${rtxFmt(km)}</td>
+      <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:#8b8f98">—</span>'}</td>
+      <td>${estado}</td>
+      <td>${notaTxt}<button class="rtx-b" onclick="rtxKmValidarAbrir('${escJ(r.unidad)}')">✏️ ${(r.validado || r.nota) ? 'Editar' : 'Validar'}</button></td>
+    </tr>`
+  }).join('')
+  body.innerHTML = `
+    <div class="rtx-km-count">${rows.length} de ${rtxKmData.length} unidades${(rtxKmFUnidad || rtxKmFUsuario || rtxKmOp) ? ' (filtrado)' : ''}</div>
+    <table class="rtx-km-tbl">
+      <thead><tr>
+        <th class="sortable" onclick="rtxKmOrdenar('unidad')">Unidad${arrow('unidad')}</th>
+        <th class="sortable" onclick="rtxKmOrdenar('km')">KM${arrow('km')}</th>
+        <th class="sortable" onclick="rtxKmOrdenar('usuario')">Usuario GPS${arrow('usuario')}</th>
+        <th>Estado</th>
+        <th>Nota / validación</th>
+      </tr></thead>
+      <tbody>${cuerpo || '<tr><td colspan="5" class="rtx-km-empty">Ninguna unidad cumple el filtro.</td></tr>'}</tbody>
+    </table>`
+}
+
+// ── Navegación de fecha ──
+window.rtxKmSetFecha = (v) => { if (v) { rtxKmFecha = v; rtxKmCargar() } }
+window.rtxKmFechaNav = (dir) => {
+  const d = new Date(rtxKmFecha + 'T12:00:00'); d.setDate(d.getDate() + dir)
+  rtxKmFecha = rtxKmLocalDate(d); rtxKmCargar()
+}
+window.rtxKmHoy = () => { rtxKmFecha = rtxKmLocalDate(); rtxKmCargar() }
+
+// ── Filtros / orden ──
+window.rtxKmSetFUnidad = (v) => { rtxKmFUnidad = v || ''; rtxKmRenderTabla() }
+window.rtxKmSetOp = (v) => {
+  rtxKmOp = v || ''
+  const um = document.getElementById('rtx-km-umbral'); if (um) um.disabled = !rtxKmOp
+  rtxKmRenderTabla()
+}
+window.rtxKmSetUmbral = (v) => { rtxKmUmbral = v || ''; rtxKmRenderTabla() }
+window.rtxKmFiltrarUsuario = (u) => { rtxKmFUsuario = (rtxKmFUsuario === u) ? '' : u; rtxKmRenderTabla() }
+window.rtxKmOrdenar = (campo) => {
+  if (rtxKmSortCampo === campo) rtxKmSortDir = (rtxKmSortDir === 'asc' ? 'desc' : 'asc')
+  else { rtxKmSortCampo = campo; rtxKmSortDir = (campo === 'km' ? 'desc' : 'asc') }
+  rtxKmRenderTabla()
+}
+window.rtxKmLimpiar = () => {
+  rtxKmFUnidad = ''; rtxKmFUsuario = ''; rtxKmOp = ''; rtxKmUmbral = ''
+  rtxKmRenderShell(false)
+}
+
+// ── Validación inline (clave: fecha actual + unidad) ──
+window.rtxKmValidarAbrir = (unidad) => { rtxKmEditUnidad = unidad; rtxKmRenderTabla() }
+window.rtxKmValidarCerrar = () => { rtxKmEditUnidad = null; rtxKmRenderTabla() }
+window.rtxKmValidarGuardar = async (unidad) => {
+  const nota = document.getElementById('rtx-km-nota')?.value || ''
+  const validado = !!document.getElementById('rtx-km-val')?.checked
+  try {
+    const { data, error } = await rtxSb().rpc('tx_km_validar', {
+      p_fecha: rtxKmFecha, p_unidad: String(unidad), p_nota: nota, p_validado: validado
+    })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    const row = rtxKmData.find(r => String(r.unidad) === String(unidad))
+    if (row) { row.nota = nota.trim() || null; row.validado = validado }
+    rtxKmEditUnidad = null
+    window.toast?.('Validación guardada', 'success')
+    rtxKmRenderTabla()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+// ── Importar Excel del GPS → km_diarios_taxis ──
+function rtxKmNormFecha(v) {
+  if (v == null || v === '') return null
+  if (v instanceof Date) {  // celda de fecha: getters UTC (Excel guarda medianoche naïve)
+    const y = v.getUTCFullYear(), m = String(v.getUTCMonth() + 1).padStart(2, '0'), d = String(v.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+  const s = String(v).trim()
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/)
+  if (m) {  // ambiguo dd/mm vs mm/dd: asumir dd/mm (Honduras), salvo que el primero > 12
+    let a = +m[1], b = +m[2], y = m[3], dd, mm
+    if (a > 12) { dd = a; mm = b } else if (b > 12) { mm = a; dd = b } else { dd = a; mm = b }
+    return `${y}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
+  }
+  return null
+}
+window.rtxKmImportar = async (file) => {
+  if (!file) return
+  if (typeof XLSX === 'undefined') { window.toast?.('No se pudo leer el Excel (XLSX no disponible)', 'error'); return }
+  try {
+    const ab = await file.arrayBuffer()
+    const wb = XLSX.read(ab, { type: 'array', cellDates: true })
+    const sh = wb.Sheets[wb.SheetNames[0]]
+    const rows = XLSX.utils.sheet_to_json(sh, { raw: false, defval: '' })
+    if (!rows.length) { window.toast?.('El archivo no tiene filas', 'error'); return }
+    const pick = (obj, names) => {
+      for (const k of Object.keys(obj)) {
+        const kn = k.toString().trim().toLowerCase()
+        if (names.includes(kn)) return obj[k]
+      }
+      return ''
+    }
+    const filas = []
+    for (const r of rows) {
+      const fecha = rtxKmNormFecha(pick(r, ['fecha_procesado', 'fecha']))
+      const unidad = String(pick(r, ['vehiculo', 'vehículo', 'unidad'])).trim()
+      const kmRaw = String(pick(r, ['kilometraje', 'km'])).replace(/,/g, '.').replace(/[^\d.\-]/g, '')
+      const km = parseFloat(kmRaw) || 0
+      const usuario = String(pick(r, ['usuario', 'usuario_gps'])).trim()
+      if (!fecha || !unidad) continue
+      filas.push({ fecha, unidad, km, usuario })
+    }
+    if (!filas.length) { window.toast?.('No se reconocieron filas válidas (revisá las columnas Fecha_procesado, Vehiculo, kilometraje, Usuario)', 'error'); return }
+    const { data, error } = await rtxSb().rpc('tx_km_importar', { p_filas: filas })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo importar', 'error'); return }
+    window.toast?.(`Importadas ${data.insertadas} · actualizadas ${data.actualizadas}`, 'success')
+    const fechaArchivo = filas[0].fecha
+    if (fechaArchivo) rtxKmFecha = fechaArchivo
+    rtxKmCargar()
+  } catch (e) { window.toast?.('Error al importar: ' + (e.message || e), 'error') }
+}
+
+function rtxKmEnsureStyles() {
+  if (document.getElementById('rtx-km-styles')) return
+  const s = document.createElement('style'); s.id = 'rtx-km-styles'
+  s.textContent = `
+    .rtx-km-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .rtx-km-fecha{display:flex;gap:6px;align-items:center}
+    .rtx-km-fecha .rtx-inp{width:auto}
+    .rtx-km-import{cursor:pointer;display:inline-flex;align-items:center}
+    .rtx-km-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+    .rtx-km-fmini{width:auto;min-width:120px}
+    .rtx-km-tot{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:#cfd3da;margin-bottom:8px}
+    .rtx-km-tot .warn{color:#f0a500}.rtx-km-tot .ok{color:#7ee2a0}
+    .rtx-km-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+    .rtx-km-chip{background:#1a1d24;border:1px solid #2a2e37;border-radius:20px;padding:3px 11px;font-size:12px;color:#cfd3da;cursor:pointer}
+    .rtx-km-chip:hover{border-color:#4a90e2}
+    .rtx-km-chip.on{background:#2563eb;border-color:#2563eb;color:#fff}
+    .rtx-km-count{font-size:12px;color:#8b8f98;margin-bottom:6px}
+    .rtx-km-tbl{width:100%;border-collapse:collapse;font-size:14px}
+    .rtx-km-tbl th,.rtx-km-tbl td{padding:8px 10px;border-bottom:1px solid #23262e;text-align:left}
+    .rtx-km-tbl th{color:#9aa0aa;font-size:12px;text-transform:uppercase;letter-spacing:.03em;font-weight:600}
+    .rtx-km-tbl th.sortable{cursor:pointer;user-select:none}
+    .rtx-km-tbl th.sortable:hover{color:#cfd3da}
+    .rtx-km-tbl tr.rtx-km-low td{background:rgba(240,165,0,.06)}
+    .rtx-km-kmcell{font-variant-numeric:tabular-nums}
+    .rtx-km-bdg{font-size:11px;padding:2px 8px;border-radius:6px;background:#23262e;color:#9aa0aa}
+    .rtx-km-bdg.ok{background:rgba(22,163,74,.18);color:#7ee2a0}
+    .rtx-km-bdg.warn{background:rgba(240,165,0,.16);color:#f0a500}
+    .rtx-km-nota{font-size:12px;color:#9aa0aa;font-style:italic}
+    .rtx-km-empty{color:#8b8f98;padding:24px;text-align:center}
+    .rtx-km-edit{background:#15171c;border:1px solid #2a2e37;border-radius:9px;padding:12px}
+    .rtx-km-edit-h{margin-bottom:8px;font-size:13px}
+    .rtx-km-chk{display:flex;gap:7px;align-items:center;font-size:13px;margin-top:8px;color:#cfd3da}
+    .rtx-km-edit-btns{display:flex;gap:8px;margin-top:10px}`
+  document.head.appendChild(s)
 }
