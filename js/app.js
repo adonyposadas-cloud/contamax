@@ -121,9 +121,9 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
     contador_fiscal: ['nav-declaracion-isv']
   }
@@ -141,7 +141,7 @@ function setupUI() {
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas']
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
@@ -246,6 +246,7 @@ window.showView = (id, label) => {
   if (id === 'cierre-recibos') initCierreMensual()
   if (id === 'vencimientos' && window.initVencimientos) window.initVencimientos()
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
+  if (id === 'concilia-taxis' && window.initConciliaTaxis) window.initConciliaTaxis()
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
   if (id === 'gastos-huerfanos' && window.initGastosHuerfanos) window.initGastosHuerfanos()
   if (id === 'proveedores' && window.initProveedores) window.initProveedores()
@@ -480,6 +481,12 @@ const MODULOS_CATALOGO = [
   ]},
   { grupo: 'Fiscal', items: [
     ['nav-declaracion-isv', 'Declaración ISV'], ['nav-rangos-ventas', 'Rango de ventas']
+  ]},
+  { grupo: 'Taxis', items: [
+    ['nav-revision-taxis', 'Revisión Taxis (Solicitudes)'],
+    ['rtx-tab-dash', '— Taxis: Dashboard'],
+    ['rtx-tab-mot', '— Taxis: Motoristas'],
+    ['nav-concilia-taxis', 'Conciliación Taxis']
   ]}
 ]
 
@@ -7339,6 +7346,8 @@ window.generarPartidasTaxis = async () => {
     }
 
     creadas++
+    // Si hay una conciliación de taxis guardada para este día, cuadrarla ahora que existe la partida
+    try { await sb.rpc('tx_recuadrar_dia', { p_fecha: dia.fecha }) } catch (e) { /* no crítico */ }
     const detalleBancos = Object.entries(porCuenta).map(([c, d]) => `${d.cuenta.nombre}: L.${fmt(d.total)}`).join(' · ')
     log.push(`<span style="color:var(--green)">✓</span> ${dia.fecha} · L. ${fmt(total)} · ${dia.entregas.length} entregas · ${detalleBancos}`)
   }

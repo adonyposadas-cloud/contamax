@@ -187,6 +187,7 @@
         <select id="medio"><option value="">Seleccionar…</option></select>
       </div>
       <div class="field"><label>Fecha del depósito</label><input id="fecha" type="date"></div>
+      <div class="field"><label>Tu número de celular (WhatsApp)</label><input id="telefono" type="tel" inputmode="tel" placeholder="Ej: 9988-7766" autocomplete="off"></div>
       <div class="field">
         <label id="foto-label">Foto del comprobante</label>
         <div class="foto-drop" onclick="document.getElementById('foto').click()">
@@ -241,9 +242,19 @@ let grupoMsg = ''      // mensaje a copiar para el grupo
 let unidadActual = ''  // unidad tecleada
 let nuevoMot = null    // candidato al reasignar conductor
 
-const MEDIOS = {
+let MEDIOS = {
   moto: ['BAC','Ficohsa'],
   caja: ['BAC','Ficohsa','Caja Tecnimax','Caja Yonker','Caja Taxis']
+}
+// Cargar los puntos de recolección desde la base (banco → motoristas; efectivo → solo cajas)
+async function cargarMedios() {
+  try {
+    const { data, error } = await sb.rpc('tx_puntos_form')
+    if (error || !Array.isArray(data) || !data.length) return  // fallback a los fijos
+    const bancos = data.filter(p => p.tipo === 'banco').map(p => p.nombre)
+    const efectivo = data.filter(p => p.tipo === 'efectivo').map(p => p.nombre)
+    MEDIOS = { moto: bancos, caja: [...bancos, ...efectivo] }
+  } catch { /* mantiene los fijos como respaldo */ }
 }
 
 window.irModo = (m) => {
@@ -307,6 +318,7 @@ function pintarMotorista(data) {
   $('mi-unidad').textContent = 'Unidad ' + data.unidad
   $('mi-saldo').textContent = fmt(data.saldo_actual)
   $('mi-esperado').textContent = fmt(data.esperado_base)
+  const tel = $('telefono'); if (tel) tel.value = data.telefono || ''
 }
 
 function ocultarSecciones() {
@@ -414,19 +426,21 @@ window.enviar = async () => {
     let imagenUrl = null
     if (file) imagenUrl = await subirFoto(file)
 
+    const telefono = ($('telefono')?.value || '').replace(/\D/g, '') || null
+
     let res
     if (modo === 'moto') {
       const { data, error } = await sb.rpc('tx_registrar_deposito', {
         p_unidad: motorista.unidad, p_identidad: motorista.identidad,
         p_monto: monto, p_banco: medio, p_fecha: fecha, p_imagen_url: imagenUrl,
-        p_telefono: null
+        p_telefono: telefono
       })
       if (error) throw error; res = data
     } else {
       const { data, error } = await sb.rpc('tx_registrar_caja', {
         p_pin: cajaPin, p_unidad: motorista.unidad, p_identidad: motorista.identidad,
         p_monto: monto, p_medio: medio, p_fecha: fecha, p_imagen_url: imagenUrl,
-        p_telefono: null
+        p_telefono: telefono
       })
       if (error) throw error; res = data
     }
@@ -566,6 +580,9 @@ setInterval(() => {
   try { ids = JSON.parse(localStorage.getItem('tx_solicitudes') || '[]') } catch (e) {}
   if (ids.length) txRenderHistorial()
 }, 15000)
+
+// Cargar los puntos de recolección configurados al abrir el formulario
+cargarMedios()
 </script>
 </body>
 </html>

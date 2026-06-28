@@ -25,10 +25,37 @@ function rtxTelefono(e) {
 
 window.initRevisionTaxis = async () => {
   rtx7dEnsure()   // inyecta estilos (botones WhatsApp + modal 7 días)
+  rtxAplicarPermisos()  // oculta pestañas según permisos del usuario
   if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
   if (rtxEntregas.length) rtxRender(); else rtxConsultar()
   rtxStartAuto()
+}
+
+// Controla qué pestañas ve el usuario. Super_admin ve todas.
+// Para otros: Dashboard requiere 'rtx-tab-dash', Motoristas requiere 'rtx-tab-mot'
+// en sus permisos_modulos. Si no los tiene, solo ve Solicitudes (para programar).
+function rtxAplicarPermisos() {
+  let permisos = []
+  let esSuper = false
+  try {
+    const p = window._currentProfile?.()
+    esSuper = p?.rol === 'super_admin'
+    permisos = Array.isArray(p?.permisos_modulos) ? p.permisos_modulos : []
+  } catch (e) { /* sin perfil */ }
+
+  const verDash = esSuper || permisos.includes('rtx-tab-dash')
+  const verMot = esSuper || permisos.includes('rtx-tab-mot')
+
+  const tbDash = document.getElementById('rtx-tab-dash')
+  const tbMot = document.getElementById('rtx-tab-mot')
+  if (tbDash) tbDash.classList.toggle('hidden', !verDash)
+  if (tbMot) tbMot.classList.toggle('hidden', !verMot)
+
+  // Si la pestaña activa quedó oculta, volver a Solicitudes
+  if ((!verDash && tbDash?.classList.contains('on')) || (!verMot && tbMot?.classList.contains('on'))) {
+    rtxTab('sol')
+  }
 }
 
 window.rtxConsultar = async (silent = false) => {
@@ -149,6 +176,11 @@ function rtxRender() {
     return true
   })
 
+  // Pendientes siempre primero (para que se vean los que faltan procesar),
+  // luego el resto. Dentro de cada grupo se mantiene el orden por fecha (created_at desc).
+  const prioridad = e => ((e.estado || 'Pendiente') === 'Pendiente' ? 0 : 1)
+  filtradas.sort((a, b) => prioridad(a) - prioridad(b))
+
   const badge = est => {
     const c = est === 'Aprobada' ? 'apr' : est === 'Rechazada' ? 'rec' : 'pend'
     return `<span class="rtx-badge ${c}">${est || 'Pendiente'}</span>`
@@ -190,7 +222,7 @@ function rtxRender() {
             <div><span>Esperado</span><b>L. ${rtxFmt(e.monto_esperado)}</b></div>
             <div><span>Saldo</span><b>L. ${rtxFmt(e.saldo_deudor)}</b></div>
             <div><span>Fecha dep.</span><b>${e.fecha_deposito || '—'}</b></div>
-            <div><span>Origen</span><b>${e.origen || '—'}</b></div>
+            <div><span>Origen</span><b>${e.origen === 'caja' ? (e.caja_nombre || 'Caja') : 'Motorista'}</b></div>
           </div>
           <div class="rtx-acts">
             <button class="rtx-b ghost" onclick="rtxVer7dias('${e.identidad}','${e.unidad}','${e.fecha_deposito}')">📅 7 días</button>
@@ -324,6 +356,12 @@ function rtx7dEnsure() {
     .rtx-7d-ov{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
     .rtx-7d-ov.show{display:flex}
     .rtx-7d-modal{background:#15171c;border:1px solid #2a2e37;border-radius:14px;max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+    .rtx-lbl{display:block;font-size:12px;color:#9aa0aa;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+    .rtx-inp{width:100%;padding:9px 11px;background:#1a1d24;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:14px;box-sizing:border-box}
+    .rtx-inp:focus{outline:none;border-color:#4a90e2}
+    .rtx-caja-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 11px;background:#1a1d24;border:1px solid #2a2e37;border-radius:9px;margin-bottom:7px}
+    .rtx-caja-row.off{opacity:.55}
+    .rtx-caja-acc{display:flex;gap:6px}
     .rtx-7d-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #2a2e37;position:sticky;top:0;background:#15171c}
     .rtx-7d-head h3{margin:0;font-size:14px;color:#f0a500;font-weight:700}
     .rtx-7d-head button{background:none;border:none;color:#9aa0aa;font-size:18px;cursor:pointer;line-height:1}
@@ -801,7 +839,9 @@ function rtxMotPintar() {
   const search = `<input id="rtx-mot-search" class="rtx-search" type="text" placeholder="Buscar por unidad, nombre o identidad…" value="${rtxMotBusqueda.replace(/"/g, '&quot;')}" oninput="rtxMotBuscar(this.value)" autocomplete="off">`
   const ordenBtn = `<button class="dash-orden ${rtxMotOrden === 'saldo' ? 'on' : ''}" onclick="rtxMotToggleOrden()">${rtxMotOrden === 'saldo' ? '↓ Por saldo adeudado' : '↕ Ordenar por saldo'}</button>`
   const addBtn = esSuper ? `<button class="rtx-b ok" onclick="rtxMotAgregar()">+ Agregar motorista</button>` : ''
-  const barra = `<div class="mot-barra">${ordenBtn}${addBtn}</div>`
+  const salidasBtn = `<button class="rtx-b" onclick="rtxSalidasGlobal()">🚪 Historial de salidas</button>`
+  const cajasBtn = esSuper ? `<button class="rtx-b" onclick="rtxCajasAdmin()">🔐 Cajas y PINs</button>` : ''
+  const barra = `<div class="mot-barra">${ordenBtn}${salidasBtn}${cajasBtn}${addBtn}</div>`
 
   const q = rtxMotBusqueda.trim().toLowerCase()
   const lista = rtxMotData.filter(m => {
@@ -817,6 +857,7 @@ function rtxMotPintar() {
     const acciones = esSuper ? `
       <div class="mot-acts">
         <button class="rtx-b edit" onclick="rtxMotEditar('${m.identidad}')">✏️ Editar</button>
+        <button class="rtx-b" onclick="rtxHistorial('${m.identidad}')">📋 Estado de cuenta</button>
         <button class="rtx-b ${m.activo ? 'rec' : 'ok'}" onclick="rtxMotToggle('${m.identidad}', ${!m.activo})">${m.activo ? '⏸ Desactivar' : '▶ Activar'}</button>
       </div>` : ''
     return `<div class="mot-row ${m.activo ? '' : 'off'}">
@@ -824,7 +865,7 @@ function rtxMotPintar() {
         <div class="mot-id"><b>#${m.unidad}</b> · ${m.nombre}</div>
         <span class="mot-estado ${m.activo ? 'on' : 'off'}">${m.activo ? 'Activo' : 'Inactivo'}</span>
       </div>
-      <div class="mot-sub">Cédula: ${m.identidad} · Tarifa: L. ${rtxFmt(m.tarifa)} · Grupo ${m.grupo} · Saldo: <b class="${m.saldo > 0 ? 'mot-debe' : ''}">L. ${rtxFmt(m.saldo)}</b></div>
+      <div class="mot-sub">Cédula: ${m.identidad} · Tarifa: L. ${rtxFmt(m.tarifa)} · Grupo ${m.grupo}${m.telefono ? ' · 📱 ' + m.telefono : ' · <span style="color:#d29922">sin teléfono</span>'} · Saldo: <b class="${m.saldo > 0 ? 'mot-debe' : ''}">L. ${rtxFmt(m.saldo)}</b></div>
       ${acciones}
     </div>`
   }).join('')
@@ -841,15 +882,386 @@ window.rtxMotToggleOrden = () => { rtxMotOrden = (rtxMotOrden === 'saldo') ? 'no
 window.rtxMotToggle = async (identidad, nuevoEstado) => {
   const m = rtxMotData.find(x => x.identidad === identidad)
   if (!m) return
-  if (!confirm(`¿${nuevoEstado ? 'Activar' : 'Desactivar'} a ${m.nombre}?`)) return
+  // Activar: simple. Desactivar: pedir motivo de salida y registrarlo en el historial.
+  if (nuevoEstado) {
+    if (!confirm(`¿Activar a ${m.nombre}?`)) return
+    try {
+      const { data, error } = await rtxSb().rpc('tx_motorista_toggle', { p_identidad: identidad, p_activo: true })
+      if (error) throw error
+      if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+      m.activo = true; window.toast?.('Motorista activado', 'success'); rtxMotPintar()
+    } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+    return
+  }
+  rtxSalidaModal(m)
+}
+
+// Modal de salida (motivo) al desactivar un motorista
+let rtxSalidaOv = null
+const RTX_MOTIVOS = ['Cambio de unidad', 'Voluntario', 'Accidente', 'Problemas personales', 'Deuda pendiente', 'Otro']
+function rtxSalidaModal(m) {
+  if (rtxSalidaOv) { rtxSalidaOv.remove(); rtxSalidaOv = null }
+  const hoy = new Date().toLocaleDateString('en-CA')
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'
+  ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:440px">
+    <div class="rtx-7d-head"><h3 style="margin:0;font-size:15px">⏸ Desactivar motorista</h3>
+      <button onclick="rtxSalidaCerrar()">✕</button></div>
+    <div style="padding:16px 18px">
+      <div style="font-weight:700">${m.nombre}</div>
+      <div style="color:#8b8f98;font-size:12px;margin-bottom:14px">Cédula: ${m.identidad} · Saldo: L. ${rtxFmt(m.saldo)}</div>
+      <label class="rtx-lbl">Fecha de salida</label>
+      <input type="date" id="rtx-sal-fecha" value="${hoy}" class="rtx-inp">
+      <label class="rtx-lbl">Motivo</label>
+      <select id="rtx-sal-cat" class="rtx-inp">${RTX_MOTIVOS.map(c => `<option>${c}</option>`).join('')}</select>
+      <label class="rtx-lbl">Detalle (opcional)</label>
+      <textarea id="rtx-sal-detalle" class="rtx-inp" rows="2" placeholder="Ej: pasó al 6248 / chocó el carro / no debe tarifas"></textarea>
+      <label class="rtx-lbl">Monto pendiente (se sugiere el saldo actual)</label>
+      <input type="number" id="rtx-sal-monto" value="${(m.saldo || 0)}" step="0.01" class="rtx-inp">
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="rtx-b ghost" onclick="rtxSalidaCerrar()">Cancelar</button>
+        <button class="rtx-b rec" onclick="rtxSalidaGuardar('${m.identidad}')">Desactivar y registrar</button>
+      </div>
+    </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxSalidaCerrar() }
+  document.body.appendChild(ov); rtxSalidaOv = ov
+}
+window.rtxSalidaCerrar = () => { if (rtxSalidaOv) { rtxSalidaOv.remove(); rtxSalidaOv = null } }
+
+// ── Historial global de salidas (todas) ──
+let rtxSalGlobOv = null
+let rtxSalGlobBusq = ''
+let rtxSalGlobTimer = null
+window.rtxSalidasGlobal = async () => {
+  if (rtxSalGlobOv) { rtxSalGlobOv.remove(); rtxSalGlobOv = null }
+  rtxSalGlobBusq = ''
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'
+  ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:760px">
+    <div class="rtx-7d-head"><h3 style="margin:0;font-size:15px">🚪 Historial de salidas</h3>
+      <button onclick="rtxSalGlobCerrar()">✕</button></div>
+    <div style="padding:14px 18px">
+      <input id="rtx-salglob-search" class="rtx-inp" type="text" placeholder="Buscar por nombre, cédula o unidad…" oninput="rtxSalGlobBuscar(this.value)" autocomplete="off" style="margin-bottom:12px">
+      <div id="rtx-salglob-body"><div style="color:#9aa0aa">Cargando…</div></div>
+    </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxSalGlobCerrar() }
+  document.body.appendChild(ov); rtxSalGlobOv = ov
+  rtxSalGlobCargar()
+}
+window.rtxSalGlobCerrar = () => { if (rtxSalGlobOv) { rtxSalGlobOv.remove(); rtxSalGlobOv = null } }
+window.rtxSalGlobBuscar = (v) => {
+  rtxSalGlobBusq = v
+  clearTimeout(rtxSalGlobTimer)
+  rtxSalGlobTimer = setTimeout(rtxSalGlobCargar, 300)
+}
+async function rtxSalGlobCargar() {
+  const body = document.getElementById('rtx-salglob-body')
+  if (!body) return
   try {
-    const { data, error } = await rtxSb().rpc('tx_motorista_toggle', { p_identidad: identidad, p_activo: nuevoEstado })
+    const { data, error } = await rtxSb().rpc('tx_salidas_listar', { p_busqueda: rtxSalGlobBusq || null })
+    if (error) throw error
+    const arr = Array.isArray(data) ? data : []
+    if (!arr.length) { body.innerHTML = '<div style="color:#8b8f98;padding:8px">Sin salidas registradas.</div>'; return }
+    const rows = arr.map(s => `<tr>
+      <td style="white-space:nowrap">${s.fecha_salida}</td>
+      <td>${s.nombre || '—'}<div style="color:#8b8f98;font-size:11px">${s.identidad}</div></td>
+      <td>${s.unidad ? '#' + s.unidad : '—'}</td>
+      <td>${s.motivo || '—'}</td>
+      <td style="text-align:right;white-space:nowrap">${s.monto_pendiente > 0 ? 'L. ' + rtxFmt(s.monto_pendiente) : '—'}</td>
+    </tr>`).join('')
+    body.innerHTML = `
+      <table class="rtx-7d-tbl" style="width:100%">
+        <thead><tr><th>Fecha</th><th>Motorista</th><th>Unidad</th><th>Motivo</th><th style="text-align:right">Pendiente</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="color:#8b8f98;font-size:11px;margin-top:8px">${arr.length} salida(s).</div>`
+  } catch (e) {
+    body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+  }
+}
+
+// ── Administración de cajas y PINs ──
+let rtxCajasOv = null
+window.rtxCajasAdmin = async () => {
+  if (rtxCajasOv) { rtxCajasOv.remove(); rtxCajasOv = null }
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'
+  ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:560px">
+    <div class="rtx-7d-head"><h3 style="margin:0;font-size:15px">🔐 Cajas y PINs</h3>
+      <button onclick="rtxCajasCerrar()">✕</button></div>
+    <div style="padding:14px 18px" id="rtx-cajas-body"><div style="color:#9aa0aa">Cargando…</div></div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxCajasCerrar() }
+  document.body.appendChild(ov); rtxCajasOv = ov
+  rtxCajasCargar()
+}
+window.rtxCajasCerrar = () => { if (rtxCajasOv) { rtxCajasOv.remove(); rtxCajasOv = null } }
+
+async function rtxCajasCargar() {
+  const body = document.getElementById('rtx-cajas-body')
+  if (!body) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_cajas_listar')
+    if (error) throw error
+    const arr = Array.isArray(data) ? data : []
+    const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    const rows = arr.map(c => `
+      <div class="rtx-caja-row ${c.activo ? '' : 'off'}">
+        <div><b>${c.nombre}</b>${c.activo ? '' : ' <span style="color:#8b8f98;font-size:11px">(inactiva)</span>'}</div>
+        <div class="rtx-caja-acc">
+          <button class="rtx-b" onclick="rtxCajaEditar('${c.id}','${esc(c.nombre)}')">✏️</button>
+          <button class="rtx-b" onclick="rtxCajaPin('${c.id}','${esc(c.nombre)}')">🔑 PIN</button>
+          <button class="rtx-b ${c.activo ? 'rec' : 'ok'}" onclick="rtxCajaToggle('${c.id}', ${!c.activo})">${c.activo ? '⏸' : '▶'}</button>
+        </div>
+      </div>`).join('')
+    body.innerHTML = `
+      <div style="margin-bottom:12px">${rows || '<div style="color:#8b8f98">Sin cajas. Agregá la primera abajo.</div>'}</div>
+      <div style="border-top:1px solid #2a2e37;padding-top:12px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">Agregar caja nueva</div>
+        <label class="rtx-lbl">Nombre</label>
+        <input id="rtx-caja-nombre" class="rtx-inp" placeholder="Ej: Caja Tecnimax" autocomplete="off">
+        <label class="rtx-lbl">PIN (mínimo 4 dígitos)</label>
+        <input id="rtx-caja-pin" class="rtx-inp" type="text" inputmode="numeric" placeholder="••••" autocomplete="off">
+        <button class="rtx-b ok" style="margin-top:10px;width:100%" onclick="rtxCajaAgregar()">+ Agregar caja</button>
+      </div>
+      <div id="rtx-puntos-sec" style="border-top:2px solid #2a2e37;margin-top:16px;padding-top:14px">
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px">📍 Puntos de recolección</div>
+        <div style="color:#8b8f98;font-size:11px;margin-bottom:10px">Banco = aparece a los motoristas para subir comprobante. Efectivo = solo a las cajas-PIN.</div>
+        <div id="rtx-puntos-body"><div style="color:#9aa0aa">Cargando…</div></div>
+      </div>`
+    rtxPuntosCargar()
+  } catch (e) { body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>` }
+}
+
+window.rtxCajaAgregar = async () => {
+  const nombre = (document.getElementById('rtx-caja-nombre')?.value || '').trim()
+  const pin = (document.getElementById('rtx-caja-pin')?.value || '').trim()
+  if (!nombre) { window.toast?.('El nombre es obligatorio', 'error'); return }
+  if (pin.length < 4) { window.toast?.('El PIN debe tener al menos 4 dígitos', 'error'); return }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_caja_agregar', { p_nombre: nombre, p_pin: pin })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
-    m.activo = nuevoEstado
-    window.toast?.(nuevoEstado ? 'Motorista activado' : 'Motorista desactivado', 'success')
-    rtxMotPintar()
+    window.toast?.('Caja agregada', 'success'); rtxCajasCargar()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxCajaEditar = async (id, nombreActual) => {
+  const nombre = prompt('Nuevo nombre de la caja:', nombreActual)
+  if (nombre == null || !nombre.trim()) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_caja_editar', { p_id: id, p_nombre: nombre.trim() })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    window.toast?.('Caja actualizada', 'success'); rtxCajasCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxCajaPin = async (id, nombre) => {
+  const pin = prompt(`Nuevo PIN para "${nombre}" (mínimo 4 dígitos):`, '')
+  if (pin == null) return
+  if (pin.trim().length < 4) { window.toast?.('El PIN debe tener al menos 4 dígitos', 'error'); return }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_caja_cambiar_pin', { p_id: id, p_pin: pin.trim() })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    window.toast?.('PIN actualizado', 'success')
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxCajaToggle = async (id, activo) => {
+  try {
+    const { data, error } = await rtxSb().rpc('tx_caja_toggle', { p_id: id, p_activo: activo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    window.toast?.(activo ? 'Caja activada' : 'Caja desactivada', 'success'); rtxCajasCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+// ── Puntos de recolección (banco / efectivo) dentro del modal de cajas ──
+async function rtxPuntosCargar() {
+  const body = document.getElementById('rtx-puntos-body')
+  if (!body) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_puntos_listar')
+    if (error) throw error
+    const arr = Array.isArray(data) ? data : []
+    const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    const rows = arr.map(p => {
+      const badge = p.tipo === 'banco'
+        ? '<span style="background:rgba(37,99,235,.18);color:#6ea8ff;border-radius:5px;padding:1px 7px;font-size:11px">🏦 Banco</span>'
+        : '<span style="background:rgba(22,163,74,.18);color:#7ee2a0;border-radius:5px;padding:1px 7px;font-size:11px">💵 Efectivo</span>'
+      return `<div class="rtx-caja-row ${p.activo ? '' : 'off'}">
+        <div><b>${p.nombre}</b> ${badge}${p.activo ? '' : ' <span style="color:#8b8f98;font-size:11px">(inactivo)</span>'}</div>
+        <div class="rtx-caja-acc">
+          <button class="rtx-b" onclick="rtxPuntoEditar('${p.id}','${esc(p.nombre)}','${p.tipo}')">✏️</button>
+          <button class="rtx-b ${p.activo ? 'rec' : 'ok'}" onclick="rtxPuntoToggle('${p.id}', ${!p.activo})">${p.activo ? '⏸' : '▶'}</button>
+        </div>
+      </div>`
+    }).join('')
+    body.innerHTML = `
+      <div style="margin-bottom:12px">${rows || '<div style="color:#8b8f98">Sin puntos.</div>'}</div>
+      <div style="border-top:1px solid #2a2e37;padding-top:12px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">Agregar punto nuevo</div>
+        <label class="rtx-lbl">Nombre</label>
+        <input id="rtx-punto-nombre" class="rtx-inp" placeholder="Ej: Atlántida / Caja Centro" autocomplete="off">
+        <label class="rtx-lbl">Tipo</label>
+        <select id="rtx-punto-tipo" class="rtx-inp">
+          <option value="banco">🏦 Banco (aparece a los motoristas)</option>
+          <option value="efectivo">💵 Efectivo (solo cajas-PIN)</option>
+        </select>
+        <button class="rtx-b ok" style="margin-top:10px;width:100%" onclick="rtxPuntoAgregar()">+ Agregar punto</button>
+      </div>`
+  } catch (e) { body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>` }
+}
+window.rtxPuntoAgregar = async () => {
+  const nombre = (document.getElementById('rtx-punto-nombre')?.value || '').trim()
+  const tipo = document.getElementById('rtx-punto-tipo')?.value || 'banco'
+  if (!nombre) { window.toast?.('El nombre es obligatorio', 'error'); return }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_punto_agregar', { p_nombre: nombre, p_tipo: tipo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    window.toast?.('Punto agregado', 'success'); rtxPuntosCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxPuntoEditar = async (id, nombreActual, tipoActual) => {
+  const nombre = prompt('Nombre del punto:', nombreActual)
+  if (nombre == null || !nombre.trim()) return
+  const tipo = confirm('¿Es de tipo BANCO? (Aceptar = Banco, Cancelar = Efectivo)') ? 'banco' : 'efectivo'
+  try {
+    const { data, error } = await rtxSb().rpc('tx_punto_editar', { p_id: id, p_nombre: nombre.trim(), p_tipo: tipo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    window.toast?.('Punto actualizado', 'success'); rtxPuntosCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxPuntoToggle = async (id, activo) => {
+  try {
+    const { data, error } = await rtxSb().rpc('tx_punto_toggle', { p_id: id, p_activo: activo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    window.toast?.(activo ? 'Punto activado' : 'Punto desactivado', 'success'); rtxPuntosCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.rtxSalidaGuardar = async (identidad) => {
+  const m = rtxMotData.find(x => x.identidad === identidad)
+  const fecha = document.getElementById('rtx-sal-fecha')?.value
+  const cat = document.getElementById('rtx-sal-cat')?.value || 'Otro'
+  const det = (document.getElementById('rtx-sal-detalle')?.value || '').trim()
+  const monto = parseFloat(document.getElementById('rtx-sal-monto')?.value) || 0
+  const motivo = det ? `${cat} — ${det}` : cat
+  try {
+    // 1) registrar la salida en el historial
+    const r1 = await rtxSb().rpc('tx_salida_registrar', {
+      p_identidad: identidad, p_unidad: null, p_fecha: fecha, p_motivo: motivo,
+      p_dias_pendientes: null, p_monto_pendiente: monto
+    })
+    if (r1.error) throw r1.error
+    if (!r1.data?.ok) { window.toast?.(r1.data?.error || 'No se pudo registrar la salida', 'error'); return }
+    // 2) desactivar al motorista
+    const r2 = await rtxSb().rpc('tx_motorista_toggle', { p_identidad: identidad, p_activo: false })
+    if (r2.error) throw r2.error
+    if (m) m.activo = false
+    window.toast?.('Motorista desactivado y salida registrada', 'success')
+    rtxSalidaCerrar(); rtxMotPintar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+// ── Historial / estado de cuenta del motorista ──
+let rtxHistOv = null
+window.rtxHistorial = async (identidad) => {
+  if (rtxHistOv) { rtxHistOv.remove(); rtxHistOv = null }
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'
+  ov.id = 'rtx-hist-overlay'
+  ov.innerHTML = `<div class="rtx-7d-modal"><div class="rtx-7d-head">
+      <h3 style="margin:0;font-size:15px">📋 Estado de cuenta</h3>
+      <button onclick="rtxHistCerrar()">✕</button></div>
+      <div id="rtx-hist-body" style="padding:14px 18px"><div style="color:#9aa0aa">Cargando…</div></div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxHistCerrar() }
+  document.body.appendChild(ov)
+  rtxHistOv = ov
+  try {
+    const { data, error } = await rtxSb().rpc('tx_historial_saldo', { p_identidad: identidad })
+    if (error) throw error
+    if (!data?.ok) { document.getElementById('rtx-hist-body').innerHTML = `<div style="color:#f0a500">${data?.error || 'No se pudo cargar'}</div>`; return }
+    rtxHistPintar(data)
+  } catch (e) {
+    const b = document.getElementById('rtx-hist-body')
+    if (b) b.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+  }
+}
+window.rtxHistCerrar = () => { if (rtxHistOv) { rtxHistOv.remove(); rtxHistOv = null } }
+
+function rtxHistPintar(data) {
+  const movs = data.movimientos || []
+  const saldoCls = data.saldo_actual > 0.01 ? 'color:#f0a500' : 'color:#3fb950'
+  const head = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div><div style="font-weight:700;font-size:15px">${data.nombre}</div>
+        <div style="color:#8b8f98;font-size:12px">Cédula: ${data.identidad}</div></div>
+      <div style="text-align:right"><div style="color:#8b8f98;font-size:11px;text-transform:uppercase">Saldo actual</div>
+        <div style="font-weight:800;font-size:20px;${saldoCls}">L. ${rtxFmt(data.saldo_actual)}</div></div>
+    </div>
+    <div style="font-size:12px;color:#8b8f98;margin-bottom:10px">Cómo se movió el saldo: <span style="color:#fca5a5">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:#7ee2a0">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
+
+  if (!movs.length) {
+    document.getElementById('rtx-hist-body').innerHTML = head + '<div style="color:#8b8f98;padding:8px">Sin movimientos de saldo registrados.</div>'
+    return
+  }
+  const rows = movs.map(m => {
+    const esCargo = m.tipo === 'cargo'
+    const signo = esCargo ? '+' : (m.tipo === 'abono' ? '−' : '')
+    const col = esCargo ? '#fca5a5' : (m.tipo === 'abono' ? '#7ee2a0' : '#9aa0aa')
+    const etq = esCargo ? 'Cargo' : (m.tipo === 'abono' ? 'Abono' : 'Ajuste')
+    const nota = rtxHistNota(m.nota)
+    return `<tr>
+      <td style="white-space:nowrap">${m.fecha}</td>
+      <td><span style="color:${col};font-weight:600">${etq}</span><div style="color:#8b8f98;font-size:11px">${nota}</div></td>
+      <td style="text-align:right;color:${col};font-weight:600;white-space:nowrap">${signo} L. ${rtxFmt(m.monto)}</td>
+      <td style="text-align:right;white-space:nowrap;font-family:ui-monospace,monospace">L. ${rtxFmt(m.saldo)}</td>
+    </tr>`
+  }).join('')
+  document.getElementById('rtx-hist-body').innerHTML = head + `
+    <table class="rtx-7d-tbl" style="width:100%">
+      <thead><tr>
+        <th>Fecha</th><th>Movimiento</th>
+        <th style="text-align:right">Monto</th><th style="text-align:right">Saldo</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="color:#8b8f98;font-size:11px;margin-top:8px">Mostrando ${movs.length} movimiento(s), del más reciente al más antiguo.</div>
+    <div id="rtx-hist-salidas" style="margin-top:16px"></div>`
+  rtxCargarSalidas(data.identidad)
+}
+
+// Carga el historial de salidas del motorista y lo pinta debajo del saldo
+async function rtxCargarSalidas(identidad) {
+  const cont = document.getElementById('rtx-hist-salidas')
+  if (!cont) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_salidas_motorista', { p_identidad: identidad })
+    if (error || !Array.isArray(data) || !data.length) return
+    const rows = data.map(s => `<tr>
+      <td style="white-space:nowrap">${s.fecha_salida}</td>
+      <td>${s.unidad ? '#' + s.unidad : '—'}</td>
+      <td>${s.motivo || '—'}</td>
+      <td style="text-align:right;white-space:nowrap">${s.monto_pendiente > 0 ? 'L. ' + rtxFmt(s.monto_pendiente) : '—'}</td>
+    </tr>`).join('')
+    cont.innerHTML = `
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#fca5a5">🚪 Historial de salidas (${data.length})</div>
+      <table class="rtx-7d-tbl" style="width:100%">
+        <thead><tr><th>Fecha</th><th>Unidad</th><th>Motivo</th><th style="text-align:right">Pendiente</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`
+  } catch { /* sin salidas */ }
+}
+
+// Traduce la nota técnica a algo legible
+function rtxHistNota(nota) {
+  const n = String(nota || '')
+  if (n.startsWith('DiaEntrega excedente')) return 'Excedente del día (pagó de más)'
+  if (n.startsWith('DiaEntrega')) return 'Esperado por km del día'
+  if (n.startsWith('Reconciliacion')) return 'Reconciliación por km'
+  if (/2da|segunda/i.test(n)) return 'Segunda entrega del día'
+  return n || '—'
 }
 
 window.rtxMotEditar = (identidad) => {
@@ -857,14 +1269,14 @@ window.rtxMotEditar = (identidad) => {
   if (!m) return
   rtxMotModal({
     titulo: 'Editar motorista', sub: `Cédula: ${m.identidad}`,
-    nombre: m.nombre, tarifa: m.tarifa, grupo: m.grupo, identReadonly: true, ident: m.identidad,
+    nombre: m.nombre, tarifa: m.tarifa, grupo: m.grupo, telefono: m.telefono || '', identReadonly: true, ident: m.identidad,
     onGuardar: 'rtxMotGuardarEdicion'
   })
 }
 window.rtxMotAgregar = () => {
   rtxMotModal({
     titulo: 'Agregar motorista', sub: 'La unidad se asigna con su primera entrega.',
-    nombre: '', tarifa: 500, grupo: '1', identReadonly: false, ident: '',
+    nombre: '', tarifa: 500, grupo: '1', telefono: '', identReadonly: false, ident: '',
     onGuardar: 'rtxMotGuardarNuevo'
   })
 }
@@ -887,6 +1299,8 @@ function rtxMotModal(o) {
       <input type="number" id="rtx-mot-tarifa" value="${o.tarifa}" step="0.01" min="0" inputmode="decimal">
       <label>Grupo de WhatsApp (1-10)</label>
       <input type="number" id="rtx-mot-grupo" value="${o.grupo}" min="1" max="10" inputmode="numeric">
+      <label>Teléfono (WhatsApp)</label>
+      <input type="tel" id="rtx-mot-telefono" value="${(o.telefono || '').replace(/"/g, '&quot;')}" placeholder="Ej: 9988-7766" inputmode="tel">
       <div class="rtx-edit-acts">
         <button class="rtx-b ghost" onclick="rtxMotCerrar()">Cancelar</button>
         <button class="rtx-b ok" onclick="${o.onGuardar}('${o.ident}')">Guardar</button>
@@ -903,7 +1317,8 @@ function rtxMotLeerModal() {
     ident: (document.getElementById('rtx-mot-ident')?.value || '').trim(),
     nombre: (document.getElementById('rtx-mot-nombre')?.value || '').trim(),
     tarifa: parseFloat(document.getElementById('rtx-mot-tarifa')?.value),
-    grupo: (document.getElementById('rtx-mot-grupo')?.value || '1').trim()
+    grupo: (document.getElementById('rtx-mot-grupo')?.value || '1').trim(),
+    telefono: (document.getElementById('rtx-mot-telefono')?.value || '').trim()
   }
 }
 window.rtxMotGuardarEdicion = async (identidad) => {
@@ -911,7 +1326,7 @@ window.rtxMotGuardarEdicion = async (identidad) => {
   if (!f.nombre) { window.toast?.('El nombre es obligatorio', 'error'); return }
   if (!f.tarifa || f.tarifa <= 0) { window.toast?.('Tarifa inválida', 'error'); return }
   try {
-    const { data, error } = await rtxSb().rpc('tx_motorista_editar', { p_identidad: identidad, p_nombre: f.nombre, p_tarifa: f.tarifa, p_grupo: f.grupo })
+    const { data, error } = await rtxSb().rpc('tx_motorista_editar', { p_identidad: identidad, p_nombre: f.nombre, p_tarifa: f.tarifa, p_grupo: f.grupo, p_telefono: f.telefono })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo editar', 'error'); return }
     window.toast?.('Motorista actualizado', 'success')
@@ -923,7 +1338,7 @@ window.rtxMotGuardarNuevo = async () => {
   if (!f.ident) { window.toast?.('La cédula es obligatoria', 'error'); return }
   if (!f.nombre) { window.toast?.('El nombre es obligatorio', 'error'); return }
   try {
-    const { data, error } = await rtxSb().rpc('tx_motorista_agregar', { p_identidad: f.ident, p_nombre: f.nombre, p_tarifa: f.tarifa || 500, p_grupo: f.grupo })
+    const { data, error } = await rtxSb().rpc('tx_motorista_agregar', { p_identidad: f.ident, p_nombre: f.nombre, p_tarifa: f.tarifa || 500, p_grupo: f.grupo, p_telefono: f.telefono })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo agregar', 'error'); return }
     window.toast?.('Motorista agregado', 'success')
