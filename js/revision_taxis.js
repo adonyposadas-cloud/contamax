@@ -8,6 +8,13 @@
 const rtxSb = () => window._sb
 const rtxEsSuper = () => { try { return window._currentProfile?.()?.rol === 'super_admin' } catch (e) { return false } }
 const rtxFmt = n => (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// Fecha + hora de subida en zona horaria de Honduras (created_at viene en UTC)
+const rtxFechaHora = ts => {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
 let rtxEntregas = []
 let rtxTelIdent = {}   // identidad → teléfono (tx_motoristas)
 let rtxTelUni = {}     // unidad → teléfono (tx_directorio)
@@ -229,6 +236,7 @@ function rtxRender() {
             <div><span>Saldo</span><b>L. ${rtxFmt(e.saldo_deudor)}</b></div>
             <div><span>Fecha dep.</span><b>${e.fecha_deposito || '—'}</b></div>
             <div><span>Origen</span><b>${e.origen === 'caja' ? (e.caja_nombre || 'Caja') : 'Motorista'}</b></div>
+            <div><span>Subido</span><b>${rtxFechaHora(e.created_at)}</b></div>
           </div>
           <div class="rtx-acts">
             <button class="rtx-b ghost" onclick="rtxVer7dias('${e.identidad}','${e.unidad}','${e.fecha_deposito}')">📅 7 días</button>
