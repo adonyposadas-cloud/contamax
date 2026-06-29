@@ -807,8 +807,12 @@ window.rtxDashAuditar = async (modo) => {
         byU[u].saldo = parseFloat(e.saldo_deudor) || 0
       })
       lista = Object.values(byU)
-        .map(x => ({ ...x, km: kmMap[String(x.unidad)] || 0, faltante: (x.esperado || 0) - x.monto }))
-        .filter(x => x.km > RTX_KM_TRABAJO && x.esperado > 0 && x.monto < x.esperado)
+        .map(x => {
+          const periodo = Math.max((x.esperado || 0) - (x.saldo || 0), 0)  // cuota del período (sin saldo histórico)
+          const faltante = periodo - x.monto                               // lo que sube su saldo este período
+          return { ...x, km: kmMap[String(x.unidad)] || 0, periodo, faltante, saldoNuevo: (x.saldo || 0) + Math.max(faltante, 0) }
+        })
+        .filter(x => x.km > RTX_KM_TRABAJO && x.periodo > 0 && x.faltante > 0)
         .sort((a, b) => b.faltante - a.faltante)
       // teléfonos (para los botones de WhatsApp/Llamar), por unidad e identidad
       try {
@@ -871,13 +875,14 @@ function rtxDashAuditCard() {
           <div class="dash-pend-id"><b>#${x.unidad}</b> · ${x.nombre || '—'}</div>
           <div class="dash-audit-km">${rtxFmt(x.km)} km</div>
         </div>
-        <div class="dash-pend-sub">Pagó: L. ${rtxFmt(x.monto)} · Esperado: L. ${rtxFmt(x.esperado)} · <b class="dash-audit-falta">Faltó: L. ${rtxFmt(x.faltante)}</b> · Saldo: L. ${rtxFmt(x.saldo)}</div>
+        <div class="dash-pend-sub">Cuota del período: L. ${rtxFmt(x.periodo)} · Pagó: L. ${rtxFmt(x.monto)} · <b class="dash-audit-falta">Faltó: L. ${rtxFmt(x.faltante)}</b></div>
+        <div class="dash-pend-sub" style="margin-top:2px">Su saldo sube de L. ${rtxFmt(x.saldo)} a <b class="dash-audit-falta">L. ${rtxFmt(x.saldoNuevo)}</b> — cobrar L. ${rtxFmt(x.faltante)} para que no caiga a CxC</div>
         <div class="dash-pend-acc">${accPend(x)}</div>
       </div>`).join('')
     return `<div class="dash-card">
       ${volver}
       <div class="dash-card-t">💰 Entregó pero no cubrió (${d.lista.length})</div>
-      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt}, entregaron el ${rtxDashFecha}, pero pagaron menos de lo esperado.</div>
+      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y entregaron el ${rtxDashFecha}, pero pagaron menos que la cuota del período (reconciliación por km desde su última entrega, sin contar el saldo histórico).</div>
       ${rows || '<div class="rtx-empty">Nadie cumple el criterio.</div>'}
     </div>`
   }
