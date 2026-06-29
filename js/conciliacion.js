@@ -510,7 +510,7 @@
       <div id="cb-conciliados" class="table-wrap" style="display:none">
         <div style="padding:10px 14px;font-weight:600;color:var(--green);background:var(--bg3)">✅ Conciliados (${e.pares.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px">
-          <input id="cb-concil-q" placeholder="Buscar descripción o # partida…" autocomplete="off" oninput="window._cbFiltrarConcil()" style="flex:1;min-width:200px;padding:6px 8px;font-size:12px">
+          <input id="cb-concil-q" placeholder="Buscar descripción, # partida o monto…" autocomplete="off" oninput="window._cbFiltrarConcil()" style="flex:1;min-width:200px;padding:6px 8px;font-size:12px">
           <select id="cb-concil-tipo" onchange="window._cbFiltrarConcil()" style="padding:6px 8px;font-size:12px">
             <option value="">Tipo: todos</option>
             <option value="grupo">🧩 Grupo</option>
@@ -542,12 +542,18 @@
   window._cbFiltrarConcil = () => {
     const pares = (estadoConc && estadoConc.pares) || []
     const q = (document.getElementById('cb-concil-q')?.value || '').trim().toLowerCase()
+    const qn = q.replace(/[,\s]/g, '')   // versión numérica (sin comas/espacios) para montos
     const tipo = document.getElementById('cb-concil-tipo')?.value || ''
     const soloDesfase = !!document.getElementById('cb-concil-desfase')?.checked
     let list = pares
-    if (q) list = list.filter(p =>
-      (p.banco.descripcion || '').toLowerCase().includes(q) ||
-      String(p.libro.numero_partida || '').toLowerCase().includes(q))
+    if (q) list = list.filter(p => {
+      const desc = (p.banco.descripcion || '').toLowerCase()
+      const part = String(p.libro.numero_partida || '').toLowerCase()
+      const montoStr = String(p.banco.monto)                       // "2010.12"
+      const montoFmt = fmtL(p.banco.monto).replace(/[^\d.]/g, '')   // "2010.12" desde "L. 2,010.12"
+      const matchMonto = qn !== '' && (montoStr.includes(qn) || montoFmt.includes(qn))
+      return desc.includes(q) || part.includes(q) || matchMonto
+    })
     if (tipo === 'grupo') list = list.filter(p => p.porGrupo)
     else if (tipo === 'marca') list = list.filter(p => p.porMarca && !p.porGrupo)
     else if (tipo === 'directo') list = list.filter(p => !p.porGrupo && !p.porMarca)

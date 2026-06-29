@@ -1320,6 +1320,7 @@ window.filtrarPendientes = () => {
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
         ${pendienteDoc ? `<button class="btn btn-ghost" onclick="event.stopPropagation();marcarRecibida('${f.id}')" style="padding:5px 12px;font-size:11px;color:var(--green);border-color:var(--green)">✓ Recibida</button>` : ''}
+        ${(currentProfile?.rol === 'super_admin' && f.estado === 'pendiente') ? `<button class="btn btn-ghost" onclick="event.stopPropagation();eliminarFactura('${f.id}')" style="padding:5px 10px;font-size:11px;color:var(--red);border-color:var(--red)" title="Eliminar factura (re-ingresar por compras)">🗑 Eliminar</button>` : ''}
         <div>
           <div class="pi-amount">L. ${parseFloat(f.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</div>
           <div class="pi-status ${statusClass}">${statusLabel}</div>
@@ -1345,8 +1346,13 @@ window.marcarRecibida = async (facturaId) => {
 
 window.eliminarFactura = async (facturaId) => {
   const f = pendientesData.find(x => x.id === facturaId)
-  const desc = f ? `${f.proveedor?.nombre || ''} · Fact. ${f.numero_factura} · L. ${parseFloat(f.total).toLocaleString('es-HN', {minimumFractionDigits:2})}` : facturaId
-  if (!confirm(`¿Eliminar esta factura?\n\n${desc}\n\nEsta acción no se puede deshacer.`)) return
+  let prov = f?.proveedor?.nombre || ''
+  if (!prov && f) {
+    const m = (f.observaciones || '').match(/\[IMP-COMPRA\]\s*(.+?)\s*·/)
+    if (m) prov = m[1]
+  }
+  const desc = f ? `${prov || 'Sin proveedor'} · Fact. ${f.numero_factura || '(sin número)'} · L. ${parseFloat(f.total).toLocaleString('es-HN', {minimumFractionDigits:2})}` : facturaId
+  if (!confirm(`¿Eliminar esta factura pendiente?\n\n${desc}\n\nNo genera ni afecta partidas (aún no tiene). Esta acción no se puede deshacer.`)) return
 
   // Si tiene foto, eliminar del storage
   if (f?.foto_url) {
