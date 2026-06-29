@@ -549,6 +549,7 @@ const MODULOS_CATALOGO = [
     ['rtx-tab-dash', '— Taxis: Dashboard'],
     ['rtx-tab-mot', '— Taxis: Motoristas'],
     ['rtx-tab-km', '— Taxis: KM recorridos'],
+    ['rtx-mot-admin', '— Taxis: Administrar motoristas (agregar/editar/PINs)'],
     ['nav-concilia-taxis', 'Conciliación Taxis']
   ]}
 ]

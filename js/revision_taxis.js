@@ -7,6 +7,9 @@
 
 const rtxSb = () => window._sb
 const rtxEsSuper = () => { try { return window._currentProfile?.()?.rol === 'super_admin' } catch (e) { return false } }
+// Puede administrar motoristas (agregar/editar/desactivar/cajas) = super_admin o
+// usuario con el permiso 'rtx-mot-admin' (p.ej. el encargado de Taxis con rol compras).
+const rtxMotAdmin = () => { try { const p = window._currentProfile?.(); return p?.rol === 'super_admin' || (Array.isArray(p?.permisos_modulos) && p.permisos_modulos.includes('rtx-mot-admin')) } catch (e) { return false } }
 const rtxFmt = n => (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 // Fecha + hora de subida en zona horaria de Honduras (created_at viene en UTC)
 const rtxFechaHora = ts => {
@@ -999,15 +1002,14 @@ function rtxMotPintar() {
   const total = rtxMotData.length
   const nAct = rtxMotData.filter(m => m.activo).length
   const nInact = total - nAct
-  const esSuper = rtxEsSuper()
-
+  const puedeAdmin = rtxMotAdmin()
   const chip = (val, label, n) => `<button class="rtx-chip ${rtxMotFiltro === val ? 'on' : ''}" onclick="rtxMotChip('${val}')">${label} <b>${n}</b></button>`
   const chips = `<div class="rtx-chips">${chip('activos', 'Activos', nAct)}${chip('inactivos', 'Inactivos', nInact)}${chip('todos', 'Todos', total)}</div>`
   const search = `<input id="rtx-mot-search" class="rtx-search" type="text" placeholder="Buscar por unidad, nombre o identidad…" value="${rtxMotBusqueda.replace(/"/g, '&quot;')}" oninput="rtxMotBuscar(this.value)" autocomplete="off">`
   const ordenBtn = `<button class="dash-orden ${rtxMotOrden === 'saldo' ? 'on' : ''}" onclick="rtxMotToggleOrden()">${rtxMotOrden === 'saldo' ? '↓ Por saldo adeudado' : '↕ Ordenar por saldo'}</button>`
-  const addBtn = esSuper ? `<button class="rtx-b ok" onclick="rtxMotAgregar()">+ Agregar motorista</button>` : ''
+  const addBtn = puedeAdmin ? `<button class="rtx-b ok" onclick="rtxMotAgregar()">+ Agregar motorista</button>` : ''
   const salidasBtn = `<button class="rtx-b" onclick="rtxSalidasGlobal()">🚪 Historial de salidas</button>`
-  const cajasBtn = esSuper ? `<button class="rtx-b" onclick="rtxCajasAdmin()">🔐 Cajas y PINs</button>` : ''
+  const cajasBtn = puedeAdmin ? `<button class="rtx-b" onclick="rtxCajasAdmin()">🔐 Cajas y PINs</button>` : ''
   const barra = `<div class="mot-barra">${ordenBtn}${salidasBtn}${cajasBtn}${addBtn}</div>`
 
   const q = rtxMotBusqueda.trim().toLowerCase()
@@ -1021,7 +1023,7 @@ function rtxMotPintar() {
 
   const rows = lista.map(m => {
     const nEsc = (m.nombre || '').replace(/'/g, '\\\'')
-    const acciones = esSuper ? `
+    const acciones = puedeAdmin ? `
       <div class="mot-acts">
         <button class="rtx-b edit" onclick="rtxMotEditar('${m.identidad}')">✏️ Editar</button>
         <button class="rtx-b" onclick="rtxHistorial('${m.identidad}')">📋 Estado de cuenta</button>
