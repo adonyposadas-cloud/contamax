@@ -235,7 +235,7 @@ function rtxRender() {
             <div><span>Esperado</span><b>L. ${rtxFmt(e.monto_esperado)}</b></div>
             <div><span>Saldo</span><b>L. ${rtxFmt(e.saldo_deudor)}</b></div>
             <div><span>Fecha dep.</span><b>${e.fecha_deposito || '—'}</b></div>
-            <div><span>Origen</span><b>${e.origen === 'caja' ? (e.caja_nombre || 'Caja') : 'Motorista'}</b></div>
+            <div><span>Origen</span><b>${e.origen === 'caja' ? ('Caja' + (e.caja_nombre ? ' · ' + e.caja_nombre : '')) : 'Motorista'}</b></div>
             <div><span>Subido</span><b>${rtxFechaHora(e.created_at)}</b></div>
           </div>
           <div class="rtx-acts">
