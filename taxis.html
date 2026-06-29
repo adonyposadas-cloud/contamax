@@ -72,6 +72,9 @@
   .foto-drop .s{font-size:12px;color:var(--text2);margin-top:2px}
   .foto-prev{margin-top:10px;border-radius:8px;max-width:100%;max-height:180px;display:none}
   .foto-prev.show{display:block}
+  .foto-drop.drag{border-color:var(--gold);background:#f0a5000d}
+  .foto-paste-hint{display:none;font-size:11px;color:var(--text2);margin-top:7px;text-align:center}
+  @media (hover:hover) and (pointer:fine){.foto-paste-hint{display:block}}
 
   .btn-primary{width:100%;padding:16px;background:var(--gold);border:none;border-radius:var(--radius);color:#0d1117;
     font-family:var(--font);font-weight:700;font-size:16px;cursor:pointer;margin-top:6px;display:flex;align-items:center;justify-content:center;gap:8px}
@@ -197,6 +200,7 @@
         </div>
         <input id="foto" type="file" accept="image/*" class="hidden" onchange="previewFoto()">
         <img id="foto-prev" class="foto-prev" alt="comprobante">
+        <div class="foto-paste-hint">En la compu podés pegar con Ctrl+V o arrastrar la imagen aquí</div>
       </div>
       <button class="btn-primary" id="btn-enviar" onclick="enviar()">Enviar solicitud</button>
     </div>
@@ -383,6 +387,49 @@ window.previewFoto = () => {
   $('foto-s').textContent = f.name.length > 28 ? f.name.slice(0,28)+'…' : f.name
   const img = $('foto-prev'); img.src = URL.createObjectURL(f); img.classList.add('show')
 }
+
+// Coloca un File (pegado o arrastrado) en el input #foto y dispara la vista previa.
+function setFotoFile(file) {
+  if (!file) return
+  try {
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    $('foto').files = dt.files
+  } catch (e) { return }   // navegador sin soporte de DataTransfer: queda el botón normal
+  previewFoto()
+}
+// ¿estamos en el formulario con la sección de pago visible?
+function fotoActiva() {
+  const form = $('scr-form'), campos = $('campos-pago')
+  return form && !form.classList.contains('hidden') && campos && !campos.classList.contains('hidden')
+}
+// Pegar con Ctrl+V una imagen del comprobante (PC).
+document.addEventListener('paste', (e) => {
+  if (!fotoActiva()) return
+  const items = (e.clipboardData || window.clipboardData) && (e.clipboardData || window.clipboardData).items
+  if (!items) return
+  for (const it of items) {
+    if (it.type && it.type.indexOf('image') === 0) {
+      const blob = it.getAsFile()
+      if (!blob) continue
+      const ext = ((blob.type.split('/')[1]) || 'png').replace('jpeg', 'jpg')
+      setFotoFile(new File([blob], `comprobante_${Date.now()}.${ext}`, { type: blob.type || 'image/png' }))
+      e.preventDefault()
+      break
+    }
+  }
+})
+// Arrastrar y soltar la imagen sobre el recuadro (PC).
+;(function () {
+  const drop = document.querySelector('.foto-drop')
+  if (!drop) return
+  ;['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag') }))
+  ;['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag') }))
+  drop.addEventListener('drop', e => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]
+    if (f && f.type.indexOf('image') === 0) setFotoFile(f)
+  })
+})()
 
 function comprimirImagen(file, maxLado = 1280, calidad = 0.8) {
   return new Promise((resolve, reject) => {

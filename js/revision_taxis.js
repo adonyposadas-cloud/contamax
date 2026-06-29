@@ -436,6 +436,15 @@ function rtx7dEnsure() {
     .dash-pend-dias.gris{background:rgba(120,128,140,.18);color:#9aa0aa}
     .dash-pend-sub{font-size:12px;color:#9aa0aa;margin:7px 0 10px}
     .dash-pend-acc{display:flex;flex-wrap:wrap;gap:7px}
+    .dash-audit-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+    .dash-audit-btn{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;color:#cfd3da;cursor:pointer}
+    .dash-audit-btn:hover{border-color:#4a90e2}
+    .dash-audit-btn.on{background:#b45309;border-color:#b45309;color:#fff}
+    .dash-audit-hint{font-size:11px;color:#8b8f98}
+    .dash-audit-sub{font-size:12px;color:#9aa0aa;margin-bottom:12px}
+    .dash-audit-km{font-size:13px;font-weight:700;color:#f0a500;background:rgba(240,165,0,.14);border-radius:8px;padding:3px 10px;white-space:nowrap}
+    .dash-audit-falta{color:#fca5a5}
+    .dash-audit-volver{margin-bottom:12px}
     .rtx-b.call{background:rgba(74,144,226,.16)!important;color:#4a90e2!important;border:1px solid rgba(74,144,226,.45)!important;text-decoration:none;display:inline-flex;align-items:center}
     .rtx-b.edit{background:rgba(168,85,247,.16)!important;color:#c084fc!important;border:1px solid rgba(168,85,247,.45)!important}
     .rtx-b.ok{background:rgba(22,163,74,.2)!important;color:#3fb950!important;border:1px solid rgba(22,163,74,.5)!important}
@@ -554,6 +563,11 @@ let rtxDashBusqueda = ''
 let rtxDashCaja = 'todas'
 let rtxDepBanco = 'todas'   // filtro de banco en Depósitos del día
 let rtxDepOrden = 'hora'    // 'hora' | 'unidad'
+// ── Auditoría KM vs entregas ──
+let rtxDashAudit = ''         // '' | 'no_entrego' | 'no_cubrio'
+let rtxDashAuditData = null   // { diaKM, lista }
+let rtxDashAuditLoading = false
+const RTX_KM_TRABAJO = 50     // km mínimos para considerar que la unidad "trabajó"
 
 window.rtxTab = (tab) => {
   const tabs = ['sol', 'dash', 'mot', 'km']
@@ -575,10 +589,10 @@ window.rtxTab = (tab) => {
 
 window.rtxDashCambiarFecha = (dir) => {
   const d = new Date(rtxDashFecha + 'T12:00:00'); d.setDate(d.getDate() + dir)
-  rtxDashFecha = d.toISOString().slice(0, 10); rtxRenderDashboard()
+  rtxDashFecha = d.toISOString().slice(0, 10); rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard()
 }
-window.rtxDashHoy = () => { rtxDashFecha = new Date().toISOString().slice(0, 10); rtxRenderDashboard() }
-window.rtxDashSetFecha = (v) => { if (v) { rtxDashFecha = v; rtxRenderDashboard() } }
+window.rtxDashHoy = () => { rtxDashFecha = new Date().toISOString().slice(0, 10); rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard() }
+window.rtxDashSetFecha = (v) => { if (v) { rtxDashFecha = v; rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard() } }
 
 function rtxDashPendiente(p) {
   const tel = p.telefono || ''
@@ -725,7 +739,19 @@ function rtxDashPintar() {
     ${depRows || '<div class="rtx-empty">Sin depósitos aprobados para esta fecha.</div>'}
   </div>`
 
-  pane.innerHTML = barra + resumen + desglose + pendientes + depositos
+  // ── Barra de auditoría (solo cuando la fecha es hoy) ──
+  const auditBar = esHoy ? `
+    <div class="dash-audit-bar">
+      <button class="dash-audit-btn ${rtxDashAudit === 'no_entrego' ? 'on' : ''}" onclick="rtxDashAuditar('no_entrego')">🔎 Trabajó y no entregó</button>
+      <button class="dash-audit-btn ${rtxDashAudit === 'no_cubrio' ? 'on' : ''}" onclick="rtxDashAuditar('no_cubrio')">💰 Entregó pero no cubrió</button>
+      <span class="dash-audit-hint">Trabajó = recorrió más de ${RTX_KM_TRABAJO} km</span>
+    </div>` : ''
+
+  if (esHoy && rtxDashAudit) {
+    pane.innerHTML = barra + resumen + auditBar + rtxDashAuditCard()
+  } else {
+    pane.innerHTML = barra + resumen + auditBar + desglose + pendientes + depositos
+  }
 
   if (hadFocus) {
     const ne = document.getElementById('dash-search')
@@ -737,6 +763,126 @@ window.rtxDashBuscar = (v) => { rtxDashBusqueda = v || ''; rtxDashPintar() }
 window.rtxDashChipCaja = (v) => { rtxDashCaja = v; rtxDashPintar() }
 window.rtxDepChip = (v) => { rtxDepBanco = v; rtxDashPintar() }
 window.rtxDepToggleOrden = () => { rtxDepOrden = (rtxDepOrden === 'unidad') ? 'hora' : 'unidad'; rtxDashPintar() }
+
+// ── Auditoría: cruza KM del día anterior con entregas ──
+// "Trabajó" = recorrió > RTX_KM_TRABAJO km. "Ayer" = día de KM más reciente
+// anterior a la fecha del dashboard (resuelve fines de semana automáticamente).
+async function rtxDashDiaKM(antesDe) {
+  try {
+    const { data } = await rtxSb().rpc('tx_km_fechas')
+    const fechas = (Array.isArray(data) ? data : []).filter(f => f < antesDe)
+    fechas.sort()
+    return fechas.length ? fechas[fechas.length - 1] : null
+  } catch (e) { return null }
+}
+async function rtxDashKmMap(dia) {
+  if (!dia) return {}
+  try {
+    const { data } = await rtxSb().rpc('tx_km_listar', { p_fecha: dia })
+    const m = {}; (Array.isArray(data) ? data : []).forEach(k => { m[String(k.unidad)] = parseFloat(k.km) || 0 })
+    return m
+  } catch (e) { return {} }
+}
+window.rtxDashAuditar = async (modo) => {
+  if (rtxDashAudit === modo) { rtxDashAudit = ''; rtxDashAuditData = null; rtxDashPintar(); return }  rtxDashAudit = modo; rtxDashAuditLoading = true; rtxDashAuditData = null; rtxDashPintar()
+  try {
+    const diaKM = await rtxDashDiaKM(rtxDashFecha)
+    const kmMap = await rtxDashKmMap(diaKM)
+    let lista = []
+    if (modo === 'no_entrego') {
+      lista = (rtxDashData?.pendientes || [])
+        .map(p => ({ ...p, km: kmMap[String(p.unidad)] || 0 }))
+        .filter(p => p.km > RTX_KM_TRABAJO)
+        .sort((a, b) => b.km - a.km)
+    } else if (modo === 'no_cubrio') {
+      const { data } = await rtxSb().from('entregas_taxis')
+        .select('unidad,identidad,nombre_conductor,monto,monto_esperado,saldo_deudor')
+        .eq('fecha_deposito', rtxDashFecha).eq('estado', 'Aprobada')
+      const byU = {}
+      ;(data || []).forEach(e => {
+        const u = String(e.unidad)
+        if (!byU[u]) byU[u] = { unidad: e.unidad, identidad: e.identidad || '', nombre: e.nombre_conductor, monto: 0, esperado: 0, saldo: 0 }
+        byU[u].monto += parseFloat(e.monto) || 0
+        byU[u].esperado = Math.max(byU[u].esperado, parseFloat(e.monto_esperado) || 0)
+        byU[u].saldo = parseFloat(e.saldo_deudor) || 0
+      })
+      lista = Object.values(byU)
+        .map(x => ({ ...x, km: kmMap[String(x.unidad)] || 0, faltante: (x.esperado || 0) - x.monto }))
+        .filter(x => x.km > RTX_KM_TRABAJO && x.esperado > 0 && x.monto < x.esperado)
+        .sort((a, b) => b.faltante - a.faltante)
+      // teléfonos (para los botones de WhatsApp/Llamar), por unidad e identidad
+      try {
+        const unis = [...new Set(lista.map(x => x.unidad).filter(Boolean))]
+        const idents = [...new Set(lista.map(x => x.identidad).filter(Boolean))]
+        const telUni = {}, telId = {}
+        if (unis.length) {
+          const { data: du } = await rtxSb().from('tx_directorio').select('unidad, telefono').in('unidad', unis)
+          ;(du || []).forEach(d => { if (d.telefono) telUni[String(d.unidad)] = d.telefono })
+        }
+        if (idents.length) {
+          const { data: dm } = await rtxSb().from('tx_motoristas').select('identidad, telefono').in('identidad', idents)
+          ;(dm || []).forEach(m => { if (m.telefono) telId[String(m.identidad)] = m.telefono })
+        }
+        lista.forEach(x => { x.telefono = telUni[String(x.unidad)] || telId[String(x.identidad)] || '' })
+      } catch (e) { /* sin teléfono, los botones de WhatsApp/Llamar no aparecen */ }
+    }
+    rtxDashAuditData = { diaKM, lista }
+  } catch (e) {
+    rtxDashAuditData = { diaKM: null, lista: [], error: e.message || String(e) }
+  }
+  rtxDashAuditLoading = false
+  rtxDashPintar()
+}
+window.rtxDashAuditCerrar = () => { rtxDashAudit = ''; rtxDashAuditData = null; rtxDashPintar() }
+function rtxDashAuditCard() {
+  if (rtxDashAuditLoading) return `<div class="dash-card"><div class="rtx-empty">Cargando auditoría…</div></div>`
+  const d = rtxDashAuditData
+  if (!d) return ''
+  if (d.error) return `<div class="dash-card"><div class="rtx-empty">Error: ${d.error}</div></div>`
+  const diaTxt = d.diaKM || 'sin KM previo'
+  const volver = '<button class="rtx-b ghost dash-audit-volver" onclick="rtxDashAuditCerrar()">← Volver al dashboard</button>'
+  const accPend = (p) => {
+    const wa = p.telefono
+      ? `<button class="rtx-b wa" onclick="rtxWa('${p.telefono}','${encodeURIComponent('Hola ' + (p.nombre || '') + ', te escribimos de Tecnimax para coordinar tu entrega. Gracias.')}')">💬 WhatsApp</button><a class="rtx-b call" href="tel:${p.telefono}">📞 Llamar</a>`
+      : ''
+    return `<button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')">📅 7 días</button>${wa}`
+  }
+  if (rtxDashAudit === 'no_entrego') {
+    const rows = d.lista.map(p => `
+      <div class="dash-pend">
+        <div class="dash-pend-top">
+          <div class="dash-pend-id"><b>#${p.unidad}</b> · ${p.nombre || '—'}</div>
+          <div class="dash-audit-km">${rtxFmt(p.km)} km</div>
+        </div>
+        <div class="dash-pend-sub">Última: ${p.ultima_entrega || '—'} · Saldo: L. ${rtxFmt(p.saldo)}${p.caja ? ' · Caja: ' + p.caja : ''}${p.grupo ? ' · Grupo ' + p.grupo : ''}</div>
+        <div class="dash-pend-acc">${accPend(p)}</div>
+      </div>`).join('')
+    return `<div class="dash-card">
+      ${volver}
+      <div class="dash-card-t">🔎 Trabajó y no entregó (${d.lista.length})</div>
+      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y no han entregado el ${rtxDashFecha}.</div>
+      ${rows || `<div class="rtx-empty">Nadie cumple: o ya entregaron, o no superaron los ${RTX_KM_TRABAJO} km.</div>`}
+    </div>`
+  }
+  if (rtxDashAudit === 'no_cubrio') {
+    const rows = d.lista.map(x => `
+      <div class="dash-pend">
+        <div class="dash-pend-top">
+          <div class="dash-pend-id"><b>#${x.unidad}</b> · ${x.nombre || '—'}</div>
+          <div class="dash-audit-km">${rtxFmt(x.km)} km</div>
+        </div>
+        <div class="dash-pend-sub">Pagó: L. ${rtxFmt(x.monto)} · Esperado: L. ${rtxFmt(x.esperado)} · <b class="dash-audit-falta">Faltó: L. ${rtxFmt(x.faltante)}</b> · Saldo: L. ${rtxFmt(x.saldo)}</div>
+        <div class="dash-pend-acc">${accPend(x)}</div>
+      </div>`).join('')
+    return `<div class="dash-card">
+      ${volver}
+      <div class="dash-card-t">💰 Entregó pero no cubrió (${d.lista.length})</div>
+      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt}, entregaron el ${rtxDashFecha}, pero pagaron menos de lo esperado.</div>
+      ${rows || '<div class="rtx-empty">Nadie cumple el criterio.</div>'}
+    </div>`
+  }
+  return ''
+}
 
 // ── Notas por motorista (con color por autor) ──
 let rtxNotasOv = null

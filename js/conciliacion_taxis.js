@@ -260,9 +260,45 @@
     const btn = document.getElementById('ctx-btn'); btn.disabled = true; btn.textContent = 'Conciliando…'
     try {
       const fechaBanco = ctxFechaBanco || ctxFecha
-      const movs = await parseExtracto(ctxFile, ctxBanco, fechaBanco)
+      const movsAll = await parseExtracto(ctxFile, ctxBanco, fechaBanco)
+
+      // Guardar las referencias de este extracto y detectar las que NO se deben
+      // volver a presentar:
+      //   (1) re-envíos del banco: vistas en extractos de días anteriores (BAC).
+      //   (2) ya conciliadas para otro día reciente (Ficohsa fin de semana: el
+      //       mismo extracto del lunes se usa para sábado, domingo y lunes).
+      let duplicados = []
+      let movs = movsAll
+      try {
+        const payload = movsAll.filter(m => m.ref).map(m => ({ ref: m.ref, monto: m.monto, desc: m.desc }))
+        if (payload.length) {
+          await csb().rpc('tx_refs_guardar', { p_banco: ctxBanco, p_fecha: fechaBanco, p_refs: payload })
+        }
+        const seen = {}
+        // (1) re-envíos por fecha del banco
+        try {
+          const { data: prev } = await csb().rpc('tx_refs_previas', { p_banco: ctxBanco, p_fecha: fechaBanco, p_dias: 7 })
+          ;(Array.isArray(prev) ? prev : []).forEach(p => { if (p.referencia) seen[String(p.referencia)] = { tipo: 'reenvio', fecha: p.fecha } })
+        } catch (e) {}
+        // (2) ya conciliadas para otro día de entregas reciente (precede a re-envío)
+        try {
+          const { data: conc } = await csb().rpc('tx_refs_conciliadas_previas', { p_banco: ctxBanco, p_fecha_entregas: ctxFecha, p_dias: 15 })
+          ;(Array.isArray(conc) ? conc : []).forEach(c => { if (c.referencia) seen[String(c.referencia)] = { tipo: 'conciliado', fecha: c.fecha_entregas } })
+        } catch (e) {}
+        if (Object.keys(seen).length) {
+          movs = []
+          movsAll.forEach(m => {
+            const s = m.ref ? seen[String(m.ref)] : null
+            if (s) { m.dupFecha = s.fecha; m.dupTipo = s.tipo; duplicados.push(m) }
+            else movs.push(m)
+          })
+          movs.forEach((m, i) => { m.idx = i })   // re-indexar idx contra el array movs
+        }
+      } catch (e) { /* si falla la detección, seguimos con todos los movimientos */ }
+
       const entregas = await cargarEntregas(ctxBanco, ctxFecha)
       ctxRes = conciliar(entregas, movs, ctxBanco)
+      ctxRes.duplicados = duplicados
       // Reaplicar emparejamientos manuales guardados de una conciliación previa
       await reaplicarManuales(ctxRes, ctxBanco, ctxFecha)
       // total del débito de la partida [IMP-TAXI] del día (de las entregas) para este banco
@@ -291,6 +327,7 @@
         <div class="ctx-stat ok"><div class="ctx-n">${conc}</div><div class="ctx-l">Conciliados (${pct}%)</div></div>
         <div class="ctx-stat warn"><div class="ctx-n">${r.entregasHuerfanas.length}</div><div class="ctx-l">Entregas sin depósito</div></div>
         <div class="ctx-stat warn"><div class="ctx-n">${r.depositosHuerfanos.length}</div><div class="ctx-l">Depósitos sin entrega</div></div>
+        ${(r.duplicados && r.duplicados.length) ? `<div class="ctx-stat dup"><div class="ctx-n">${r.duplicados.length}</div><div class="ctx-l">Omitidas</div></div>` : ''}
       </div>
       <div class="ctx-sub">Banco ${r.banco} · entregas del ${ctxFecha}${(ctxFechaBanco && ctxFechaBanco !== ctxFecha) ? ` · depósitos del banco con fecha ${ctxFechaBanco}` : ''} · ${totEnt} entregas reportadas vs ${totMov} depósitos en el extracto</div>`
 
@@ -372,10 +409,27 @@
         <button class="btn btn-gold ctx-save" onclick="ctxGuardar()">💾 Guardar conciliación</button>
       </div>`
     }
+    // Omitidos: re-envíos del banco o referencias ya conciliadas otro día
+    const dups = r.duplicados || []
+    const dupRows = dups.map(mv => {
+      const tag = mv.dupTipo === 'conciliado'
+        ? `ya conciliado el ${mv.dupFecha || '—'}`
+        : `ya visto el ${mv.dupFecha || '—'}`
+      return `<div class="ctx-row dup">
+        <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${mv.ref ? `<span class="ctx-ref">Ref: ${mv.ref}</span>` : ''}</div>
+        <div class="ctx-row-r"><span class="ctx-dup-tag">${tag}</span></div>
+      </div>`
+    }).join('')
+    const cDup = dups.length
+      ? `<div class="ctx-grp"><div class="ctx-grp-t dup">♻️ Referencias omitidas (${dups.length})</div>
+          <div class="ctx-hint">Depósitos que ya se conciliaron otro día, o que el banco re-envió de días anteriores. Se omiten para no presentarlos de nuevo.</div>
+          ${dupRows}</div>`
+      : ''
+
     // guardar totales para ctxGuardar
     ctxRes._totales = { conciliado: totalConc, entregas: totalEnt, extracto: totalExt }
 
-    out.innerHTML = resumen + cCuadre + cConc + cDep + cEnt
+    out.innerHTML = resumen + cCuadre + cConc + cDep + cDup + cEnt
   }
 
   window.ctxElegirDeposito = (idx) => {
@@ -441,6 +495,19 @@
       })
       if (error) throw error
       if (!data?.ok) { window.toast?.(data?.error || 'No se pudo guardar', 'error'); return }
+      // Registrar las referencias conciliadas para no re-presentarlas otro día
+      try {
+        const refsConc = []
+        r.conciliados.forEach(e => (e.pars || []).forEach(i => {
+          const mv = r.movs[i]; if (mv && mv.ref) refsConc.push({ ref: mv.ref, monto: mv.monto })
+        }))
+        if (refsConc.length) {
+          await csb().rpc('tx_refs_conciliadas_guardar', {
+            p_banco: r.banco, p_fecha_entregas: ctxFecha,
+            p_fecha_banco: (ctxFechaBanco || ctxFecha), p_refs: refsConc
+          })
+        }
+      } catch (e) { /* no bloquear el guardado por esto */ }
       window.toast?.(data.cuadra ? 'Conciliación guardada · cuadra ✓' : `Guardada · diferencia ${fmt(data.diferencia)}`, data.cuadra ? 'success' : 'info')
     } catch (e) {
       window.toast?.('Error: ' + (e.message || e), 'error')
@@ -470,6 +537,10 @@
       .ctx-grp{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:14px;margin-bottom:12px}
       .ctx-grp-t{font-size:14px;font-weight:700;margin-bottom:10px}
       .ctx-grp-t.ok{color:#3fb950}.ctx-grp-t.warn{color:#f0a500}
+      .ctx-grp-t.dup{color:#a78bfa}
+      .ctx-stat.dup{border-color:rgba(167,139,250,.4)}.ctx-stat.dup .ctx-n{color:#a78bfa}
+      .ctx-row.dup{border-left:3px solid #a78bfa;opacity:.85}
+      .ctx-dup-tag{background:rgba(167,139,250,.16);color:#c4b5fd;border-radius:5px;padding:2px 8px;font-size:11px;white-space:nowrap}
       .ctx-hint{font-size:12px;color:#8b8f98;margin-bottom:10px}
       .ctx-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;margin-bottom:6px;font-size:13px;background:#1a1d24}
       .ctx-row.ok{border-left:3px solid #3fb950}
