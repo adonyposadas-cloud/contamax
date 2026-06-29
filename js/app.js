@@ -122,8 +122,8 @@ function setupUI() {
   // Definir qué nav-items ve cada rol
   const permisos = {
     super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
     contador_fiscal: ['nav-declaracion-isv']
   }
@@ -422,6 +422,9 @@ window.eliminarTipoOrigen = async (id, nombre) => {
 }
 
 // ── USUARIOS ──
+const USR_ROLE_BADGE = { super_admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber', contador_fiscal:'badge-blue', caja:'badge-amber' }
+const USR_ROLE_LABEL = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', caja:'Caja' }
+
 async function loadUsuarios() {
   const tbody = document.getElementById('tbody-usuarios')
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
@@ -431,9 +434,69 @@ async function loadUsuarios() {
   window._allUsuarios = data
   document.getElementById('stat-total').textContent = data.length
   document.getElementById('stat-activos').textContent = data.filter(u => u.activo).length
-  const roleBadge = { super_admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber' }
-  const roleLabel = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras' }
-  tbody.innerHTML = data.map(u => `
+  ensureFiltroUsuarios()
+  aplicarFiltroUsuarios()
+}
+window.loadUsuarios = loadUsuarios
+
+// Inyecta la barra de filtros encima de la tabla (una sola vez)
+function ensureFiltroUsuarios() {
+  if (document.getElementById('filtro-usuarios')) { llenarRolesFiltro(); return }
+  const tbody = document.getElementById('tbody-usuarios')
+  const table = tbody && tbody.closest('table')
+  if (!table) return
+  const bar = document.createElement('div')
+  bar.id = 'filtro-usuarios'
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px'
+  const inp = 'background:#1a1d24;border:1px solid #2a2e37;color:#e6e6e6;border-radius:8px;padding:8px 10px;font-size:13px'
+  bar.innerHTML = `
+    <input id="fu-buscar" placeholder="Buscar por nombre o correo…" autocomplete="off" oninput="aplicarFiltroUsuarios()" style="${inp};flex:1;min-width:200px">
+    <select id="fu-rol" onchange="aplicarFiltroUsuarios()" style="${inp}"><option value="">Rol: todos</option></select>
+    <select id="fu-estado" onchange="aplicarFiltroUsuarios()" style="${inp}">
+      <option value="">Estado: todos</option>
+      <option value="activo">Activos</option>
+      <option value="inactivo">Inactivos</option>
+    </select>
+    <button class="btn btn-ghost" style="padding:8px 12px;font-size:13px" onclick="limpiarFiltroUsuarios()">Limpiar</button>
+    <span id="fu-count" style="color:var(--text3);font-size:12px"></span>`
+  table.parentNode.insertBefore(bar, table)
+  llenarRolesFiltro()
+}
+function llenarRolesFiltro() {
+  const sel = document.getElementById('fu-rol'); if (!sel) return
+  const actual = sel.value
+  const roles = [...new Set((window._allUsuarios || []).map(u => u.rol).filter(Boolean))].sort()
+  sel.innerHTML = '<option value="">Rol: todos</option>' +
+    roles.map(r => `<option value="${r}">${USR_ROLE_LABEL[r] || r}</option>`).join('')
+  sel.value = actual
+}
+window.aplicarFiltroUsuarios = () => {
+  const all = window._allUsuarios || []
+  const q = (document.getElementById('fu-buscar')?.value || '').trim().toLowerCase()
+  const rol = document.getElementById('fu-rol')?.value || ''
+  const est = document.getElementById('fu-estado')?.value || ''
+  let list = all
+  if (q) list = list.filter(u => (u.nombre || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q))
+  if (rol) list = list.filter(u => u.rol === rol)
+  if (est) list = list.filter(u => est === 'activo' ? u.activo : !u.activo)
+  const c = document.getElementById('fu-count'); if (c) c.textContent = `${list.length} de ${all.length}`
+  renderUsuarios(list)
+}
+window.limpiarFiltroUsuarios = () => {
+  const b = document.getElementById('fu-buscar'); if (b) b.value = ''
+  const r = document.getElementById('fu-rol'); if (r) r.value = ''
+  const e = document.getElementById('fu-estado'); if (e) e.value = ''
+  aplicarFiltroUsuarios()
+}
+
+function renderUsuarios(list) {
+  const tbody = document.getElementById('tbody-usuarios')
+  if (!tbody) return
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text3)">Ningún usuario cumple el filtro</td></tr>'
+    return
+  }
+  tbody.innerHTML = list.map(u => `
     <tr style="${!u.activo ? 'opacity:0.5' : ''}">
       <td><div class="cell-name">
         <div class="avatar" style="width:30px;height:30px;font-size:10px">${u.nombre.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase()}</div>
@@ -442,7 +505,7 @@ async function loadUsuarios() {
           <div class="mono" style="color:var(--text3)">${u.email}</div>
         </div>
       </div></td>
-      <td><span class="badge ${roleBadge[u.rol]||'badge-amber'}">${roleLabel[u.rol]||u.rol}</span></td>
+      <td><span class="badge ${USR_ROLE_BADGE[u.rol]||'badge-amber'}">${USR_ROLE_LABEL[u.rol]||u.rol}</span></td>
       <td>${u.centro_costo?.nombre || '<span style="color:var(--text3)">Todas</span>'}</td>
       <td><span class="badge ${u.activo?'badge-on':'badge-off'}">${u.activo?'Activo':'Inactivo'}</span></td>
       <td class="mono" style="color:var(--text3)">${new Date(u.created_at).toLocaleDateString('es-HN')}</td>
@@ -452,7 +515,6 @@ async function loadUsuarios() {
       </td>
     </tr>`).join('')
 }
-window.loadUsuarios = loadUsuarios
 
 // ── CATÁLOGO DE MÓDULOS (para el panel de permisos por usuario) ──
 const MODULOS_CATALOGO = [
@@ -486,7 +548,6 @@ const MODULOS_CATALOGO = [
     ['nav-revision-taxis', 'Revisión Taxis (Solicitudes)'],
     ['rtx-tab-dash', '— Taxis: Dashboard'],
     ['rtx-tab-mot', '— Taxis: Motoristas'],
-    ['rtx-tab-km', '— Taxis: KM recorridos'],
     ['nav-concilia-taxis', 'Conciliación Taxis']
   ]}
 ]
