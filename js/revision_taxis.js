@@ -36,6 +36,7 @@ function rtxTelefono(e) {
 window.initRevisionTaxis = async () => {
   rtx7dEnsure()   // inyecta estilos (botones WhatsApp + modal 7 días)
   rtxKmEnsureTab()      // crea la pestaña "KM recorridos" si no existe
+  rtxHistEnsureTab()    // crea la pestaña "Historial" si no existe
   rtxAplicarPermisos()  // oculta pestañas según permisos del usuario
   if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
@@ -58,18 +59,22 @@ function rtxAplicarPermisos() {
   const verDash = esSuper || permisos.includes('rtx-tab-dash')
   const verMot = esSuper || permisos.includes('rtx-tab-mot')
   const verKm = esSuper || permisos.includes('rtx-tab-km')
+  const verHist = esSuper || permisos.includes('rtx-tab-hist')
 
   const tbDash = document.getElementById('rtx-tab-dash')
   const tbMot = document.getElementById('rtx-tab-mot')
   const tbKm = document.getElementById('rtx-tab-km')
+  const tbHist = document.getElementById('rtx-tab-hist')
   if (tbDash) tbDash.classList.toggle('hidden', !verDash)
   if (tbMot) tbMot.classList.toggle('hidden', !verMot)
   if (tbKm) tbKm.classList.toggle('hidden', !verKm)
+  if (tbHist) tbHist.classList.toggle('hidden', !verHist)
 
   // Si la pestaña activa quedó oculta, volver a Solicitudes
   if ((!verDash && tbDash?.classList.contains('on')) ||
       (!verMot && tbMot?.classList.contains('on')) ||
-      (!verKm && tbKm?.classList.contains('on'))) {
+      (!verKm && tbKm?.classList.contains('on')) ||
+      (!verHist && tbHist?.classList.contains('on'))) {
     rtxTab('sol')
   }
 }
@@ -573,7 +578,7 @@ let rtxDashAuditLoading = false
 const RTX_KM_TRABAJO = 50     // km mínimos para considerar que la unidad "trabajó"
 
 window.rtxTab = (tab) => {
-  const tabs = ['sol', 'dash', 'mot', 'km']
+  const tabs = ['sol', 'dash', 'mot', 'km', 'hist']
   tabs.forEach(t => {
     const tb = document.getElementById('rtx-tab-' + t)
     const pn = document.getElementById('rtx-pane-' + t)
@@ -587,6 +592,8 @@ window.rtxTab = (tab) => {
     rtxMotCargar()
   } else if (tab === 'km') {
     rtxKmAbrir()
+  } else if (tab === 'hist') {
+    rtxHistAbrir()
   }
 }
 
@@ -1642,6 +1649,172 @@ function rtxKmEnsureTab() {
   pane.id = 'rtx-pane-km'; pane.className = 'hidden'
   pane.innerHTML = '<div id="rtx-km-root"></div>'
   paneRef.parentNode.appendChild(pane)
+}
+
+// ════════════════════════════════════════════════════════════
+// PESTAÑA HISTORIAL — buscar entregas por unidad y rango de fechas
+// (equivalente al "Historial" del sistema viejo, leyendo entregas_taxis)
+// ════════════════════════════════════════════════════════════
+let rtxHistUnidad = ''
+let rtxHistDesde = ''
+let rtxHistHasta = ''
+let rtxHistData = null
+
+function rtxHistEnsureTab() {
+  if (document.getElementById('rtx-tab-hist')) return
+  const barra = document.querySelector('.rtx-tabs')
+  const paneRef = document.getElementById('rtx-pane-sol') || document.getElementById('rtx-pane-dash') || document.getElementById('rtx-pane-mot')
+  if (!barra || !paneRef) return
+  const btn = document.createElement('button')
+  btn.id = 'rtx-tab-hist'; btn.className = 'rtx-tab'
+  btn.textContent = '📜 Historial'
+  btn.onclick = () => rtxTab('hist')
+  barra.appendChild(btn)
+  const pane = document.createElement('div')
+  pane.id = 'rtx-pane-hist'; pane.className = 'hidden'
+  pane.innerHTML = '<div id="rtx-hist-root"></div>'
+  paneRef.parentNode.appendChild(pane)
+}
+
+window.rtxHistAbrir = () => {
+  rtxHistEnsureStyles()
+  if (!rtxHistDesde) { const d = new Date(); d.setDate(d.getDate() - 30); rtxHistDesde = rtxKmLocalDate(d) }
+  if (!rtxHistHasta) rtxHistHasta = rtxKmLocalDate()
+  rtxHistRenderShell()
+  if (rtxHistData) rtxHistPintar()
+}
+
+window.rtxHistSet = (campo, val) => {
+  if (campo === 'unidad') rtxHistUnidad = val
+  else if (campo === 'desde') rtxHistDesde = val
+  else if (campo === 'hasta') rtxHistHasta = val
+}
+
+window.rtxHistBuscar = async () => {
+  const cont = document.getElementById('rtx-hist-result')
+  if (cont) cont.innerHTML = '<div class="rtx-hist-info">Buscando…</div>'
+  try {
+    const build = () => {
+      let q = rtxSb().from('entregas_taxis').select('*')
+      if (rtxHistDesde) q = q.gte('fecha_deposito', rtxHistDesde)
+      if (rtxHistHasta) q = q.lte('fecha_deposito', rtxHistHasta)
+      const uni = (rtxHistUnidad || '').trim()
+      if (uni) q = q.eq('unidad', uni)
+      return q.order('fecha_deposito', { ascending: false }).order('id')
+    }
+    const data = window._fetchAllPag ? await window._fetchAllPag(build) : ((await build()).data || [])
+    rtxHistData = Array.isArray(data) ? data : []
+    rtxHistPintar()
+  } catch (e) {
+    if (cont) cont.innerHTML = `<div class="rtx-hist-info" style="color:#f0a500">Error: ${e.message || e}</div>`
+  }
+}
+
+function rtxHistRenderShell() {
+  const root = document.getElementById('rtx-hist-root')
+  if (!root) return
+  const escA = s => String(s == null ? '' : s).replace(/"/g, '&quot;')
+  root.innerHTML = `
+    <div class="rtx-hist-form">
+      <div class="rtx-hist-field" style="flex:1;min-width:160px">
+        <label>Número de unidad</label>
+        <input id="rtx-hist-uni" class="rtx-inp" placeholder="Ej: 5400 (vacío = todas)" value="${escA(rtxHistUnidad)}" autocomplete="off"
+               oninput="rtxHistSet('unidad', this.value)" onkeydown="if(event.key==='Enter')rtxHistBuscar()">
+      </div>
+      <div class="rtx-hist-field">
+        <label>Fecha desde</label>
+        <input id="rtx-hist-desde" type="date" class="rtx-inp" value="${escA(rtxHistDesde)}" onchange="rtxHistSet('desde', this.value)">
+      </div>
+      <div class="rtx-hist-field">
+        <label>Fecha hasta</label>
+        <input id="rtx-hist-hasta" type="date" class="rtx-inp" value="${escA(rtxHistHasta)}" onchange="rtxHistSet('hasta', this.value)">
+      </div>
+      <button class="rtx-b ok rtx-hist-go" onclick="rtxHistBuscar()">🔎 Filtrar</button>
+    </div>
+    <div id="rtx-hist-result"><div class="rtx-hist-info">Elegí unidad y fechas, luego tocá Filtrar.</div></div>`
+}
+
+function rtxHistPintar() {
+  const cont = document.getElementById('rtx-hist-result')
+  if (!cont) return
+  const data = rtxHistData || []
+  if (!data.length) { cont.innerHTML = '<div class="rtx-hist-info">No hay entregas para esa unidad y rango de fechas.</div>'; return }
+  const total = data.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const uni = (rtxHistUnidad || '').trim()
+  const estClass = e => e.estado === 'Aprobada' ? 'ok' : (e.estado === 'Rechazada' ? 'bad' : 'pend')
+  const cards = data.map(e => {
+    const id = String(e.id)
+    const origen = e.origen === 'caja' ? ('Caja' + (e.caja_nombre ? ' · ' + e.caja_nombre : '')) : 'Motorista'
+    const esperado = parseFloat(e.monto_esperado) || 0
+    const saldo = parseFloat(e.saldo_deudor) || 0
+    const periodo = Math.max(esperado - saldo, 0)
+    return `<div class="rtx-hist-card">
+      <div class="rtx-hist-ctop">
+        <div class="rtx-hist-name">${e.nombre_conductor || 'Motorista'} <span class="rtx-hist-uni2">#${e.unidad || '—'}</span></div>
+        <div class="rtx-hist-monto">L. ${rtxFmt(e.monto)}</div>
+      </div>
+      <div class="rtx-hist-meta">${e.banco || '—'} · ${origen} · ${e.fecha_deposito || '—'}${e.hora_envio ? ' ' + e.hora_envio : ''} · <span class="rtx-hist-est ${estClass(e)}">${e.estado || '—'}</span></div>
+      <div class="rtx-hist-meta">Esperado: L. ${rtxFmt(esperado)}${saldo ? ' · Saldo al registrar: L. ' + rtxFmt(saldo) : ''}</div>
+      <button class="rtx-hist-toggle" onclick="rtxHistToggle('${id}')">📋 Ver desglose de saldo</button>
+      <div id="rtx-hist-desg-${id}" class="rtx-hist-desg hidden">
+        <div><span>Tarifa del día</span><b>L. ${rtxFmt(e.tarifa_dia)}</b></div>
+        <div><span>Monto esperado</span><b>L. ${rtxFmt(esperado)}</b></div>
+        <div><span>Saldo al registrar</span><b>L. ${rtxFmt(saldo)}</b></div>
+        <div><span>Cuota del período (esperado − saldo)</span><b>L. ${rtxFmt(periodo)}</b></div>
+        <div><span>Pagó</span><b>L. ${rtxFmt(e.monto)}</b></div>
+        <div><span>Medio</span><b>${e.banco || '—'}</b></div>
+        <div><span>Origen</span><b>${origen}</b></div>
+        <div><span>Registrado</span><b>${rtxFechaHora(e.created_at)}</b></div>
+      </div>
+    </div>`
+  }).join('')
+  cont.innerHTML = `
+    <div class="rtx-hist-stats">
+      <div><b style="color:#3fb950">L. ${rtxFmt(total)}</b><span>Total</span></div>
+      <div><b>${data.length}</b><span>Entregas</span></div>
+      <div><b>${uni ? '#' + uni : 'Todas'}</b><span>Unidad</span></div>
+    </div>
+    ${cards}`
+}
+
+window.rtxHistToggle = (id) => {
+  const el = document.getElementById('rtx-hist-desg-' + id)
+  if (el) el.classList.toggle('hidden')
+}
+
+function rtxHistEnsureStyles() {
+  if (document.getElementById('rtx-hist-styles')) return
+  const st = document.createElement('style')
+  st.id = 'rtx-hist-styles'
+  st.textContent = `
+    #rtx-hist-root{padding:4px 0}
+    .rtx-hist-form{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;background:#15171c;border:1px solid #262a32;border-radius:12px;padding:14px;margin-bottom:14px}
+    .rtx-hist-field{display:flex;flex-direction:column;gap:5px}
+    .rtx-hist-field label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8a8f98}
+    .rtx-hist-form .rtx-inp{background:#0f1115;border:1px solid #2a2e37;color:#e6e6e6;border-radius:8px;padding:9px 11px;font-size:14px;min-width:150px}
+    .rtx-hist-go{align-self:flex-end}
+    .rtx-hist-info{padding:26px;text-align:center;color:#8a8f98}
+    .rtx-hist-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+    .rtx-hist-stats>div{background:#15171c;border:1px solid #262a32;border-radius:12px;padding:14px;text-align:center}
+    .rtx-hist-stats b{display:block;font-size:20px}
+    .rtx-hist-stats span{font-size:11px;color:#8a8f98;text-transform:uppercase;letter-spacing:.5px}
+    .rtx-hist-card{background:#15171c;border:1px solid #262a32;border-radius:12px;padding:13px 15px;margin-bottom:10px}
+    .rtx-hist-ctop{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+    .rtx-hist-name{font-weight:600;font-size:14px}
+    .rtx-hist-uni2{color:#f0a500;font-weight:600;font-size:12px}
+    .rtx-hist-monto{font-weight:700;color:#3fb950;font-size:15px;white-space:nowrap}
+    .rtx-hist-meta{font-size:12px;color:#9aa0aa;margin-top:4px}
+    .rtx-hist-est{padding:1px 7px;border-radius:5px;font-size:11px}
+    .rtx-hist-est.ok{background:rgba(63,185,80,.15);color:#3fb950}
+    .rtx-hist-est.pend{background:rgba(240,165,0,.15);color:#f0a500}
+    .rtx-hist-est.bad{background:rgba(248,113,113,.15);color:#f87171}
+    .rtx-hist-toggle{margin-top:9px;background:rgba(99,102,241,.12);color:#a5b4fc;border:1px solid rgba(99,102,241,.3);border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer}
+    .rtx-hist-desg{margin-top:9px;border-top:1px solid #262a32;padding-top:9px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px}
+    .rtx-hist-desg.hidden{display:none}
+    .rtx-hist-desg>div{display:flex;justify-content:space-between;gap:10px;font-size:12px}
+    .rtx-hist-desg span{color:#8a8f98}
+    @media(max-width:560px){.rtx-hist-desg{grid-template-columns:1fr}}`
+  document.head.appendChild(st)
 }
 
 window.rtxKmAbrir = async () => {

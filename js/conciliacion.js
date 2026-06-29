@@ -509,17 +509,58 @@
       <div id="cb-suma-sel" style="font-size:13px;color:var(--text3);margin:-4px 0 12px;min-height:18px"></div>
       <div id="cb-conciliados" class="table-wrap" style="display:none">
         <div style="padding:10px 14px;font-weight:600;color:var(--green);background:var(--bg3)">✅ Conciliados (${e.pares.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px">
+          <input id="cb-concil-q" placeholder="Buscar descripción o # partida…" autocomplete="off" oninput="window._cbFiltrarConcil()" style="flex:1;min-width:200px;padding:6px 8px;font-size:12px">
+          <select id="cb-concil-tipo" onchange="window._cbFiltrarConcil()" style="padding:6px 8px;font-size:12px">
+            <option value="">Tipo: todos</option>
+            <option value="grupo">🧩 Grupo</option>
+            <option value="marca">🔗 Marca</option>
+            <option value="directo">Directo</option>
+          </select>
+          <label style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:5px;white-space:nowrap"><input type="checkbox" id="cb-concil-desfase" onchange="window._cbFiltrarConcil()"> solo Δdías&gt;0</label>
+          <button class="btn btn-ghost" style="padding:6px 10px;font-size:12px" onclick="window._cbLimpiarConcil()">Limpiar</button>
+          <span id="cb-concil-count" style="font-size:12px;color:var(--text3)"></span>
+        </div>
         <table style="width:100%"><thead><tr><th>Fecha banco</th><th>Descripción banco</th><th>Fecha libro</th><th>Partida</th><th style="text-align:right">Monto</th><th>Δ días</th><th></th></tr></thead>
-        <tbody>${e.pares.map(p => `<tr>
-          <td style="font-size:12px">${p.banco.fecha}</td>
-          <td style="font-size:12px">${(p.banco.descripcion || '').slice(0, 40)}</td>
-          <td style="font-size:12px">${p.libro.fecha}</td>
-          <td style="font-size:12px">#${p.libro.numero_partida || '—'}</td>
-          <td style="text-align:right;font-family:var(--mono)">${fmtL(p.banco.monto)}</td>
-          <td style="text-align:center;font-size:12px;color:var(--text3)">${p.dias}</td>
-          <td style="font-size:11px;color:var(--gold)">${p.porGrupo ? '🧩 grupo' : (p.porMarca ? '🔗 marca' : '')}</td>
-        </tr>`).join('')}</tbody></table>
+        <tbody id="cb-concil-tbody">${e.pares.map(cbConcilRow).join('')}</tbody></table>
       </div>`
+  }
+
+  // Una fila de la tabla de conciliados (reutilizable por el filtro)
+  function cbConcilRow(p) {
+    return `<tr>
+      <td style="font-size:12px">${p.banco.fecha}</td>
+      <td style="font-size:12px">${(p.banco.descripcion || '').slice(0, 40)}</td>
+      <td style="font-size:12px">${p.libro.fecha}</td>
+      <td style="font-size:12px">#${p.libro.numero_partida || '—'}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtL(p.banco.monto)}</td>
+      <td style="text-align:center;font-size:12px;color:var(--text3)">${p.dias}</td>
+      <td style="font-size:11px;color:var(--gold)">${p.porGrupo ? '🧩 grupo' : (p.porMarca ? '🔗 marca' : '')}</td>
+    </tr>`
+  }
+
+  window._cbFiltrarConcil = () => {
+    const pares = (estadoConc && estadoConc.pares) || []
+    const q = (document.getElementById('cb-concil-q')?.value || '').trim().toLowerCase()
+    const tipo = document.getElementById('cb-concil-tipo')?.value || ''
+    const soloDesfase = !!document.getElementById('cb-concil-desfase')?.checked
+    let list = pares
+    if (q) list = list.filter(p =>
+      (p.banco.descripcion || '').toLowerCase().includes(q) ||
+      String(p.libro.numero_partida || '').toLowerCase().includes(q))
+    if (tipo === 'grupo') list = list.filter(p => p.porGrupo)
+    else if (tipo === 'marca') list = list.filter(p => p.porMarca && !p.porGrupo)
+    else if (tipo === 'directo') list = list.filter(p => !p.porGrupo && !p.porMarca)
+    if (soloDesfase) list = list.filter(p => Math.abs(Number(p.dias) || 0) > 0)
+    const tb = document.getElementById('cb-concil-tbody')
+    if (tb) tb.innerHTML = list.map(cbConcilRow).join('') || '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Sin resultados</td></tr>'
+    const c = document.getElementById('cb-concil-count'); if (c) c.textContent = `${list.length} de ${pares.length}`
+  }
+  window._cbLimpiarConcil = () => {
+    const q = document.getElementById('cb-concil-q'); if (q) q.value = ''
+    const t = document.getElementById('cb-concil-tipo'); if (t) t.value = ''
+    const d = document.getElementById('cb-concil-desfase'); if (d) d.checked = false
+    window._cbFiltrarConcil()
   }
 
   window._cbToggleConciliados = () => {
