@@ -7693,7 +7693,7 @@ window.exportarVehiculosExcel = () => {
   ]
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Vehículos')
-  const fecha = new Date().toISOString().slice(0, 10)
+  const fecha = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
   window.XLSX.writeFile(wb, `Vehiculos_${fecha}.xlsx`)
   toast(`${filteredVehiculos.length} vehículos exportados ✓`, 'success')
 }

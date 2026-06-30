@@ -19,6 +19,8 @@ const rtxFechaHora = ts => {
   return d.toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 let rtxEntregas = []
+// Fecha "hoy" en Honduras (no UTC). Evita que de noche salte al día siguiente.
+const rtxHoy = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
 let rtxTelIdent = {}   // identidad → teléfono (tx_motoristas)
 let rtxTelUni = {}     // unidad → teléfono (tx_directorio)
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
@@ -38,7 +40,7 @@ window.initRevisionTaxis = async () => {
   rtxKmEnsureTab()      // crea la pestaña "KM recorridos" si no existe
   rtxHistEnsureTab()    // crea la pestaña "Historial" si no existe
   rtxAplicarPermisos()  // oculta pestañas según permisos del usuario
-  if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
+  if (!rtxFechaSol) rtxFechaSol = rtxHoy()
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
   if (rtxEntregas.length) rtxRender(); else rtxConsultar()
   rtxStartAuto()
@@ -80,7 +82,7 @@ function rtxAplicarPermisos() {
 }
 
 window.rtxConsultar = async (silent = false) => {
-  if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
+  if (!rtxFechaSol) rtxFechaSol = rtxHoy()
   const inp = document.getElementById('rtx-fecha'); if (inp && !inp.value) inp.value = rtxFechaSol
   const fecha = rtxFechaSol
 
@@ -100,14 +102,14 @@ window.rtxConsultar = async (silent = false) => {
 }
 
 window.rtxSolCambiarFecha = (dir) => {
-  if (!rtxFechaSol) rtxFechaSol = new Date().toISOString().slice(0, 10)
+  if (!rtxFechaSol) rtxFechaSol = rtxHoy()
   const d = new Date(rtxFechaSol + 'T12:00:00'); d.setDate(d.getDate() + dir)
   rtxFechaSol = d.toISOString().slice(0, 10)
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
   rtxConsultar()
 }
 window.rtxSolHoy = () => {
-  rtxFechaSol = new Date().toISOString().slice(0, 10)
+  rtxFechaSol = rtxHoy()
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
   rtxConsultar()
 }
@@ -586,7 +588,7 @@ window.rtxTab = (tab) => {
     if (pn) pn.classList.toggle('hidden', t !== tab)
   })
   if (tab === 'dash') {
-    if (!rtxDashFecha) rtxDashFecha = new Date().toISOString().slice(0, 10)
+    if (!rtxDashFecha) rtxDashFecha = rtxHoy()
     rtxRenderDashboard()
   } else if (tab === 'mot') {
     rtxMotCargar()
@@ -601,7 +603,7 @@ window.rtxDashCambiarFecha = (dir) => {
   const d = new Date(rtxDashFecha + 'T12:00:00'); d.setDate(d.getDate() + dir)
   rtxDashFecha = d.toISOString().slice(0, 10); rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard()
 }
-window.rtxDashHoy = () => { rtxDashFecha = new Date().toISOString().slice(0, 10); rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard() }
+window.rtxDashHoy = () => { rtxDashFecha = rtxHoy(); rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard() }
 window.rtxDashSetFecha = (v) => { if (v) { rtxDashFecha = v; rtxDashAudit = ''; rtxDashAuditData = null; rtxRenderDashboard() } }
 
 function rtxDashPendiente(p) {
@@ -640,7 +642,7 @@ function rtxDashPendiente(p) {
 window.rtxRenderDashboard = async (silent = false) => {
   const pane = document.getElementById('rtx-pane-dash')
   if (!pane) return
-  if (!rtxDashFecha) rtxDashFecha = new Date().toISOString().slice(0, 10)
+  if (!rtxDashFecha) rtxDashFecha = rtxHoy()
   if (!silent && !pane.innerHTML) pane.innerHTML = '<div class="rtx-empty">Cargando…</div>'
   let r
   try {
@@ -710,7 +712,7 @@ function rtxDashPintar() {
   })
   // ── Motoristas pendientes: SOLO cuando la fecha seleccionada es hoy ──
   // (para días pasados no aplica; el indicador "días sin entregar" ya acumula eso)
-  const esHoy = (rtxDashFecha === new Date().toISOString().slice(0, 10))
+  const esHoy = (rtxDashFecha === rtxHoy())
   let pendientes = ''
   if (esHoy) {
     const pend = filtrados.map(rtxDashPendiente).join('')
@@ -1630,7 +1632,7 @@ let rtxKmUmbral = ''            // número para el filtro mayor/menor que
 let rtxKmEditUnidad = null      // unidad cuya validación se está editando
 const RTX_KM_NOMARCO = 5        // km por debajo de esto = "posible no marcó"
 
-const rtxKmLocalDate = (d) => (d || new Date()).toLocaleDateString('en-CA')
+const rtxKmLocalDate = (d) => (d || new Date()).toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
 
 // Crea la pestaña "KM recorridos" y su panel si no existen (sin tocar index.html)
 function rtxKmEnsureTab() {
