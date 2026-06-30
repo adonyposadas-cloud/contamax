@@ -95,6 +95,7 @@ function ykEnsureStyles() {
     .yk-card.warn .v{color:#e0a800}.yk-card.ok .v{color:var(--gold,#d4af37)}.yk-card.bad .v{color:#e06060}
     .yk-tbl{width:100%;border-collapse:collapse;font-size:12px}
     .yk-tbl th{position:sticky;top:0;background:var(--bg2,#1c1c1c);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#3a3a3a);font-size:11px;color:var(--text3,#888);cursor:pointer}
+    .yk-tbl th.yk-num{text-align:right}
     .yk-tbl td{padding:5px 8px;border-bottom:1px solid var(--border,#2a2a2a)}
     .yk-tbl tr.sinuni td{background:rgba(224,168,0,.08)}
     .yk-tbl tr.tot td{font-weight:700;border-top:2px solid var(--border,#3a3a3a);background:var(--bg2,#1c1c1c)}
