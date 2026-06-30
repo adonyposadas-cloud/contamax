@@ -1092,6 +1092,7 @@ window.ykCotGuardar = async () => {
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'Error', 'error'); return }
     window.toast?.('Cotización guardada', 'success')
+    if (window.logActividad) window.logActividad('cotizacion_guardar', 'yonker', `Cotización: ${marca} ${v('yk-cotm-mod') || ''} ${prod} · L. ${precio}`, data.id)
     ykCotCerrarOv('yk-cotm-ov')
     // si hay una búsqueda activa, refrescar
     if (document.getElementById('yk-cot-result') && ykCotRows.length) ykCotizar()

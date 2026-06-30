@@ -9926,7 +9926,7 @@ window.loadActividad = async () => {
     moduloEl.style.cssText = 'margin-left:8px'
     if (userSel) moduloEl.className = userSel.className
     moduloEl.innerHTML = '<option value="">Todos los módulos</option>'
-      + ['rrhh', 'partidas', 'compras', 'importar', 'auth', 'caja'].map(m => `<option value="${m}">${m.toUpperCase()}</option>`).join('')
+      + ['rrhh', 'partidas', 'compras', 'importar', 'auth', 'caja', 'taxis', 'yonker'].map(m => `<option value="${m}">${m.toUpperCase()}</option>`).join('')
     moduloEl.addEventListener('change', () => loadActividad())
     if (userSel && userSel.parentNode) userSel.parentNode.insertBefore(moduloEl, userSel.nextSibling)
   }

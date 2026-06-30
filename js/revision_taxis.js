@@ -270,12 +270,22 @@ function rtxRender() {
   }
 }
 
+// Registra la acción en "Actividad de usuarios" (módulo 'taxis')
+function rtxLog(accion, detalle, id) {
+  try { window.logActividad?.(accion, 'taxis', detalle, id) } catch (_) { /* silent */ }
+}
+function rtxEntDesc(id) {
+  const e = (rtxEntregas || []).find(x => x.id === id)
+  if (!e) return `entrega ${id}`
+  return `Unidad ${e.unidad || '—'}${e.nombre_conductor ? ' · ' + e.nombre_conductor : ''} · L. ${rtxFmt(e.monto)}`
+}
 window.rtxAprobar = async (id) => {
   try {
     const { data, error } = await rtxSb().rpc('tx_revisar_entrega', { p_entrega_id: id, p_aprobar: true })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo aprobar', 'error'); return }
     window.toast?.('Entrega aprobada', 'success')
+    rtxLog('aprobar', 'Aprobó ' + rtxEntDesc(id), id)
     rtxActualizarLocal(id, 'Aprobada')
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
@@ -287,6 +297,7 @@ window.rtxRechazar = async (id) => {
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo rechazar', 'error'); return }
     window.toast?.('Entrega rechazada · saldo revertido', 'success')
+    rtxLog('rechazar', 'Rechazó ' + rtxEntDesc(id), id)
     rtxActualizarLocal(id, 'Rechazada')
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
@@ -294,11 +305,13 @@ window.rtxRechazar = async (id) => {
 window.rtxEliminar = async (id) => {
   const pin = prompt('Eliminar definitivamente esta entrega (revierte el saldo).\nIngresá el PIN de super:')
   if (!pin) return
+  const desc = rtxEntDesc(id)
   try {
     const { data, error } = await rtxSb().rpc('tx_eliminar_entrega', { p_pin: pin, p_entrega_id: id })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo eliminar', 'error'); return }
     window.toast?.('Entrega eliminada', 'success')
+    rtxLog('eliminar', 'Eliminó ' + desc, id)
     rtxEntregas = rtxEntregas.filter(e => e.id !== id)
     rtxRender()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
@@ -344,6 +357,7 @@ window.rtxEditarGuardar = async (id) => {
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo editar', 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios' } return }
     window.toast?.('Entrega actualizada' + (data.reajustado ? ' · saldo recalculado' : ''), 'success')
+    rtxLog('editar', `Editó ${rtxEntDesc(id)} → L. ${rtxFmt(monto)} · ${banco}`, id)
     rtxEditarCerrar()
     rtxConsultar(true)  // refresca para traer el saldo recalculado
   } catch (e) {
@@ -1694,6 +1708,7 @@ window.rtxCondConfirmar = async (identidad) => {
     if (error) throw error
     if (!data?.ok) { setMsg(data?.error || 'No se pudo condonar.'); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar condonación' } return }
     window.toast?.(`Condonado L. ${rtxFmt(data.condonado)} · nuevo saldo L. ${rtxFmt(data.saldo_nuevo)}`, 'success')
+    rtxLog('condonar', `Condonó L. ${rtxFmt(data.condonado)} a ${identidad} · ${motivo}`, identidad)
     rtxCondCerrar()
     rtxHistorial(identidad)                                  // refresca el estado de cuenta
     if (typeof rtxMotCargar === 'function') rtxMotCargar()   // refresca la lista de motoristas
