@@ -18,6 +18,7 @@ let ykFile = null
 let ykPrev = null
 let ykVResumen = null   // cache vista ventas
 let ykVMargen = null    // cache vista margen
+let ykVRotacion = null  // cache vista rotación (antigüedad + recuperación)
 
 // Paginador propio (PostgREST corta a 1000).
 async function ykFetchAll(buildQuery, pageSize = 1000) {
@@ -313,6 +314,7 @@ async function ykRenderReportes() {
   try {
     if (!ykVResumen) ykVResumen = await ykFetchAll(() => ykSb().from('vw_yonker_ventas_resumen').select('*').order('anio_mes'))
     if (!ykVMargen) ykVMargen = await ykFetchAll(() => ykSb().from('vw_yonker_margen_unidad').select('*').order('vehiculo_codigo'))
+    if (!ykVRotacion) ykVRotacion = await ykFetchAll(() => ykSb().from('vw_yonker_rotacion').select('*').order('contenedor'))
   } catch (e) {
     pane.innerHTML = `<div class="page-sub" style="color:#e06060">Error cargando reportes: ${e.message || e}</div><button class="btn btn-ghost" onclick="ykRenderReportes()">Reintentar</button>`
     return
@@ -324,7 +326,7 @@ async function ykRenderReportes() {
     <div class="yk-ctrl">
       <div class="fld"><label>Modo</label>
         <select id="yk-rep-modo" onchange="ykAplicarReporte()">
-          <option value="ventas">Ventas</option><option value="margen">Margen (venta vs costo)</option>
+          <option value="ventas">Ventas</option><option value="margen">Margen (venta vs costo)</option><option value="rotacion">Rotación (antigüedad y recuperación)</option>
         </select></div>
       <div class="fld"><label>Agrupar por</label><select id="yk-rep-dim" onchange="ykAplicarReporte()"></select></div>
       <div class="fld" id="yk-fld-anio"><label>Año</label>
@@ -336,7 +338,7 @@ async function ykRenderReportes() {
           <option value="">Todas</option>${marcas.map(m => `<option value="${m}">${m}</option>`).join('')}
         </select></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExportReporte()">📥 Exportar Excel</button></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykVResumen=null;ykVMargen=null;ykRenderReportes()">↻ Refrescar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykVResumen=null;ykVMargen=null;ykVRotacion=null;ykRenderReportes()">↻ Refrescar</button></div>
     </div>
     <div id="yk-rep-cards"></div>
     <div id="yk-rep-tabla"></div>`
@@ -360,8 +362,11 @@ window.ykAplicarReporte = () => {
   // reconstruir opciones de dimensión si cambió el modo
   const dimSel = document.getElementById('yk-rep-dim')
   const dimValido = [...dimSel.options].some(o => o.value === dimSel.value)
+  const esRot = modo === 'rotacion'
   document.getElementById('yk-fld-anio').style.display = modo === 'ventas' ? '' : 'none'
   document.getElementById('yk-fld-marca').style.display = modo === 'ventas' ? '' : 'none'
+  const dimFld = dimSel.closest('.fld'); if (dimFld) dimFld.style.display = esRot ? 'none' : ''
+  if (esRot) { ykReporteRotacion(); return }
   if (!dimValido || dimSel.dataset.modo !== modo) { ykSetDimOptions(); dimSel.dataset.modo = modo }
   modo === 'ventas' ? ykReporteVentas() : ykReporteMargen()
 }
@@ -429,6 +434,74 @@ function ykReporteMargen() {
         <tr class="tot"><td>TOTAL</td><td class="yk-num"></td><td class="yk-num">${ykFmt(tV)}</td><td class="yk-num">${ykFmt(tC)}</td><td class="yk-num">${ykFmt(tU)}</td><td class="yk-num">${tC ? ykPct(tV / tC) : '—'}</td></tr>
       </tbody></table></div>`
   ykRepActual = { tipo: 'margen', dimLabel, rows: rows.map(r => ({ [dimLabel]: r.k, Items: r.lineas, Venta: r.venta, Costo: r.costo, Utilidad: r.utilidad, Pct_recuperado: r.pct })) }
+}
+
+// Diferencia en años/meses/días cumplidos entre dos fechas ISO (YYYY-MM-DD)
+function ykAntiguedad(desde, hasta) {
+  if (!desde || !hasta) return '—'
+  const a = new Date(desde + 'T00:00:00'), b = new Date(hasta + 'T00:00:00')
+  if (isNaN(a) || isNaN(b) || b < a) return '—'
+  let y = b.getFullYear() - a.getFullYear()
+  let m = b.getMonth() - a.getMonth()
+  let d = b.getDate() - a.getDate()
+  if (d < 0) { m--; d += new Date(b.getFullYear(), b.getMonth(), 0).getDate() }
+  if (m < 0) { y--; m += 12 }
+  const parts = []
+  if (y) parts.push(y + 'a')
+  if (m) parts.push(m + 'm')
+  parts.push(d + 'd')
+  return parts.join(' ')
+}
+
+function ykReporteRotacion() {
+  const hoy = new Date().toLocaleDateString('en-CA')   // YYYY-MM-DD local (America/Tegucigalpa)
+  const data = (ykVRotacion || []).slice()
+    .sort((a, b) => String(a.contenedor).localeCompare(String(b.contenedor), undefined, { numeric: true }))
+  const nRec = data.filter(r => r.recuperado).length
+  const nPend = data.length - nRec
+  document.getElementById('yk-rep-cards').innerHTML = `<div class="yk-cards">
+    <div class="yk-card"><div class="v">${data.length}</div><div class="l">Contenedores</div></div>
+    <div class="yk-card ok"><div class="v">${nRec}</div><div class="l">Recuperaron costo</div></div>
+    <div class="yk-card ${nPend ? 'warn' : ''}"><div class="v">${nPend}</div><div class="l">Aún no recuperan</div></div></div>`
+  const rows = data.map(r => {
+    const antig = ykAntiguedad(r.fecha_entrada, hoy)
+    const recup = r.recuperado ? ykAntiguedad(r.fecha_entrada, r.fecha_recuperado) : '—'
+    const estado = r.recuperado ? '<span style="color:#4ade80">✓ recuperado</span>' : '<span style="color:#e0a800">pendiente</span>'
+    const pct = r.pct_recuperado != null ? +r.pct_recuperado : null
+    return `<tr>
+      <td>${r.contenedor}</td>
+      <td>${r.fecha_entrada || '—'}</td>
+      <td>${antig}</td>
+      <td class="yk-num">${ykFmt(r.costo_total)}</td>
+      <td class="yk-num">${ykFmt(r.venta_total)}</td>
+      <td class="yk-num" style="${pct != null && pct < 100 ? 'color:#e0a800' : ''}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+      <td>${r.fecha_recuperado || '—'}</td>
+      <td>${recup}</td>
+      <td>${estado}</td>
+    </tr>`
+  }).join('')
+  document.getElementById('yk-rep-tabla').innerHTML = `
+    <div class="page-sub" style="margin:4px 0 8px">Antigüedad = desde la entrada del contenedor hasta hoy. Recuperación = el día en que las ventas acumuladas igualaron el costo.</div>
+    <div class="table-wrap" style="max-height:520px;overflow:auto">
+      <table class="yk-tbl"><thead><tr>
+        <th>Contenedor</th><th>Entrada</th><th>Antigüedad</th>
+        <th class="yk-num">Costo (L.)</th><th class="yk-num">Venta (L.)</th><th class="yk-num">% recup.</th>
+        <th>Recuperó el</th><th>Tiempo p/ recuperar</th><th>Estado</th>
+      </tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+  ykRepActual = { tipo: 'rotacion', dimLabel: 'Contenedor', rows: data.map(r => ({
+    Contenedor: r.contenedor,
+    Fecha_entrada: r.fecha_entrada,
+    Antiguedad: ykAntiguedad(r.fecha_entrada, hoy),
+    Dias_antiguedad: r.dias_antiguedad,
+    Costo: r.costo_total,
+    Venta: r.venta_total,
+    Pct_recuperado: r.pct_recuperado,
+    Fecha_recuperado: r.fecha_recuperado || '',
+    Tiempo_recuperar: r.recuperado ? ykAntiguedad(r.fecha_entrada, r.fecha_recuperado) : 'Aún no',
+    Dias_recuperar: r.dias_recuperar,
+    Estado: r.recuperado ? 'Recuperado' : 'Pendiente'
+  })) }
 }
 
 window.ykExportReporte = () => {
@@ -542,7 +615,7 @@ window.ykDevConfirmar = async (id) => {
     if (!data?.ok) { setMsg(data?.error || 'No se pudo.'); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar devolución' } return }
     window.toast?.(`Devolución registrada · L. ${ykFmt(data.devuelto)}${data.costo126_nuevo != null ? ' · costo #126 recalculado' : ''}`, 'success')
     ykDevCerrar()
-    ykVResumen = null; ykVMargen = null   // invalidar cache de reportes
+    ykVResumen = null; ykVMargen = null; ykVRotacion = null   // invalidar cache de reportes
     if (window.logActividad) window.logActividad('yonker_devolucion', 'devolver', `Devolución de línea ${id}: ${motivo}`)
     ykBuscarDev()                          // refrescar la búsqueda
   } catch (e) {
