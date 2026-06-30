@@ -455,6 +455,9 @@ function rtx7dEnsure() {
     .dash-audit-km{font-size:13px;font-weight:700;color:#f0a500;background:rgba(240,165,0,.14);border-radius:8px;padding:3px 10px;white-space:nowrap}
     .dash-audit-falta{color:#fca5a5}
     .dash-audit-volver{margin-bottom:12px}
+    .dash-audit-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+    .dash-audit-actions .dash-audit-volver{margin-bottom:0}
+    .dash-audit-export{border-color:rgba(63,185,80,.4);color:#3fb950}
     .rtx-b.call{background:rgba(74,144,226,.16)!important;color:#4a90e2!important;border:1px solid rgba(74,144,226,.45)!important;text-decoration:none;display:inline-flex;align-items:center}
     .rtx-b.edit{background:rgba(168,85,247,.16)!important;color:#c084fc!important;border:1px solid rgba(168,85,247,.45)!important}
     .rtx-b.ok{background:rgba(22,163,74,.2)!important;color:#3fb950!important;border:1px solid rgba(22,163,74,.5)!important}
@@ -850,6 +853,144 @@ window.rtxDashAuditar = async (modo) => {
   rtxDashPintar()
 }
 window.rtxDashAuditCerrar = () => { rtxDashAudit = ''; rtxDashAuditData = null; rtxDashPintar() }
+
+// Exporta la lista de auditoría actual a Excel (registro fijo para llamados de atención)
+window.rtxDashAuditExportar = () => {
+  if (typeof XLSX === 'undefined') { window.toast?.('No se pudo exportar (XLSX no disponible)', 'error'); return }
+  const d = rtxDashAuditData
+  if (!d || !Array.isArray(d.lista) || !d.lista.length) { window.toast?.('No hay datos para exportar', 'error'); return }
+  const modo = rtxDashAudit
+  const titulo = modo === 'no_cubrio' ? 'Entregó pero no cubrió' : 'Trabajó y no entregó'
+  const gen = new Date().toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa' })
+  const aoa = [
+    ['CONTAMAX · Auditoría Taxis · ' + titulo],
+    ['Fecha auditada:', rtxDashFecha],
+    ['KM tomado del día:', d.diaKM || '—'],
+    ['Generado:', gen],
+    ['Total unidades:', d.lista.length],
+    []
+  ]
+  if (modo === 'no_cubrio') {
+    aoa.push(['Unidad', 'Motorista', 'KM recorridos', 'Cuota período', 'Pagó', 'Faltó (sube saldo)', 'Saldo antes', 'Saldo nuevo', 'Teléfono'])
+    d.lista.forEach(x => aoa.push([
+      x.unidad || '', x.nombre || '', Number(x.km) || 0,
+      Number(x.periodo) || 0, Number(x.monto) || 0, Number(x.faltante) || 0,
+      Number(x.saldo) || 0, Number(x.saldoNuevo) || 0, x.telefono || ''
+    ]))
+  } else {
+    aoa.push(['Unidad', 'Motorista', 'KM recorridos', 'Saldo', 'Última entrega', 'Días sin entregar', 'Caja', 'Grupo', 'Teléfono'])
+    d.lista.forEach(x => aoa.push([
+      x.unidad || '', x.nombre || '', Number(x.km) || 0,
+      Number(x.saldo) || 0, x.ultima_entrega || '', (x.dias_sin != null ? x.dias_sin : ''),
+      x.caja || '', x.grupo || '', x.telefono || ''
+    ]))
+  }
+  try {
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Auditoría')
+    XLSX.writeFile(wb, `Auditoria_${modo}_${rtxDashFecha}.xlsx`)
+    window.toast?.('Exportado ✓', 'success')
+  } catch (e) { window.toast?.('Error al exportar: ' + (e.message || e), 'error') }
+}
+
+// Guarda el snapshot en la base (consultable luego, con responsable y hora)
+window.rtxDashAuditGuardar = async () => {
+  const d = rtxDashAuditData
+  if (!d || !Array.isArray(d.lista) || !d.lista.length) { window.toast?.('No hay datos para guardar', 'error'); return }
+  const modo = rtxDashAudit
+  const detalle = d.lista.map(x => modo === 'no_cubrio'
+    ? { unidad: x.unidad, nombre: x.nombre, km: Number(x.km) || 0, periodo: Number(x.periodo) || 0, monto: Number(x.monto) || 0, faltante: Number(x.faltante) || 0, saldo: Number(x.saldo) || 0, saldoNuevo: Number(x.saldoNuevo) || 0, telefono: x.telefono || '' }
+    : { unidad: x.unidad, nombre: x.nombre, km: Number(x.km) || 0, saldo: Number(x.saldo) || 0, ultima_entrega: x.ultima_entrega || '', dias_sin: (x.dias_sin != null ? x.dias_sin : ''), caja: x.caja || '', grupo: x.grupo || '', telefono: x.telefono || '' })
+  try {
+    const { data, error } = await rtxSb().rpc('tx_auditoria_guardar', {
+      p_tipo: modo, p_fecha: rtxDashFecha, p_dia_km: d.diaKM || null, p_total: d.lista.length, p_detalle: detalle
+    })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo guardar', 'error'); return }
+    window.toast?.('Auditoría guardada ✓ · ' + (data.generado_nombre || ''), 'success')
+  } catch (e) { window.toast?.('Error al guardar: ' + (e.message || e), 'error') }
+}
+
+// ── Visor de auditorías guardadas ──
+function rtxAudEnsure() {
+  if (document.getElementById('rtx-aud-overlay')) return
+  const st = document.createElement('style')
+  st.textContent = `
+    .rtx-aud-ov{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
+    .rtx-aud-ov.show{display:flex}
+    .rtx-aud-modal{background:#15171c;border:1px solid #262a32;border-radius:14px;max-width:820px;width:100%;max-height:88vh;overflow:auto}
+    .rtx-aud-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #262a32;position:sticky;top:0;background:#15171c}
+    .rtx-aud-head h3{margin:0;font-size:15px}
+    .rtx-aud-head button{background:none;border:none;color:#9aa0aa;font-size:18px;cursor:pointer}
+    .rtx-aud-body{padding:14px 16px}
+    .rtx-aud-row{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#0f1115;border:1px solid #262a32;border-radius:9px;padding:10px 12px;margin-bottom:8px}
+    .rtx-aud-row .t{font-size:13px}
+    .rtx-aud-row .m{font-size:11px;color:#8a8f98;margin-top:2px}
+    .rtx-aud-tbl{width:100%;border-collapse:collapse;font-size:12px}
+    .rtx-aud-tbl th,.rtx-aud-tbl td{border-bottom:1px solid #23262d;padding:6px 8px;text-align:left}
+    .rtx-aud-tbl td.r,.rtx-aud-tbl th.r{text-align:right}
+    .rtx-aud-load{padding:24px;text-align:center;color:#8a8f98}
+    .rtx-aud-back{background:none;border:1px solid #2a2e37;color:#9aa0aa;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;margin-bottom:10px}`
+  document.head.appendChild(st)
+  const ov = document.createElement('div')
+  ov.id = 'rtx-aud-overlay'; ov.className = 'rtx-aud-ov'
+  ov.innerHTML = `<div class="rtx-aud-modal">
+    <div class="rtx-aud-head"><h3 id="rtx-aud-title">Auditorías guardadas</h3><button onclick="rtxAudCerrar()">✕</button></div>
+    <div id="rtx-aud-body" class="rtx-aud-body"></div>
+  </div>`
+  ov.addEventListener('click', e => { if (e.target === ov) window.rtxAudCerrar() })
+  document.body.appendChild(ov)
+}
+window.rtxAudCerrar = () => document.getElementById('rtx-aud-overlay')?.classList.remove('show')
+
+window.rtxAudGuardadas = async () => {
+  rtxAudEnsure()
+  const ov = document.getElementById('rtx-aud-overlay')
+  const body = document.getElementById('rtx-aud-body')
+  document.getElementById('rtx-aud-title').textContent = `Auditorías guardadas · ${rtxDashFecha}`
+  body.innerHTML = '<div class="rtx-aud-load">Cargando…</div>'
+  ov.classList.add('show')
+  try {
+    const { data, error } = await rtxSb().rpc('tx_auditoria_listar', { p_fecha: rtxDashFecha, p_tipo: null })
+    if (error) throw error
+    const lista = Array.isArray(data) ? data : []
+    if (!lista.length) { body.innerHTML = '<div class="rtx-aud-load">No hay auditorías guardadas para esta fecha.<br>Generá una y tocá «💾 Guardar snapshot».</div>'; return }
+    body.innerHTML = lista.map(a => {
+      const tipoTxt = a.tipo === 'no_cubrio' ? '💰 Entregó pero no cubrió' : '🔎 Trabajó y no entregó'
+      const hora = rtxFechaHora(a.created_at)
+      return `<div class="rtx-aud-row">
+        <div><div class="t"><b>${tipoTxt}</b> · ${a.total} unidades</div>
+        <div class="m">Guardado: ${hora} · por ${a.generado_nombre || '—'}</div></div>
+        <button class="rtx-b" onclick="rtxAudVer('${a.id}')">Ver</button>
+      </div>`
+    }).join('')
+  } catch (e) { body.innerHTML = `<div class="rtx-aud-load">Error: ${e.message || e}</div>` }
+}
+
+window.rtxAudVer = async (id) => {
+  const body = document.getElementById('rtx-aud-body')
+  body.innerHTML = '<div class="rtx-aud-load">Cargando…</div>'
+  try {
+    const { data, error } = await rtxSb().rpc('tx_auditoria_detalle', { p_id: id })
+    if (error) throw error
+    if (!data?.ok) { body.innerHTML = `<div class="rtx-aud-load">${data?.error || 'Sin datos'}</div>`; return }
+    const det = Array.isArray(data.detalle) ? data.detalle : []
+    let head, filas
+    if (data.tipo === 'no_cubrio') {
+      head = '<tr><th>Unidad</th><th>Motorista</th><th class="r">KM</th><th class="r">Cuota período</th><th class="r">Pagó</th><th class="r">Faltó</th><th class="r">Saldo nuevo</th></tr>'
+      filas = det.map(x => `<tr><td>#${x.unidad || ''}</td><td>${x.nombre || ''}</td><td class="r">${rtxFmt(x.km)}</td><td class="r">${rtxFmt(x.periodo)}</td><td class="r">${rtxFmt(x.monto)}</td><td class="r">${rtxFmt(x.faltante)}</td><td class="r">${rtxFmt(x.saldoNuevo)}</td></tr>`).join('')
+    } else {
+      head = '<tr><th>Unidad</th><th>Motorista</th><th class="r">KM</th><th class="r">Saldo</th><th>Última</th><th class="r">Días</th></tr>'
+      filas = det.map(x => `<tr><td>#${x.unidad || ''}</td><td>${x.nombre || ''}</td><td class="r">${rtxFmt(x.km)}</td><td class="r">${rtxFmt(x.saldo)}</td><td>${x.ultima_entrega || '—'}</td><td class="r">${x.dias_sin != null && x.dias_sin !== '' ? x.dias_sin : '—'}</td></tr>`).join('')
+    }
+    const tipoTxt = data.tipo === 'no_cubrio' ? 'Entregó pero no cubrió' : 'Trabajó y no entregó'
+    body.innerHTML = `
+      <button class="rtx-aud-back" onclick="rtxAudGuardadas()">← Volver a la lista</button>
+      <div class="m" style="font-size:12px;color:#8a8f98;margin-bottom:10px">${tipoTxt} · auditado ${data.fecha_auditada} · KM del ${data.dia_km || '—'} · guardado ${rtxFechaHora(data.created_at)} por ${data.generado_nombre || '—'}</div>
+      <table class="rtx-aud-tbl"><thead>${head}</thead><tbody>${filas || ''}</tbody></table>`
+  } catch (e) { body.innerHTML = `<div class="rtx-aud-load">Error: ${e.message || e}</div>` }
+}
 function rtxDashAuditCard() {
   if (rtxDashAuditLoading) return `<div class="dash-card"><div class="rtx-empty">Cargando auditoría…</div></div>`
   const d = rtxDashAuditData
@@ -857,6 +998,10 @@ function rtxDashAuditCard() {
   if (d.error) return `<div class="dash-card"><div class="rtx-empty">Error: ${d.error}</div></div>`
   const diaTxt = d.diaKM || 'sin KM previo'
   const volver = '<button class="rtx-b ghost dash-audit-volver" onclick="rtxDashAuditCerrar()">← Volver al dashboard</button>'
+  const exportar = '<button class="rtx-b dash-audit-export" onclick="rtxDashAuditExportar()">📥 Exportar a Excel</button>'
+  const guardar = '<button class="rtx-b dash-audit-save" onclick="rtxDashAuditGuardar()">💾 Guardar snapshot</button>'
+  const guardadas = '<button class="rtx-b" onclick="rtxAudGuardadas()">🗂 Guardadas</button>'
+  const barraAcc = `<div class="dash-audit-actions">${volver}${guardar}${exportar}${guardadas}</div>`
   const accPend = (p) => {
     const wa = p.telefono
       ? `<button class="rtx-b wa" onclick="rtxWa('${p.telefono}','${encodeURIComponent('Hola ' + (p.nombre || '') + ', te escribimos de Tecnimax para coordinar tu entrega. Gracias.')}')">💬 WhatsApp</button><a class="rtx-b call" href="tel:${p.telefono}">📞 Llamar</a>`
@@ -874,7 +1019,7 @@ function rtxDashAuditCard() {
         <div class="dash-pend-acc">${accPend(p)}</div>
       </div>`).join('')
     return `<div class="dash-card">
-      ${volver}
+      ${barraAcc}
       <div class="dash-card-t">🔎 Trabajó y no entregó (${d.lista.length})</div>
       <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y no han entregado el ${rtxDashFecha}.</div>
       ${rows || `<div class="rtx-empty">Nadie cumple: o ya entregaron, o no superaron los ${RTX_KM_TRABAJO} km.</div>`}
@@ -892,7 +1037,7 @@ function rtxDashAuditCard() {
         <div class="dash-pend-acc">${accPend(x)}</div>
       </div>`).join('')
     return `<div class="dash-card">
-      ${volver}
+      ${barraAcc}
       <div class="dash-card-t">💰 Entregó pero no cubrió (${d.lista.length})</div>
       <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y entregaron el ${rtxDashFecha}, pero pagaron menos que la cuota del período (reconciliación por km desde su última entrega, sin contar el saldo histórico).</div>
       ${rows || '<div class="rtx-empty">Nadie cumple el criterio.</div>'}
