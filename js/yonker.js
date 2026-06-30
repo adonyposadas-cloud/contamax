@@ -66,18 +66,21 @@ window.initYonker = async () => {
       <button class="yk-tab active" id="yk-tab-imp" onclick="ykTab('imp')">Importar ventas</button>
       <button class="yk-tab" id="yk-tab-rep" onclick="ykTab('rep')">Reportes</button>
       <button class="yk-tab" id="yk-tab-dev" onclick="ykTab('dev')">Devoluciones</button>
+      <button class="yk-tab" id="yk-tab-exp" onclick="ykTab('exp')">Explorar</button>
     </div>
     <div id="yk-pane"></div>`
   ykTab('imp')
 }
 
 window.ykTab = (which) => {
-  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev')
+  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp')
   if (ti) ti.classList.toggle('active', which === 'imp')
   if (tr) tr.classList.toggle('active', which === 'rep')
   if (td) td.classList.toggle('active', which === 'dev')
+  if (te) te.classList.toggle('active', which === 'exp')
   if (which === 'rep') ykRenderReportes()
   else if (which === 'dev') ykRenderDevoluciones()
+  else if (which === 'exp') ykRenderExplorar()
   else ykRenderImport()
 }
 
@@ -112,6 +115,8 @@ function ykEnsureStyles() {
     .yk-modal{background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:12px;width:460px;max-width:92vw;max-height:90vh;overflow:auto}
     .yk-mhead{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border,#3a3a3a)}
     .yk-mhead button{background:none;border:none;color:var(--text3,#888);font-size:16px;cursor:pointer}
+    .yk-link{background:none;border:none;color:var(--gold,#d4af37);cursor:pointer;text-decoration:underline;font:inherit;padding:0}
+    .yk-link:hover{opacity:.8}
   `
   document.head.appendChild(st)
 }
@@ -430,7 +435,7 @@ function ykReporteMargen() {
   document.getElementById('yk-rep-tabla').innerHTML = `
     <div class="table-wrap" style="max-height:520px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>${dimLabel}</th><th class="yk-num">Items</th><th class="yk-num">Venta</th><th class="yk-num">Costo</th><th class="yk-num">Utilidad</th><th class="yk-num">% recup.</th></tr></thead>
-      <tbody>${rows.map(r => `<tr><td>${r.k}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? '#e06060' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`).join('')}
+      <tbody>${rows.map(r => `<tr><td>${dim === 'contenedor' ? `<button class="yk-link" onclick="ykContenedorDetalle('${r.k}')">${r.k}</button>` : r.k}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? '#e06060' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`).join('')}
         <tr class="tot"><td>TOTAL</td><td class="yk-num"></td><td class="yk-num">${ykFmt(tV)}</td><td class="yk-num">${ykFmt(tC)}</td><td class="yk-num">${ykFmt(tU)}</td><td class="yk-num">${tC ? ykPct(tV / tC) : '—'}</td></tr>
       </tbody></table></div>`
   ykRepActual = { tipo: 'margen', dimLabel, rows: rows.map(r => ({ [dimLabel]: r.k, Items: r.lineas, Venta: r.venta, Costo: r.costo, Utilidad: r.utilidad, Pct_recuperado: r.pct })) }
@@ -469,7 +474,7 @@ function ykReporteRotacion() {
     const estado = r.recuperado ? '<span style="color:#4ade80">✓ recuperado</span>' : '<span style="color:#e0a800">pendiente</span>'
     const pct = r.pct_recuperado != null ? +r.pct_recuperado : null
     return `<tr>
-      <td>${r.contenedor}</td>
+      <td><button class="yk-link" onclick="ykContenedorDetalle('${r.contenedor}')">${r.contenedor}</button></td>
       <td>${r.fecha_entrada || '—'}</td>
       <td>${antig}</td>
       <td class="yk-num">${ykFmt(r.costo_total)}</td>
@@ -621,4 +626,167 @@ window.ykDevConfirmar = async (id) => {
   } catch (e) {
     setMsg('Error: ' + (e.message || e)); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar devolución' }
   }
+}
+
+// ── CONTAMAX · Yonker — Drill-down de contenedor (unidades con % recuperado) ──
+let ykUniOv = null
+window.ykUniCerrar = () => { if (ykUniOv) { ykUniOv.remove(); ykUniOv = null } }
+window.ykContenedorDetalle = (contenedor) => {
+  const unidades = (ykVMargen || [])
+    .filter(u => String(u.contenedor) === String(contenedor))
+    .sort((a, b) => (+a.pct_recuperado || 0) - (+b.pct_recuperado || 0))   // menos recuperado primero
+  if (!unidades.length) { window.toast?.('Sin unidades para ese contenedor', 'info'); return }
+  ykUniCerrar()
+  const totC = unidades.reduce((s, u) => s + (+u.costo_hnl || 0), 0)
+  const totV = unidades.reduce((s, u) => s + (+u.venta || 0), 0)
+  const rows = unidades.map(u => {
+    const pct = u.pct_recuperado != null ? (+u.pct_recuperado * 100) : null   // la vista guarda ratio (venta/costo)
+    const rec = pct != null && pct >= 100
+    return `<tr>
+      <td>${u.vehiculo_codigo}</td>
+      <td>${(u.marca || '')} ${(u.modelo || '')} ${(u.anio_vehiculo || '')}</td>
+      <td class="yk-num">${ykFmt(u.costo_hnl)}</td>
+      <td class="yk-num">${ykFmt(u.venta)}</td>
+      <td class="yk-num" style="color:${rec ? '#4ade80' : '#e0a800'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+      <td>${rec ? '<span style="color:#4ade80">✓</span>' : '<span style="color:#e0a800">pendiente</span>'}</td>
+    </tr>`
+  }).join('')
+  const ov = document.createElement('div')
+  ov.className = 'yk-ov'; ov.id = 'yk-uni-overlay'
+  ov.innerHTML = `<div class="yk-modal" style="width:680px">
+      <div class="yk-mhead"><b>📦 Contenedor ${contenedor} · ${unidades.length} unidades</b><button onclick="ykUniCerrar()">✕</button></div>
+      <div style="padding:12px 16px">
+        <div class="page-sub" style="margin-bottom:8px">Ordenadas de <b>menor a mayor recuperación</b>. Las primeras son las que aún no venden lo suficiente — útil para ir a auditar el físico.</div>
+        <div style="max-height:60vh;overflow:auto">
+        <table class="yk-tbl"><thead><tr><th>Vehículo</th><th>Marca / Modelo / Año</th><th class="yk-num">Costo</th><th class="yk-num">Venta</th><th class="yk-num">% recup.</th><th>Estado</th></tr></thead>
+        <tbody>${rows}
+          <tr class="tot"><td>TOTAL</td><td></td><td class="yk-num">${ykFmt(totC)}</td><td class="yk-num">${ykFmt(totV)}</td><td class="yk-num">${totC ? (totV / totC * 100).toFixed(0) + '%' : '—'}</td><td></td></tr>
+        </tbody></table></div>
+      </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) ykUniCerrar() }
+  document.body.appendChild(ov)
+  ykUniOv = ov
+}
+
+// ── CONTAMAX · Yonker — Explorar (buscador de dos niveles, línea por línea) ──
+let ykExpRows = []
+let ykUnidades = null   // cache de unidades para autocompletar (marca/modelo/código/año)
+async function ykCargarUnidades() {
+  if (ykUnidades) return ykUnidades
+  try { ykUnidades = await ykFetchAll(() => ykSb().from('yonker_unidades').select('vehiculo_codigo,marca,modelo,anio_vehiculo').order('vehiculo_codigo')) }
+  catch (e) { ykUnidades = [] }
+  return ykUnidades
+}
+window.ykExpModelosDe = (marca) => {
+  const us = ykUnidades || []
+  const filt = marca ? us.filter(u => (u.marca || '') === marca) : us
+  return [...new Set(filt.map(u => u.modelo).filter(Boolean))].sort()
+}
+window.ykExpMarcaChange = () => {
+  const sel = document.getElementById('yk-exp-mod'); if (!sel) return
+  const marca = document.getElementById('yk-exp-mar')?.value || ''
+  const actual = sel.value
+  const modelos = ykExpModelosDe(marca)
+  sel.innerHTML = '<option value="">(todos)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+  sel.value = modelos.includes(actual) ? actual : ''
+}
+window.ykExpAutofill = () => {
+  const cod = (document.getElementById('yk-exp-cod')?.value || '').trim()
+  if (!cod || !ykUnidades) return
+  const u = ykUnidades.find(x => String(x.vehiculo_codigo) === cod)
+  if (!u) return
+  const mar = document.getElementById('yk-exp-mar')
+  if (mar && !mar.value && u.marca) { mar.value = u.marca; ykExpMarcaChange() }
+  const mod = document.getElementById('yk-exp-mod')
+  if (mod && !mod.value && u.modelo) {
+    if (![...mod.options].some(o => o.value === u.modelo)) { const o = document.createElement('option'); o.value = u.modelo; o.textContent = u.modelo; mod.appendChild(o) }
+    mod.value = u.modelo
+  }
+  const ad = document.getElementById('yk-exp-ad'); if (ad && !ad.value && u.anio_vehiculo) ad.value = u.anio_vehiculo
+  const ah = document.getElementById('yk-exp-ah'); if (ah && !ah.value && u.anio_vehiculo) ah.value = u.anio_vehiculo
+}
+function ykRenderExplorar() {
+  const pane = document.getElementById('yk-pane')
+  if (!pane) return
+  pane.innerHTML = `
+    <div class="page-sub">Filtro 1: elegí unidades por <b>vehículo, marca, modelo y/o rango de años</b>. Filtro 2: dentro de eso, buscá un <b>producto</b> (ej. "motor"). Resultados por línea de venta.</div>
+    <div class="yk-ctrl" style="margin:14px 0;align-items:flex-end">
+      <div class="fld"><label>Vehículo (código)</label><input id="yk-exp-cod" type="text" style="width:120px" placeholder="ej. 126" onchange="ykExpAutofill()" onkeydown="if(event.key==='Enter')ykExplorar()"></div>
+      <div class="fld"><label>Marca</label><select id="yk-exp-mar" style="width:150px" onchange="ykExpMarcaChange()"><option value="">(todas)</option></select></div>
+      <div class="fld"><label>Modelo</label><select id="yk-exp-mod" style="width:160px"><option value="">(todos)</option></select></div>
+      <div class="fld"><label>Año desde</label><input id="yk-exp-ad" type="number" style="width:95px" placeholder="2015"></div>
+      <div class="fld"><label>Año hasta</label><input id="yk-exp-ah" type="number" style="width:95px" placeholder="2018"></div>
+      <div class="fld"><label>Producto (filtro 2)</label><input id="yk-exp-prod" type="text" style="width:150px" placeholder="ej. motor" onkeydown="if(event.key==='Enter')ykExplorar()"></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykExplorar()">🔎 Buscar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExplorarLimpiar()">Limpiar</button></div>
+    </div>
+    <div id="yk-exp-cards"></div>
+    <div id="yk-exp-result"><div class="page-sub">Indicá al menos un filtro de vehículo/marca/modelo/año y tocá Buscar.</div></div>`
+  ykCargarUnidades().then(us => {
+    const marcas = [...new Set(us.map(u => u.marca).filter(Boolean))].sort()
+    const mar = document.getElementById('yk-exp-mar')
+    if (mar) mar.innerHTML = '<option value="">(todas)</option>' + marcas.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+    ykExpMarcaChange()
+  })
+}
+window.ykExplorarLimpiar = () => {
+  ['yk-exp-cod', 'yk-exp-mar', 'yk-exp-mod', 'yk-exp-ad', 'yk-exp-ah', 'yk-exp-prod'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+  if (window.ykExpMarcaChange) ykExpMarcaChange()
+  const c = document.getElementById('yk-exp-cards'); if (c) c.innerHTML = ''
+  const r = document.getElementById('yk-exp-result'); if (r) r.innerHTML = '<div class="page-sub">Indicá al menos un filtro y tocá Buscar.</div>'
+}
+window.ykExplorar = async () => {
+  const cont = document.getElementById('yk-exp-result')
+  const cards = document.getElementById('yk-exp-cards')
+  ykExpAutofill()   // si hay código, llena marca/modelo/año vacíos antes de buscar
+  const val = id => (document.getElementById(id)?.value || '').trim()
+  const num = id => { const v = parseInt(val(id), 10); return isNaN(v) ? null : v }
+  const params = {
+    p_codigo: val('yk-exp-cod') || null,
+    p_marca: val('yk-exp-mar') || null,
+    p_modelo: val('yk-exp-mod') || null,
+    p_anio_desde: num('yk-exp-ad'),
+    p_anio_hasta: num('yk-exp-ah'),
+    p_producto: val('yk-exp-prod') || null
+  }
+  if (cont) cont.innerHTML = '<div class="page-sub">Buscando…</div>'
+  try {
+    const { data, error } = await ykSb().rpc('yonker_explorar', params)
+    if (error) throw error
+    if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:#e0a800">${data?.error || 'Error'}</div>`; return }
+    const lineas = data.lineas || []
+    ykExpRows = lineas
+    if (cards) cards.innerHTML = `<div class="yk-cards">
+      <div class="yk-card ok"><div class="v">${ykFmt(data.total_venta)}</div><div class="l">Venta filtrada (L.)</div></div>
+      <div class="yk-card"><div class="v">${ykFmt0(data.total_lineas)}</div><div class="l">Líneas</div></div>
+      <div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()">📥 Exportar Excel</button></div></div>`
+    if (!lineas.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esos filtros.</div>'; return }
+    const rows = lineas.map(l => `<tr>
+      <td>${l.fecha || ''}</td>
+      <td>${l.vehiculo_codigo || '—'}</td>
+      <td>${(l.marca || '')} ${(l.modelo || '')} ${(l.anio_vehiculo || '')}</td>
+      <td>${(l.producto || '').slice(0, 60)}</td>
+      <td class="yk-num">${ykFmt(l.cantidad)}</td>
+      <td class="yk-num" style="${l.venta_hnl < 0 ? 'color:#e06060' : ''}">${ykFmt(l.venta_hnl)}</td>
+      <td>${l.factura || '—'}</td>
+      <td>${l.cliente || '—'}</td>
+    </tr>`).join('')
+    cont.innerHTML = `
+      <div class="table-wrap" style="max-height:520px;overflow:auto">
+      <table class="yk-tbl"><thead><tr><th>Fecha</th><th>Veh.</th><th>Marca/Modelo/Año</th><th>Producto</th><th class="yk-num">Cant.</th><th class="yk-num">Venta</th><th>Factura</th><th>Cliente</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="page-sub" style="margin-top:8px">Mostrando ${data.mostradas} de ${data.total_lineas} línea(s)${data.truncado ? ' · resultado limitado, afiná los filtros para ver todo' : ''}.</div>`
+  } catch (e) {
+    if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+  }
+}
+window.ykExpExport = () => {
+  if (!ykExpRows.length) { window.toast?.('Nada que exportar', 'info'); return }
+  const ws = window.XLSX.utils.json_to_sheet(ykExpRows.map(l => ({
+    Fecha: l.fecha, Vehiculo: l.vehiculo_codigo, Marca: l.marca, Modelo: l.modelo, Anio: l.anio_vehiculo,
+    Producto: l.producto, Cantidad: l.cantidad, Venta: l.venta_hnl, Factura: l.factura, Cliente: l.cliente, Contenedor: l.contenedor
+  })))
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Explorar')
+  window.XLSX.writeFile(wb, `Yonker_Explorar_${new Date().toLocaleDateString('en-CA')}.xlsx`)
 }
