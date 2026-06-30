@@ -341,6 +341,11 @@
               <label>RTN del proveedor</label>
               <input type="text" id="fc-rtn" placeholder="Si aparece en la factura (opcional)" autocomplete="off">
             </div>
+            <div class="fld" id="fc-sucursal-fld" style="display:none">
+              <label>Sucursal del proveedor *</label>
+              <select id="fc-sucursal" onchange="fcValidarRango()"><option value="">— Elegí la sucursal —</option></select>
+              <div id="fc-rango-hint" style="margin-top:4px"></div>
+            </div>
             <div class="fld">
               <label>¿Quién pidió la compra? *</label>
               <div class="ac-wrap">
@@ -364,7 +369,7 @@
             </div>
             <div class="fld">
               <label>N° de factura *</label>
-              <input type="text" id="fc-numero" placeholder="S/F o número" onblur="completarNumeroFactura()">
+              <input type="text" id="fc-numero" placeholder="S/F o número" onblur="completarNumeroFactura();fcValidarRango()">
             </div>
             <div class="fld">
               <label>Monto (L.) *</label>
@@ -3444,7 +3449,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260630f"></script>
+<script type="module" src="js/app.js?v=20260630g"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>

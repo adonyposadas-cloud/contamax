@@ -1035,6 +1035,68 @@ async function aplicarRtnProveedor(nombre, existente) {
     rtnInput.title = ''
     if (data && !data.rtn) rtnInput.value = ''   // existe pero sin RTN → vacío para que lo capturen
   }
+  fcCargarSucursales(n)   // cargar sucursales/rangos del proveedor (si tiene)
+}
+
+// ── Sucursal del proveedor en Registrar compra ──
+let _fcCais = []
+async function fcCargarSucursales(nombre) {
+  const fld = document.getElementById('fc-sucursal-fld')
+  const sel = document.getElementById('fc-sucursal')
+  const hint = document.getElementById('fc-rango-hint')
+  _fcCais = []
+  if (hint) hint.innerHTML = ''
+  if (sel) sel.innerHTML = '<option value="">— Elegí la sucursal —</option>'
+  if (fld) fld.style.display = 'none'
+  const n = (nombre || '').toUpperCase().trim()
+  if (!n || !sel || !fld) return
+  const { data: prov } = await sb.from('proveedores').select('id').eq('nombre', n).limit(1).maybeSingle()
+  if (!prov) return
+  const { data: cais } = await sb.from('proveedor_cai').select('*').eq('proveedor_id', prov.id).eq('activo', true)
+  _fcCais = (cais || []).filter(c => c.rango_desde && c.rango_hasta)
+  if (_fcCais.length >= 2) {
+    // varias sucursales: pedir elegir
+    fld.style.display = ''
+    sel.innerHTML = '<option value="">— Elegí la sucursal —</option>' + _fcCais.map(c =>
+      `<option value="${c.id}">${(c.sucursal || 'Sucursal')} · ${c.rango_desde}→${c.rango_hasta}</option>`).join('')
+  } else {
+    fld.style.display = 'none'   // 0 o 1 sucursal: no hace falta elegir
+  }
+  fcValidarRango()
+}
+// Devuelve el CAI que aplica ahora (el elegido si hay varias, o el único)
+function fcCaiActual() {
+  if (_fcCais.length >= 2) {
+    const id = document.getElementById('fc-sucursal')?.value
+    return _fcCais.find(c => String(c.id) === String(id)) || null
+  }
+  return _fcCais.length === 1 ? _fcCais[0] : null
+}
+function fcValidarCai(numero, c) {
+  const corr = fiscCorrelativo(numero)
+  if (corr == null) return { estado: 'sin', txt: '' }
+  const desde = fiscCorrelativo(c.rango_desde), hasta = fiscCorrelativo(c.rango_hasta)
+  const enRango = desde != null && hasta != null && corr >= desde && corr <= hasta
+  const prefijoOk = !c.prefijo || String(numero).startsWith(c.prefijo)
+  const hoy = new Date(new Date().toDateString())
+  const vencido = c.fecha_limite && (new Date(c.fecha_limite + 'T00:00:00') < hoy)
+  if (!enRango || !prefijoOk) return { estado: 'fuera', txt: `⚠ La factura no cae en el rango de ${c.sucursal || 'esta sucursal'} (${c.rango_desde}→${c.rango_hasta}).` }
+  if (vencido) return { estado: 'vencido', txt: `⚠ Cae en el rango pero el CAI venció el ${c.fecha_limite}.` }
+  return { estado: 'ok', txt: `✓ En rango de ${c.sucursal || 'la sucursal'} (CAI vigente).` }
+}
+window.fcValidarRango = () => {
+  const hint = document.getElementById('fc-rango-hint')
+  if (!hint) return
+  const numero = (document.getElementById('fc-numero')?.value || '').trim()
+  if (_fcCais.length >= 2 && !document.getElementById('fc-sucursal')?.value) {
+    hint.innerHTML = '<span style="color:var(--amber);font-size:12px">Elegí la sucursal para validar el rango.</span>'
+    return
+  }
+  const c = fcCaiActual()
+  if (!c || !numero || !/\d/.test(numero)) { hint.innerHTML = ''; return }
+  const r = fcValidarCai(numero, c)
+  const color = r.estado === 'ok' ? 'var(--green)' : 'var(--amber)'
+  hint.innerHTML = r.txt ? `<span style="color:${color};font-size:12px">${r.txt}</span>` : ''
 }
 
 window.acCerrar = (input) => {
@@ -1083,6 +1145,10 @@ window.resetForm = () => {
   document.getElementById('fc-file').value = ''
   document.getElementById('upload-preview').classList.add('hidden')
   document.getElementById('upload-zone').classList.remove('has-file')
+  _fcCais = []
+  const sf = document.getElementById('fc-sucursal-fld'); if (sf) sf.style.display = 'none'
+  const sh = document.getElementById('fc-rango-hint'); if (sh) sh.innerHTML = ''
+  const ss = document.getElementById('fc-sucursal'); if (ss) ss.innerHTML = '<option value="">— Elegí la sucursal —</option>'
   initForm()
 }
 
@@ -1197,6 +1263,15 @@ window.guardarCompra = async () => {
   if (monto <= 0) { toast('El monto debe ser mayor a 0', 'error'); return }
   if (!tipoGasto) { toast('Ingresa el tipo de gasto', 'error'); return }
   if (!entregadoA) { toast('Ingresa a quién se le entregó', 'error'); return }
+  // Si el proveedor tiene varias sucursales (rangos), exigir elegir cuál
+  let sucursalElegida = null
+  if (_fcCais.length >= 2) {
+    const cai = fcCaiActual()
+    if (!cai) { toast('Este proveedor tiene varias sucursales. Elegí cuál corresponde a la factura.', 'error'); return }
+    sucursalElegida = cai.sucursal || null
+  } else if (_fcCais.length === 1) {
+    sucursalElegida = _fcCais[0].sucursal || null
+  }
   // La imagen es obligatoria solo para el rol 'compras'; los demás roles pueden
   // registrar sin imagen (la auxiliar la adjunta al verificar si hace falta).
   const esRolCompras = currentProfile?.rol === 'compras'
@@ -1241,6 +1316,7 @@ window.guardarCompra = async () => {
     descripcion_compra: descripcion,
     entregado_a: entregadoA,
     rtn_proveedor: rtn || null,
+    sucursal: sucursalElegida,
     proveedor_verificado: false,
     estado: 'pendiente'
   }
