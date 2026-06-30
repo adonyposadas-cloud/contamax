@@ -799,6 +799,7 @@ function ykRenderExplorar() {
 window.ykExplorarLimpiar = () => {
   ['yk-exp-cod', 'yk-exp-prod'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
   const mar = document.getElementById('yk-exp-mar'); if (mar) mar.value = ''
+  const mod = document.getElementById('yk-exp-mod'); if (mod) mod.value = ''
   if (window.ykExpMarcaChange) ykExpMarcaChange()
   const ad = document.getElementById('yk-exp-ad'); if (ad) ad.value = ''
   const ah = document.getElementById('yk-exp-ah'); if (ah) ah.value = ''
@@ -826,10 +827,11 @@ window.ykExplorar = async () => {
     if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:#e0a800">${data?.error || 'Error'}</div>`; return }
     const lineas = data.lineas || []
     ykExpRows = lineas
+    const esSuper = ykEsSuper()
     if (cards) cards.innerHTML = `<div class="yk-cards">
-      <div class="yk-card ok"><div class="v">${ykFmt(data.total_venta)}</div><div class="l">Venta filtrada (L.)</div></div>
+      ${esSuper ? `<div class="yk-card ok"><div class="v">${ykFmt(data.total_venta)}</div><div class="l">Venta filtrada (L.)</div></div>` : ''}
       <div class="yk-card"><div class="v">${ykFmt0(data.total_lineas)}</div><div class="l">Líneas</div></div>
-      <div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()">📥 Exportar Excel</button></div></div>`
+      ${esSuper ? `<div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()">📥 Exportar Excel</button></div>` : ''}</div>`
     if (!lineas.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esos filtros.</div>'; return }
     const rows = lineas.map(l => `<tr>
       <td>${l.fecha || ''}</td>
@@ -851,6 +853,7 @@ window.ykExplorar = async () => {
   }
 }
 window.ykExpExport = () => {
+  if (!ykEsSuper()) return
   if (!ykExpRows.length) { window.toast?.('Nada que exportar', 'info'); return }
   const ws = window.XLSX.utils.json_to_sheet(ykExpRows.map(l => ({
     Fecha: l.fecha, Vehiculo: l.vehiculo_codigo, Marca: l.marca, Modelo: l.modelo, Anio: l.anio_vehiculo,
@@ -920,6 +923,7 @@ window.ykCotMarcaChange = () => {
 }
 window.ykCotLimpiar = () => {
   const mar = document.getElementById('yk-cot-mar'); if (mar) mar.value = ''
+  const mod = document.getElementById('yk-cot-mod'); if (mod) mod.value = ''
   ;['yk-cot-pza', 'yk-cot-sub', 'yk-cot-pmin', 'yk-cot-pmax'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
   if (window.ykCotMarcaChange) ykCotMarcaChange()
   const c = document.getElementById('yk-cot-cards'); if (c) c.innerHTML = ''
@@ -974,7 +978,7 @@ window.ykCotizar = async () => {
     </tr>`
     }).join('')
     cont.innerHTML = `
-      <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-ghost" onclick="ykCotExport()">📥 Exportar Excel</button></div>
+      ${ykEsSuper() ? '<div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-ghost" onclick="ykCotExport()">📥 Exportar Excel</button></div>' : ''}
       <div class="table-wrap" style="max-height:520px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>Pieza (producto)</th><th class="yk-num">Ventas</th><th class="yk-num">Cot.</th><th class="yk-num">Mín</th><th class="yk-num">Prom</th><th class="yk-num">Máx</th><th>Última</th><th>Último cliente</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
@@ -984,6 +988,7 @@ window.ykCotizar = async () => {
   }
 }
 window.ykCotExport = () => {
+  if (!ykEsSuper()) return
   if (!ykCotRows.length) { window.toast?.('Nada que exportar', 'info'); return }
   const ws = window.XLSX.utils.json_to_sheet(ykCotRows.map(p => ({
     Producto: p.producto, Marca: p.marca, Modelo: p.modelo, Anio: p.anio_vehiculo,
