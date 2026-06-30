@@ -64,16 +64,19 @@ window.initYonker = async () => {
     <div class="yk-tabbar">
       <button class="yk-tab active" id="yk-tab-imp" onclick="ykTab('imp')">Importar ventas</button>
       <button class="yk-tab" id="yk-tab-rep" onclick="ykTab('rep')">Reportes</button>
+      <button class="yk-tab" id="yk-tab-dev" onclick="ykTab('dev')">Devoluciones</button>
     </div>
     <div id="yk-pane"></div>`
   ykTab('imp')
 }
 
 window.ykTab = (which) => {
-  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep')
+  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev')
   if (ti) ti.classList.toggle('active', which === 'imp')
   if (tr) tr.classList.toggle('active', which === 'rep')
+  if (td) td.classList.toggle('active', which === 'dev')
   if (which === 'rep') ykRenderReportes()
+  else if (which === 'dev') ykRenderDevoluciones()
   else ykRenderImport()
 }
 
@@ -104,6 +107,10 @@ function ykEnsureStyles() {
     .yk-ctrl label{font-size:11px;color:var(--text3,#888)}
     .yk-ctrl select{padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px}
     .yk-num{text-align:right;font-family:var(--mono,monospace)}
+    .yk-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center}
+    .yk-modal{background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:12px;width:460px;max-width:92vw;max-height:90vh;overflow:auto}
+    .yk-mhead{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border,#3a3a3a)}
+    .yk-mhead button{background:none;border:none;color:var(--text3,#888);font-size:16px;cursor:pointer}
   `
   document.head.appendChild(st)
 }
@@ -431,4 +438,114 @@ window.ykExportReporte = () => {
   window.XLSX.utils.book_append_sheet(wb, ws, 'Reporte')
   const hoy = new Date().toLocaleDateString('en-CA')
   window.XLSX.writeFile(wb, `Yonker_${ykRepActual.tipo}_${ykRepActual.dimLabel}_${hoy}.xlsx`)
+}
+
+// ── CONTAMAX · Yonker — Devoluciones de líneas (sin borrar) ──
+// Busca la línea original (factura/vehículo/producto) y registra una línea
+// en negativo vía RPC yonker_devolver_linea. Solo super_admin, motivo obligatorio.
+let ykDevData = {}
+let ykDevOv = null
+
+function ykRenderDevoluciones() {
+  const pane = document.getElementById('yk-pane')
+  if (!pane) return
+  pane.innerHTML = `
+    <div class="page-sub">Buscá la línea original por <b>factura</b>, <b>código de vehículo</b> o <b>producto</b>, y registrá su devolución. No se borra nada: se crea una línea en negativo que baja la venta y deja el rastro completo.</div>
+    <div class="yk-ctrl" style="margin:14px 0">
+      <div class="fld" style="flex:1;min-width:240px">
+        <label>Buscar (factura / vehículo / producto)</label>
+        <input id="yk-dev-q" type="text" placeholder="Ej: 1542  ·  126  ·  motor" onkeydown="if(event.key==='Enter')ykBuscarDev()">
+      </div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykBuscarDev()">🔎 Buscar</button></div>
+    </div>
+    <div id="yk-dev-result"></div>`
+  setTimeout(() => { const i = document.getElementById('yk-dev-q'); if (i) i.focus() }, 50)
+}
+
+window.ykBuscarDev = async () => {
+  const cont = document.getElementById('yk-dev-result')
+  const q = (document.getElementById('yk-dev-q')?.value || '').trim()
+  if (q.length < 2) { if (cont) cont.innerHTML = '<div class="page-sub" style="color:#e0a800">Escribí al menos 2 caracteres.</div>'; return }
+  if (cont) cont.innerHTML = '<div class="page-sub">Buscando…</div>'
+  try {
+    const { data, error } = await ykSb().rpc('yonker_buscar_lineas', { p_texto: q })
+    if (error) throw error
+    if (!data?.ok) { cont.innerHTML = `<div class="page-sub" style="color:#e06060">${data?.error || 'Error'}</div>`; return }
+    const lineas = data.lineas || []
+    if (!lineas.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esa búsqueda.</div>'; return }
+    ykDevData = {}
+    const rows = lineas.map(l => {
+      ykDevData[l.id] = l
+      const dev = l.es_devolucion
+      const accion = dev
+        ? '<span style="color:#e06060;font-size:11px">devolución</span>'
+        : `<button class="btn btn-ghost" style="padding:4px 10px" onclick="ykDevolver('${l.id}')">↩ Devolver</button>`
+      return `<tr${dev ? ' style="opacity:.7"' : ''}>
+        <td>${l.fecha || ''}</td>
+        <td>${l.factura || '—'}</td>
+        <td>${l.vehiculo_codigo || '—'}${l.marca ? ' · ' + l.marca : ''}</td>
+        <td>${(l.producto || '').slice(0, 50)}</td>
+        <td class="yk-num">${ykFmt(l.cantidad)}</td>
+        <td class="yk-num" style="${(l.venta_hnl < 0) ? 'color:#e06060' : ''}">${ykFmt(l.venta_hnl)}</td>
+        <td>${accion}</td>
+      </tr>`
+    }).join('')
+    cont.innerHTML = `
+      <div style="max-height:60vh;overflow:auto">
+      <table class="yk-tbl">
+        <thead><tr><th>Fecha</th><th>Factura</th><th>Vehículo</th><th>Producto</th><th class="yk-num">Cant.</th><th class="yk-num">Venta (L.)</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="page-sub" style="margin-top:8px">${lineas.length} línea(s). Las marcadas como "devolución" no se pueden volver a devolver.</div>`
+  } catch (e) {
+    if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+  }
+}
+
+window.ykDevCerrar = () => { if (ykDevOv) { ykDevOv.remove(); ykDevOv = null } }
+
+window.ykDevolver = (id) => {
+  const l = ykDevData[id]
+  if (!l) return
+  ykDevCerrar()
+  const ov = document.createElement('div')
+  ov.className = 'yk-ov'; ov.id = 'yk-dev-overlay'
+  ov.innerHTML = `<div class="yk-modal">
+      <div class="yk-mhead"><b>↩ Registrar devolución</b><button onclick="ykDevCerrar()">✕</button></div>
+      <div style="padding:14px 16px">
+        <div style="font-size:13px;margin-bottom:6px"><b>${l.vehiculo_codigo || '—'}</b> · Factura ${l.factura || '—'}</div>
+        <div style="font-size:12px;color:var(--text3,#888);margin-bottom:4px">${(l.producto || '').slice(0, 80)}</div>
+        <div style="font-size:13px;margin-bottom:14px">Venta a devolver: <b style="color:#e06060">L. ${ykFmt(l.venta_hnl)}</b> <span style="color:var(--text3,#888);font-size:12px">(se registrará en negativo)</span></div>
+        <label style="display:block;font-size:11px;color:var(--text3,#888);text-transform:uppercase;margin-bottom:6px">Motivo de la devolución (obligatorio)</label>
+        <textarea id="yk-dev-motivo" rows="3" placeholder="Ej: Cliente devolvió el motor por defecto de fábrica." style="width:100%;resize:vertical"></textarea>
+        <div id="yk-dev-msg" style="color:#e0a800;font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button class="btn btn-ghost" onclick="ykDevCerrar()">Cancelar</button>
+          <button class="btn btn-gold" id="yk-dev-ok" onclick="ykDevConfirmar('${id}')">Confirmar devolución</button>
+        </div>
+      </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) ykDevCerrar() }
+  document.body.appendChild(ov)
+  ykDevOv = ov
+  setTimeout(() => { const m = document.getElementById('yk-dev-motivo'); if (m) m.focus() }, 50)
+}
+
+window.ykDevConfirmar = async (id) => {
+  const msg = document.getElementById('yk-dev-msg'); const btn = document.getElementById('yk-dev-ok')
+  const setMsg = t => { if (msg) msg.textContent = t }
+  const motivo = (document.getElementById('yk-dev-motivo')?.value || '').trim()
+  if (motivo.length < 5) { setMsg('El motivo es obligatorio (mínimo 5 caracteres).'); return }
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando…' }
+  try {
+    const { data, error } = await ykSb().rpc('yonker_devolver_linea', { p_id: id, p_motivo: motivo })
+    if (error) throw error
+    if (!data?.ok) { setMsg(data?.error || 'No se pudo.'); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar devolución' } return }
+    window.toast?.(`Devolución registrada · L. ${ykFmt(data.devuelto)}${data.costo126_nuevo != null ? ' · costo #126 recalculado' : ''}`, 'success')
+    ykDevCerrar()
+    ykVResumen = null; ykVMargen = null   // invalidar cache de reportes
+    if (window.logActividad) window.logActividad('yonker_devolucion', 'devolver', `Devolución de línea ${id}: ${motivo}`)
+    ykBuscarDev()                          // refrescar la búsqueda
+  } catch (e) {
+    setMsg('Error: ' + (e.message || e)); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar devolución' }
+  }
 }
