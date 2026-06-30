@@ -124,7 +124,7 @@ function rtxStartAuto() {
     const vista = document.getElementById('view-revision-taxis')
     if (!vista || vista.offsetParent === null) { rtxStopAuto(); return }   // salió del panel
     if (document.hidden) return                                            // pestaña en segundo plano
-    if (document.querySelector('#rtx-7d-overlay.show, #rtx-overlay.show')) return  // modal abierto
+    if (document.querySelector('.rtx-7d-ov.show, #rtx-overlay.show')) return  // modal abierto (cualquier overlay rtx-7d-ov, incl. Estado de cuenta)
     const pd = document.getElementById('rtx-pane-dash')
     if (pd && !pd.classList.contains('hidden')) rtxRenderDashboard(true)  // pestaña Dashboard
     else rtxConsultar(true)                                               // pestaña Solicitudes
@@ -944,23 +944,37 @@ function rtxAudEnsure() {
 }
 window.rtxAudCerrar = () => document.getElementById('rtx-aud-overlay')?.classList.remove('show')
 
-window.rtxAudGuardadas = async () => {
+let rtxAudSoloFecha = false   // visor: por defecto muestra TODAS las fechas (histórico)
+let rtxAudDetalle = null      // último detalle cargado (para exportar a Excel)
+window.rtxAudGuardadas = async (solo) => {
+  if (solo !== undefined) rtxAudSoloFecha = solo
   rtxAudEnsure()
   const ov = document.getElementById('rtx-aud-overlay')
   const body = document.getElementById('rtx-aud-body')
-  document.getElementById('rtx-aud-title').textContent = `Auditorías guardadas · ${rtxDashFecha}`
+  const pFecha = rtxAudSoloFecha ? rtxDashFecha : null
+  document.getElementById('rtx-aud-title').textContent = rtxAudSoloFecha
+    ? `Auditorías guardadas · ${rtxDashFecha}`
+    : 'Auditorías guardadas · histórico'
   body.innerHTML = '<div class="rtx-aud-load">Cargando…</div>'
   ov.classList.add('show')
   try {
-    const { data, error } = await rtxSb().rpc('tx_auditoria_listar', { p_fecha: rtxDashFecha, p_tipo: null })
+    const { data, error } = await rtxSb().rpc('tx_auditoria_listar', { p_fecha: pFecha, p_tipo: null })
     if (error) throw error
     const lista = Array.isArray(data) ? data : []
-    if (!lista.length) { body.innerHTML = '<div class="rtx-aud-load">No hay auditorías guardadas para esta fecha.<br>Generá una y tocá «💾 Guardar snapshot».</div>'; return }
-    body.innerHTML = lista.map(a => {
+    const sel = on => on ? 'border-color:#d4af37;color:#d4af37' : ''
+    const toggle = `<div style="display:flex;gap:6px;margin-bottom:12px">
+      <button class="rtx-aud-back" style="${sel(!rtxAudSoloFecha)}" onclick="rtxAudGuardadas(false)">📅 Todas las fechas</button>
+      <button class="rtx-aud-back" style="${sel(rtxAudSoloFecha)}" onclick="rtxAudGuardadas(true)">Solo ${rtxDashFecha}</button>
+    </div>`
+    if (!lista.length) {
+      body.innerHTML = toggle + `<div class="rtx-aud-load">No hay auditorías guardadas ${rtxAudSoloFecha ? 'para esta fecha' : 'todavía'}.<br>Generá una y tocá «💾 Guardar snapshot».</div>`
+      return
+    }
+    body.innerHTML = toggle + lista.map(a => {
       const tipoTxt = a.tipo === 'no_cubrio' ? '💰 Entregó pero no cubrió' : '🔎 Trabajó y no entregó'
       const hora = rtxFechaHora(a.created_at)
       return `<div class="rtx-aud-row">
-        <div><div class="t"><b>${tipoTxt}</b> · ${a.total} unidades</div>
+        <div><div class="t"><b>${tipoTxt}</b> · ${a.total} unidades <span style="color:#8a8f98;font-weight:400">· auditado ${a.fecha_auditada || '—'}</span></div>
         <div class="m">Guardado: ${hora} · por ${a.generado_nombre || '—'}</div></div>
         <button class="rtx-b" onclick="rtxAudVer('${a.id}')">Ver</button>
       </div>`
@@ -975,6 +989,7 @@ window.rtxAudVer = async (id) => {
     const { data, error } = await rtxSb().rpc('tx_auditoria_detalle', { p_id: id })
     if (error) throw error
     if (!data?.ok) { body.innerHTML = `<div class="rtx-aud-load">${data?.error || 'Sin datos'}</div>`; return }
+    rtxAudDetalle = data
     const det = Array.isArray(data.detalle) ? data.detalle : []
     let head, filas
     if (data.tipo === 'no_cubrio') {
@@ -986,10 +1001,52 @@ window.rtxAudVer = async (id) => {
     }
     const tipoTxt = data.tipo === 'no_cubrio' ? 'Entregó pero no cubrió' : 'Trabajó y no entregó'
     body.innerHTML = `
-      <button class="rtx-aud-back" onclick="rtxAudGuardadas()">← Volver a la lista</button>
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <button class="rtx-aud-back" onclick="rtxAudGuardadas()">← Volver a la lista</button>
+        <button class="rtx-aud-back" onclick="rtxAudExportGuardada()">📥 Exportar a Excel</button>
+      </div>
       <div class="m" style="font-size:12px;color:#8a8f98;margin-bottom:10px">${tipoTxt} · auditado ${data.fecha_auditada} · KM del ${data.dia_km || '—'} · guardado ${rtxFechaHora(data.created_at)} por ${data.generado_nombre || '—'}</div>
       <table class="rtx-aud-tbl"><thead>${head}</thead><tbody>${filas || ''}</tbody></table>`
   } catch (e) { body.innerHTML = `<div class="rtx-aud-load">Error: ${e.message || e}</div>` }
+}
+
+// Exporta a Excel un snapshot guardado (mismo formato que el export en vivo)
+window.rtxAudExportGuardada = () => {
+  if (typeof XLSX === 'undefined') { window.toast?.('No se pudo exportar (XLSX no disponible)', 'error'); return }
+  const data = rtxAudDetalle
+  if (!data || !Array.isArray(data.detalle) || !data.detalle.length) { window.toast?.('No hay datos para exportar', 'error'); return }
+  const modo = data.tipo
+  const titulo = modo === 'no_cubrio' ? 'Entregó pero no cubrió' : 'Trabajó y no entregó'
+  const aoa = [
+    ['CONTAMAX · Auditoría Taxis · ' + titulo],
+    ['Fecha auditada:', data.fecha_auditada || '—'],
+    ['KM tomado del día:', data.dia_km || '—'],
+    ['Guardado:', rtxFechaHora(data.created_at) + ' · por ' + (data.generado_nombre || '—')],
+    ['Total unidades:', data.detalle.length],
+    []
+  ]
+  if (modo === 'no_cubrio') {
+    aoa.push(['Unidad', 'Motorista', 'KM recorridos', 'Cuota período', 'Pagó', 'Faltó (sube saldo)', 'Saldo antes', 'Saldo nuevo', 'Teléfono'])
+    data.detalle.forEach(x => aoa.push([
+      x.unidad || '', x.nombre || '', Number(x.km) || 0,
+      Number(x.periodo) || 0, Number(x.monto) || 0, Number(x.faltante) || 0,
+      Number(x.saldo) || 0, Number(x.saldoNuevo) || 0, x.telefono || ''
+    ]))
+  } else {
+    aoa.push(['Unidad', 'Motorista', 'KM recorridos', 'Saldo', 'Última entrega', 'Días sin entregar', 'Caja', 'Grupo', 'Teléfono'])
+    data.detalle.forEach(x => aoa.push([
+      x.unidad || '', x.nombre || '', Number(x.km) || 0,
+      Number(x.saldo) || 0, x.ultima_entrega || '', (x.dias_sin != null ? x.dias_sin : ''),
+      x.caja || '', x.grupo || '', x.telefono || ''
+    ]))
+  }
+  try {
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Auditoría')
+    XLSX.writeFile(wb, `Auditoria_${modo}_${data.fecha_auditada || 'guardada'}.xlsx`)
+    window.toast?.('Exportado ✓', 'success')
+  } catch (e) { window.toast?.('Error al exportar: ' + (e.message || e), 'error') }
 }
 function rtxDashAuditCard() {
   if (rtxDashAuditLoading) return `<div class="dash-card"><div class="rtx-empty">Cargando auditoría…</div></div>`
@@ -1577,19 +1634,78 @@ window.rtxHistorial = async (identidad) => {
   ov.onclick = (e) => { if (e.target === ov) rtxHistCerrar() }
   document.body.appendChild(ov)
   rtxHistOv = ov
+  const body = ov.querySelector('#rtx-hist-body')   // referencia directa a ESTE modal (evita pintar uno viejo/duplicado)
   try {
     const { data, error } = await rtxSb().rpc('tx_historial_saldo', { p_identidad: identidad })
     if (error) throw error
-    if (!data?.ok) { document.getElementById('rtx-hist-body').innerHTML = `<div style="color:#f0a500">${data?.error || 'No se pudo cargar'}</div>`; return }
-    rtxHistPintar(data)
+    if (!data?.ok) { body.innerHTML = `<div style="color:#f0a500">${data?.error || 'No se pudo cargar'}</div>`; return }
+    rtxHistPintar(data, body)
   } catch (e) {
-    const b = document.getElementById('rtx-hist-body')
-    if (b) b.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+    if (body) body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
   }
 }
 window.rtxHistCerrar = () => { if (rtxHistOv) { rtxHistOv.remove(); rtxHistOv = null } }
 
-function rtxHistPintar(data) {
+// ── Condonación de saldo (solo super_admin) ──
+let rtxCondOv = null
+window.rtxCondCerrar = () => { if (rtxCondOv) { rtxCondOv.remove(); rtxCondOv = null } }
+window.rtxCondonar = (identidad, nombre, saldo) => {
+  if (!rtxEsSuper()) { window.toast?.('Solo super_admin puede condonar saldos', 'error'); return }
+  saldo = Number(saldo) || 0
+  if (saldo <= 0) { window.toast?.('El motorista no tiene saldo pendiente', 'error'); return }
+  rtxCondCerrar()
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'; ov.id = 'rtx-cond-overlay'
+  ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:430px"><div class="rtx-7d-head">
+      <h3 style="margin:0;font-size:15px">➖ Condonar saldo</h3>
+      <button onclick="rtxCondCerrar()">✕</button></div>
+      <div style="padding:16px 18px">
+        <div style="font-weight:700;margin-bottom:2px">${nombre}</div>
+        <div style="color:#8b8f98;font-size:12px;margin-bottom:14px">Saldo actual: <b style="color:#f0a500">L. ${rtxFmt(saldo)}</b></div>
+        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monto a condonar</label>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <input id="rtx-cond-monto" type="number" step="0.01" min="0" max="${saldo}" placeholder="0.00" style="flex:1">
+          <button class="rtx-b" onclick="document.getElementById('rtx-cond-monto').value='${saldo}'">Saldo completo</button>
+        </div>
+        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Motivo (obligatorio)</label>
+        <textarea id="rtx-cond-motivo" rows="3" placeholder="Ej: Hijo hospitalizado; no se cobró tarifa del 12 al 15 de junio." style="width:100%;resize:vertical"></textarea>
+        <div id="rtx-cond-msg" style="color:#f0a500;font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button class="rtx-b" onclick="rtxCondCerrar()">Cancelar</button>
+          <button class="rtx-b ok" id="rtx-cond-ok" onclick="rtxCondConfirmar('${identidad}')">Confirmar condonación</button>
+        </div>
+      </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxCondCerrar() }
+  document.body.appendChild(ov)
+  rtxCondOv = ov
+  setTimeout(() => { const m = document.getElementById('rtx-cond-monto'); if (m) m.focus() }, 50)
+}
+window.rtxCondConfirmar = async (identidad) => {
+  const msg = document.getElementById('rtx-cond-msg')
+  const btn = document.getElementById('rtx-cond-ok')
+  const setMsg = t => { if (msg) msg.textContent = t }
+  const monto = parseFloat(document.getElementById('rtx-cond-monto')?.value)
+  const motivo = (document.getElementById('rtx-cond-motivo')?.value || '').trim()
+  if (!monto || monto <= 0) { setMsg('Ingresá un monto mayor que cero.'); return }
+  if (motivo.length < 5) { setMsg('El motivo es obligatorio (mínimo 5 caracteres).'); return }
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando…' }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_condonar_saldo', { p_identidad: identidad, p_monto: monto, p_motivo: motivo })
+    if (error) throw error
+    if (!data?.ok) { setMsg(data?.error || 'No se pudo condonar.'); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar condonación' } return }
+    window.toast?.(`Condonado L. ${rtxFmt(data.condonado)} · nuevo saldo L. ${rtxFmt(data.saldo_nuevo)}`, 'success')
+    rtxCondCerrar()
+    rtxHistorial(identidad)                                  // refresca el estado de cuenta
+    if (typeof rtxMotCargar === 'function') rtxMotCargar()   // refresca la lista de motoristas
+  } catch (e) {
+    setMsg('Error: ' + (e.message || e))
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar condonación' }
+  }
+}
+
+function rtxHistPintar(data, body) {
+  body = body || document.getElementById('rtx-hist-body')
+  if (!body) return
   const movs = data.movimientos || []
   const saldoCls = data.saldo_actual > 0.01 ? 'color:#f0a500' : 'color:#3fb950'
   const head = `
@@ -1601,8 +1717,13 @@ function rtxHistPintar(data) {
     </div>
     <div style="font-size:12px;color:#8b8f98;margin-bottom:10px">Cómo se movió el saldo: <span style="color:#fca5a5">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:#7ee2a0">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
 
+  const _puedeCond = rtxEsSuper() && (Number(data.saldo_actual) > 0.01)
+  const _nEsc = String(data.nombre || '').replace(/'/g, "\\'")
+  const _condBtn = _puedeCond
+    ? `<div style="margin:2px 0 12px"><button class="rtx-b" style="border-color:#7ee2a0;color:#7ee2a0" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${Number(data.saldo_actual)})">➖ Condonar saldo</button></div>`
+    : ''
   if (!movs.length) {
-    document.getElementById('rtx-hist-body').innerHTML = head + '<div style="color:#8b8f98;padding:8px">Sin movimientos de saldo registrados.</div>'
+    body.innerHTML = head + _condBtn + '<div style="color:#8b8f98;padding:8px">Sin movimientos de saldo registrados.</div>'
     return
   }
   const rows = movs.map(m => {
@@ -1618,7 +1739,7 @@ function rtxHistPintar(data) {
       <td style="text-align:right;white-space:nowrap;font-family:ui-monospace,monospace">L. ${rtxFmt(m.saldo)}</td>
     </tr>`
   }).join('')
-  document.getElementById('rtx-hist-body').innerHTML = head + `
+  body.innerHTML = head + _condBtn + `
     <table class="rtx-7d-tbl" style="width:100%">
       <thead><tr>
         <th>Fecha</th><th>Movimiento</th>
@@ -1828,7 +1949,7 @@ window.rtxHistAbrir = () => {
   if (!rtxHistDesde) { const d = new Date(); d.setDate(d.getDate() - 30); rtxHistDesde = rtxKmLocalDate(d) }
   if (!rtxHistHasta) rtxHistHasta = rtxKmLocalDate()
   rtxHistRenderShell()
-  if (rtxHistData) rtxHistPintar()
+  if (rtxHistData) rtxHistResultPintar()
 }
 
 window.rtxHistSet = (campo, val) => {
@@ -1851,7 +1972,7 @@ window.rtxHistBuscar = async () => {
     }
     const data = window._fetchAllPag ? await window._fetchAllPag(build) : ((await build()).data || [])
     rtxHistData = Array.isArray(data) ? data : []
-    rtxHistPintar()
+    rtxHistResultPintar()
   } catch (e) {
     if (cont) cont.innerHTML = `<div class="rtx-hist-info" style="color:#f0a500">Error: ${e.message || e}</div>`
   }
@@ -1881,7 +2002,7 @@ function rtxHistRenderShell() {
     <div id="rtx-hist-result"><div class="rtx-hist-info">Elegí unidad y fechas, luego tocá Filtrar.</div></div>`
 }
 
-function rtxHistPintar() {
+function rtxHistResultPintar() {
   const cont = document.getElementById('rtx-hist-result')
   if (!cont) return
   const data = rtxHistData || []
