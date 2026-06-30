@@ -81,11 +81,20 @@ async function initSession(user) {
     toast('No se encontró perfil de usuario. Contacta al administrador.', 'error')
     return
   }
+  // Rol "admin": MISMO poder que super_admin en toda la app (data + botones), pero su
+  // navegación se restringe a sus casillas (se resuelve en setupUI con _adminRestringido).
+  // Aliasando rol a 'super_admin' acá, todos los chequeos '=== super_admin' lo aceptan
+  // sin tocar cada módulo. El rol real queda en _rolReal.
+  currentProfile._rolReal = profile.rol
+  if (profile.rol === 'admin') {
+    currentProfile._adminRestringido = true
+    currentProfile.rol = 'super_admin'
+  }
   // ultimo_acceso vía RPC: la política UPDATE de 'usuarios' exige super_admin,
   // así que este toque (solo la columna ultimo_acceso) se hace por una función
   // SECURITY DEFINER que actualiza únicamente la fila del usuario logueado.
   await sb.rpc('registrar_acceso')
-  logActividad('login', 'auth', `Inicio de sesión · ${profile.rol}`)
+  logActividad('login', 'auth', `Inicio de sesión · ${currentProfile._rolReal || profile.rol}`)
   hideOverlay()
   setupUI()
   showScreen('main-screen')
@@ -104,10 +113,10 @@ async function initSession(user) {
     contador_fiscal: ['declaracion-isv', 'Declaración de ISV']
   }
   let [dv, dl] = defaultViews[profile.rol] || ['compras', 'Registrar compras']
-  // Si la vista por defecto del rol NO está entre las permitidas (por permisos personalizados),
-  // aterrizar en la primera vista visible según permisos (no forzar Compras).
+  // Si la vista por defecto NO está entre las permitidas (por permisos personalizados,
+  // incluso para un super_admin restringido), aterrizar en la primera vista visible.
   const _vis = window._navVisibles || []
-  if (profile.rol !== 'super_admin' && !_vis.includes('nav-' + dv)) {
+  if (!_vis.includes('nav-' + dv)) {
     const orden = window._todosNav || []
     const found = orden.find(navId => _vis.includes(navId) && document.getElementById('view-' + navId.replace(/^nav-/, '')))
     if (found) {
@@ -127,8 +136,8 @@ function setupUI() {
   const initials = p.nombre.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
   document.getElementById('top-avatar').textContent = initials
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
-  const roleLabels = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal' }
-  document.getElementById('top-role').textContent = roleLabels[p.rol] || p.rol
+  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal' }
+  document.getElementById('top-role').textContent = roleLabels[p._rolReal || p.rol] || p._rolReal || p.rol
 
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
@@ -139,11 +148,16 @@ function setupUI() {
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
     contador_fiscal: ['nav-declaracion-isv']
   }
+  // Rol "admin": plantilla = TODO (navs + pestañas), para que al elegirlo se premarque
+  // todo y puedas destildar lo que no querés que vea.
+  permisos.admin = [...permisos.super_admin, 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'rtx-mot-admin', 'yk-tab-imp', 'yk-tab-rep', 'yk-tab-dev', 'yk-tab-exp', 'yk-tab-cot', 'yk-cot-gestionar']
   window._permisosPorRol = permisos
-  // Permisos personalizados (columna permisos_modulos) tienen prioridad sobre el rol.
-  // super_admin siempre ve todo (no se puede auto-bloquear).
+  // super_admin SIEMPRE ve todo (no se puede limitar). El rol "admin" tiene su mismo poder
+  // pero su navegación se restringe a sus casillas (_adminRestringido).
   let visibles
-  if (p.rol === 'super_admin') {
+  if (p._adminRestringido) {
+    visibles = (Array.isArray(p.permisos_modulos) && p.permisos_modulos.length) ? p.permisos_modulos : permisos.admin
+  } else if (p.rol === 'super_admin') {
     visibles = permisos.super_admin
   } else if (Array.isArray(p.permisos_modulos) && p.permisos_modulos.length) {
     visibles = p.permisos_modulos
@@ -442,8 +456,8 @@ window.eliminarTipoOrigen = async (id, nombre) => {
 }
 
 // ── USUARIOS ──
-const USR_ROLE_BADGE = { super_admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber', contador_fiscal:'badge-blue', caja:'badge-amber' }
-const USR_ROLE_LABEL = { super_admin:'Super Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', caja:'Caja' }
+const USR_ROLE_BADGE = { super_admin:'badge-gold', admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber', contador_fiscal:'badge-blue', caja:'badge-amber' }
+const USR_ROLE_LABEL = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', caja:'Caja' }
 
 async function loadUsuarios() {
   const tbody = document.getElementById('tbody-usuarios')
@@ -579,7 +593,8 @@ const MODULOS_CATALOGO = [
     ['yk-tab-rep', '— Yonker: Reportes'],
     ['yk-tab-dev', '— Yonker: Devoluciones'],
     ['yk-tab-exp', '— Yonker: Explorar'],
-    ['yk-tab-cot', '— Yonker: Cotización']
+    ['yk-tab-cot', '— Yonker: Cotización'],
+    ['yk-cot-gestionar', '— Yonker: Cargar/ver cotizaciones']
   ]}
 ]
 

@@ -2770,6 +2770,7 @@
         <label>Rol</label>
         <select id="nu-rol" onchange="aplicarPlantillaRol('nu-permisos', this.value)">
           <option value="super_admin">Super Admin</option>
+          <option value="admin">Admin (poder total, módulos limitados)</option>
           <option value="contador">Contador</option>
           <option value="aux_contable">Aux. Contable</option>
           <option value="compras">Compras</option>
@@ -2784,7 +2785,7 @@
       </div>
       <div class="fld col-full">
         <label>Módulos que puede ver</label>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El rol premarca lo típico; ajustá lo que quieras. Super Admin ve todo siempre.</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">El rol premarca lo típico; ajustá lo que quieras. Si dejás todo marcado, ve todo; podés quitarle módulos (incluso a un Super Admin).</div>
         <div id="nu-permisos" style="max-height:260px;overflow-y:auto;border:1px solid var(--bg1);border-radius:6px;padding:10px"></div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:12px;margin-top:8px">
           <input type="checkbox" id="nu-solo-partidas" style="width:auto;margin:0"> En Partidas, ver solo sus propios asientos
@@ -2812,6 +2813,7 @@
         <label>Rol</label>
         <select id="eu-rol" onchange="aplicarPlantillaRol('eu-permisos', this.value)">
           <option value="super_admin">Super Admin</option>
+          <option value="admin">Admin (poder total, módulos limitados)</option>
           <option value="contador">Contador</option>
           <option value="aux_contable">Aux. Contable</option>
           <option value="compras">Compras</option>
@@ -2826,7 +2828,7 @@
       </div>
       <div class="fld col-full">
         <label>Módulos que puede ver</label>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cambiar el rol vuelve a premarcar su plantilla. Super Admin ve todo siempre.</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Cambiar el rol vuelve a premarcar su plantilla. Podés quitarle módulos a cualquiera, incluso a un Super Admin (si no marcás ninguno, ve todo).</div>
         <div id="eu-permisos" style="max-height:240px;overflow-y:auto;border:1px solid var(--bg1);border-radius:6px;padding:10px"></div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;font-size:12px;margin-top:8px">
           <input type="checkbox" id="eu-solo-partidas" style="width:auto;margin:0"> En Partidas, ver solo sus propios asientos
@@ -3442,7 +3444,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260630b"></script>
+<script type="module" src="js/app.js?v=20260630e"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3461,7 +3463,7 @@
 <script defer src="js/fiscal.js?v=20260606l"></script>
 <script defer src="js/revision_taxis.js?v=20260630e"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260627a"></script>
-<script defer src="js/yonker.js?v=20260630p"></script>
+<script defer src="js/yonker.js?v=20260630q"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">

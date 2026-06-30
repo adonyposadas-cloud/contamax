@@ -883,7 +883,7 @@ function ykRenderCotizar() {
       <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykCotizar()">💵 Cotizar</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykCotLimpiar()">Limpiar</button></div>
     </div>
-    ${ykEsSuper() ? `<div style="margin:-4px 0 10px;display:flex;gap:8px">
+    ${ykPuedeCotizaciones() ? `<div style="margin:-4px 0 10px;display:flex;gap:8px">
       <button class="btn btn-ghost" onclick="ykCotAgregar()">➕ Agregar cotización histórica</button>
       <button class="btn btn-ghost" onclick="ykCotGestionar()">📋 Cotizaciones guardadas</button>
     </div>` : ''}
@@ -1035,10 +1035,15 @@ window.ykChipVeh = (cod) => {
   if (window.ykExplorar) ykExplorar()
 }
 
-// ── Cotizaciones históricas: alta y gestión (solo super_admin) ──
+// ── Cotizaciones históricas: alta y gestión ──
+// Pueden gestionar: super_admin/admin, o usuarios con la casilla 'yk-cot-gestionar'.
+function ykPuedeCotizaciones() {
+  if (ykEsSuper()) return true
+  try { const p = window._currentProfile?.(); return Array.isArray(p?.permisos_modulos) && p.permisos_modulos.includes('yk-cot-gestionar') } catch (e) { return false }
+}
 function ykCotCerrarOv(id) { const o = document.getElementById(id); if (o) o.remove() }
 window.ykCotAgregar = () => {
-  if (!ykEsSuper()) return
+  if (!ykPuedeCotizaciones()) return
   const ov = document.createElement('div')
   ov.className = 'yk-ov'; ov.id = 'yk-cotm-ov'
   const marcas = [...new Set((ykUnidades || []).map(u => u.marca).filter(Boolean))].sort()
@@ -1093,7 +1098,7 @@ window.ykCotGuardar = async () => {
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
 window.ykCotGestionar = async () => {
-  if (!ykEsSuper()) return
+  if (!ykPuedeCotizaciones()) return
   const ov = document.createElement('div')
   ov.className = 'yk-ov'; ov.id = 'yk-cotg-ov'
   ov.innerHTML = `<div class="yk-modal" style="width:760px">
@@ -1115,7 +1120,7 @@ window.ykCotGestionar = async () => {
       <td class="yk-num">${ykFmt(c.precio)}</td>
       <td>${(c.creado_en || '').slice(0, 10)}</td>
       <td>${c.creado_por || ''}</td>
-      <td><button class="btn btn-ghost" style="padding:1px 8px" onclick="ykCotEliminar('${c.id}')">🗑️</button></td>
+      <td>${ykEsSuper() ? `<button class="btn btn-ghost" style="padding:1px 8px" onclick="ykCotEliminar('${c.id}')">🗑️</button>` : ''}</td>
     </tr>`).join('')
     body.innerHTML = `<div class="table-wrap" style="max-height:460px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>Vehículo</th><th>Pieza</th><th class="yk-num">Precio</th><th>Fecha</th><th>Por</th><th></th></tr></thead>
