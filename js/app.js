@@ -532,8 +532,7 @@ const MODULOS_CATALOGO = [
   ]},
   { grupo: 'Importaciones', items: [
     ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'],
-    ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-importar-taxis', 'Entregas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis'],
-    ['nav-yonker', 'Yonker (Ventas)']
+    ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-importar-taxis', 'Entregas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis']
   ]},
   { grupo: 'RRHH', items: [
     ['nav-empleados', 'Empleados'], ['nav-planilla', 'Planilla'], ['nav-prestamos-emp', 'Préstamos'],
@@ -554,6 +553,14 @@ const MODULOS_CATALOGO = [
     ['rtx-tab-hist', '— Taxis: Historial'],
     ['rtx-mot-admin', '— Taxis: Administrar motoristas (agregar/editar/PINs)'],
     ['nav-concilia-taxis', 'Conciliación Taxis']
+  ]},
+  { grupo: 'Yonker', items: [
+    ['nav-yonker', 'Yonker (Ventas)'],
+    ['yk-tab-imp', '— Yonker: Importar ventas'],
+    ['yk-tab-rep', '— Yonker: Reportes'],
+    ['yk-tab-dev', '— Yonker: Devoluciones'],
+    ['yk-tab-exp', '— Yonker: Explorar'],
+    ['yk-tab-cot', '— Yonker: Cotización']
   ]}
 ]
 

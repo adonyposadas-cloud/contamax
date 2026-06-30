@@ -55,10 +55,30 @@ function ykFecha(v) {
 
 const ykR2 = v => Math.round((parseFloat(v) || 0) * 100) / 100
 
+const YK_TABS = [['imp', 'yk-tab-imp'], ['rep', 'yk-tab-rep'], ['dev', 'yk-tab-dev'], ['exp', 'yk-tab-exp'], ['cot', 'yk-tab-cot']]
+function ykPerms() {
+  let esSuper = false, permisos = []
+  try { const p = window._currentProfile?.(); esSuper = p?.rol === 'super_admin'; permisos = Array.isArray(p?.permisos_modulos) ? p.permisos_modulos : [] } catch (e) { /* sin perfil */ }
+  return { esSuper, permisos }
+}
+// Oculta las pestañas que el usuario no tiene autorizadas; devuelve la primera visible.
+function ykAplicarPermisos() {
+  const { esSuper, permisos } = ykPerms()
+  let primera = null
+  YK_TABS.forEach(([key, id]) => {
+    const ver = esSuper || permisos.includes(id)
+    const tb = document.getElementById(id)
+    if (tb) tb.classList.toggle('hidden', !ver)
+    if (ver && !primera) primera = key
+  })
+  return primera
+}
 window.initYonker = async () => {
   const vista = document.getElementById('view-yonker')
   if (!vista) return
-  if (!ykEsSuper()) { vista.innerHTML = '<div class="page-title">Yonker</div><div class="page-sub">Acceso solo para Super Admin.</div>'; return }
+  const { esSuper, permisos } = ykPerms()
+  const algunaTab = YK_TABS.some(([k, id]) => permisos.includes(id))
+  if (!esSuper && !algunaTab) { vista.innerHTML = '<div class="page-title">📦 Yonker</div><div class="page-sub">No tenés pestañas de Yonker autorizadas. Pedí acceso al administrador.</div>'; return }
   ykEnsureStyles()
   vista.innerHTML = `
     <div class="page-title">📦 Yonker</div>
@@ -67,20 +87,24 @@ window.initYonker = async () => {
       <button class="yk-tab" id="yk-tab-rep" onclick="ykTab('rep')">Reportes</button>
       <button class="yk-tab" id="yk-tab-dev" onclick="ykTab('dev')">Devoluciones</button>
       <button class="yk-tab" id="yk-tab-exp" onclick="ykTab('exp')">Explorar</button>
+      <button class="yk-tab" id="yk-tab-cot" onclick="ykTab('cot')">Cotización</button>
     </div>
     <div id="yk-pane"></div>`
-  ykTab('imp')
+  const primera = ykAplicarPermisos() || 'imp'
+  ykTab(primera)
 }
 
 window.ykTab = (which) => {
-  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp')
+  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp'), tc = document.getElementById('yk-tab-cot')
   if (ti) ti.classList.toggle('active', which === 'imp')
   if (tr) tr.classList.toggle('active', which === 'rep')
   if (td) td.classList.toggle('active', which === 'dev')
   if (te) te.classList.toggle('active', which === 'exp')
+  if (tc) tc.classList.toggle('active', which === 'cot')
   if (which === 'rep') ykRenderReportes()
   else if (which === 'dev') ykRenderDevoluciones()
   else if (which === 'exp') ykRenderExplorar()
+  else if (which === 'cot') ykRenderCotizar()
   else ykRenderImport()
 }
 
@@ -111,6 +135,11 @@ function ykEnsureStyles() {
     .yk-ctrl label{font-size:11px;color:var(--text3,#888)}
     .yk-ctrl select{padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px}
     .yk-num{text-align:right;font-family:var(--mono,monospace)}
+    .yk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;max-height:130px;overflow:auto;padding:2px}
+    .yk-chip{display:inline-block;padding:3px 10px;border-radius:14px;background:var(--bg3,#222);border:1px solid var(--border,#3a3a3a);color:var(--gold,#d4af37);font-size:12px;font-family:var(--mono,monospace);cursor:pointer;transition:all .12s}
+    .yk-chip:hover{background:var(--gold,#d4af37);color:#1a1a1a}
+    .yk-chip-static{cursor:default;color:var(--text,#ddd)}
+    .yk-chip-static:hover{background:var(--bg3,#222);color:var(--text,#ddd)}
     .yk-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center}
     .yk-modal{background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:12px;width:460px;max-width:92vw;max-height:90vh;overflow:auto}
     .yk-mhead{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border,#3a3a3a)}
@@ -682,6 +711,29 @@ window.ykExpModelosDe = (marca) => {
   const filt = marca ? us.filter(u => (u.marca || '') === marca) : us
   return [...new Set(filt.map(u => u.modelo).filter(Boolean))].sort()
 }
+window.ykExpUnidadesFiltradas = () => {
+  const us = ykUnidades || []
+  const marca = document.getElementById('yk-exp-mar')?.value || ''
+  const modelo = document.getElementById('yk-exp-mod')?.value || ''
+  return us.filter(u => (!marca || (u.marca || '') === marca) && (!modelo || (u.modelo || '') === modelo))
+}
+window.ykExpYearsUpdate = (autofill) => {
+  const ad = document.getElementById('yk-exp-ad'), ah = document.getElementById('yk-exp-ah')
+  if (!ad || !ah) return
+  const years = [...new Set(ykExpUnidadesFiltradas().map(u => u.anio_vehiculo).filter(Boolean))].sort((a, b) => a - b)
+  const prevD = ad.value, prevH = ah.value
+  const opts = '<option value="">—</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('')
+  ad.innerHTML = opts; ah.innerHTML = opts
+  if (years.length) {
+    ad.value = (autofill || !years.includes(+prevD)) ? String(years[0]) : prevD
+    ah.value = (autofill || !years.includes(+prevH)) ? String(years[years.length - 1]) : prevH
+  } else { ad.value = ''; ah.value = '' }
+}
+window.ykExpAnioGuard = (which) => {
+  const ad = document.getElementById('yk-exp-ad'), ah = document.getElementById('yk-exp-ah')
+  if (ad && ah && ad.value && ah.value && +ad.value > +ah.value) { if (which === 'ad') ah.value = ad.value; else ad.value = ah.value }
+  if (window.ykUnidadesPanel) ykUnidadesPanel('yk-exp')
+}
 window.ykExpMarcaChange = () => {
   const sel = document.getElementById('yk-exp-mod'); if (!sel) return
   const marca = document.getElementById('yk-exp-mar')?.value || ''
@@ -689,7 +741,10 @@ window.ykExpMarcaChange = () => {
   const modelos = ykExpModelosDe(marca)
   sel.innerHTML = '<option value="">(todos)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
   sel.value = modelos.includes(actual) ? actual : ''
+  ykExpYearsUpdate(true)   // ajusta el rango de años a la marca/modelo
+  if (window.ykUnidadesPanel) ykUnidadesPanel('yk-exp')
 }
+window.ykExpModeloChange = () => { ykExpYearsUpdate(true); if (window.ykUnidadesPanel) ykUnidadesPanel('yk-exp') }
 window.ykExpAutofill = () => {
   const cod = (document.getElementById('yk-exp-cod')?.value || '').trim()
   if (!cod || !ykUnidades) return
@@ -701,9 +756,17 @@ window.ykExpAutofill = () => {
   if (mod && !mod.value && u.modelo) {
     if (![...mod.options].some(o => o.value === u.modelo)) { const o = document.createElement('option'); o.value = u.modelo; o.textContent = u.modelo; mod.appendChild(o) }
     mod.value = u.modelo
+    ykExpYearsUpdate(true)
   }
-  const ad = document.getElementById('yk-exp-ad'); if (ad && !ad.value && u.anio_vehiculo) ad.value = u.anio_vehiculo
-  const ah = document.getElementById('yk-exp-ah'); if (ah && !ah.value && u.anio_vehiculo) ah.value = u.anio_vehiculo
+  // fijar el año exacto del vehículo
+  if (u.anio_vehiculo) {
+    const ad = document.getElementById('yk-exp-ad'), ah = document.getElementById('yk-exp-ah')
+    const ensure = sel => { if (sel && ![...sel.options].some(o => +o.value === +u.anio_vehiculo)) { const o = document.createElement('option'); o.value = u.anio_vehiculo; o.textContent = u.anio_vehiculo; sel.appendChild(o) } }
+    ensure(ad); ensure(ah)
+    if (ad) ad.value = u.anio_vehiculo
+    if (ah) ah.value = u.anio_vehiculo
+  }
+  if (window.ykUnidadesPanel) ykUnidadesPanel('yk-exp')
 }
 function ykRenderExplorar() {
   const pane = document.getElementById('yk-pane')
@@ -713,13 +776,14 @@ function ykRenderExplorar() {
     <div class="yk-ctrl" style="margin:14px 0;align-items:flex-end">
       <div class="fld"><label>Vehículo (código)</label><input id="yk-exp-cod" type="text" style="width:120px" placeholder="ej. 126" onchange="ykExpAutofill()" onkeydown="if(event.key==='Enter')ykExplorar()"></div>
       <div class="fld"><label>Marca</label><select id="yk-exp-mar" style="width:150px" onchange="ykExpMarcaChange()"><option value="">(todas)</option></select></div>
-      <div class="fld"><label>Modelo</label><select id="yk-exp-mod" style="width:160px"><option value="">(todos)</option></select></div>
-      <div class="fld"><label>Año desde</label><input id="yk-exp-ad" type="number" style="width:95px" placeholder="2015"></div>
-      <div class="fld"><label>Año hasta</label><input id="yk-exp-ah" type="number" style="width:95px" placeholder="2018"></div>
+      <div class="fld"><label>Modelo</label><select id="yk-exp-mod" style="width:160px" onchange="ykExpModeloChange()"><option value="">(todos)</option></select></div>
+      <div class="fld"><label>Año desde</label><select id="yk-exp-ad" style="width:95px" onchange="ykExpAnioGuard('ad')"><option value="">—</option></select></div>
+      <div class="fld"><label>Año hasta</label><select id="yk-exp-ah" style="width:95px" onchange="ykExpAnioGuard('ah')"><option value="">—</option></select></div>
       <div class="fld"><label>Producto (filtro 2)</label><input id="yk-exp-prod" type="text" style="width:150px" placeholder="ej. motor" onkeydown="if(event.key==='Enter')ykExplorar()"></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykExplorar()">🔎 Buscar</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExplorarLimpiar()">Limpiar</button></div>
     </div>
+    <div id="yk-exp-unidades"></div>
     <div id="yk-exp-cards"></div>
     <div id="yk-exp-result"><div class="page-sub">Indicá al menos un filtro de vehículo/marca/modelo/año y tocá Buscar.</div></div>`
   ykCargarUnidades().then(us => {
@@ -730,8 +794,11 @@ function ykRenderExplorar() {
   })
 }
 window.ykExplorarLimpiar = () => {
-  ['yk-exp-cod', 'yk-exp-mar', 'yk-exp-mod', 'yk-exp-ad', 'yk-exp-ah', 'yk-exp-prod'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+  ['yk-exp-cod', 'yk-exp-prod'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+  const mar = document.getElementById('yk-exp-mar'); if (mar) mar.value = ''
   if (window.ykExpMarcaChange) ykExpMarcaChange()
+  const ad = document.getElementById('yk-exp-ad'); if (ad) ad.value = ''
+  const ah = document.getElementById('yk-exp-ah'); if (ah) ah.value = ''
   const c = document.getElementById('yk-exp-cards'); if (c) c.innerHTML = ''
   const r = document.getElementById('yk-exp-result'); if (r) r.innerHTML = '<div class="page-sub">Indicá al menos un filtro y tocá Buscar.</div>'
 }
@@ -789,4 +856,274 @@ window.ykExpExport = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Explorar')
   window.XLSX.writeFile(wb, `Yonker_Explorar_${new Date().toLocaleDateString('en-CA')}.xlsx`)
+}
+
+// ── CONTAMAX · Yonker — Cotización (consulta de precios de piezas) ──
+let ykCotRows = []
+function ykRenderCotizar() {
+  const pane = document.getElementById('yk-pane')
+  if (!pane) return
+  pane.innerHTML = `
+    <div class="page-sub">Consultá a qué precio se ha vendido una pieza. Elegí marca/modelo/año, escribí la pieza (ej. "tijera", "amortiguador") y, si querés, refiná con una sub-palabra. La búsqueda tolera errores de tipeo.</div>
+    <div class="yk-ctrl" style="margin:14px 0;align-items:flex-end">
+      <div class="fld"><label>Marca</label><select id="yk-cot-mar" style="width:150px" onchange="ykCotMarcaChange()"><option value="">(todas)</option></select></div>
+      <div class="fld"><label>Modelo</label><select id="yk-cot-mod" style="width:160px" onchange="ykCotYearsUpdate(false)"><option value="">(todos)</option></select></div>
+      <div class="fld"><label>Año desde</label><select id="yk-cot-ad" style="width:95px" onchange="ykUnidadesPanel('yk-cot')"><option value="">—</option></select></div>
+      <div class="fld"><label>Año hasta</label><select id="yk-cot-ah" style="width:95px" onchange="ykUnidadesPanel('yk-cot')"><option value="">—</option></select></div>
+      <div class="fld"><label>Pieza</label><input id="yk-cot-pza" type="text" style="width:160px" placeholder="ej. tijera" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
+      <div class="fld"><label>Sub-pieza (refinar)</label><input id="yk-cot-sub" type="text" style="width:140px" placeholder="ej. delantera" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
+      <div class="fld"><label>Precio desde</label><input id="yk-cot-pmin" type="number" style="width:110px" placeholder="ej. 500" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
+      <div class="fld"><label>Precio hasta</label><input id="yk-cot-pmax" type="number" style="width:110px" placeholder="ej. 5000" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykCotizar()">💵 Cotizar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykCotLimpiar()">Limpiar</button></div>
+    </div>
+    ${ykEsSuper() ? `<div style="margin:-4px 0 10px;display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="ykCotAgregar()">➕ Agregar cotización histórica</button>
+      <button class="btn btn-ghost" onclick="ykCotGestionar()">📋 Cotizaciones guardadas</button>
+    </div>` : ''}
+    <div id="yk-cot-unidades"></div>
+    <div id="yk-cot-cards"></div>
+    <div id="yk-cot-result"><div class="page-sub">Indicá marca/modelo/año o una pieza, y tocá Cotizar.</div></div>`
+  ykCargarUnidades().then(us => {
+    const marcas = [...new Set(us.map(u => u.marca).filter(Boolean))].sort()
+    const mar = document.getElementById('yk-cot-mar')
+    if (mar) mar.innerHTML = '<option value="">(todas)</option>' + marcas.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+    ykCotMarcaChange()
+  })
+}
+window.ykCotUnidadesFiltradas = () => {
+  const us = ykUnidades || []
+  const marca = document.getElementById('yk-cot-mar')?.value || ''
+  const modelo = document.getElementById('yk-cot-mod')?.value || ''
+  return us.filter(u => (!marca || (u.marca || '') === marca) && (!modelo || (u.modelo || '') === modelo))
+}
+window.ykCotYearsUpdate = () => {
+  const ad = document.getElementById('yk-cot-ad'), ah = document.getElementById('yk-cot-ah')
+  if (!ad || !ah) return
+  const years = [...new Set(ykCotUnidadesFiltradas().map(u => u.anio_vehiculo).filter(Boolean))].sort((a, b) => a - b)
+  const opts = '<option value="">—</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('')
+  ad.innerHTML = opts; ah.innerHTML = opts   // en cotización el rango queda abierto por defecto
+  if (window.ykUnidadesPanel) ykUnidadesPanel('yk-cot')
+}
+window.ykCotMarcaChange = () => {
+  const sel = document.getElementById('yk-cot-mod'); if (!sel) return
+  const marca = document.getElementById('yk-cot-mar')?.value || ''
+  const actual = sel.value
+  const modelos = ykExpModelosDe(marca)
+  sel.innerHTML = '<option value="">(todos)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+  sel.value = modelos.includes(actual) ? actual : ''
+  ykCotYearsUpdate()
+  if (window.ykUnidadesPanel) ykUnidadesPanel('yk-cot')
+}
+window.ykCotLimpiar = () => {
+  const mar = document.getElementById('yk-cot-mar'); if (mar) mar.value = ''
+  ;['yk-cot-pza', 'yk-cot-sub', 'yk-cot-pmin', 'yk-cot-pmax'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+  if (window.ykCotMarcaChange) ykCotMarcaChange()
+  const c = document.getElementById('yk-cot-cards'); if (c) c.innerHTML = ''
+  const r = document.getElementById('yk-cot-result'); if (r) r.innerHTML = '<div class="page-sub">Indicá marca/modelo/año o una pieza, y tocá Cotizar.</div>'
+}
+window.ykCotizar = async () => {
+  const cont = document.getElementById('yk-cot-result'), cards = document.getElementById('yk-cot-cards')
+  const val = id => (document.getElementById(id)?.value || '').trim()
+  const num = id => { const v = parseInt(val(id), 10); return isNaN(v) ? null : v }
+  const fnum = id => { const v = parseFloat(val(id)); return isNaN(v) ? null : v }
+  const params = {
+    p_marca: val('yk-cot-mar') || null,
+    p_modelo: val('yk-cot-mod') || null,
+    p_anio_desde: num('yk-cot-ad'),
+    p_anio_hasta: num('yk-cot-ah'),
+    p_pieza: val('yk-cot-pza') || null,
+    p_subpieza: val('yk-cot-sub') || null,
+    p_precio_min: fnum('yk-cot-pmin'),
+    p_precio_max: fnum('yk-cot-pmax')
+  }
+  if (cont) cont.innerHTML = '<div class="page-sub">Buscando…</div>'
+  try {
+    const { data, error } = await ykSb().rpc('yonker_cotizar', params)
+    if (error) throw error
+    if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:#e0a800">${data?.error || 'Error'}</div>`; return }
+    const piezas = data.piezas || []
+    ykCotRows = piezas
+    if (!piezas.length) { if (cards) cards.innerHTML = ''; cont.innerHTML = '<div class="page-sub">Sin ventas registradas para esos filtros.</div>'; return }
+    const allMin = Math.min(...piezas.map(p => +p.precio_min))
+    const allMax = Math.max(...piezas.map(p => +p.precio_max))
+    const allProm = piezas.reduce((s, p) => s + (+p.precio_prom || 0), 0) / piezas.length
+    const ultima = piezas.reduce((m, p) => (p.ultima_fecha > m ? p.ultima_fecha : m), '')
+    if (cards) cards.innerHTML = `<div class="yk-cards">
+      <div class="yk-card ok"><div class="v">L. ${ykFmt(allMin)}</div><div class="l">Precio mínimo</div></div>
+      <div class="yk-card"><div class="v">L. ${ykFmt(allProm)}</div><div class="l">Precio promedio</div></div>
+      <div class="yk-card warn"><div class="v">L. ${ykFmt(allMax)}</div><div class="l">Precio máximo</div></div>
+      <div class="yk-card"><div class="v">${piezas.length}</div><div class="l">Piezas · últ. ${ultima || '—'}</div></div></div>`
+    const rows = piezas.map(p => {
+      const soloCot = (+p.ventas || 0) === 0 && (+p.cotizaciones || 0) > 0
+      const tag = soloCot ? '<span style="display:inline-block;background:#3a3320;color:#e0b020;border:1px solid #6a5a20;border-radius:8px;padding:0 6px;font-size:10px;margin-right:6px">COTIZACIÓN</span>' : ''
+      const cot = (+p.cotizaciones || 0) > 0 ? `<span style="color:#e0b020">${p.cotizaciones}</span>` : '0'
+      const trStyle = soloCot ? ' style="background:rgba(224,176,32,.10)"' : ''
+      return `<tr${trStyle}>
+      <td>${tag}${(p.producto || '').slice(0, 70)}</td>
+      <td class="yk-num">${p.ventas}</td>
+      <td class="yk-num">${cot}</td>
+      <td class="yk-num">${ykFmt(p.precio_min)}</td>
+      <td class="yk-num" style="color:#f0a500;font-weight:600">${ykFmt(p.precio_prom)}</td>
+      <td class="yk-num">${ykFmt(p.precio_max)}</td>
+      <td>${p.ultima_fecha || '—'}</td>
+      <td>${p.ultimo_cliente || '—'}</td>
+    </tr>`
+    }).join('')
+    cont.innerHTML = `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-ghost" onclick="ykCotExport()">📥 Exportar Excel</button></div>
+      <div class="table-wrap" style="max-height:520px;overflow:auto">
+      <table class="yk-tbl"><thead><tr><th>Pieza (producto)</th><th class="yk-num">Ventas</th><th class="yk-num">Cot.</th><th class="yk-num">Mín</th><th class="yk-num">Prom</th><th class="yk-num">Máx</th><th>Última</th><th>Último cliente</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="page-sub" style="margin-top:8px">${piezas.length} pieza(s) distinta(s). <b>Ventas</b> = ventas reales · <b>Cot.</b> = cotizaciones históricas (precio cotizado, no vendido). Las filas <span style="background:rgba(224,176,32,.18);padding:0 6px;border-radius:4px">resaltadas</span> provienen de la tabla de cotizaciones (sin venta real).</div>`
+  } catch (e) {
+    if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+  }
+}
+window.ykCotExport = () => {
+  if (!ykCotRows.length) { window.toast?.('Nada que exportar', 'info'); return }
+  const ws = window.XLSX.utils.json_to_sheet(ykCotRows.map(p => ({
+    Producto: p.producto, Marca: p.marca, Modelo: p.modelo, Anio: p.anio_vehiculo,
+    Ventas: p.ventas, Cotizaciones: p.cotizaciones, Precio_min: p.precio_min, Precio_prom: p.precio_prom, Precio_max: p.precio_max,
+    Ultima: p.ultima_fecha, Ultimo_cliente: p.ultimo_cliente
+  })))
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Cotizacion')
+  window.XLSX.writeFile(wb, `Yonker_Cotizacion_${new Date().toLocaleDateString('en-CA')}.xlsx`)
+}
+
+// ── Panel de unidades del catálogo que cumplen los filtros (estilo slicer de Excel) ──
+// prefix = 'yk-exp' (chips clickeables → filtran por ese vehículo) o 'yk-cot' (informativo)
+window.ykUnidadesPanel = (prefix) => {
+  const cont = document.getElementById(prefix + '-unidades')
+  if (!cont) return
+  const marca = document.getElementById(prefix + '-mar')?.value || ''
+  const modelo = document.getElementById(prefix + '-mod')?.value || ''
+  const ad = parseInt(document.getElementById(prefix + '-ad')?.value, 10)
+  const ah = parseInt(document.getElementById(prefix + '-ah')?.value, 10)
+  // Sin ningún filtro no listamos las 556 unidades; esperamos a que elija marca/modelo/año
+  if (!marca && !modelo && isNaN(ad) && isNaN(ah)) { cont.innerHTML = ''; return }
+  const us = ykUnidades || []
+  const list = us.filter(u =>
+    (!marca || (u.marca || '') === marca) &&
+    (!modelo || (u.modelo || '') === modelo) &&
+    (isNaN(ad) || (u.anio_vehiculo != null && u.anio_vehiculo >= ad)) &&
+    (isNaN(ah) || (u.anio_vehiculo != null && u.anio_vehiculo <= ah))
+  )
+  const codes = [...new Set(list.map(u => u.vehiculo_codigo).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }))
+  if (!codes.length) { cont.innerHTML = '<div class="page-sub" style="margin:6px 0">No tenés unidades en el catálogo con esos filtros.</div>'; return }
+  const esExp = prefix === 'yk-exp'
+  const chips = codes.map(c => {
+    const cc = String(c).replace(/'/g, "\\'").replace(/"/g, '&quot;')
+    return esExp
+      ? `<span class="yk-chip" title="Filtrar por vehículo ${c}" onclick="ykChipVeh('${cc}')">${c}</span>`
+      : `<span class="yk-chip yk-chip-static">${c}</span>`
+  }).join('')
+  cont.innerHTML = `<div class="page-sub" style="margin:8px 0 4px"><b>${codes.length}</b> unidad(es) en catálogo que cumplen${esExp ? ' · tocá un número para filtrar por ese vehículo' : ''}:</div><div class="yk-chips">${chips}</div>`
+}
+window.ykChipVeh = (cod) => {
+  const inp = document.getElementById('yk-exp-cod'); if (inp) inp.value = cod
+  if (window.ykExplorar) ykExplorar()
+}
+
+// ── Cotizaciones históricas: alta y gestión (solo super_admin) ──
+function ykCotCerrarOv(id) { const o = document.getElementById(id); if (o) o.remove() }
+window.ykCotAgregar = () => {
+  if (!ykEsSuper()) return
+  const ov = document.createElement('div')
+  ov.className = 'yk-ov'; ov.id = 'yk-cotm-ov'
+  const marcas = [...new Set((ykUnidades || []).map(u => u.marca).filter(Boolean))].sort()
+  ov.innerHTML = `<div class="yk-modal" style="width:500px">
+    <div class="yk-mhead" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border,#3a3a3a)">
+      <b>➕ Agregar cotización histórica</b>
+      <button class="btn btn-ghost" onclick="ykCotCerrarOv('yk-cotm-ov')">✕</button>
+    </div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div class="page-sub">Precio cotizado de una pieza (aún no vendida). Aparecerá en las búsquedas junto a las ventas reales.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="fld"><label>Marca *</label><select id="yk-cotm-mar" style="width:160px" onchange="ykCotMarcaModalChange()"><option value="">— elegí —</option>${marcas.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')}</select></div>
+        <div class="fld"><label>Modelo</label><select id="yk-cotm-mod" style="width:170px"><option value="">(opcional)</option></select></div>
+        <div class="fld"><label>Año</label><input id="yk-cotm-anio" type="number" style="width:90px" placeholder="2014"></div>
+      </div>
+      <div class="fld"><label>Descripción de la pieza *</label><input id="yk-cotm-prod" type="text" style="width:100%" placeholder="ej. MOTOR K24 4X4"></div>
+      <div style="display:flex;gap:10px">
+        <div class="fld"><label>Precio (L.) *</label><input id="yk-cotm-precio" type="number" style="width:140px" placeholder="ej. 25000"></div>
+        <div class="fld" style="flex:1"><label>Nota (opcional)</label><input id="yk-cotm-nota" type="text" style="width:100%" placeholder="ej. cotizado por taller X"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">
+        <button class="btn btn-ghost" onclick="ykCotCerrarOv('yk-cotm-ov')">Cancelar</button>
+        <button class="btn btn-gold" onclick="ykCotGuardar()">Guardar</button>
+      </div>
+    </div></div>`
+  document.body.appendChild(ov)
+}
+window.ykCotMarcaModalChange = () => {
+  const sel = document.getElementById('yk-cotm-mod'); if (!sel) return
+  const marca = document.getElementById('yk-cotm-mar')?.value || ''
+  const modelos = ykExpModelosDe(marca)
+  sel.innerHTML = '<option value="">(opcional)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+}
+window.ykCotGuardar = async () => {
+  const v = id => (document.getElementById(id)?.value || '').trim()
+  const marca = v('yk-cotm-mar'), prod = v('yk-cotm-prod')
+  const precio = parseFloat(v('yk-cotm-precio'))
+  const anio = parseInt(v('yk-cotm-anio'), 10)
+  if (!marca || !prod) { window.toast?.('Marca y descripción son obligatorias', 'error'); return }
+  if (isNaN(precio) || precio <= 0) { window.toast?.('Precio inválido', 'error'); return }
+  try {
+    const { data, error } = await ykSb().rpc('yonker_cotizacion_guardar', {
+      p_marca: marca, p_modelo: v('yk-cotm-mod') || null, p_anio: isNaN(anio) ? null : anio,
+      p_producto: prod, p_precio: precio, p_nota: v('yk-cotm-nota') || null
+    })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'Error', 'error'); return }
+    window.toast?.('Cotización guardada', 'success')
+    ykCotCerrarOv('yk-cotm-ov')
+    // si hay una búsqueda activa, refrescar
+    if (document.getElementById('yk-cot-result') && ykCotRows.length) ykCotizar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykCotGestionar = async () => {
+  if (!ykEsSuper()) return
+  const ov = document.createElement('div')
+  ov.className = 'yk-ov'; ov.id = 'yk-cotg-ov'
+  ov.innerHTML = `<div class="yk-modal" style="width:760px">
+    <div class="yk-mhead" style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border,#3a3a3a)">
+      <b>📋 Cotizaciones guardadas</b>
+      <button class="btn btn-ghost" onclick="ykCotCerrarOv('yk-cotg-ov')">✕</button>
+    </div>
+    <div id="yk-cotg-body" style="padding:16px"><div class="page-sub">Cargando…</div></div></div>`
+  document.body.appendChild(ov)
+  try {
+    const { data, error } = await ykSb().rpc('yonker_cotizaciones_listar', { p_limite: 300 })
+    if (error) throw error
+    const body = document.getElementById('yk-cotg-body')
+    const cots = data?.cotizaciones || []
+    if (!cots.length) { body.innerHTML = '<div class="page-sub">No hay cotizaciones guardadas todavía.</div>'; return }
+    const rows = cots.map(c => `<tr>
+      <td>${c.marca || ''} ${c.modelo || ''} ${c.anio_vehiculo || ''}</td>
+      <td>${(c.producto || '').slice(0, 50)}</td>
+      <td class="yk-num">${ykFmt(c.precio)}</td>
+      <td>${(c.creado_en || '').slice(0, 10)}</td>
+      <td>${c.creado_por || ''}</td>
+      <td><button class="btn btn-ghost" style="padding:1px 8px" onclick="ykCotEliminar('${c.id}')">🗑️</button></td>
+    </tr>`).join('')
+    body.innerHTML = `<div class="table-wrap" style="max-height:460px;overflow:auto">
+      <table class="yk-tbl"><thead><tr><th>Vehículo</th><th>Pieza</th><th class="yk-num">Precio</th><th>Fecha</th><th>Por</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="page-sub" style="margin-top:8px">${cots.length} cotización(es).</div>`
+  } catch (e) {
+    const body = document.getElementById('yk-cotg-body'); if (body) body.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+  }
+}
+window.ykCotEliminar = async (id) => {
+  if (!confirm('¿Eliminar esta cotización guardada?')) return
+  try {
+    const { data, error } = await ykSb().rpc('yonker_cotizacion_eliminar', { p_id: id })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'Error', 'error'); return }
+    window.toast?.('Cotización eliminada', 'success')
+    ykCotCerrarOv('yk-cotg-ov'); ykCotGestionar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
