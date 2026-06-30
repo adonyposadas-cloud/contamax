@@ -702,8 +702,11 @@ let ykExpRows = []
 let ykUnidades = null   // cache de unidades para autocompletar (marca/modelo/código/año)
 async function ykCargarUnidades() {
   if (ykUnidades) return ykUnidades
-  try { ykUnidades = await ykFetchAll(() => ykSb().from('yonker_unidades').select('vehiculo_codigo,marca,modelo,anio_vehiculo').order('vehiculo_codigo')) }
-  catch (e) { ykUnidades = [] }
+  try {
+    const { data, error } = await ykSb().rpc('yonker_filtros')
+    if (error) throw error
+    ykUnidades = (data?.ok && Array.isArray(data.unidades)) ? data.unidades : []
+  } catch (e) { ykUnidades = [] }
   return ykUnidades
 }
 window.ykExpModelosDe = (marca) => {

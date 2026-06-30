@@ -103,7 +103,19 @@ async function initSession(user) {
     compras: ['compras', 'Registrar compras'],
     contador_fiscal: ['declaracion-isv', 'Declaración de ISV']
   }
-  const [dv, dl] = defaultViews[profile.rol] || ['compras', 'Registrar compras']
+  let [dv, dl] = defaultViews[profile.rol] || ['compras', 'Registrar compras']
+  // Si la vista por defecto del rol NO está entre las permitidas (por permisos personalizados),
+  // aterrizar en la primera vista visible según permisos (no forzar Compras).
+  const _vis = window._navVisibles || []
+  if (profile.rol !== 'super_admin' && !_vis.includes('nav-' + dv)) {
+    const orden = window._todosNav || []
+    const found = orden.find(navId => _vis.includes(navId) && document.getElementById('view-' + navId.replace(/^nav-/, '')))
+    if (found) {
+      dv = found.replace(/^nav-/, '')
+      const el = document.getElementById(found)
+      dl = el ? (el.textContent || '').replace(/\s+\d+\s*$/, '').trim() : dv
+    }
+  }
   showView(dv, dl)
   // Load caja badge for super_admin
   if (profile.rol === 'super_admin') initCajaBadge()
@@ -138,10 +150,17 @@ function setupUI() {
   } else {
     visibles = permisos[p.rol] || []
   }
+  // Si tiene alguna pestaña de Yonker marcada, mostrar el menú Yonker aunque no marcaran 'Yonker (Ventas)'
+  const YK_TAB_IDS = ['yk-tab-imp', 'yk-tab-rep', 'yk-tab-dev', 'yk-tab-exp', 'yk-tab-cot']
+  if (YK_TAB_IDS.some(t => visibles.includes(t)) && !visibles.includes('nav-yonker')) {
+    visibles = [...visibles, 'nav-yonker']
+  }
+  window._navVisibles = visibles
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
   const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker']
+  window._todosNav = todosNav
   todosNav.forEach(id => {
     const el = document.getElementById(id)
     if (el) el.classList.toggle('hidden', !visibles.includes(id))
