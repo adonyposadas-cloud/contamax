@@ -323,6 +323,19 @@ window.ykConfirmar = async () => {
         .update({ costo_hnl: costo126 }).eq('vehiculo_codigo', '126')
       if (!e126) nota126 = `Costo del #126 (YONKER VIRGINIA) recalculado a L. ${ykFmt(costo126)} (70% de su venta).`
     }
+    // EBAY: mismo trato que el #126 — costo = 70% de sus ventas (por cada unidad EBAY)
+    let notaEbay = ''
+    const ebayUnidades = await ykFetchAll(() => ykSb().from('yonker_unidades')
+      .select('vehiculo_codigo').ilike('marca', 'EBAY').order('vehiculo_codigo'))
+    for (const eu of ebayUnidades) {
+      const ve = await ykFetchAll(() => ykSb().from('yonker_ventas')
+        .select('venta_hnl').eq('vehiculo_codigo', eu.vehiculo_codigo).order('id'))
+      if (!ve.length) continue
+      const ventaE = ve.reduce((s, r) => s + (parseFloat(r.venta_hnl) || 0), 0)
+      const costoE = ykR2(ventaE * 0.7)
+      await ykSb().from('yonker_unidades').update({ costo_hnl: costoE }).eq('vehiculo_codigo', eu.vehiculo_codigo)
+    }
+    if (ebayUnidades.length) notaEbay = `Costo de EBAY recalculado al 70% de su venta.`
     if (window.logActividad) window.logActividad('import_yonker', 'importar', `Importó ${rows.length} líneas de venta yonker`)
     document.getElementById('yk-step2').classList.add('hidden')
     const s3 = document.getElementById('yk-step3'); s3.classList.remove('hidden')
@@ -333,6 +346,7 @@ window.ykConfirmar = async () => {
         <div class="yk-card ok"><div class="v">${new Set(rows.map(r => r.consecutivo)).size}</div><div class="l">Tickets nuevos</div></div>
       </div>
       ${nota126 ? `<div class="page-sub">${nota126}</div>` : ''}
+      ${notaEbay ? `<div class="page-sub">${notaEbay}</div>` : ''}
       <div class="form-actions" style="margin-top:14px"><button class="btn btn-gold" onclick="ykRenderImport()">Importar otro archivo →</button></div>`
     window.toast?.(`${rows.length} líneas importadas`, 'success')
   } catch (e) {
