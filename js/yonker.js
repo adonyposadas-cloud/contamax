@@ -897,6 +897,10 @@ window.ykExpExport = () => {
 
 // ── CONTAMAX · Yonker — Cotización (consulta de precios de piezas) ──
 let ykCotRows = []
+let ykCotParams = null    // filtros de la última cotización (para el ratio de costo)
+let ykCotRatio = null     // { ratio_mediana, ratio_p25, ratio_p75, n }
+let ykCotCosto = null     // costo de la unidad elegida para sugerir precio
+let ykCotUniTimer = null
 function ykRenderCotizar() {
   const pane = document.getElementById('yk-pane')
   if (!pane) return
@@ -920,6 +924,7 @@ function ykRenderCotizar() {
     </div>` : ''}
     <div id="yk-cot-unidades"></div>
     <div id="yk-cot-cards"></div>
+    <div id="yk-cot-sugerir"></div>
     <div id="yk-cot-result"><div class="page-sub">Indicá marca/modelo/año o una pieza, y tocá Cotizar.</div></div>`
   ykCargarUnidades().then(us => {
     const marcas = [...new Set(us.map(u => u.marca).filter(Boolean))].sort()
@@ -975,6 +980,9 @@ window.ykCotizar = async () => {
     p_precio_min: fnum('yk-cot-pmin'),
     p_precio_max: fnum('yk-cot-pmax')
   }
+  ykCotParams = params
+  ykCotRatio = null; ykCotCosto = null
+  const sug = document.getElementById('yk-cot-sugerir'); if (sug) sug.innerHTML = ''
   if (cont) cont.innerHTML = '<div class="page-sub">Buscando…</div>'
   try {
     const { data, error } = await ykSb().rpc('yonker_cotizar', params)
@@ -992,6 +1000,7 @@ window.ykCotizar = async () => {
       <div class="yk-card"><div class="v">L. ${ykFmt(allProm)}</div><div class="l">Precio promedio</div></div>
       <div class="yk-card warn"><div class="v">L. ${ykFmt(allMax)}</div><div class="l">Precio máximo</div></div>
       <div class="yk-card"><div class="v">${piezas.length}</div><div class="l">Piezas · últ. ${ultima || '—'}</div></div></div>`
+    if (ykEsSuper()) ykCargarRatio()
     const rows = piezas.map(p => {
       const soloCot = (+p.ventas || 0) === 0 && (+p.cotizaciones || 0) > 0
       const tag = soloCot ? '<span style="display:inline-block;background:#3a3320;color:#e0b020;border:1px solid #6a5a20;border-radius:8px;padding:0 6px;font-size:10px;margin-right:6px">COTIZACIÓN</span>' : ''
@@ -1017,6 +1026,81 @@ window.ykCotizar = async () => {
   } catch (e) {
     if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
   }
+}
+
+// ── Precio sugerido por costo (solo super/admin) ──
+async function ykCargarRatio() {
+  const el = document.getElementById('yk-cot-sugerir')
+  if (!el || !ykCotParams) return
+  try {
+    const { data, error } = await ykSb().rpc('yonker_ratio_costo', ykCotParams)
+    if (error) throw error
+    if (!data?.ok || !data.n) { ykCotRatio = null; el.innerHTML = ''; return }
+    ykCotRatio = data
+    ykRenderSugerir()
+  } catch (e) { el.innerHTML = '' }
+}
+function ykRenderSugerir() {
+  const el = document.getElementById('yk-cot-sugerir'); if (!el || !ykCotRatio) return
+  const pct = v => ((+v || 0) * 100).toFixed(2) + '%'
+  el.innerHTML = `
+    <div style="margin:12px 0;padding:14px 16px;border-radius:12px;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.35)">
+      <div style="font-weight:700;color:#f0a500;margin-bottom:10px">💡 Sugerir precio por costo <span style="font-weight:400;color:#8b8f98;font-size:12px">(solo super/admin)</span></div>
+      <div class="yk-cards" style="margin-bottom:10px">
+        <div class="yk-card"><div class="v">${pct(ykCotRatio.ratio_mediana)}</div><div class="l">% del costo (mediana)</div></div>
+        <div class="yk-card"><div class="v" style="font-size:15px">${pct(ykCotRatio.ratio_p25)} – ${pct(ykCotRatio.ratio_p75)}</div><div class="l">Rango p25–p75</div></div>
+        <div class="yk-card"><div class="v">${ykCotRatio.n}</div><div class="l">Ventas con costo</div></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="fld" style="position:relative">
+          <label>Vehículo nuevo (buscá por código / marca / modelo)</label>
+          <input id="yk-cot-uni-q" type="text" style="width:300px" placeholder="ej. CR-V, 133, HONDA…" autocomplete="off" oninput="ykCotBuscarUnidad(this.value)">
+          <div id="yk-cot-uni-list" style="position:absolute;z-index:20;top:100%;left:0;right:0;background:#12151b;border:1px solid #2a2f3a;border-radius:8px;max-height:220px;overflow:auto;display:none"></div>
+        </div>
+      </div>
+      <div id="yk-cot-sugerido" style="margin-top:12px"></div>
+    </div>`
+  ykCotSugerirPintar()
+}
+window.ykCotBuscarUnidad = (q) => {
+  clearTimeout(ykCotUniTimer)
+  const list = document.getElementById('yk-cot-uni-list')
+  if (!q || !q.trim()) { if (list) { list.style.display = 'none'; list.innerHTML = '' } return }
+  ykCotUniTimer = setTimeout(async () => {
+    try {
+      const { data } = await ykSb().rpc('yonker_unidad_buscar', { p_q: q.trim() })
+      const rows = (data?.ok && data.rows) ? data.rows : []
+      if (!list) return
+      if (!rows.length) { list.innerHTML = '<div style="padding:8px;color:#8b8f98;font-size:12px">Sin unidades.</div>'; list.style.display = 'block'; return }
+      list.innerHTML = rows.map(u => {
+        const lbl = `#${u.vehiculo_codigo} · ${u.marca || ''} ${u.modelo || ''} ${u.anio_vehiculo || ''}`.replace(/'/g, '').trim()
+        return `<div style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #21252e;font-size:13px" onmouseover="this.style.background='#1b1f27'" onmouseout="this.style.background=''" onclick="ykCotUsarUnidad('${lbl.replace(/"/g, '')}',${(+u.costo_hnl || 0)})">${lbl} <span style="color:#f0a500">· L. ${ykFmt(u.costo_hnl)}</span></div>`
+      }).join('')
+      list.style.display = 'block'
+    } catch (e) { if (list) list.style.display = 'none' }
+  }, 250)
+}
+window.ykCotUsarUnidad = (lbl, costo) => {
+  ykCotCosto = { label: lbl, costo: +costo || 0 }
+  const inp = document.getElementById('yk-cot-uni-q'); if (inp) inp.value = lbl
+  const list = document.getElementById('yk-cot-uni-list'); if (list) { list.style.display = 'none'; list.innerHTML = '' }
+  ykCotSugerirPintar()
+}
+function ykCotSugerirPintar() {
+  const el = document.getElementById('yk-cot-sugerido'); if (!el) return
+  if (!ykCotRatio || !ykCotCosto || !ykCotCosto.costo) {
+    el.innerHTML = '<div class="page-sub" style="margin:0">Elegí un vehículo para ver el precio sugerido.</div>'; return
+  }
+  const c = ykCotCosto.costo
+  const sug = (+ykCotRatio.ratio_mediana || 0) * c
+  const lo = (+ykCotRatio.ratio_p25 || 0) * c
+  const hi = (+ykCotRatio.ratio_p75 || 0) * c
+  el.innerHTML = `
+    <div style="padding:10px 14px;border-radius:10px;background:rgba(126,226,160,.08);border:1px solid rgba(126,226,160,.4)">
+      <div style="font-size:12px;color:#8b8f98">${ykCotCosto.label} · costo L. ${ykFmt(c)}</div>
+      <div style="font-size:22px;font-weight:800;color:#7ee2a0;margin-top:2px">Precio sugerido: L. ${ykFmt(sug)}</div>
+      <div style="font-size:12px;color:#8b8f98;margin-top:2px">Banda razonable (p25–p75): L. ${ykFmt(lo)} – L. ${ykFmt(hi)}</div>
+    </div>`
 }
 window.ykCotExport = () => {
   if (!ykEsSuper()) return
