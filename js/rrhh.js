@@ -501,6 +501,28 @@ window.generarPlanilla = async () => {
     const { data: det } = await getSb().from('detalle_planilla')
       .select('*').eq('planilla_id', existing.id).order('seccion').order('nombre')
     currentDetalle = det || []
+
+    // ── Salvaguarda: un borrador NO se recalcula al cargar. Si desde que se generó cambió el
+    // roster (ej. un empleado pasó a salario partido y ahora debe salir en esta planilla),
+    // avisamos qué personas faltan para que el usuario regenere en vez de aprobar algo incompleto.
+    try {
+      if (allEmpleados.length === 0) {
+        const { data: _emps } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
+        allEmpleados = _emps || []
+      }
+      const _split = e => (parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0)
+      const _fullConf = e => !!e.planilla_confidencial && !_split(e)
+      const _esperados = allEmpleados.filter(e => e.activo && (planillaModoConf ? (_fullConf(e) || _split(e)) : !_fullConf(e)))
+      const _idsBorrador = new Set(currentDetalle.map(d => d.empleado_id))
+      const _faltantes = _esperados.filter(e => !_idsBorrador.has(e.id))
+      if (_faltantes.length) {
+        const _nombres = _faltantes.map(e => e.nombre).join(', ')
+        document.getElementById('pl-existing-msg').textContent =
+          `⚠ Este borrador no incluye a ${_faltantes.length} empleado(s) que hoy deberían estar: ${_nombres}. Regenerá para actualizarlo.`
+        window.toast?.(`El borrador no incluye a: ${_nombres}. Regenerá para actualizar.`, 'error')
+      }
+    } catch (e) { console.warn('chequeo roster borrador:', e) }
+
     renderPlanilla()
     return
   }

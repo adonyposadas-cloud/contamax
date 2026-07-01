@@ -1746,7 +1746,132 @@ window.rtxHistCerrar = () => { if (rtxHistOv) { rtxHistOv.remove(); rtxHistOv = 
 
 // ── Condonación de saldo (solo super_admin) ──
 let rtxCondOv = null
+let rtxPrestOv = null
+
+// Datos contables para la partida del préstamo (reutiliza globales de app.js)
+let rtxCuentasDet = null, rtxTiposOrigen = null, rtxCentroTaxis = null
+async function rtxCargarContab() {
+  if (!rtxCuentasDet) {
+    let cu = window.catalogoCuentas
+    if (!cu || !cu.length) {
+      const { data } = await rtxSb().from('catalogo_cuentas').select('id,codigo,nombre,tipo,es_detalle').order('codigo')
+      cu = data || []
+    }
+    rtxCuentasDet = (cu || []).filter(c => c.es_detalle)
+  }
+  if (!rtxTiposOrigen) {
+    const { data } = await rtxSb().from('tipos_origen').select('id,nombre').eq('activo', true).order('orden')
+    rtxTiposOrigen = data || []
+  }
+  if (rtxCentroTaxis === null) {
+    let ce = (typeof window._allCentros === 'function' ? window._allCentros() : []) || []
+    if (!ce.length) { const { data } = await rtxSb().from('centros_costo').select('id,nombre').order('nombre'); ce = data || [] }
+    rtxCentroTaxis = ce.find(c => /taxi/i.test(c.nombre || '')) || null
+  }
+}
+window.rtxPrestTogglePartida = () => {
+  const on = document.getElementById('rtx-prest-partida')?.checked
+  const box = document.getElementById('rtx-prest-part-box')
+  if (box) box.style.display = on ? 'block' : 'none'
+}
 window.rtxCondCerrar = () => { if (rtxCondOv) { rtxCondOv.remove(); rtxCondOv = null } }
+window.rtxPrestamo = async (identidad, nombre, saldo) => {
+  if (!rtxEsSuper()) { window.toast?.('Solo super_admin puede registrar préstamos', 'error'); return }
+  saldo = Number(saldo) || 0
+  rtxPrestCerrar()
+  try { await rtxCargarContab() } catch (e) { rtxCuentasDet = rtxCuentasDet || []; rtxTiposOrigen = rtxTiposOrigen || [] }
+  const optCuentas = (rtxCuentasDet || []).map(c => `<option value="${c.codigo}">${c.codigo} · ${c.nombre}</option>`).join('')
+  const optOrigen = (rtxTiposOrigen || []).map(t => `<option value="${t.id}">${t.nombre}</option>`).join('')
+  const ccTxt = rtxCentroTaxis ? rtxCentroTaxis.nombre : 'Taxis'
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'; ov.id = 'rtx-prest-overlay'
+  ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:460px"><div class="rtx-7d-head">
+      <h3 style="margin:0;font-size:15px">➕ Préstamo (subir saldo)</h3>
+      <button onclick="rtxPrestCerrar()">✕</button></div>
+      <div style="padding:16px 18px">
+        <div style="font-weight:700;margin-bottom:2px">${nombre}</div>
+        <div style="color:#8b8f98;font-size:12px;margin-bottom:14px">Saldo actual: <b style="color:#f0a500">L. ${rtxFmt(saldo)}</b> → el préstamo lo aumenta (queda debiendo más).</div>
+        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monto del préstamo</label>
+        <input id="rtx-prest-monto" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;margin-bottom:14px">
+        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Motivo (obligatorio)</label>
+        <textarea id="rtx-prest-motivo" rows="2" placeholder="Ej: Adelanto para reparación de la unidad; se descuenta de sus entregas." style="width:100%;resize:vertical"></textarea>
+
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #2a2e37">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="rtx-prest-partida" onchange="rtxPrestTogglePartida()"> Generar partida contable (borrador)</label>
+          <div id="rtx-prest-part-box" style="display:none;margin-top:12px">
+            <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Débito — lo que el motorista debe (préstamo / CxC)</label>
+            <select id="rtx-prest-deb" style="width:100%;margin-bottom:10px"><option value="">— elegí cuenta —</option>${optCuentas}</select>
+            <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Crédito — de dónde sale el efectivo (caja / banco)</label>
+            <select id="rtx-prest-cred" style="width:100%;margin-bottom:10px"><option value="">— elegí cuenta —</option>${optCuentas}</select>
+            <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Tipo de origen</label>
+            <select id="rtx-prest-origen" style="width:100%;margin-bottom:6px"><option value="">— elegí —</option>${optOrigen}</select>
+            <div style="color:#8b8f98;font-size:11px">Centro de costo: <b>${ccTxt}</b> · Fecha: hoy · Queda en borrador para aprobar.</div>
+          </div>
+        </div>
+
+        <div id="rtx-prest-msg" style="color:#f0a500;font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+          <button class="rtx-b" onclick="rtxPrestCerrar()">Cancelar</button>
+          <button class="rtx-b ok" id="rtx-prest-ok" onclick="rtxPrestConfirmar('${identidad}','${String(nombre).replace(/'/g, "\\'")}')">Confirmar préstamo</button>
+        </div>
+      </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxPrestCerrar() }
+  document.body.appendChild(ov)
+  rtxPrestOv = ov
+  setTimeout(() => { const m = document.getElementById('rtx-prest-monto'); if (m) m.focus() }, 50)
+}
+window.rtxPrestCerrar = () => { if (rtxPrestOv) { rtxPrestOv.remove(); rtxPrestOv = null } }
+window.rtxPrestConfirmar = async (identidad, nombre) => {
+  const msg = document.getElementById('rtx-prest-msg')
+  const btn = document.getElementById('rtx-prest-ok')
+  const setMsg = t => { if (msg) msg.textContent = t }
+  const monto = parseFloat(document.getElementById('rtx-prest-monto')?.value)
+  const motivo = (document.getElementById('rtx-prest-motivo')?.value || '').trim()
+  if (!monto || monto <= 0) { setMsg('Ingresá un monto mayor que cero.'); return }
+  if (motivo.length < 5) { setMsg('El motivo es obligatorio (mínimo 5 caracteres).'); return }
+  // Datos de partida (si el checkbox está activo)
+  const conPartida = document.getElementById('rtx-prest-partida')?.checked
+  let deb = '', cred = '', origen = ''
+  if (conPartida) {
+    deb = document.getElementById('rtx-prest-deb')?.value || ''
+    cred = document.getElementById('rtx-prest-cred')?.value || ''
+    origen = document.getElementById('rtx-prest-origen')?.value || ''
+    if (!deb || !cred) { setMsg('Elegí las cuentas de débito y crédito de la partida.'); return }
+    if (deb === cred) { setMsg('El débito y el crédito no pueden ser la misma cuenta.'); return }
+    if (!origen) { setMsg('Elegí el tipo de origen de la partida.'); return }
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Procesando…' }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_prestamo_saldo', { p_identidad: identidad, p_monto: monto, p_motivo: motivo })
+    if (error) throw error
+    if (!data?.ok) { setMsg(data?.error || 'No se pudo registrar el préstamo.'); if (btn) { btn.disabled = false; btn.textContent = 'Confirmar préstamo' } return }
+    rtxLog('prestamo', `Préstamo L. ${rtxFmt(data.prestado)} a ${identidad} · ${motivo}`, identidad)
+    let extra = ''
+    if (conPartida) {
+      const desc = `PRESTAMO A MOTORISTA ${nombre || ''} (${identidad}) · ${motivo}`.trim()
+      const { data: pd, error: pe } = await rtxSb().rpc('tx_prestamo_partida', {
+        p_cuenta_debito: deb, p_cuenta_credito: cred, p_monto: monto,
+        p_fecha: rtxHoy(), p_descripcion: desc, p_tipo_origen: origen,
+        p_centro_costo_id: rtxCentroTaxis ? rtxCentroTaxis.id : null
+      })
+      if (pe || !pd?.ok) {
+        extra = ' · ⚠ saldo subió, pero la partida NO se generó: ' + (pd?.error || pe?.message || 'error')
+      } else {
+        extra = ` · partida #${pd.partida_numero} (borrador)`
+        rtxLog('prestamo_partida', `Partida #${pd.partida_numero} borrador por préstamo a ${identidad}`, identidad)
+      }
+    }
+    window.toast?.(`Préstamo L. ${rtxFmt(data.prestado)} · nuevo saldo L. ${rtxFmt(data.saldo_nuevo)}${extra}`, extra.includes('NO se generó') ? 'error' : 'success')
+    rtxPrestCerrar()
+    rtxHistorial(identidad)
+    if (typeof rtxMotCargar === 'function') rtxMotCargar()
+  } catch (e) {
+    setMsg('Error: ' + (e.message || e))
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar préstamo' }
+  }
+}
+
 window.rtxCondonar = (identidad, nombre, saldo) => {
   if (!rtxEsSuper()) { window.toast?.('Solo super_admin puede condonar saldos', 'error'); return }
   saldo = Number(saldo) || 0
@@ -1816,10 +1941,17 @@ function rtxHistPintar(data, body) {
     </div>
     <div style="font-size:12px;color:#8b8f98;margin-bottom:10px">Cómo se movió el saldo: <span style="color:#fca5a5">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:#7ee2a0">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
 
-  const _puedeCond = rtxEsSuper() && (Number(data.saldo_actual) > 0.01)
+  const _esSuper = rtxEsSuper()
   const _nEsc = String(data.nombre || '').replace(/'/g, "\\'")
-  const _condBtn = _puedeCond
-    ? `<div style="margin:2px 0 12px"><button class="rtx-b" style="border-color:#7ee2a0;color:#7ee2a0" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${Number(data.saldo_actual)})">➖ Condonar saldo</button></div>`
+  const _sAct = Number(data.saldo_actual) || 0
+  const _prestBtn = _esSuper
+    ? `<button class="rtx-b" style="border-color:#f0a500;color:#f0a500" onclick="rtxPrestamo('${data.identidad}','${_nEsc}',${_sAct})">➕ Préstamo (subir saldo)</button>`
+    : ''
+  const _condBtnEl = (_esSuper && _sAct > 0.01)
+    ? `<button class="rtx-b" style="border-color:#7ee2a0;color:#7ee2a0" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${_sAct})">➖ Condonar saldo</button>`
+    : ''
+  const _condBtn = (_prestBtn || _condBtnEl)
+    ? `<div style="margin:2px 0 12px;display:flex;gap:8px;flex-wrap:wrap">${_prestBtn}${_condBtnEl}</div>`
     : ''
   if (!movs.length) {
     body.innerHTML = head + _condBtn + '<div style="color:#8b8f98;padding:8px">Sin movimientos de saldo registrados.</div>'

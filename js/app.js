@@ -7352,6 +7352,14 @@ window.consultarEntregasTaxis = async () => {
   } catch (e) { toast('Error: ' + e.message, 'error'); return }
   if (!data?.length) { toast('No hay entregas en ese rango', 'info'); return }
 
+  // ── Solo entra a la partida el ingreso confirmado ──
+  // 'Rechazada': se revirtió el saldo del motorista, la plata NO entró.
+  // 'Pendiente': aún no revisada en Revisión Taxis, no se contabiliza hasta aprobar.
+  // Se conservan 'Aprobada' y cualquier estado legado de importaciones antiguas (ej. 'Programado').
+  const _ESTADOS_EXCLUIR = new Set(['rechazada', 'pendiente'])
+  data = data.filter(e => !_ESTADOS_EXCLUIR.has(String(e.estado || '').trim().toLowerCase()))
+  if (!data.length) { toast('No hay entregas aprobadas en ese rango', 'info'); return }
+
   // Agrupar por fecha
   const porFecha = {}
   data.forEach(e => {
