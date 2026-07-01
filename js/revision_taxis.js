@@ -23,6 +23,7 @@ let rtxEntregas = []
 const rtxHoy = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
 let rtxTelIdent = {}   // identidad → teléfono (tx_motoristas)
 let rtxTelUni = {}     // unidad → teléfono (tx_directorio)
+let rtxUltUnidad = {}  // identidad → última unidad aprobada anterior (para detectar cambio)
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 let rtxFEstado = 'todas'
 let rtxFMedio = 'todas'
@@ -95,6 +96,7 @@ window.rtxConsultar = async (silent = false) => {
     if (error) throw error
     rtxEntregas = data || []
     await rtxCargarTelefonos()
+    await rtxCargarUltimaUnidad()
     rtxRender()
   } catch (e) {
     if (!silent) window.toast?.('Error: ' + (e.message || e), 'error')
@@ -146,6 +148,25 @@ async function rtxCargarTelefonos() {
       ;(data || []).forEach(d => { if (d.telefono) rtxTelUni[d.unidad] = d.telefono })
     }
   } catch (e) { /* si falla, los botones de WhatsApp simplemente no aparecen */ }
+}
+
+// Carga la última unidad ANTERIOR (aprobada) de cada motorista del día, para
+// marcar en la tarjeta si esta entrega viene en una unidad distinta (cambio).
+async function rtxCargarUltimaUnidad() {
+  rtxUltUnidad = {}
+  try {
+    const idents = [...new Set(rtxEntregas.map(e => e.identidad).filter(Boolean))]
+    if (!idents.length) return
+    const { data } = await rtxSb().from('entregas_taxis')
+      .select('identidad, unidad, fecha_deposito')
+      .in('identidad', idents)
+      .eq('estado', 'Aprobada')
+      .lt('fecha_deposito', rtxFechaSol)
+      .order('fecha_deposito', { ascending: false })
+    ;(data || []).forEach(r => {
+      if (r.identidad && r.unidad != null && !rtxUltUnidad[r.identidad]) rtxUltUnidad[r.identidad] = String(r.unidad)
+    })
+  } catch (e) { /* silencioso: si falla, no se muestra el aviso de cambio */ }
 }
 
 function rtxRender() {
@@ -216,6 +237,11 @@ function rtxRender() {
     const tel = rtxTelefono(e)
     const nombre = e.nombre_conductor || 'motorista'
     const uni = e.unidad || ''
+    const prevU = rtxUltUnidad[e.identidad]
+    const cambioUni = prevU && e.unidad != null && String(e.unidad) !== prevU
+    const cambioBadge = cambioUni
+      ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.45);color:#f0a500;font-size:12px;font-weight:600">🔁 Cambio de unidad: venía en #${prevU}, entregó en #${e.unidad}</div>`
+      : ''
     const msgConex = `Hola ${nombre}, el dispositivo de Unidad #${uni} *NO ESTÁ EN LÍNEA*.\n\nRevisá:\n1. Internet del celular\n2. Compartir datos al dispositivo\n3. Dispositivo encendido\n\nUna vez corregido se programará.`
     const msgAprob = `Hola ${nombre}, tu pago de Unidad #${uni} fue *APROBADO*. Ya podés trabajar.`
     const msgRech  = `Hola ${nombre}, tu solicitud de Unidad #${uni} fue *RECHAZADA*. Por favor comunicate con el encargado.`
@@ -239,6 +265,7 @@ function rtxRender() {
             <div><span class="rtx-uni">Unidad ${e.unidad || '—'}</span> · ${e.nombre_conductor || ''}</div>
             ${badge(est)}
           </div>
+          ${cambioBadge}
           <div class="rtx-grid">
             <div><span>Monto</span><b>L. ${rtxFmt(e.monto)}</b></div>
             <div><span>Medio</span><b>${e.banco || '—'}</b></div>
@@ -287,6 +314,13 @@ window.rtxAprobar = async (id) => {
     window.toast?.('Entrega aprobada', 'success')
     rtxLog('aprobar', 'Aprobó ' + rtxEntDesc(id), id)
     rtxActualizarLocal(id, 'Aprobada')
+    try {
+      const { data: cu } = await rtxSb().rpc('tx_cambios_unidad_registrar', { p_entrega_id: id })
+      if (cu?.cambio) {
+        window.toast?.(`🔁 Cambio de unidad registrado: #${cu.anterior} → #${cu.nueva}`, 'info')
+        rtxLog('cambio_unidad', `Cambio de unidad #${cu.anterior} → #${cu.nueva}`, id)
+      }
+    } catch (e) { /* el registro del cambio es informativo; no bloquea la aprobación */ }
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
 
@@ -1234,8 +1268,9 @@ function rtxMotPintar() {
   const ordenBtn = `<button class="dash-orden ${rtxMotOrden === 'saldo' ? 'on' : ''}" onclick="rtxMotToggleOrden()">${rtxMotOrden === 'saldo' ? '↓ Por saldo adeudado' : '↕ Ordenar por saldo'}</button>`
   const addBtn = puedeAdmin ? `<button class="rtx-b ok" onclick="rtxMotAgregar()">+ Agregar motorista</button>` : ''
   const salidasBtn = `<button class="rtx-b" onclick="rtxSalidasGlobal()">🚪 Historial de salidas</button>`
+  const cambiosBtn = `<button class="rtx-b" onclick="rtxCambiosUnidad()">🔁 Cambios de unidad</button>`
   const cajasBtn = puedeAdmin ? `<button class="rtx-b" onclick="rtxCajasAdmin()">🔐 Cajas y PINs</button>` : ''
-  const barra = `<div class="mot-barra">${ordenBtn}${salidasBtn}${cajasBtn}${addBtn}</div>`
+  const barra = `<div class="mot-barra">${ordenBtn}${salidasBtn}${cambiosBtn}${cajasBtn}${addBtn}</div>`
 
   const q = rtxMotBusqueda.trim().toLowerCase()
   const lista = rtxMotData.filter(m => {
@@ -1369,6 +1404,55 @@ async function rtxSalGlobCargar() {
         <tbody>${rows}</tbody>
       </table>
       <div style="color:#8b8f98;font-size:11px;margin-top:8px">${arr.length} salida(s).</div>`
+  } catch (e) {
+    body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+  }
+}
+
+// ── Historial de cambios de unidad ──
+let rtxCambiosOv = null, rtxCambiosBusq = '', rtxCambiosTimer = null
+window.rtxCambiosUnidad = async () => {
+  if (rtxCambiosOv) { rtxCambiosOv.remove(); rtxCambiosOv = null }
+  rtxCambiosBusq = ''
+  const ov = document.createElement('div')
+  ov.className = 'rtx-7d-ov show'
+  ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:760px">
+    <div class="rtx-7d-head"><h3 style="margin:0;font-size:15px">🔁 Historial de cambios de unidad</h3>
+      <button onclick="rtxCambiosCerrar()">✕</button></div>
+    <div style="padding:14px 18px">
+      <input id="rtx-cambios-search" class="rtx-inp" type="text" placeholder="Buscar por nombre, cédula o unidad…" oninput="rtxCambiosBuscar(this.value)" autocomplete="off" style="margin-bottom:12px">
+      <div id="rtx-cambios-body"><div style="color:#9aa0aa">Cargando…</div></div>
+    </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) rtxCambiosCerrar() }
+  document.body.appendChild(ov); rtxCambiosOv = ov
+  rtxCambiosCargar()
+}
+window.rtxCambiosCerrar = () => { if (rtxCambiosOv) { rtxCambiosOv.remove(); rtxCambiosOv = null } }
+window.rtxCambiosBuscar = (v) => {
+  rtxCambiosBusq = v
+  clearTimeout(rtxCambiosTimer)
+  rtxCambiosTimer = setTimeout(rtxCambiosCargar, 300)
+}
+async function rtxCambiosCargar() {
+  const body = document.getElementById('rtx-cambios-body')
+  if (!body) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_cambios_unidad_listar', { p_busqueda: rtxCambiosBusq || null })
+    if (error) throw error
+    const arr = Array.isArray(data) ? data : []
+    if (!arr.length) { body.innerHTML = '<div style="color:#8b8f98;padding:8px">Sin cambios de unidad registrados.</div>'; return }
+    const rows = arr.map(c => `<tr>
+      <td style="white-space:nowrap">${c.fecha || '—'}</td>
+      <td>${c.nombre || '—'}<div style="color:#8b8f98;font-size:11px">${c.identidad}</div></td>
+      <td style="white-space:nowrap">#${c.unidad_anterior || '—'} → <b style="color:#f0a500">#${c.unidad_nueva || '—'}</b></td>
+      <td>${c.origen === 'caja' ? 'Caja' : 'Motorista'}</td>
+    </tr>`).join('')
+    body.innerHTML = `
+      <table class="rtx-7d-tbl" style="width:100%">
+        <thead><tr><th>Fecha</th><th>Motorista</th><th>Unidad</th><th>Origen</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="color:#8b8f98;font-size:11px;margin-top:8px">${arr.length} cambio(s) de unidad.</div>`
   } catch (e) {
     body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
   }

@@ -155,7 +155,7 @@ function ykRenderImport() {
   ykFile = null; ykPrev = null
   const pane = document.getElementById('yk-pane')
   pane.innerHTML = `
-    <div class="page-sub">Sube el reporte de productos vendidos que bajas de Taller Alpha. El sistema extrae el número de vehículo de la columna Producto, trae marca/modelo/año de las unidades y de-duplica por consecutivo. Solo se insertan los tickets que aún no estén cargados.</div>
+    <div class="page-sub">Sube el reporte de productos vendidos que bajas de Taller Alpha. El sistema extrae el número de vehículo de la columna Producto, trae marca/modelo/año de las unidades, usa el <b>No. Consecutivo como número de factura real</b> y de-duplica por <b>fecha + descripción</b>. Solo inserta las líneas que aún no estén cargadas.</div>
     <div id="yk-step1">
       <div class="yk-zone" id="yk-zone" onclick="document.getElementById('yk-input').click()">
         <div style="font-size:30px">📊</div>
@@ -213,10 +213,11 @@ function ykParseSheet(arrayBuffer) {
     if (prod == null || String(prod).trim() === '') continue
     if (typeof total === 'string' && total.toLowerCase().includes('total')) continue
     const cons = row[col.consecutivo]
+    const consStr = cons == null ? null : String(cons).trim()
     filas.push({
       fecha: ykFecha(row[col.fecha]),
-      factura: row[col.factura] == null ? null : String(row[col.factura]).trim(),
-      consecutivo: cons == null ? null : String(cons).trim(),
+      factura: consStr,          // el "No. Consecutivo" del Excel es el número de factura REAL
+      consecutivo: consStr,      // (el "No. Factura" del Excel es un correlativo interno que no se usa)
       cliente: row[col.cliente] == null ? null : String(row[col.cliente]).trim(),
       producto: String(prod).trim(),
       cantidad: row[col.cantidad] == null ? null : (parseFloat(row[col.cantidad]) || null),
@@ -240,15 +241,23 @@ window.ykProcesar = async () => {
       .select('vehiculo_codigo,marca,modelo,anio_vehiculo,contenedor').order('vehiculo_codigo'))
     const umap = {}; uni.forEach(u => { umap[String(u.vehiculo_codigo)] = u })
 
-    const ex = await ykFetchAll(() => ykSb().from('yonker_ventas')
-      .select('consecutivo').not('consecutivo', 'is', null).order('consecutivo'))
-    const consExist = new Set(ex.map(v => String(v.consecutivo).trim()))
+    // "Ya cargada" = misma FECHA + misma DESCRIPCIÓN (producto). Se consultan solo
+    // las fechas presentes en el archivo, no toda la tabla.
+    const fechasArch = [...new Set(filas.map(f => f.fecha).filter(Boolean))]
+    const dupSet = new Set()
+    if (fechasArch.length) {
+      const ex = await ykFetchAll(() => ykSb().from('yonker_ventas')
+        .select('fecha,producto').in('fecha', fechasArch).order('id'))
+      ex.forEach(v => { if (v.fecha && v.producto != null) dupSet.add(v.fecha + '||' + String(v.producto).trim()) })
+    }
+    const dupKey = f => (f.fecha || '') + '||' + (f.producto || '').trim()
 
-    const nuevas = [], yaCargadas = [], sinUnidad = [], sinFecha = []
+    const nuevas = [], yaCargadas = [], sinUnidad = [], sinFecha = [], sinVehiculo = []
     for (const f of filas) {
-      if (f.consecutivo && consExist.has(f.consecutivo)) { yaCargadas.push(f); continue }
       if (!f.fecha) { sinFecha.push(f); continue }
-      const u = f.vehiculo_codigo ? umap[f.vehiculo_codigo] : null
+      if (dupSet.has(dupKey(f))) { yaCargadas.push(f); continue }
+      if (!f.vehiculo_codigo) { sinVehiculo.push(f); continue }   // sin N° de vehículo → NO se inserta, se alerta
+      const u = umap[f.vehiculo_codigo] || null
       if (!u) sinUnidad.push(f)
       const d = f.fecha
       nuevas.push({
@@ -260,7 +269,7 @@ window.ykProcesar = async () => {
       })
     }
     nuevas.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '') || (+(b.consecutivo) || 0) - (+(a.consecutivo) || 0))
-    ykPrev = { nuevas, yaCargadas, sinUnidad, sinFecha, totalFilas: filas.length }
+    ykPrev = { nuevas, yaCargadas, sinUnidad, sinFecha, sinVehiculo, totalFilas: filas.length }
     ykRenderPreview()
   } catch (e) {
     window.toast?.('Error: ' + (e.message || e), 'error')
@@ -269,7 +278,7 @@ window.ykProcesar = async () => {
 }
 
 function ykRenderPreview() {
-  const { nuevas, yaCargadas, sinUnidad, sinFecha } = ykPrev
+  const { nuevas, yaCargadas, sinUnidad, sinFecha, sinVehiculo } = ykPrev
   const totNuevo = nuevas.reduce((s, r) => s + (r.venta_hnl || 0), 0)
   const ticketsNuevos = new Set(nuevas.map(r => r.consecutivo)).size
   document.getElementById('yk-step1').classList.add('hidden')
@@ -288,8 +297,16 @@ function ykRenderPreview() {
       <div class="yk-card ok"><div class="v">${ykFmt(totNuevo)}</div><div class="l">Venta nueva (L.)</div></div>
       <div class="yk-card"><div class="v">${yaCargadas.length}</div><div class="l">Líneas ya cargadas (saltadas)</div></div>
       <div class="yk-card ${sinUnidad.length ? 'warn' : ''}"><div class="v">${sinUnidad.length}</div><div class="l">Líneas sin unidad</div></div>
+      ${(sinVehiculo && sinVehiculo.length) ? `<div class="yk-card warn"><div class="v">${sinVehiculo.length}</div><div class="l">Sin N° de vehículo</div></div>` : ''}
       ${sinFecha && sinFecha.length ? `<div class="yk-card warn"><div class="v">${sinFecha.length}</div><div class="l">Sin fecha (omitidas)</div></div>` : ''}
     </div>
+    ${(sinVehiculo && sinVehiculo.length) ? `<div style="margin:8px 0;padding:10px 14px;border-radius:10px;background:rgba(220,60,60,.12);border:1px solid rgba(220,60,60,.5);color:#ff9b9b">
+      <b>⚠️ ${sinVehiculo.length} línea(s) SIN número de vehículo — no se importan.</b> Revisá y corregí el archivo: la descripción del <i>Producto</i> debe empezar con el código del vehículo (ej. «551-C25 …»). Corregí y volvé a subirlo.
+      <div style="max-height:150px;overflow:auto;margin-top:8px;font-size:12px;line-height:1.6">
+        ${sinVehiculo.slice(0, 60).map(f => `<div>• ${f.fecha || '—'} · Fact. ${f.consecutivo || '—'} · ${((f.producto || '') + '').slice(0, 70)}</div>`).join('')}
+        ${sinVehiculo.length > 60 ? `<div>… y ${sinVehiculo.length - 60} más</div>` : ''}
+      </div>
+    </div>` : ''}
     ${sinUnidad.length ? `<div class="page-sub" style="color:#e0a800">⚠️ ${sinUnidad.length} línea(s) tienen un código que aún no existe en yonker_unidades (contenedor recién llegado sin dar de alta). Se insertarán con marca/modelo/año en blanco; podrás completarlos al registrar la unidad.</div>` : ''}
     ${nuevas.length === 0 ? '<div class="page-sub">No hay tickets nuevos: todo lo del archivo ya está cargado.</div>' : `
     <div class="table-wrap" style="max-height:420px;overflow:auto;margin-top:8px">

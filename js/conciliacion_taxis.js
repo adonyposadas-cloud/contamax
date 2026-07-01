@@ -15,6 +15,7 @@
   let ctxFile = null
   let ctxRes = null          // resultado de la conciliación
   let ctxSelDepositos = []   // depósitos huérfanos elegidos para emparejar (permite varios → 1 entrega)
+  let ctxDepFiltro = ''      // texto del buscador de depósitos sin entrega
   let ctxPartida = null      // total del débito de la partida [IMP-TAXI] del día (para el cuadre)
 
   // Cuenta contable de cada banco (debe coincidir con TAXI_CUENTAS de app.js)
@@ -257,6 +258,7 @@
 
   window.ctxConciliar = async () => {
     if (!ctxFile) { window.toast?.('Subí el estado de cuenta', 'error'); return }
+    ctxDepFiltro = ''
     const btn = document.getElementById('ctx-btn'); btn.disabled = true; btn.textContent = 'Conciliando…'
     try {
       const fechaBanco = ctxFechaBanco || ctxFecha
@@ -350,7 +352,8 @@
     const depRows = r.depositosHuerfanos.map(mv => {
       const sel = ctxSelDepositos.includes(mv.idx)
       const refTxt = mv.ref ? `<span class="ctx-ref">Ref: ${mv.ref}</span>` : ''
-      return `<div class="ctx-row warn ${sel ? 'sel' : ''}" onclick="ctxElegirDeposito(${mv.idx})">
+      const sTxt = `${mv.desc || ''} ${mv.ref || ''} ${mv.monto}`.toLowerCase().replace(/"/g, '')
+      return `<div class="ctx-row warn ctx-dep-row ${sel ? 'sel' : ''}" data-s="${sTxt}" onclick="ctxElegirDeposito(${mv.idx})">
         <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${refTxt}</div>
         <div class="ctx-row-r"><span class="ctx-pick">${sel ? '☑ elegido' : '☐ elegir'}</span></div>
       </div>`
@@ -358,8 +361,12 @@
     const selInfo = ctxSelDepositos.length
       ? `<div class="ctx-selinfo">${ctxSelDepositos.length} depósito(s) elegidos · suma <b>${fmt(sumSel)}</b> — ahora tocá "emparejar" en la entrega que corresponda</div>`
       : ''
+    const buscador = r.depositosHuerfanos.length > 3
+      ? `<div class="ctx-dep-search"><input id="ctx-dep-search" type="text" placeholder="🔎 Buscar por referencia, nombre o monto…" value="${ctxDepFiltro.replace(/"/g, '&quot;')}" oninput="ctxDepBuscar(this.value)" autocomplete="off" style="width:100%;padding:8px 10px;border-radius:8px;background:#0f1115;border:1px solid #2a2f3a;color:#e6e8ec;font-size:13px;margin:6px 0"><span id="ctx-dep-count" style="color:#8b8f98;font-size:11px"></span></div>`
+      : ''
     const cDep = `<div class="ctx-grp"><div class="ctx-grp-t warn">🏦 Depósitos sin entrega (${r.depositosHuerfanos.length})</div>
       ${r.depositosHuerfanos.length ? '<div class="ctx-hint">Tocá uno o varios depósitos (si una entrega se pagó en partes), luego "emparejar" en la entrega.</div>' : ''}
+      ${buscador}
       ${selInfo}
       ${depRows || '<div class="ctx-empty">Todos los depósitos tienen entrega. 🎉</div>'}</div>`
 
@@ -430,7 +437,22 @@
     ctxRes._totales = { conciliado: totalConc, entregas: totalEnt, extracto: totalExt }
 
     out.innerHTML = resumen + cCuadre + cConc + cDep + cDup + cEnt
+    ctxDepAplicarFiltro()
   }
+
+  function ctxDepAplicarFiltro() {
+    const q = (ctxDepFiltro || '').trim().toLowerCase()
+    const filas = document.querySelectorAll('#ctx-out .ctx-dep-row')
+    let vis = 0
+    filas.forEach(el => {
+      const match = !q || (el.getAttribute('data-s') || '').includes(q)
+      el.style.display = match ? '' : 'none'
+      if (match) vis++
+    })
+    const cnt = document.getElementById('ctx-dep-count')
+    if (cnt) cnt.textContent = q ? `${vis} de ${filas.length} depósito(s)` : ''
+  }
+  window.ctxDepBuscar = (v) => { ctxDepFiltro = v || ''; ctxDepAplicarFiltro() }
 
   window.ctxElegirDeposito = (idx) => {
     const p = ctxSelDepositos.indexOf(idx)
