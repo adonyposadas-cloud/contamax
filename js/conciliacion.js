@@ -430,6 +430,10 @@
 
       // 2) Cargar libro (de la cuenta elegida) + marcas guardadas
       const libroMovs = await cargarLibro(cuentaCod, desde, hasta)
+      // 2b) Materializar las marcas de taxis (depósitos ya conciliados en Taxis)
+      //     para que el PASO 0a agrupe esos depósitos contra la partida [IMP-TAXI].
+      try { await getSb().rpc('tx_marcas_taxis_sync', { p_cuenta: cuentaCod, p_desde: desde, p_hasta: hasta }) }
+      catch (e) { console.warn('No se sincronizaron marcas de taxis:', e?.message || e) }
       const marcas = await cargarMarcas(cuentaCod, desde, hasta)
 
       // 3) Cruzar (marcas primero, luego monto+fecha)
@@ -633,18 +637,21 @@
     const selL = [...document.querySelectorAll('.cb-sel-libro:checked')].map(c => parseInt(c.value, 10))
     if (!selB.length && !selL.length) { el.innerHTML = ''; return }
     const movsB = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
-    const sumaB = r2(movsB.reduce((s, b) => s + b.monto, 0))
+    // Neto: ingreso suma, egreso resta → un crédito y un débito iguales se cancelan
+    const cbSigned = (m) => (m.tipo === 'ingreso' ? m.monto : -m.monto)
+    const sumaB = r2(movsB.reduce((s, b) => s + cbSigned(b), 0))
     // ¿Cuántos seleccionados están ocultos por el filtro de día actual?
     const ocultosSel = [...document.querySelectorAll('.cb-sel-banco:checked')]
       .filter(c => c.closest('tr')?.style.display === 'none').length
-    let html = `Banco seleccionado: <strong>${fmtL(sumaB)}</strong> (${movsB.length} mov.${ocultosSel > 0 ? `, <span style="color:var(--amber)">${ocultosSel} de otros días</span>` : ''})`
+    let html = `Banco seleccionado (neto): <strong>${fmtL(sumaB)}</strong> (${movsB.length} mov.${ocultosSel > 0 ? `, <span style="color:var(--amber)">${ocultosSel} de otros días</span>` : ''})`
     if (selL.length === 1) {
       const l = estadoConc.libro.find(x => x._i === selL[0])
       if (l) {
         const tol = Math.max(0, parseFloat(document.getElementById('cb-tol-suma')?.value) || 0)
-        const dif = r2(sumaB - l.monto)
+        const lSigned = cbSigned(l)
+        const dif = r2(sumaB - lSigned)
         const cuadra = Math.abs(dif) <= tol + 0.001
-        html += ` &nbsp;·&nbsp; Libro: <strong>${fmtL(l.monto)}</strong> &nbsp;·&nbsp; Diferencia: <strong style="color:${cuadra ? 'var(--green)' : 'var(--red)'}">${fmtL(dif)}</strong> ${cuadra ? '✓ cuadra' : ''}`
+        html += ` &nbsp;·&nbsp; Libro: <strong>${fmtL(lSigned)}</strong> &nbsp;·&nbsp; Diferencia: <strong style="color:${cuadra ? 'var(--green)' : 'var(--red)'}">${fmtL(dif)}</strong> ${cuadra ? '✓ cuadra' : ''}`
       }
     } else if (selL.length > 1) {
       html += ` &nbsp;·&nbsp; <span style="color:var(--amber)">seleccioná solo 1 del libro para comparar</span>`
