@@ -316,9 +316,9 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
   .user-name{display:none}
   .role-badge{font-size:9px;padding:2px 6px}
   .btn-logout{font-size:11px;padding:4px 10px}
-  .main{padding:12px !important}
-  .stat-row{flex-wrap:wrap;gap:8px}
-  .stat-row .stat-card{min-width:calc(50% - 4px);flex:1 1 calc(50% - 4px);padding:12px}
+  .content{padding:14px !important}
+  .stats-row{grid-template-columns:repeat(2,1fr);gap:8px}
+  .stat-card{padding:12px}
   .stat-num{font-size:18px}
   .stat-label{font-size:9px}
   table{font-size:11px}
@@ -330,6 +330,21 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
   .modal{width:95vw !important;max-width:95vw !important;max-height:90vh;overflow-y:auto;margin:5vh auto}
   .modal-actions{flex-direction:column;gap:8px}
   .modal-actions .btn{width:100%}
+  /* Filas de tabs/chips: tira deslizable horizontal en vez de envolver en varias filas */
+  .caja-tabs,.cat-filters{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;gap:6px}
+  .caja-tab,.cat-filter{flex-shrink:0;white-space:nowrap;padding:6px 12px;font-size:12px}
+  /* Tarjetas de caja: apiladas y compactas */
+  .caja-card{flex-direction:column;align-items:stretch;gap:10px;padding:14px}
+  .caja-right{justify-content:space-between}
+  /* Formularios y resúmenes a una columna */
+  .form-card{padding:16px}
+  .form-grid-3{grid-template-columns:1fr}
+  .imp-summary{grid-template-columns:1fr}
+  .cat-stats{gap:8px}
+  .cat-stat{padding:10px 8px}
+  .cat-stat-num{font-size:16px}
+  .table-header{flex-direction:column;align-items:flex-start;gap:8px}
+  .page-sub{font-size:11px}
 }
 
 /* === Tema por defecto para campos sueltos (búsquedas y filtros fuera de .fld/.field) ===
