@@ -20,6 +20,9 @@ let cxcMes = new Date()              // primer día del mes que se está viendo
 cxcMes.setDate(1)
 let cxcVerDesactivadas = false
 let cxcCobroId = null
+let cxcRowsMes = []                         // filas del mes ya cargadas (sin filtrar)
+let cxcHoyStr = ''                          // fecha de hoy (para marcar vencidas)
+let cxcFiltro = { q: '', estado: 'todas' }  // estado del filtro de la tabla
 
 // ── Utilidades de catálogo / centros ──
 const getCuenta = (codigo) => (window.catalogoCuentas || []).find(c => c.codigo === codigo)
@@ -137,7 +140,8 @@ function ensureCxCUI() {
           </div>
           <div class="fld">
             <label>Forma de pago (cuenta)</label>
-            <select id="cxc-cobro-forma"></select>
+            <input type="text" id="cxc-cobro-forma" list="cxc-forma-list" placeholder="Escribí código o nombre…" autocomplete="off">
+            <datalist id="cxc-forma-list"></datalist>
           </div>
         </div>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
@@ -166,6 +170,7 @@ window.loadCuentasCobrar = async () => {
 function renderCxCShell() {
   const view = document.getElementById('view-cuentas-cobrar')
   if (!view) return
+  cxcFiltro = { q: '', estado: 'todas' }   // el shell se redibuja con los chips en "Todas"; sincronizamos el estado
   view.innerHTML = `
     <div class="page-header">
       <div>
@@ -193,6 +198,17 @@ function renderCxCShell() {
           </label>
         </div>
       </div>
+    </div>
+
+    <div class="cxc-filtros" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="text" id="cxc-buscar" placeholder="🔎 Buscar por concepto, deudor o teléfono…" oninput="cxcSetBusqueda(this.value)" style="flex:1;min-width:200px">
+      <div class="cat-filters" style="margin:0">
+        <button class="cat-filter active" onclick="cxcSetEstado(this,'todas')">Todas</button>
+        <button class="cat-filter" onclick="cxcSetEstado(this,'porvencer')">Por vencer</button>
+        <button class="cat-filter" onclick="cxcSetEstado(this,'vencidas')">Vencidas</button>
+        <button class="cat-filter" onclick="cxcSetEstado(this,'pagadas')">Pagadas</button>
+      </div>
+      <span id="cxc-filtro-info" style="font-size:11px;color:var(--text3);margin-left:auto"></span>
     </div>
 
     <div class="table-wrap">
@@ -245,8 +261,48 @@ window.cargarCxCMes = async () => {
   const sP = document.getElementById('cxc-stat-pendiente'); if (sP) sP.textContent = 'L. ' + fmtL(totalPend)
   const sV = document.getElementById('cxc-stat-vencido'); if (sV) sV.textContent = 'L. ' + fmtL(totalVenc)
 
+  // Guardar filas del mes y renderizar aplicando el filtro activo
+  cxcRowsMes = rows
+  cxcHoyStr = hoy
+  cxcRenderTabla()
+}
+
+// ── Filtro de la tabla (buscador + chips de estado) ──
+window.cxcSetBusqueda = (v) => { cxcFiltro.q = (v || '').toLowerCase().trim(); cxcRenderTabla() }
+window.cxcSetEstado = (btn, est) => {
+  cxcFiltro.estado = est
+  document.querySelectorAll('.cxc-filtros .cat-filter').forEach(b => b.classList.toggle('active', b === btn))
+  cxcRenderTabla()
+}
+function cxcEsVencida(r) { return r.estado === 'pendiente' && r.fecha_pago < cxcHoyStr }
+function cxcPasaFiltro(r) {
+  const q = cxcFiltro.q
+  if (q) {
+    const txt = `${r.concepto || ''} ${r.deudor_nombre || ''} ${r.deudor_telefono || ''}`.toLowerCase()
+    if (!txt.includes(q)) return false
+  }
+  const e = cxcFiltro.estado
+  if (e === 'pagadas')   return r.estado === 'pagado'
+  if (e === 'vencidas')  return cxcEsVencida(r)
+  if (e === 'porvencer') return r.estado === 'pendiente' && !cxcEsVencida(r)
+  return true
+}
+function cxcRenderTabla() {
+  const tbody = document.getElementById('cxc-tbody'); if (!tbody) return
+  const hoy = cxcHoyStr
+  const rows = (cxcRowsMes || []).filter(cxcPasaFiltro)
+
+  const info = document.getElementById('cxc-filtro-info')
+  if (info) {
+    const tot = rows.reduce((s, r) => s + (parseFloat(r.monto) || 0), 0)
+    info.textContent = `Mostrando ${rows.length} de ${(cxcRowsMes || []).length} · L. ${fmtL(tot)}`
+  }
+
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text3)">${cxcVerDesactivadas ? 'No hay cuentas desactivadas' : 'Sin cuentas por cobrar en este mes'}</td></tr>`
+    const vacio = (cxcRowsMes || []).length
+      ? 'Sin resultados con este filtro'
+      : (cxcVerDesactivadas ? 'No hay cuentas desactivadas' : 'Sin cuentas por cobrar en este mes')
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text3)">${vacio}</td></tr>`
     return
   }
 
@@ -372,6 +428,19 @@ async function generarPartidaCreacion(row) {
 }
 
 // ── Cobrar ──
+// Resuelve lo que el usuario escribió/eligió en el campo Cuenta ("código · nombre",
+// solo código, o solo nombre) al código de cuenta válido; '' si no coincide con ninguna.
+function cxcResolverForma(str) {
+  if (!str) return ''
+  const s = String(str).trim()
+  const cod = s.split('·')[0].trim()
+  const lista = cuentasFormaPago()
+  const hit = lista.find(c => c.codigo === cod)
+           || lista.find(c => `${c.codigo} · ${c.nombre}`.toLowerCase() === s.toLowerCase())
+           || lista.find(c => (c.nombre || '').toLowerCase() === s.toLowerCase())
+  return hit ? hit.codigo : ''
+}
+
 window.openCobrarCxC = async (id) => {
   ensureCxCUI()
   const sb = getSb()
@@ -381,18 +450,19 @@ window.openCobrarCxC = async (id) => {
   document.getElementById('cxc-cobro-info').innerHTML =
     `<strong>${row.concepto}</strong> · ${row.deudor_nombre}<br>Monto: <strong>L. ${fmtL(row.monto)}</strong>`
   document.getElementById('cxc-cobro-fecha').value = localDateStr()
-  const sel = document.getElementById('cxc-cobro-forma')
-  sel.innerHTML = '<option value="">— Seleccionar —</option>' +
-    cuentasFormaPago().map(c => `<option value="${c.codigo}">${c.codigo} · ${c.nombre}</option>`).join('')
+  const dl = document.getElementById('cxc-forma-list')
+  if (dl) dl.innerHTML = cuentasFormaPago().map(c => `<option value="${c.codigo} · ${c.nombre}"></option>`).join('')
+  const inpForma = document.getElementById('cxc-cobro-forma')
+  if (inpForma) inpForma.value = ''
   document.getElementById('modal-cxc-cobrar').classList.add('open')
 }
 
 window.confirmarCobroCxC = async () => {
   if (!cxcCobroId) return
   const fecha = document.getElementById('cxc-cobro-fecha').value
-  const formaCod = document.getElementById('cxc-cobro-forma').value
+  const formaCod = cxcResolverForma(document.getElementById('cxc-cobro-forma').value)
   if (!fecha) { window.toast?.('Seleccioná la fecha de cobro', 'error'); return }
-  if (!formaCod) { window.toast?.('Seleccioná la forma de pago', 'error'); return }
+  if (!formaCod) { window.toast?.('Elegí una cuenta de forma de pago válida de la lista', 'error'); return }
 
   const sb = getSb()
   const btn = document.getElementById('btn-confirmar-cobro-cxc')
