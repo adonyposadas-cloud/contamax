@@ -404,6 +404,9 @@ async function ykRenderReportes() {
         <select id="yk-rep-marca" onchange="ykAplicarReporte()">
           <option value="">Todas</option>${marcas.map(m => `<option value="${m}">${m}</option>`).join('')}
         </select></div>
+      <div class="fld" id="yk-fld-buscar"><label>Vehículo (código) / texto</label>
+        <input id="yk-rep-buscar" type="text" placeholder="ej. 126" autocomplete="off" oninput="ykAplicarReporte()"
+          style="padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px;width:140px"></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExportReporte()">📥 Exportar Excel</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykVResumen=null;ykVMargen=null;ykVRotacion=null;ykRenderReportes()">↻ Refrescar</button></div>
     </div>
@@ -432,6 +435,7 @@ window.ykAplicarReporte = () => {
   const esRot = modo === 'rotacion'
   document.getElementById('yk-fld-anio').style.display = modo === 'ventas' ? '' : 'none'
   document.getElementById('yk-fld-marca').style.display = modo === 'ventas' ? '' : 'none'
+  document.getElementById('yk-fld-buscar').style.display = esRot ? 'none' : ''
   const dimFld = dimSel.closest('.fld'); if (dimFld) dimFld.style.display = esRot ? 'none' : ''
   if (esRot) { ykReporteRotacion(); return }
   if (!dimValido || dimSel.dataset.modo !== modo) { ykSetDimOptions(); dimSel.dataset.modo = modo }
@@ -549,6 +553,7 @@ function ykReporteVentas() {
   const dim = document.getElementById('yk-rep-dim').value
   const fAnio = document.getElementById('yk-rep-anio').value
   const fMarca = document.getElementById('yk-rep-marca').value
+  const fBuscar = (document.getElementById('yk-rep-buscar')?.value || '').trim().toLowerCase()
   let datos = ykVResumen
   if (fAnio) datos = datos.filter(r => String(r.anio) === fAnio)
   if (fMarca) datos = datos.filter(r => r.marca === fMarca)
@@ -564,6 +569,7 @@ function ykReporteVentas() {
   let rows = Object.values(g)
   if (dim === 'mes' || dim === 'anio_veh' || dim === 'contenedor') rows.sort((a, b) => String(a.k).localeCompare(String(b.k), undefined, { numeric: true }))
   else rows.sort((a, b) => b.venta - a.venta)
+  if (fBuscar) rows = rows.filter(r => String(r.k).toLowerCase().includes(fBuscar))
   const totV = rows.reduce((s, r) => s + r.venta, 0), totL = rows.reduce((s, r) => s + r.lineas, 0)
 
   const dimLabel = { mes: 'Mes', marca: 'Marca', modelo: 'Marca + Modelo', anio_veh: 'Año vehículo', contenedor: 'Contenedor' }[dim]
@@ -582,6 +588,7 @@ function ykReporteVentas() {
 
 function ykReporteMargen() {
   const dim = document.getElementById('yk-rep-dim').value
+  const fBuscar = (document.getElementById('yk-rep-buscar')?.value || '').trim().toLowerCase()
   const keyOf = r => dim === 'unidad' ? `${r.vehiculo_codigo} · ${r.marca || ''} ${r.modelo || ''} ${r.anio_vehiculo || ''}`.trim()
     : dim === 'contenedor' ? (r.contenedor ?? '—')
     : dim === 'marca' ? (r.marca || '(sin marca)')
@@ -595,6 +602,7 @@ function ykReporteMargen() {
   let rows = Object.values(g).map(r => ({ ...r, utilidad: r.venta - r.costo, pct: r.costo > 0 ? r.venta / r.costo : null }))
   if (dim === 'contenedor') rows.sort((a, b) => String(a.k).localeCompare(String(b.k), undefined, { numeric: true }))
   else rows.sort((a, b) => b.utilidad - a.utilidad)
+  if (fBuscar) rows = rows.filter(r => String(r.k).toLowerCase().includes(fBuscar))
   const tV = rows.reduce((s, r) => s + r.venta, 0), tC = rows.reduce((s, r) => s + r.costo, 0), tU = tV - tC
 
   const dimLabel = { unidad: 'Unidad', contenedor: 'Contenedor', marca: 'Marca', modelo: 'Marca + Modelo' }[dim]

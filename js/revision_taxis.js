@@ -529,6 +529,10 @@ function rtx7dEnsure() {
     .dash-dep-amt{color:#3fb950;font-weight:700;white-space:nowrap}
     .dash-dep-sub{font-size:12px;color:#8b8f98;margin-top:3px}
     .rtx-b.notas{background:rgba(120,113,108,.18)!important;color:#d6d3d1!important;border:1px solid rgba(120,113,108,.45)!important}
+    .rtx-b.notas.mia{background:rgba(59,130,246,.18)!important;color:#93c5fd!important;border:1px solid rgba(59,130,246,.5)!important}
+    .rtx-b.notas.resp{background:rgba(34,197,94,.20)!important;color:#86efac!important;border:1px solid rgba(34,197,94,.55)!important}
+    .rtx-b.notas.otro{background:rgba(240,165,0,.18)!important;color:#f5c451!important;border:1px solid rgba(240,165,0,.5)!important}
+    .rtx-b.notas.super{background:rgba(239,68,68,.18)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,.55)!important}
     .rtx-notas-modal{max-width:440px}
     .rtx-notas-lista{max-height:300px;overflow-y:auto;margin:14px 0}
     .rtx-nota{background:#12131a;border-radius:7px;padding:9px 11px;margin-bottom:8px}
@@ -666,7 +670,8 @@ function rtxDashPendiente(p) {
     : `<button class="rtx-b ghost" disabled>Sin teléfono</button>`
   const llamarBtn = tel ? `<a class="rtx-b call" href="tel:${tel}">📞 Llamar</a>` : ''
   const nc = p.notas_count || 0
-  const notasBtn = `<button class="rtx-b notas" onclick="rtxNotasAbrir('${p.identidad}','${p.unidad}','${(p.nombre || '').replace(/'/g, '')}')">📝 Notas${nc ? ' (' + nc + ')' : ''}</button>`
+  const identNorm = String(p.identidad || '').replace(/\D/g, '')
+  const notasBtn = `<button class="rtx-b notas" data-ident="${identNorm}" onclick="rtxNotasAbrir('${p.identidad}','${p.unidad}','${(p.nombre || '').replace(/'/g, '')}')">📝 Notas${nc ? ' (' + nc + ')' : ''}</button>`
   // Texto y color del badge según días sin entregar (idéntico al Sheets)
   let diasCls, diasLabel
   if (sinHist) { diasCls = 'gris'; diasLabel = 'Sin entregas registradas' }
@@ -707,6 +712,8 @@ window.rtxRenderDashboard = async (silent = false) => {
   if (!r || !r.ok) { if (!silent) pane.innerHTML = '<div class="rtx-empty">Sin datos para esa fecha.</div>'; return }
   rtxDashData = r
   rtxDashPintar()
+  rtxCargarNotasResumen(r.pendientes)      // colorea los botones de Notas según el autor de la última
+  rtxAutoSnapshot(rtxDashFecha, !silent)   // apertura real: inmediato · refresco por timer: throttled a 3 min
 }
 
 // Pinta el dashboard completo (lo fijo + los pendientes filtrados)
@@ -816,6 +823,8 @@ function rtxDashPintar() {
     pane.innerHTML = barra + resumen + auditBar + desglose + pendientes + depositos
   }
 
+  rtxColorearNotasBtns()   // pinta el botón Notas según el autor de la última nota
+
   if (hadFocus) {
     const ne = document.getElementById('dash-search')
     if (ne) { ne.focus(); if (caret != null) { try { ne.setSelectionRange(caret, caret) } catch (e) {} } }
@@ -846,59 +855,102 @@ async function rtxDashKmMap(dia) {
     return m
   } catch (e) { return {} }
 }
-window.rtxDashAuditar = async (modo) => {
-  if (rtxDashAudit === modo) { rtxDashAudit = ''; rtxDashAuditData = null; rtxDashPintar(); return }  rtxDashAudit = modo; rtxDashAuditLoading = true; rtxDashAuditData = null; rtxDashPintar()
-  try {
-    const diaKM = await rtxDashDiaKM(rtxDashFecha)
-    const kmMap = await rtxDashKmMap(diaKM)
-    let lista = []
-    if (modo === 'no_entrego') {
-      lista = (rtxDashData?.pendientes || [])
-        .map(p => ({ ...p, km: kmMap[String(p.unidad)] || 0 }))
-        .filter(p => p.km > RTX_KM_TRABAJO)
-        .sort((a, b) => b.km - a.km)
-    } else if (modo === 'no_cubrio') {
-      const { data } = await rtxSb().from('entregas_taxis')
-        .select('unidad,identidad,nombre_conductor,monto,monto_esperado,saldo_deudor')
-        .eq('fecha_deposito', rtxDashFecha).eq('estado', 'Aprobada')
-      const byU = {}
-      ;(data || []).forEach(e => {
-        const u = String(e.unidad)
-        if (!byU[u]) byU[u] = { unidad: e.unidad, identidad: e.identidad || '', nombre: e.nombre_conductor, monto: 0, esperado: 0, saldo: 0 }
-        byU[u].monto += parseFloat(e.monto) || 0
-        byU[u].esperado = Math.max(byU[u].esperado, parseFloat(e.monto_esperado) || 0)
-        byU[u].saldo = parseFloat(e.saldo_deudor) || 0
+// Computa la lista de auditoría para un modo/fecha SIN tocar la UI. Reutilizable por el
+// auditor visual (rtxDashAuditar) y por el auto-snapshot.
+async function rtxComputeAudit(modo, fecha) {
+  const diaKM = await rtxDashDiaKM(fecha)
+  const kmMap = await rtxDashKmMap(diaKM)
+  let lista = []
+  if (modo === 'no_entrego') {
+    lista = (rtxDashData?.pendientes || [])
+      .map(p => ({ ...p, km: kmMap[String(p.unidad)] || 0 }))
+      .filter(p => p.km > RTX_KM_TRABAJO)
+      .sort((a, b) => b.km - a.km)
+  } else if (modo === 'no_cubrio') {
+    const { data } = await rtxSb().from('entregas_taxis')
+      .select('unidad,identidad,nombre_conductor,monto,monto_esperado,saldo_deudor')
+      .eq('fecha_deposito', fecha).eq('estado', 'Aprobada')
+    const byU = {}
+    ;(data || []).forEach(e => {
+      const u = String(e.unidad)
+      if (!byU[u]) byU[u] = { unidad: e.unidad, identidad: e.identidad || '', nombre: e.nombre_conductor, monto: 0, esperado: 0, saldo: 0 }
+      byU[u].monto += parseFloat(e.monto) || 0
+      byU[u].esperado = Math.max(byU[u].esperado, parseFloat(e.monto_esperado) || 0)
+      byU[u].saldo = parseFloat(e.saldo_deudor) || 0
+    })
+    lista = Object.values(byU)
+      .map(x => {
+        const periodo = Math.max((x.esperado || 0) - (x.saldo || 0), 0)  // cuota del período (sin saldo histórico)
+        const faltante = periodo - x.monto                               // lo que sube su saldo este período
+        return { ...x, km: kmMap[String(x.unidad)] || 0, periodo, faltante, saldoNuevo: (x.saldo || 0) + Math.max(faltante, 0) }
       })
-      lista = Object.values(byU)
-        .map(x => {
-          const periodo = Math.max((x.esperado || 0) - (x.saldo || 0), 0)  // cuota del período (sin saldo histórico)
-          const faltante = periodo - x.monto                               // lo que sube su saldo este período
-          return { ...x, km: kmMap[String(x.unidad)] || 0, periodo, faltante, saldoNuevo: (x.saldo || 0) + Math.max(faltante, 0) }
-        })
-        .filter(x => x.km > RTX_KM_TRABAJO && x.periodo > 0 && x.faltante > 0)
-        .sort((a, b) => b.faltante - a.faltante)
-      // teléfonos (para los botones de WhatsApp/Llamar), por unidad e identidad
-      try {
-        const unis = [...new Set(lista.map(x => x.unidad).filter(Boolean))]
-        const idents = [...new Set(lista.map(x => x.identidad).filter(Boolean))]
-        const telUni = {}, telId = {}
-        if (unis.length) {
-          const { data: du } = await rtxSb().from('tx_directorio').select('unidad, telefono').in('unidad', unis)
-          ;(du || []).forEach(d => { if (d.telefono) telUni[String(d.unidad)] = d.telefono })
-        }
-        if (idents.length) {
-          const { data: dm } = await rtxSb().from('tx_motoristas').select('identidad, telefono').in('identidad', idents)
-          ;(dm || []).forEach(m => { if (m.telefono) telId[String(m.identidad)] = m.telefono })
-        }
-        lista.forEach(x => { x.telefono = telUni[String(x.unidad)] || telId[String(x.identidad)] || '' })
-      } catch (e) { /* sin teléfono, los botones de WhatsApp/Llamar no aparecen */ }
-    }
-    rtxDashAuditData = { diaKM, lista }
+      .filter(x => x.km > RTX_KM_TRABAJO && x.periodo > 0 && x.faltante > 0)
+      .sort((a, b) => b.faltante - a.faltante)
+    try {
+      const unis = [...new Set(lista.map(x => x.unidad).filter(Boolean))]
+      const idents = [...new Set(lista.map(x => x.identidad).filter(Boolean))]
+      const telUni = {}, telId = {}
+      if (unis.length) {
+        const { data: du } = await rtxSb().from('tx_directorio').select('unidad, telefono').in('unidad', unis)
+        ;(du || []).forEach(d => { if (d.telefono) telUni[String(d.unidad)] = d.telefono })
+      }
+      if (idents.length) {
+        const { data: dm } = await rtxSb().from('tx_motoristas').select('identidad, telefono').in('identidad', idents)
+        ;(dm || []).forEach(m => { if (m.telefono) telId[String(m.identidad)] = m.telefono })
+      }
+      lista.forEach(x => { x.telefono = telUni[String(x.unidad)] || telId[String(x.identidad)] || '' })
+    } catch (e) { /* sin teléfono, los botones de WhatsApp/Llamar no aparecen */ }
+  }
+  return { diaKM, lista }
+}
+
+// Serializa la lista al detalle que se guarda en el snapshot
+function rtxAuditDetalle(modo, lista) {
+  return lista.map(x => modo === 'no_cubrio'
+    ? { unidad: x.unidad, nombre: x.nombre, km: Number(x.km) || 0, periodo: Number(x.periodo) || 0, monto: Number(x.monto) || 0, faltante: Number(x.faltante) || 0, saldo: Number(x.saldo) || 0, saldoNuevo: Number(x.saldoNuevo) || 0, telefono: x.telefono || '' }
+    : { unidad: x.unidad, nombre: x.nombre, km: Number(x.km) || 0, saldo: Number(x.saldo) || 0, ultima_entrega: x.ultima_entrega || '', dias_sin: (x.dias_sin != null ? x.dias_sin : ''), caja: x.caja || '', grupo: x.grupo || '', telefono: x.telefono || '' })
+}
+
+// Guarda un snapshot ya computado. silent=true → sin toasts (uso automático).
+async function rtxAuditGuardarData(modo, fecha, d, silent) {
+  if (!d || !Array.isArray(d.lista) || !d.lista.length) { if (!silent) window.toast?.('No hay datos para guardar', 'error'); return { ok: false } }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_auditoria_guardar', {
+      p_tipo: modo, p_fecha: fecha, p_dia_km: d.diaKM || null, p_total: d.lista.length, p_detalle: rtxAuditDetalle(modo, d.lista)
+    })
+    if (error) throw error
+    if (!data?.ok) { if (!silent) window.toast?.(data?.error || 'No se pudo guardar', 'error'); return { ok: false } }
+    return { ok: true, generado_nombre: data.generado_nombre }
+  } catch (e) { if (!silent) window.toast?.('Error al guardar: ' + (e.message || e), 'error'); return { ok: false } }
+}
+
+window.rtxDashAuditar = async (modo) => {
+  if (rtxDashAudit === modo) { rtxDashAudit = ''; rtxDashAuditData = null; rtxDashPintar(); return }
+  rtxDashAudit = modo; rtxDashAuditLoading = true; rtxDashAuditData = null; rtxDashPintar()
+  try {
+    rtxDashAuditData = await rtxComputeAudit(modo, rtxDashFecha)
   } catch (e) {
     rtxDashAuditData = { diaKM: null, lista: [], error: e.message || String(e) }
   }
   rtxDashAuditLoading = false
   rtxDashPintar()
+}
+
+// ── Auto-snapshot: guarda ambos modos del día y REFRESCA al último estado (upsert en la base).
+//    Se dispara en cada apertura real del Dashboard (inmediato) y, si queda abierto, el refresco
+//    por timer lo actualiza como máximo cada 3 min. Requiere el upsert en tx_auditoria_guardar. ──
+let rtxAutoSnapLast = 0
+window.rtxAutoSnapshot = async (fecha, immediate) => {
+  if (!fecha) return
+  const now = Date.now()
+  if (!immediate && now - rtxAutoSnapLast < 180000) return   // refresco por timer: máx 1 cada 3 min
+  rtxAutoSnapLast = now
+  try {
+    for (const modo of ['no_entrego', 'no_cubrio']) {
+      const d = await rtxComputeAudit(modo, fecha)
+      if (d && Array.isArray(d.lista) && d.lista.length) await rtxAuditGuardarData(modo, fecha, d, true)
+    }
+  } catch (e) { /* silencioso: no molestar al usuario si algo falla */ }
 }
 window.rtxDashAuditCerrar = () => { rtxDashAudit = ''; rtxDashAuditData = null; rtxDashPintar() }
 
@@ -946,18 +998,8 @@ window.rtxDashAuditExportar = () => {
 window.rtxDashAuditGuardar = async () => {
   const d = rtxDashAuditData
   if (!d || !Array.isArray(d.lista) || !d.lista.length) { window.toast?.('No hay datos para guardar', 'error'); return }
-  const modo = rtxDashAudit
-  const detalle = d.lista.map(x => modo === 'no_cubrio'
-    ? { unidad: x.unidad, nombre: x.nombre, km: Number(x.km) || 0, periodo: Number(x.periodo) || 0, monto: Number(x.monto) || 0, faltante: Number(x.faltante) || 0, saldo: Number(x.saldo) || 0, saldoNuevo: Number(x.saldoNuevo) || 0, telefono: x.telefono || '' }
-    : { unidad: x.unidad, nombre: x.nombre, km: Number(x.km) || 0, saldo: Number(x.saldo) || 0, ultima_entrega: x.ultima_entrega || '', dias_sin: (x.dias_sin != null ? x.dias_sin : ''), caja: x.caja || '', grupo: x.grupo || '', telefono: x.telefono || '' })
-  try {
-    const { data, error } = await rtxSb().rpc('tx_auditoria_guardar', {
-      p_tipo: modo, p_fecha: rtxDashFecha, p_dia_km: d.diaKM || null, p_total: d.lista.length, p_detalle: detalle
-    })
-    if (error) throw error
-    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo guardar', 'error'); return }
-    window.toast?.('Auditoría guardada ✓ · ' + (data.generado_nombre || ''), 'success')
-  } catch (e) { window.toast?.('Error al guardar: ' + (e.message || e), 'error') }
+  const res = await rtxAuditGuardarData(rtxDashAudit, rtxDashFecha, d, false)
+  if (res.ok) window.toast?.('Auditoría guardada ✓ · ' + (res.generado_nombre || ''), 'success')
 }
 
 // ── Visor de auditorías guardadas ──
@@ -1151,6 +1193,32 @@ function rtxDashAuditCard() {
   return ''
 }
 
+// ── Resumen de notas para colorear los botones del dashboard ──
+// Mapa: identidad normalizada → { count, ultimo_autor, ultimo_mia, respondida }
+let rtxNotasResumen = {}
+async function rtxCargarNotasResumen(pendientes) {
+  const idents = [...new Set((pendientes || []).map(p => String(p.identidad || '')).filter(Boolean))]
+  if (!idents.length) { rtxNotasResumen = {}; rtxColorearNotasBtns(); return }
+  try {
+    const { data } = await rtxSb().rpc('tx_notas_resumen', { p_identidades: idents })
+    const map = {}
+    ;(Array.isArray(data) ? data : []).forEach(x => { map[String(x.identidad)] = x })
+    rtxNotasResumen = map
+  } catch (e) { /* si falla, los botones quedan en gris */ }
+  rtxColorearNotasBtns()
+}
+function rtxColorearNotasBtns() {
+  document.querySelectorAll('.rtx-b.notas[data-ident]').forEach(btn => {
+    btn.classList.remove('mia', 'resp', 'otro', 'super')
+    const info = rtxNotasResumen[btn.dataset.ident]
+    if (!info || !info.count) return   // sin notas → gris (default)
+    if (info.ultimo_es_super) { btn.classList.add('super'); btn.title = 'Nota del admin: ' + (info.ultimo_autor || '') }
+    else if (info.respondida) { btn.classList.add('resp'); btn.title = 'Te respondió: ' + (info.ultimo_autor || '') }
+    else if (info.ultimo_mia) { btn.classList.add('mia'); btn.title = 'Tu nota · esperando respuesta' }
+    else { btn.classList.add('otro'); btn.title = 'Nota de ' + (info.ultimo_autor || 'otro') }
+  })
+}
+
 // ── Notas por motorista (con color por autor) ──
 let rtxNotasOv = null
 let rtxNotasCtx = { identidad: '', unidad: '', nombre: '' }
@@ -1220,6 +1288,7 @@ window.rtxNotasGuardar = async () => {
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo guardar', 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Agregar nota' } return }
     if (inp) inp.value = ''
     await rtxNotasCargar()
+    if (rtxDashData) rtxCargarNotasResumen(rtxDashData.pendientes)   // refresca el color del botón
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
   finally { if (btn) { btn.disabled = false; btn.textContent = 'Agregar nota' } }
 }
