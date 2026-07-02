@@ -121,6 +121,25 @@
   .btn-grupo{display:block;text-align:center;text-decoration:none;box-sizing:border-box;width:100%;padding:12px;margin-bottom:8px;background:rgba(22,163,74,.16);border:1px solid rgba(22,163,74,.5);border-radius:10px;color:#3fb950;font-size:14px;font-weight:700;cursor:pointer}
   .btn-grupo.done{background:rgba(46,160,67,.22);color:#3fb950}
   .grupo-hint{font-size:11px;color:#8b8f98;margin-bottom:12px;text-align:center;line-height:1.4}
+
+  /* Compactar en celular la pantalla de elección, el encabezado y la lista de solicitudes.
+     No toca el formulario (#scr-form): los campos y botones quedan igual. */
+  @media (max-width:640px){
+    body{padding:12px 12px 32px}
+    .brand{margin:2px 0 12px}
+    .brand h1{font-size:20px;letter-spacing:3px}
+    .brand p{font-size:12px;margin-top:2px}
+    .brand .rule{margin:9px auto 0}
+    #scr-choose{padding:14px 14px}
+    #scr-choose h2{margin-bottom:8px}
+    .choose{gap:9px;margin-top:4px}
+    .choose button{padding:14px;font-size:16px;gap:3px;border-radius:var(--radius)}
+    .choose button .sub{font-size:11px}
+    .historial{margin:10px auto 32px}
+    .h-title{margin-bottom:6px}
+    .h-row{padding:8px 12px;margin-bottom:6px}
+    .h-main b{font-size:13px}
+  }
 </style>
 </head>
 <body>

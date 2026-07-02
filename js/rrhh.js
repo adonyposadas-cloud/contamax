@@ -1775,7 +1775,13 @@ window.imprimirVouchersPlanilla = async () => {
       ['Anticipos', d.anticipos]
     ]
     if (prestLineas.length) {
-      prestLineas.forEach(p => dedArr.push([`Préstamo${p.desc ? ' · ' + p.desc : ''}`, p.monto]))
+      prestLineas.forEach(p => {
+        // Un préstamo cuya descripción es de impuesto vecinal se muestra como "Impuesto vecinal"
+        // (no como "Préstamo · …"), para que en el voucher se lea igual que la deducción de vecinal.
+        const _esVecinal = /impuesto\s*vecinal/i.test(p.desc || '')
+        const _label = _esVecinal ? 'Impuesto vecinal' : `Préstamo${p.desc ? ' · ' + p.desc : ''}`
+        dedArr.push([_label, p.monto])
+      })
     } else if ((d.cxc || 0) > 0.005) {
       dedArr.push(['Préstamo', d.cxc])
     }
