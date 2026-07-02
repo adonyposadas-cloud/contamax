@@ -146,6 +146,8 @@ function ykEnsureStyles() {
     .yk-mhead button{background:none;border:none;color:var(--text3,#888);font-size:16px;cursor:pointer}
     .yk-link{background:none;border:none;color:var(--gold,#d4af37);cursor:pointer;text-decoration:underline;font:inherit;padding:0}
     .yk-link:hover{opacity:.8}
+    .yk-drill{cursor:pointer;color:var(--gold,#d4af37);border-bottom:1px dotted var(--gold,#d4af37)}
+    .yk-drill:hover{opacity:.8}
   `
   document.head.appendChild(st)
 }
@@ -436,6 +438,74 @@ window.ykAplicarReporte = () => {
   modo === 'ventas' ? ykReporteVentas() : ykReporteMargen()
 }
 
+// ═══════════════ Drill-down de reportes (click en fila → desglose) ═══════════════
+// Datos ya en memoria (ykVResumen): re-agrupamos al vuelo y abrimos un modal.
+// Jerarquía: Marca → Modelo → Año | Contenedor/Mes/Año-veh → Marca+Modelo → Año.
+let ykDrillReg = {}, ykDrillSeq = 0
+function ykDrillCell(filtros, sub, titulo, texto) {
+  const id = 'yd' + (++ykDrillSeq)
+  ykDrillReg[id] = { filtros, sub, titulo }
+  return `<span class="yk-drill" onclick="ykDrillById('${id}')" title="Ver desglose">${texto} <span style="opacity:.45;font-size:10px">▸</span></span>`
+}
+window.ykDrillById = (id) => { const d = ykDrillReg[id]; if (d) window.ykDrill(d.filtros, d.sub, d.titulo) }
+
+// Drill inicial según la dimensión de la tabla principal
+function ykDimDrill(dim, raw) {
+  if (dim === 'marca')      return { filtros: [['marca', raw.marca]], sub: 'modelosolo' }
+  if (dim === 'modelo')     return { filtros: [['marca', raw.marca], ['modelo', raw.modelo]], sub: 'anio' }
+  if (dim === 'anio_veh')   return { filtros: [['anio_vehiculo', raw.anio_vehiculo]], sub: 'modelo' }
+  if (dim === 'contenedor') return { filtros: [['contenedor', raw.contenedor]], sub: 'modelo' }
+  if (dim === 'mes')        return { filtros: [['anio_mes', raw.anio_mes]], sub: 'modelo' }
+  return null
+}
+function ykDrillGroup(datos, sub) {
+  const g = {}
+  datos.forEach(r => {
+    let k, raw
+    if (sub === 'anio') { k = r.anio_vehiculo ?? '—'; raw = { anio_vehiculo: r.anio_vehiculo } }
+    else if (sub === 'modelosolo') { k = r.modelo || '(sin modelo)'; raw = { modelo: r.modelo } }
+    else { k = `${r.marca || '(sin marca)'} ${r.modelo || ''}`.trim(); raw = { marca: r.marca, modelo: r.modelo } }
+    ;(g[k] = g[k] || { k, raw, venta: 0, lineas: 0 })
+    g[k].venta += +r.venta || 0; g[k].lineas += +r.lineas || 0
+  })
+  return Object.values(g).sort((a, b) => b.venta - a.venta)
+}
+window.ykDrill = (filtros, sub, titulo) => {
+  let datos = ykVResumen || []
+  const fAnio = document.getElementById('yk-rep-anio')?.value
+  const fMarca = document.getElementById('yk-rep-marca')?.value
+  if (fAnio) datos = datos.filter(r => String(r.anio) === fAnio)
+  if (fMarca) datos = datos.filter(r => r.marca === fMarca)
+  filtros.forEach(([campo, val]) => { datos = datos.filter(r => String(r[campo] ?? '') === String(val)) })
+
+  const rows = ykDrillGroup(datos, sub)
+  const totV = rows.reduce((s, r) => s + r.venta, 0), totL = rows.reduce((s, r) => s + r.lineas, 0)
+  const subLabel = sub === 'anio' ? 'Año del vehículo' : sub === 'modelosolo' ? 'Modelo' : 'Marca + Modelo'
+  // El año es hoja; y un modelo dentro de un año ya fijado no se drillea (sería trivial)
+  const puedeDrill = sub !== 'anio' && !filtros.some(f => f[0] === 'anio_vehiculo')
+
+  const body = rows.map(r => {
+    let cell = r.k
+    if (puedeDrill) {
+      const nf = filtros.concat(sub === 'modelosolo' ? [['modelo', r.raw.modelo]] : [['marca', r.raw.marca], ['modelo', r.raw.modelo]])
+      cell = ykDrillCell(nf, 'anio', `${titulo} · ${r.k}`, r.k)
+    }
+    return `<tr><td>${cell}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${totV ? (r.venta / totV * 100).toFixed(1) : 0}%</td></tr>`
+  }).join('')
+
+  ykOpenModal(`${titulo} · por ${subLabel.toLowerCase()}`, `
+    <div style="font-size:11px;color:var(--text3,#888);margin:2px 0 8px">${rows.length} ${subLabel.toLowerCase()}(s) · toca una fila para bajar otro nivel</div>
+    <table class="yk-tbl"><thead><tr><th>${subLabel}</th><th class="yk-num">Líneas</th><th class="yk-num">Venta (L.)</th><th class="yk-num">% del grupo</th></tr></thead>
+    <tbody>${body}<tr class="tot"><td>TOTAL</td><td class="yk-num">${ykFmt0(totL)}</td><td class="yk-num">${ykFmt(totV)}</td><td class="yk-num">100%</td></tr></tbody></table>`)
+}
+function ykOpenModal(titulo, html) {
+  const ov = document.createElement('div')
+  ov.className = 'yk-ov'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+  ov.innerHTML = `<div class="yk-modal"><div class="yk-mhead"><b>${titulo}</b><button onclick="this.closest('.yk-ov').remove()">✕</button></div><div style="padding:6px 12px 14px">${html}</div></div>`
+  document.body.appendChild(ov)
+}
+
 function ykReporteVentas() {
   const dim = document.getElementById('yk-rep-dim').value
   const fAnio = document.getElementById('yk-rep-anio').value
@@ -449,8 +519,9 @@ function ykReporteVentas() {
     : dim === 'modelo' ? `${r.marca || '(sin marca)'} ${r.modelo || ''}`.trim()
     : dim === 'anio_veh' ? (r.anio_vehiculo ?? '—')
     : (r.contenedor ?? '—')
+  ykDrillReg = {}
   const g = {}
-  datos.forEach(r => { const k = keyOf(r); (g[k] = g[k] || { k, venta: 0, lineas: 0 }); g[k].venta += +r.venta || 0; g[k].lineas += +r.lineas || 0 })
+  datos.forEach(r => { const k = keyOf(r); (g[k] = g[k] || { k, venta: 0, lineas: 0, raw: { marca: r.marca, modelo: r.modelo, anio_vehiculo: r.anio_vehiculo, contenedor: r.contenedor, anio_mes: r.anio_mes } }); g[k].venta += +r.venta || 0; g[k].lineas += +r.lineas || 0 })
   let rows = Object.values(g)
   if (dim === 'mes' || dim === 'anio_veh' || dim === 'contenedor') rows.sort((a, b) => String(a.k).localeCompare(String(b.k), undefined, { numeric: true }))
   else rows.sort((a, b) => b.venta - a.venta)
@@ -464,7 +535,7 @@ function ykReporteVentas() {
   document.getElementById('yk-rep-tabla').innerHTML = `
     <div class="table-wrap" style="max-height:520px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>${dimLabel}</th><th class="yk-num">Líneas</th><th class="yk-num">Venta (L.)</th><th class="yk-num">% del total</th></tr></thead>
-      <tbody>${rows.map(r => `<tr><td>${r.k}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${totV ? (r.venta / totV * 100).toFixed(1) : 0}%</td></tr>`).join('')}
+      <tbody>${rows.map(r => { const _sp = ykDimDrill(dim, r.raw); const _c = _sp ? ykDrillCell(_sp.filtros, _sp.sub, r.k, r.k) : r.k; return `<tr><td>${_c}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${totV ? (r.venta / totV * 100).toFixed(1) : 0}%</td></tr>` }).join('')}
         <tr class="tot"><td>TOTAL</td><td class="yk-num">${ykFmt0(totL)}</td><td class="yk-num">${ykFmt(totV)}</td><td class="yk-num">100%</td></tr>
       </tbody></table></div>`
   ykRepActual = { tipo: 'ventas', dimLabel, rows: rows.map(r => ({ [dimLabel]: r.k, Lineas: r.lineas, Venta: r.venta })) }
