@@ -6,7 +6,7 @@
 // Pestaña 2 (Reportes): ventas por mes/marca/modelo/año/contenedor y margen
 //   venta vs costo por unidad/contenedor/marca/modelo. Exportable a Excel.
 //   Lee de las vistas vw_yonker_ventas_resumen y vw_yonker_margen_unidad.
-// Solo super_admin. Depende de: window._sb, window.toast, window.XLSX, window._currentProfile
+// Solo super_admin. Depende de: window._sb, window.toast, window.XLSX, window._currentProfile 
 
 const ykSb = () => window._sb
 const ykEsSuper = () => { try { return window._currentProfile?.()?.rol === 'super_admin' } catch (e) { return false } }
