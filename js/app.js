@@ -9703,6 +9703,326 @@ window.updateSumaCxP = () => {
   if (btnGuardar) btnGuardar.style.display = count > 0 ? 'inline-flex' : 'none'
 }
 
+// ═══════════════ Conciliación CxP contra estado de cuenta (Ficohsa CSV / BAC txt) ═══════════════
+window.cxpArchivoEstado = (input) => {
+  const file = input.files && input.files[0]
+  input.value = ''
+  if (!file) return
+  if (!cxpMovimientos || !cxpMovimientos.length) { toast('Primero consultá las cuentas por pagar', 'error'); return }
+  const esPDF = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    let parsed
+    try { parsed = esPDF ? await cxpParsePDF(e.target.result) : cxpParseEstado(String(e.target.result || '')) }
+    catch (err) { toast('No se pudo leer el archivo: ' + (err.message || err), 'error'); return }
+    cxpAplicarConciliacion(parsed)
+  }
+  if (esPDF) reader.readAsArrayBuffer(file)
+  else reader.readAsText(file, 'ISO-8859-1')   // latin1 sirve para Ficohsa (ISO-8859) y BAC (ASCII)
+}
+
+function cxpAplicarConciliacion(parsed) {
+  const items = parsed.items || []
+  if (!items.length) { toast('No se encontraron movimientos en el archivo (¿formato correcto?)', 'error'); return }
+  const cargos = items.filter(x => x.tipo === 'cargo')
+  const res = cxpConciliarEstado(cargos)
+  res.abonos = items.filter(x => x.tipo === 'abono')
+  res.pagos = items.filter(x => x.tipo === 'pago')
+  res.saldoAnterior = parsed.saldoAnterior
+  // Selección FRESCA: partimos de cero para no arrastrar marcas viejas/persistidas.
+  cxpSeleccionados = new Set()
+  cxpMontos = {}
+  cxpSeleccionActiva = null
+  res.matched.forEach(m => { cxpSeleccionados.add(m.lineId); cxpMontos[m.lineId] = m.monto })
+  const ft = document.getElementById('cxp-filtro-texto'); if (ft) ft.value = ''
+  cxpFiltrados = [...cxpMovimientos]
+  renderCxPTabla()
+  guardarCxPSeleccion()
+  updateSumaCxP()
+  cxpResumenConciliacion(res)
+}
+
+// Parser del PDF de Ficohsa (usa pdf.js). Reconstruye filas por posición (x,y) y clasifica
+// Lempiras vs Dólares por el borde derecho del monto (el más cercano al header).
+async function cxpParsePDF(arrayBuffer) {
+  const lib = window.pdfjsLib
+  if (!lib) throw new Error('el lector de PDF no cargó; recargá la página e intentá de nuevo')
+  try { lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {}
+  const pdf = await lib.getDocument({ data: arrayBuffer }).promise
+  const isAmt = s => /^-?[\d,]+\.\d{2}$/.test(String(s).trim())
+  const items = []
+  let saldoAnterior = null, xLempR = null, xDolR = null
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p)
+    const tc = await page.getTextContent()
+    const rows = new Map()
+    tc.items.forEach(it => {
+      const s = (it.str || '').trim(); if (!s) return
+      const x = it.transform[4], y = Math.round(it.transform[5]), w = it.width || 0
+      if (!rows.has(y)) rows.set(y, [])
+      rows.get(y).push({ x, x1: x + w, s })
+    })
+    const ys = [...rows.keys()].sort((a, b) => b - a)   // arriba → abajo
+    for (const y of ys) {
+      const line = rows.get(y).sort((a, b) => a.x - b.x)
+      const txt = line.map(i => i.s).join(' ')
+      if (/^Fecha$/i.test(line[0].s) && /D[oó]lares/i.test(txt)) {
+        const L = line.find(i => /^(Lempiras|Local)$/i.test(i.s)); if (L) xLempR = L.x1
+        const D = line.find(i => /D[oó]lares/i.test(i.s)); if (D) xDolR = D.x1
+        continue
+      }
+      if (/saldo anterior/i.test(txt)) {
+        const a = line.find(i => isAmt(i.s)); if (a && saldoAnterior == null) saldoAnterior = Math.abs(cxpNum(a.s))
+        continue
+      }
+      if (!line[0] || !/^\d{2}\/\d{2}\/\d{4}$/.test(line[0].s)) continue
+      const amtItems = line.filter(i => isAmt(i.s))
+      if (!amtItems.length) continue
+      // Puede haber 2 montos por fila (Local + Dólares). Tomamos el de la columna correcta:
+      // Local si es > 0, si no el de Dólares. La columna se decide por el header más cercano.
+      let localV = 0, dolarV = 0
+      amtItems.forEach(a => {
+        const v = Math.abs(cxpNum(a.s))
+        const esUSD = (xLempR != null && xDolR != null)
+          ? Math.abs(a.x1 - xDolR) < Math.abs(a.x1 - xLempR)
+          : a.x1 > 505
+        if (esUSD) dolarV = Math.max(dolarV, v); else localV = Math.max(localV, v)
+      })
+      let monto, moneda
+      if (localV > 0) { monto = localV; moneda = 'HNL' }
+      else if (dolarV > 0) { monto = dolarV; moneda = 'USD' }
+      else continue
+      const firstAmtIdx = line.findIndex(i => isAmt(i.s))
+      const mid = line.slice(1, firstAmtIdx).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim()
+      const desc = mid.replace(/^\d{4,}\s+/, '').trim() || mid
+      items.push({ fecha: cxpFechaISO(line[0].s), desc, monto, moneda, tipo: cxpTipoMov(desc) })
+    }
+  }
+  return { items, saldoAnterior }
+}
+
+// pago = lo que la empresa abonó (se ignora en el match); abono = devoluciones/bonos de la tarjeta (crédito); resto = cargo
+const CXP_PAT_PAGO = /gracias por su pago|pago con cheque|su pago recibido|pago recibido/i
+const CXP_PAT_ABONO = /bono|devoluc|reverso|nota de cr[eé]dito|reintegro/i
+function cxpTipoMov(desc) { return CXP_PAT_PAGO.test(desc) ? 'pago' : CXP_PAT_ABONO.test(desc) ? 'abono' : 'cargo' }
+function cxpSaldoAnterior(t) {
+  for (const line of t.split(/\r?\n/)) {
+    if (/previous balance|saldo anterior/i.test(line)) {
+      const f = line.split('|')
+      for (let i = 1; i < f.length; i++) { const v = cxpNum(f[i]); if (v > 0) return Math.round(v * 100) / 100 }
+    }
+  }
+  return null
+}
+function cxpParseEstado(t) {
+  const ficohsa = /moneda local/i.test(t) || /número de tarjeta de cr/i.test(t)
+  const pipey = t.split(/\r?\n/).some(l => (l.match(/\|/g) || []).length >= 3)
+  let items = ficohsa ? cxpParseFicohsa(t) : (pipey ? cxpParseBAC(t) : cxpParseFicohsa(t))
+  if (!items.length && !ficohsa) items = cxpParseBAC(t)
+  return { items, saldoAnterior: cxpSaldoAnterior(t) }
+}
+function cxpNum(s) { const n = parseFloat(String(s == null ? '' : s).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n }
+function cxpFechaISO(d) { const m = String(d).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : '' }
+function cxpCSVLine(line) {
+  const out = []; let cur = '', q = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++ } else q = !q }
+    else if (ch === ',' && !q) { out.push(cur); cur = '' }
+    else cur += ch
+  }
+  out.push(cur); return out
+}
+function cxpParseFicohsa(t) {
+  const lines = t.split(/\r?\n/)
+  const start = lines.findIndex(l => /^Fecha\s*,.*moneda local/i.test(l))
+  const out = []
+  for (let i = (start >= 0 ? start + 1 : 0); i < lines.length; i++) {
+    const line = lines[i]; if (!line || !line.trim()) continue
+    const f = cxpCSVLine(line)
+    if (f.length < 5) continue
+    const fecha = (f[0] || '').trim()
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) continue
+    const desc = (f[2] || '').trim()
+    const tipo = cxpTipoMov(desc)
+    const local = Math.abs(cxpNum(f[3])), dolar = Math.abs(cxpNum(f[4]))
+    if (local > 0) out.push({ fecha: cxpFechaISO(fecha), desc, monto: local, moneda: 'HNL', tipo })
+    else if (dolar > 0) out.push({ fecha: cxpFechaISO(fecha), desc, monto: dolar, moneda: 'USD', tipo })
+  }
+  return out
+}
+function cxpParseBAC(t) {
+  const out = []
+  t.split(/\r?\n/).forEach(line => {
+    const f = line.split('|')
+    if (f.length < 4) return
+    const fecha = (f[0] || '').trim()
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) return
+    const desc = (f[1] || '').trim()
+    const tipo = cxpTipoMov(desc)
+    const local = Math.abs(cxpNum(f[2])), dolar = Math.abs(cxpNum(f[3]))
+    if (local > 0) out.push({ fecha: cxpFechaISO(fecha), desc, monto: local, moneda: 'HNL', tipo })
+    else if (dolar > 0) out.push({ fecha: cxpFechaISO(fecha), desc, monto: dolar, moneda: 'USD', tipo })
+  })
+  return out
+}
+function cxpTokens(s) { return [...new Set(String(s || '').toLowerCase().split(/[^a-z0-9áéíóúñ]+/i).filter(w => w.length >= 3))] }
+function cxpOverlap(a, b) { const B = new Set(b); return a.reduce((n, w) => n + (B.has(w) ? 1 : 0), 0) }
+function cxpDias(a, b) { if (!a || !b) return 999; return Math.abs((new Date(a) - new Date(b)) / 86400000) }
+// Extrae los montos en dólares que aparecen tras "$" en la descripción (con o sin coma de miles)
+function cxpDolares(desc) {
+  const out = []; const re = /\$\s*([\d.,]+)/g; let m
+  while ((m = re.exec(String(desc || '')))) {
+    const v = parseFloat(m[1].replace(/,/g, ''))
+    if (!isNaN(v) && v > 0) out.push(Math.round(v * 100) / 100)
+  }
+  return out
+}
+
+// Match 1:1. HNL: por monto exacto. USD: por el valor en $ hallado en la descripción.
+function cxpConciliarEstado(cargos) {
+  const pool = (cxpMovimientos || []).filter(l => !l.pagado).map(l => {
+    const descRaw = (l.partida ? (l.partida.descripcion || l.descripcion) : l.descripcion) || ''
+    return {
+      id: l.id,
+      monto: Math.round((parseFloat(l.monto) || 0) * 100) / 100,
+      descTok: cxpTokens(descRaw),
+      dolares: cxpDolares(descRaw),
+      fecha: (l.partida && l.partida.fecha_partida) || ''
+    }
+  })
+  const usados = new Set(), matched = [], cargosSinMatch = []
+  cargos.forEach(c => {
+    const cm = Math.round(c.monto * 100) / 100
+    const cand = (c.moneda === 'USD')
+      ? pool.filter(p => !usados.has(p.id) && p.dolares.some(d => Math.abs(d - cm) < 0.01))
+      : pool.filter(p => !usados.has(p.id) && Math.abs(p.monto - cm) < 0.01)
+    if (!cand.length) { cargosSinMatch.push(c); return }
+    const cTok = cxpTokens(c.desc)
+    let best = null, bestScore = -Infinity
+    cand.forEach(p => {
+      const ov = cxpOverlap(cTok, p.descTok)
+      const dd = cxpDias(c.fecha, p.fecha)
+      const ds = dd <= 3 ? 2 : dd <= 10 ? 1 : dd <= 31 ? 0.5 : 0
+      const score = ov * 3 + ds
+      if (score > bestScore) { bestScore = score; best = p }
+    })
+    usados.add(best.id)
+    matched.push({ lineId: best.id, monto: best.monto, cargo: c })
+  })
+  const lineasSinMatch = pool.filter(p => !usados.has(p.id))
+  return { matched, cargosSinMatch, lineasSinMatch }
+}
+
+function cxpResumenConciliacion(res) {
+  window.__cxpSinMatch = res.cargosSinMatch || []
+  window.__cxpConciliadas = (res.matched || []).map(m => {
+    const l = (cxpMovimientos || []).find(x => x.id === m.lineId) || {}
+    return {
+      partida: (l.partida && l.partida.numero_partida) || '',
+      cuenta: l.cuenta_codigo || '',
+      fecha: (l.partida && l.partida.fecha_partida) || '',
+      descripcion: (l.partida && l.partida.descripcion) || l.descripcion || '',
+      monto: Math.round((parseFloat(l.monto) || m.monto || 0) * 100) / 100
+    }
+  })
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const totMatch = res.matched.reduce((s, m) => s + m.monto, 0)
+  const totPago = (res.pagos || []).filter(x => x.moneda !== 'USD').reduce((s, x) => s + x.monto, 0)
+  const totAbono = (res.abonos || []).filter(x => x.moneda !== 'USD').reduce((s, x) => s + x.monto, 0)
+  const saldoAnt = res.saldoAnterior
+  window.__cxpCuadre = { totPago, totAbono }
+  const cuadreHtml = `
+    <div style="background:var(--bg3,#151515);border:0.5px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px">
+      <div style="font-weight:600;margin-bottom:8px">🧮 Cuadre del estado (Lempiras)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0"><span>Saldo anterior</span>
+        ${saldoAnt != null ? `<b style="font-family:var(--mono)">L. ${fmt(saldoAnt)}</b>` : `<input id="cxp-saldo-ant" type="text" placeholder="escribilo (no viene en el CSV)" oninput="cxpCuadreCalc(this.value)" style="width:170px;text-align:right;padding:3px 6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono)">`}</div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0"><span>Pagos (gracias por su pago)</span><b style="font-family:var(--mono)">L. ${fmt(totPago)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--text3)"><span>Devoluciones / bonos (abonos)</span><b style="font-family:var(--mono)">L. ${fmt(totAbono)}</b></div>
+      <div id="cxp-cuadre-verdict" style="margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border)">${cxpCuadreVerdict(saldoAnt, totPago)}</div>
+    </div>`
+  const filasSin = res.cargosSinMatch.map(c => `<tr><td style="padding:4px 8px">${c.fecha || '—'}</td><td style="padding:4px 8px">${(c.desc || '').slice(0, 44)}</td><td style="padding:4px 8px;text-align:right;font-family:var(--mono)">${c.moneda === 'USD' ? '$' : 'L.'} ${fmt(c.monto)}</td></tr>`).join('')
+  const html = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <div style="flex:1;min-width:130px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);border-radius:8px;padding:10px 14px">
+        <div style="font-size:22px;font-weight:700;color:#86efac">${res.matched.length}</div>
+        <div style="font-size:11px;color:var(--text3)">líneas conciliadas · L. ${fmt(totMatch)}</div></div>
+      <div style="flex:1;min-width:130px;background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.4);border-radius:8px;padding:10px 14px">
+        <div style="font-size:22px;font-weight:700;color:#f5c451">${res.cargosSinMatch.length}</div>
+        <div style="font-size:11px;color:var(--text3)">cargos del estado sin registrar en CxP</div></div>
+      <div style="flex:1;min-width:130px;background:rgba(120,113,108,.12);border:1px solid rgba(120,113,108,.4);border-radius:8px;padding:10px 14px">
+        <div style="font-size:22px;font-weight:700;color:#d6d3d1">${res.lineasSinMatch.length}</div>
+        <div style="font-size:11px;color:var(--text3)">líneas CxP no están en el estado</div></div>
+    </div>
+    ${cuadreHtml}
+    <div style="margin-bottom:12px"><button onclick="cxpExportSinMatch()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--green)">📥 Bajar a Excel (conciliadas + sin registrar)</button></div>
+    ${res.cargosSinMatch.length ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px">⚠️ Cargos del estado que <b>no</b> tienen línea en CxP (revisá si falta registrarlos):</div>
+      <div style="max-height:260px;overflow:auto;border:0.5px solid var(--border);border-radius:8px">
+        <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--text3)"><th style="padding:4px 8px;text-align:left">Fecha</th><th style="padding:4px 8px;text-align:left">Descripción</th><th style="padding:4px 8px;text-align:right">Monto</th></tr></thead><tbody>${filasSin}</tbody></table></div>` : '<div style="font-size:12px;color:#86efac">✓ Todos los cargos del estado tienen su línea en CxP.</div>'}
+    <div style="font-size:11px;color:var(--text3);margin-top:12px">Las líneas conciliadas quedaron marcadas. Revisá, ajustá si hace falta, y usá "Guardar selección" o "Generar pago".</div>`
+  cxpModal('🔗 Resultado de la conciliación', html)
+}
+window.cxpExportSinMatch = () => {
+  const sin = window.__cxpSinMatch || []
+  const con = window.__cxpConciliadas || []
+  if (!sin.length && !con.length) { toast('Nada para exportar', 'info'); return }
+  const r2 = v => Math.round((v || 0) * 100) / 100
+  const wb = window.XLSX.utils.book_new()
+
+  // Hoja 1: Conciliadas (para cuadrar el pago contra la contabilidad)
+  const rCon = con.map(x => ({
+    'N° Partida': x.partida || '',
+    'Cuenta': x.cuenta || '',
+    'Fecha': x.fecha || '',
+    'Descripción': String(x.descripcion || '').replace(/\s+/g, ' ').trim(),
+    'Monto (L.)': r2(x.monto)
+  }))
+  const totCon = r2(rCon.reduce((s, r) => s + (r['Monto (L.)'] || 0), 0))
+  rCon.push({ 'N° Partida': '', 'Cuenta': '', 'Fecha': '', 'Descripción': 'TOTAL', 'Monto (L.)': totCon })
+  const wsCon = window.XLSX.utils.json_to_sheet(rCon.length ? rCon : [{ 'N° Partida': '', 'Cuenta': '', 'Fecha': '', 'Descripción': '(ninguna)', 'Monto (L.)': 0 }])
+  wsCon['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 46 }, { wch: 15 }]
+  window.XLSX.utils.book_append_sheet(wb, wsCon, 'Conciliadas')
+
+  // Hoja 2: Cargos del estado sin línea en CxP (para que el auxiliar busque las facturas)
+  const rSin = sin.map(c => ({ 'Fecha': c.fecha || '', 'Descripción': String(c.desc || '').replace(/\s+/g, ' ').trim(), 'Moneda': c.moneda || 'HNL', 'Monto': r2(c.monto) }))
+  const totHNL = r2(sin.filter(c => c.moneda !== 'USD').reduce((s, c) => s + (c.monto || 0), 0))
+  const totUSD = r2(sin.filter(c => c.moneda === 'USD').reduce((s, c) => s + (c.monto || 0), 0))
+  rSin.push({ 'Fecha': '', 'Descripción': 'TOTAL HNL', 'Moneda': 'HNL', 'Monto': totHNL })
+  if (sin.some(c => c.moneda === 'USD')) rSin.push({ 'Fecha': '', 'Descripción': 'TOTAL USD', 'Moneda': 'USD', 'Monto': totUSD })
+  const wsSin = window.XLSX.utils.json_to_sheet(rSin.length ? rSin : [{ 'Fecha': '', 'Descripción': '(ninguno)', 'Moneda': '', 'Monto': 0 }])
+  wsSin['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 8 }, { wch: 14 }]
+  window.XLSX.utils.book_append_sheet(wb, wsSin, 'Cargos sin registrar')
+
+  window.XLSX.writeFile(wb, `CxP_conciliacion_${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
+
+function cxpCuadreVerdict(saldoAnt, totPago) {
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (saldoAnt == null || isNaN(saldoAnt)) return '<span style="color:var(--text3)">Escribí el saldo anterior para verificar el cuadre.</span>'
+  const diff = Math.round((totPago - saldoAnt) * 100) / 100
+  if (Math.abs(diff) < 0.01) return '<span style="color:#86efac">✓ Los pagos cubren exactamente el saldo anterior.</span>'
+  if (diff > 0) return `<span style="color:#93c5fd">Los pagos superan el saldo anterior → <b>Pago adelantado a la tarjeta: L. ${fmt(diff)}</b></span>`
+  return `<span style="color:#f5c451">⚠️ Los pagos no cubren el saldo anterior → falta <b>L. ${fmt(-diff)}</b></span>`
+}
+window.cxpCuadreCalc = (val) => {
+  const el = document.getElementById('cxp-cuadre-verdict'); if (!el) return
+  const has = val && String(val).trim() !== ''
+  el.innerHTML = cxpCuadreVerdict(has ? cxpNum(val) : null, (window.__cxpCuadre || {}).totPago || 0)
+}
+
+function cxpModal(titulo, html) {
+  const ov = document.createElement('div')
+  ov.className = 'cxp-modal-ov'
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6)'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+  ov.innerHTML = `<div style="background:var(--bg2,#1c1c1c);border:0.5px solid var(--border,#3a3a3a);border-radius:12px;max-width:640px;width:92vw;max-height:88vh;overflow:auto;padding:18px 20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-weight:600">${titulo}</div>
+      <button onclick="this.closest('.cxp-modal-ov').remove()" style="background:none;border:0;color:var(--text2);font-size:18px;cursor:pointer">✕</button></div>
+    ${html}</div>`
+  document.body.appendChild(ov)
+}
+
 window.generarPagoCxP = async () => {
   if (!cxpSeleccionados.size) return
   const ids = Array.from(cxpSeleccionados)
