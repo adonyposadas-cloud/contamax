@@ -9600,7 +9600,7 @@ window.filtrarCxPTexto = () => {
     cxpFiltrados = [...cxpMovimientos]
   } else {
     cxpFiltrados = cxpMovimientos.filter(l => {
-      const desc = (l.partida?.descripcion || '').toLowerCase()
+      const desc = ((l.descripcion || '') + ' ' + (l.partida?.descripcion || '')).toLowerCase()
       const monto = String(l.monto)
       return desc.includes(term) || monto.includes(term) || (l.cuenta_codigo || '').includes(term)
     })
@@ -9626,7 +9626,7 @@ function renderCxPTabla() {
       <td>${p.fecha_partida}</td>
       <td style="color:var(--gold)">${p.numero_partida || '—'}</td>
       <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
-      <td style="max-width:300px">${p.descripcion || l.descripcion || '—'}</td>
+      <td style="max-width:300px">${l.descripcion || p.descripcion || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${fmt(l.monto)}</td>
       <td>${l.pagado ? '<span class="badge badge-on">Pagado</span>' : '<span class="badge badge-amber">Pendiente</span>'}</td>
     </tr>`
@@ -9751,7 +9751,7 @@ async function cxpParsePDF(arrayBuffer) {
   const pdf = await lib.getDocument({ data: arrayBuffer }).promise
   const isAmt = s => /^-?[\d,]+\.\d{2}$/.test(String(s).trim())
   const items = []
-  let saldoAnterior = null, xLempR = null, xDolR = null
+  let saldoAntHNL = null, saldoAntUSD = null, xLempR = null, xDolR = null
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p)
     const tc = await page.getTextContent()
@@ -9771,8 +9771,9 @@ async function cxpParsePDF(arrayBuffer) {
         const D = line.find(i => /D[oó]lares/i.test(i.s)); if (D) xDolR = D.x1
         continue
       }
-      if (/saldo anterior/i.test(txt)) {
-        const a = line.find(i => isAmt(i.s)); if (a && saldoAnterior == null) saldoAnterior = Math.abs(cxpNum(a.s))
+      if (/saldo anterior|previous balance/i.test(txt)) {
+        const amts = line.filter(i => isAmt(i.s)).map(i => Math.abs(cxpNum(i.s))).filter(v => v > 0)
+        if (saldoAntHNL == null && amts.length) { saldoAntHNL = amts[0]; if (amts.length > 1) saldoAntUSD = amts[1] }
         continue
       }
       if (!line[0] || !/^\d{2}\/\d{2}\/\d{4}$/.test(line[0].s)) continue
@@ -9798,21 +9799,21 @@ async function cxpParsePDF(arrayBuffer) {
       items.push({ fecha: cxpFechaISO(line[0].s), desc, monto, moneda, tipo: cxpTipoMov(desc) })
     }
   }
-  return { items, saldoAnterior }
+  return { items, saldoAnterior: { hnl: saldoAntHNL, usd: saldoAntUSD } }
 }
 
 // pago = lo que la empresa abonó (se ignora en el match); abono = devoluciones/bonos de la tarjeta (crédito); resto = cargo
 const CXP_PAT_PAGO = /gracias por su pago|pago con cheque|su pago recibido|pago recibido/i
-const CXP_PAT_ABONO = /bono|devoluc|reverso|nota de cr[eé]dito|reintegro/i
+const CXP_PAT_ABONO = /\bbono\b|devoluc|reverso|nota de cr[eé]dito|reintegro/i
 function cxpTipoMov(desc) { return CXP_PAT_PAGO.test(desc) ? 'pago' : CXP_PAT_ABONO.test(desc) ? 'abono' : 'cargo' }
 function cxpSaldoAnterior(t) {
   for (const line of t.split(/\r?\n/)) {
     if (/previous balance|saldo anterior/i.test(line)) {
-      const f = line.split('|')
-      for (let i = 1; i < f.length; i++) { const v = cxpNum(f[i]); if (v > 0) return Math.round(v * 100) / 100 }
+      const amts = line.split('|').map(s => Math.abs(cxpNum(s))).filter(v => v > 0)
+      return { hnl: amts.length ? Math.round(amts[0] * 100) / 100 : null, usd: amts.length > 1 ? Math.round(amts[1] * 100) / 100 : null }
     }
   }
-  return null
+  return { hnl: null, usd: null }
 }
 function cxpParseEstado(t) {
   const ficohsa = /moneda local/i.test(t) || /número de tarjeta de cr/i.test(t)
@@ -9882,7 +9883,7 @@ function cxpDolares(desc) {
 // Match 1:1. HNL: por monto exacto. USD: por el valor en $ hallado en la descripción.
 function cxpConciliarEstado(cargos) {
   const pool = (cxpMovimientos || []).filter(l => !l.pagado).map(l => {
-    const descRaw = (l.partida ? (l.partida.descripcion || l.descripcion) : l.descripcion) || ''
+    const descRaw = (l.descripcion || (l.partida && l.partida.descripcion) || '')
     return {
       id: l.id,
       monto: Math.round((parseFloat(l.monto) || 0) * 100) / 100,
@@ -9922,24 +9923,31 @@ function cxpResumenConciliacion(res) {
       partida: (l.partida && l.partida.numero_partida) || '',
       cuenta: l.cuenta_codigo || '',
       fecha: (l.partida && l.partida.fecha_partida) || '',
-      descripcion: (l.partida && l.partida.descripcion) || l.descripcion || '',
+      descripcion: l.descripcion || (l.partida && l.partida.descripcion) || '',
       monto: Math.round((parseFloat(l.monto) || m.monto || 0) * 100) / 100
     }
   })
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const totMatch = res.matched.reduce((s, m) => s + m.monto, 0)
-  const totPago = (res.pagos || []).filter(x => x.moneda !== 'USD').reduce((s, x) => s + x.monto, 0)
-  const totAbono = (res.abonos || []).filter(x => x.moneda !== 'USD').reduce((s, x) => s + x.monto, 0)
-  const saldoAnt = res.saldoAnterior
-  window.__cxpCuadre = { totPago, totAbono }
+  const sumC = (arr, cur) => (arr || []).filter(x => x.moneda === cur).reduce((s, x) => s + x.monto, 0)
+  const pagoHNL = sumC(res.pagos, 'HNL'), pagoUSD = sumC(res.pagos, 'USD')
+  const abonoHNL = sumC(res.abonos, 'HNL'), abonoUSD = sumC(res.abonos, 'USD')
+  const saldo = res.saldoAnterior || { hnl: null, usd: null }
+  window.__cxpCuadre = { saldoHNL: saldo.hnl, saldoUSD: saldo.usd, pagoHNL, pagoUSD, abonoHNL, abonoUSD }
+  window.__cxpAbonos = res.abonos || []
+  const bloque = (titulo, sim, cur, saldoV, pagoV, abonoV, editable) => `
+      <div style="font-weight:600;font-size:10px;letter-spacing:.5px;color:var(--text3);margin:8px 0 2px">${titulo}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0"><span>Saldo anterior</span>
+        ${saldoV != null ? `<b style="font-family:var(--mono)">${sim} ${fmt(saldoV)}</b>` : (editable ? `<input id="cxp-saldo-ant" type="text" placeholder="escribilo (no viene en el CSV)" oninput="cxpCuadreCalc(this.value)" style="width:170px;text-align:right;padding:3px 6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono)">` : '<b style="font-family:var(--mono);color:var(--text3)">—</b>')}</div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Pagos (gracias por su pago)</span><b style="font-family:var(--mono)">${sim} ${fmt(pagoV)}</b></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0;color:var(--text3)"><span>Devoluciones / bonos (abonos)</span><b style="font-family:var(--mono)">${sim} ${fmt(abonoV)}</b></div>
+      <div id="cxp-verdict-${cur}" style="margin-top:6px">${cxpCuadreVerdict(saldoV, pagoV, sim)}</div>`
+  const hayUSD = pagoUSD > 0 || abonoUSD > 0 || saldo.usd != null
   const cuadreHtml = `
     <div style="background:var(--bg3,#151515);border:0.5px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px">
-      <div style="font-weight:600;margin-bottom:8px">🧮 Cuadre del estado (Lempiras)</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0"><span>Saldo anterior</span>
-        ${saldoAnt != null ? `<b style="font-family:var(--mono)">L. ${fmt(saldoAnt)}</b>` : `<input id="cxp-saldo-ant" type="text" placeholder="escribilo (no viene en el CSV)" oninput="cxpCuadreCalc(this.value)" style="width:170px;text-align:right;padding:3px 6px;background:var(--bg2);border:0.5px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono)">`}</div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0"><span>Pagos (gracias por su pago)</span><b style="font-family:var(--mono)">L. ${fmt(totPago)}</b></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;color:var(--text3)"><span>Devoluciones / bonos (abonos)</span><b style="font-family:var(--mono)">L. ${fmt(totAbono)}</b></div>
-      <div id="cxp-cuadre-verdict" style="margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border)">${cxpCuadreVerdict(saldoAnt, totPago)}</div>
+      <div style="font-weight:600;margin-bottom:2px">🧮 Cuadre del estado</div>
+      ${bloque('LEMPIRAS', 'L.', 'hnl', saldo.hnl, pagoHNL, abonoHNL, true)}
+      ${hayUSD ? bloque('DÓLARES', '$', 'usd', saldo.usd, pagoUSD, abonoUSD, false) : ''}
     </div>`
   const filasSin = res.cargosSinMatch.map(c => `<tr><td style="padding:4px 8px">${c.fecha || '—'}</td><td style="padding:4px 8px">${(c.desc || '').slice(0, 44)}</td><td style="padding:4px 8px;text-align:right;font-family:var(--mono)">${c.moneda === 'USD' ? '$' : 'L.'} ${fmt(c.monto)}</td></tr>`).join('')
   const html = `
@@ -9955,7 +9963,7 @@ function cxpResumenConciliacion(res) {
         <div style="font-size:11px;color:var(--text3)">líneas CxP no están en el estado</div></div>
     </div>
     ${cuadreHtml}
-    <div style="margin-bottom:12px"><button onclick="cxpExportSinMatch()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--green)">📥 Bajar a Excel (conciliadas + sin registrar)</button></div>
+    <div style="margin-bottom:12px"><button onclick="cxpExportSinMatch()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--green)">📥 Bajar a Excel (conciliadas · sin registrar · bonos)</button></div>
     ${res.cargosSinMatch.length ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px">⚠️ Cargos del estado que <b>no</b> tienen línea en CxP (revisá si falta registrarlos):</div>
       <div style="max-height:260px;overflow:auto;border:0.5px solid var(--border);border-radius:8px">
         <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--text3)"><th style="padding:4px 8px;text-align:left">Fecha</th><th style="padding:4px 8px;text-align:left">Descripción</th><th style="padding:4px 8px;text-align:right">Monto</th></tr></thead><tbody>${filasSin}</tbody></table></div>` : '<div style="font-size:12px;color:#86efac">✓ Todos los cargos del estado tienen su línea en CxP.</div>'}
@@ -9965,7 +9973,7 @@ function cxpResumenConciliacion(res) {
 window.cxpExportSinMatch = () => {
   const sin = window.__cxpSinMatch || []
   const con = window.__cxpConciliadas || []
-  if (!sin.length && !con.length) { toast('Nada para exportar', 'info'); return }
+  if (!sin.length && !con.length && !(window.__cxpAbonos || []).length) { toast('Nada para exportar', 'info'); return }
   const r2 = v => Math.round((v || 0) * 100) / 100
   const wb = window.XLSX.utils.book_new()
 
@@ -9993,21 +10001,37 @@ window.cxpExportSinMatch = () => {
   wsSin['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 8 }, { wch: 14 }]
   window.XLSX.utils.book_append_sheet(wb, wsSin, 'Cargos sin registrar')
 
+  // Hoja 3: Bonos/devoluciones + pago adelantado (valores a registrar para cuadrar la partida)
+  const cu = window.__cxpCuadre || {}
+  const abonos = window.__cxpAbonos || []
+  const rAj = abonos.map(c => ({ 'Tipo': 'Bono / Devolución', 'Fecha': c.fecha || '', 'Descripción': String(c.desc || '').replace(/\s+/g, ' ').trim(), 'Moneda': c.moneda || 'HNL', 'Monto': r2(c.monto) }))
+  const addAdel = (saldo, pago, mon) => { if (saldo == null || isNaN(saldo)) return; const d = r2((pago || 0) - saldo); if (d > 0.01) rAj.push({ 'Tipo': 'Pago adelantado', 'Fecha': '', 'Descripción': 'Excedente de pagos sobre saldo anterior', 'Moneda': mon, 'Monto': d }) }
+  addAdel(cu.saldoHNL, cu.pagoHNL, 'HNL')
+  addAdel(cu.saldoUSD, cu.pagoUSD, 'USD')
+  if (rAj.length) {
+    const wsAj = window.XLSX.utils.json_to_sheet(rAj)
+    wsAj['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 44 }, { wch: 8 }, { wch: 14 }]
+    window.XLSX.utils.book_append_sheet(wb, wsAj, 'Bonos y ajustes')
+  }
+
   window.XLSX.writeFile(wb, `CxP_conciliacion_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
 
-function cxpCuadreVerdict(saldoAnt, totPago) {
+function cxpCuadreVerdict(saldoAnt, totPago, simbolo) {
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const sim = simbolo || 'L.'
   if (saldoAnt == null || isNaN(saldoAnt)) return '<span style="color:var(--text3)">Escribí el saldo anterior para verificar el cuadre.</span>'
   const diff = Math.round((totPago - saldoAnt) * 100) / 100
   if (Math.abs(diff) < 0.01) return '<span style="color:#86efac">✓ Los pagos cubren exactamente el saldo anterior.</span>'
-  if (diff > 0) return `<span style="color:#93c5fd">Los pagos superan el saldo anterior → <b>Pago adelantado a la tarjeta: L. ${fmt(diff)}</b></span>`
-  return `<span style="color:#f5c451">⚠️ Los pagos no cubren el saldo anterior → falta <b>L. ${fmt(-diff)}</b></span>`
+  if (diff > 0) return `<span style="color:#93c5fd">Los pagos superan el saldo anterior → <b>Pago adelantado: ${sim} ${fmt(diff)}</b> (va en el Excel)</span>`
+  return `<span style="color:#f5c451">⚠️ Los pagos no cubren el saldo anterior → falta <b>${sim} ${fmt(-diff)}</b></span>`
 }
 window.cxpCuadreCalc = (val) => {
-  const el = document.getElementById('cxp-cuadre-verdict'); if (!el) return
+  const el = document.getElementById('cxp-verdict-hnl'); if (!el) return
   const has = val && String(val).trim() !== ''
-  el.innerHTML = cxpCuadreVerdict(has ? cxpNum(val) : null, (window.__cxpCuadre || {}).totPago || 0)
+  const s = has ? cxpNum(val) : null
+  if (window.__cxpCuadre) window.__cxpCuadre.saldoHNL = s
+  el.innerHTML = cxpCuadreVerdict(s, (window.__cxpCuadre || {}).pagoHNL || 0, 'L.')
 }
 
 function cxpModal(titulo, html) {
