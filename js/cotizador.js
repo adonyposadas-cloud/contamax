@@ -6,7 +6,7 @@
  *   · Autocompletar marca/modelo/año (tema CONTAMAX, .ac-list/.ac-item)
  *   · Historial de costo por producto (desde cotizador_compras)
  *   · Constructor de proforma con ajuste de precio por antigüedad
- *   · Generar PDF (jsPDF + autotable, carga diferida desde CDN)
+ *   · Generar  PDF (jsPDF + autotable, carga diferida desde CDN)
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
