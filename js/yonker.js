@@ -17,6 +17,7 @@ const ykPct = n => (n == null ? '—' : (parseFloat(n) * 100).toLocaleString('es
 let ykFile = null
 let ykPrev = null
 let ykVResumen = null   // cache vista ventas
+let ykVDetalle = null   // cache detalle día a día (yonker_ventas) para el filtro por fecha
 let ykVMargen = null    // cache vista margen
 let ykVRotacion = null  // cache vista rotación (antigüedad + recuperación)
 
@@ -388,6 +389,9 @@ async function ykRenderReportes() {
   }
   const anios = [...new Set(ykVResumen.map(r => r.anio).filter(x => x != null))].sort()
   const marcas = [...new Set(ykVResumen.map(r => r.marca).filter(x => x))].sort()
+  const mMarcas = [...new Set((ykVMargen || []).map(r => r.marca).filter(x => x))].sort()
+  const mAnios = [...new Set((ykVMargen || []).map(r => r.anio_vehiculo).filter(x => x != null))].sort((a, b) => a - b)
+  const esc = s => String(s).replace(/"/g, '&quot;')
   pane.innerHTML = `
     <div class="page-sub">Reportes en vivo. Modo <b>Ventas</b>: total por dimensión y mes. Modo <b>Margen</b>: venta vs costo por unidad (incluye el #126 al 70%).</div>
     <div class="yk-ctrl">
@@ -404,18 +408,44 @@ async function ykRenderReportes() {
         <select id="yk-rep-marca" onchange="ykAplicarReporte()">
           <option value="">Todas</option>${marcas.map(m => `<option value="${m}">${m}</option>`).join('')}
         </select></div>
-      <div class="fld" id="yk-fld-buscar"><label>Vehículo (código) / texto</label>
-        <input id="yk-rep-buscar" type="text" placeholder="ej. 126" autocomplete="off" oninput="ykAplicarReporte()"
-          style="padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px;width:140px"></div>
+      <div class="fld yk-fld-fecha"><label>Desde (día)</label>
+        <input id="yk-rep-desde" type="date" onchange="ykAplicarReporte()"
+          style="padding:5px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px"></div>
+      <div class="fld yk-fld-fecha"><label>Hasta (día)</label>
+        <input id="yk-rep-hasta" type="date" onchange="ykAplicarReporte()"
+          style="padding:5px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px"></div>
+      <div class="fld yk-fld-fecha"><label>&nbsp;</label><button class="btn btn-ghost" onclick="document.getElementById('yk-rep-desde').value='';document.getElementById('yk-rep-hasta').value='';ykAplicarReporte()" style="padding:6px 10px;font-size:12px" title="Limpiar rango de fechas">✕ Rango</button></div>
+      <div class="fld yk-fld-margen"><label>Vehículo (código)</label>
+        <input id="yk-mar-codigo" type="text" placeholder="ej. 126" autocomplete="off" oninput="ykAplicarReporte()"
+          style="padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px;width:100px"></div>
+      <div class="fld yk-fld-margen"><label>Marca</label>
+        <select id="yk-mar-marca" onchange="ykMarModeloOpts();ykAplicarReporte()"><option value="">(todas)</option>${mMarcas.map(m => `<option value="${esc(m)}">${m}</option>`).join('')}</select></div>
+      <div class="fld yk-fld-margen"><label>Modelo</label>
+        <select id="yk-mar-modelo" onchange="ykAplicarReporte()"><option value="">(todos)</option></select></div>
+      <div class="fld yk-fld-margen"><label>Año desde</label>
+        <select id="yk-mar-adesde" onchange="ykAplicarReporte()"><option value="">—</option>${mAnios.map(a => `<option value="${a}">${a}</option>`).join('')}</select></div>
+      <div class="fld yk-fld-margen"><label>Año hasta</label>
+        <select id="yk-mar-ahasta" onchange="ykAplicarReporte()"><option value="">—</option>${mAnios.map(a => `<option value="${a}">${a}</option>`).join('')}</select></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExportReporte()">📥 Exportar Excel</button></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykVResumen=null;ykVMargen=null;ykVRotacion=null;ykRenderReportes()">↻ Refrescar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykVResumen=null;ykVMargen=null;ykVRotacion=null;ykVDetalle=null;ykRenderReportes()">↻ Refrescar</button></div>
     </div>
     <div id="yk-rep-cards"></div>
     <div id="yk-rep-tabla"></div>`
   ykSetDimOptions()
+  ykMarModeloOpts()
   ykAplicarReporte()
 }
 
+// Rebuild modelo options (dependientes de la marca elegida) para el filtro de Margen
+window.ykMarModeloOpts = () => {
+  const marca = document.getElementById('yk-mar-marca')?.value || ''
+  const modelos = [...new Set((ykVMargen || []).filter(r => !marca || r.marca === marca).map(r => r.modelo).filter(Boolean))].sort()
+  const sel = document.getElementById('yk-mar-modelo')
+  if (!sel) return
+  const prev = sel.value
+  sel.innerHTML = '<option value="">(todos)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+  if (modelos.includes(prev)) sel.value = prev
+}
 function ykSetDimOptions() {
   const modo = document.getElementById('yk-rep-modo').value
   const dim = document.getElementById('yk-rep-dim')
@@ -427,7 +457,7 @@ function ykSetDimOptions() {
 
 let ykRepActual = null   // { cols, rows, tot } para exportar
 
-window.ykAplicarReporte = () => {
+window.ykAplicarReporte = async () => {
   const modo = document.getElementById('yk-rep-modo').value
   // reconstruir opciones de dimensión si cambió el modo
   const dimSel = document.getElementById('yk-rep-dim')
@@ -435,11 +465,42 @@ window.ykAplicarReporte = () => {
   const esRot = modo === 'rotacion'
   document.getElementById('yk-fld-anio').style.display = modo === 'ventas' ? '' : 'none'
   document.getElementById('yk-fld-marca').style.display = modo === 'ventas' ? '' : 'none'
-  document.getElementById('yk-fld-buscar').style.display = esRot ? 'none' : ''
+  document.querySelectorAll('.yk-fld-fecha').forEach(el => { el.style.display = (modo === 'ventas') ? '' : 'none' })
+  document.querySelectorAll('.yk-fld-margen').forEach(el => { el.style.display = (modo === 'margen') ? '' : 'none' })
   const dimFld = dimSel.closest('.fld'); if (dimFld) dimFld.style.display = esRot ? 'none' : ''
   if (esRot) { ykReporteRotacion(); return }
   if (!dimValido || dimSel.dataset.modo !== modo) { ykSetDimOptions(); dimSel.dataset.modo = modo }
+  // Filtro por rango de fechas (modo Ventas): la primera vez cargamos el detalle día a día
+  if (modo === 'ventas' && ykFechaRangoActivo() && !ykVDetalle) {
+    const tbl = document.getElementById('yk-rep-tabla'); if (tbl) tbl.innerHTML = '<div class="yk-empty">Cargando detalle por día…</div>'
+    try {
+      ykVDetalle = await ykFetchAll(() => ykSb().from('yonker_ventas')
+        .select('fecha,anio,anio_mes,marca,modelo,anio_vehiculo,contenedor,venta_hnl').order('fecha'))
+    } catch (e) { ykVDetalle = [] }
+  }
   modo === 'ventas' ? ykReporteVentas() : ykReporteMargen()
+}
+function ykFechaRangoActivo() {
+  return !!(document.getElementById('yk-rep-desde')?.value || document.getElementById('yk-rep-hasta')?.value)
+}
+// Fuente de datos de Ventas: con rango de fechas usa el detalle día a día (yonker_ventas);
+// sin rango, la vista mensual. Aplica año (solo sin rango) y marca. Reusada por tabla y drill.
+function ykDatosVentas() {
+  const fAnio = document.getElementById('yk-rep-anio')?.value || ''
+  const fMarca = document.getElementById('yk-rep-marca')?.value || ''
+  const fDesde = document.getElementById('yk-rep-desde')?.value || ''
+  const fHasta = document.getElementById('yk-rep-hasta')?.value || ''
+  let datos
+  if ((fDesde || fHasta) && ykVDetalle) {
+    datos = ykVDetalle.map(r => ({ ...r, venta: +r.venta_hnl || 0, lineas: 1 }))
+    if (fDesde) datos = datos.filter(r => (r.fecha || '') >= fDesde)
+    if (fHasta) datos = datos.filter(r => (r.fecha || '') <= fHasta)
+  } else {
+    datos = ykVResumen || []
+    if (fAnio) datos = datos.filter(r => String(r.anio) === fAnio)
+  }
+  if (fMarca) datos = datos.filter(r => r.marca === fMarca)
+  return datos
 }
 
 // ═══════════════ Drill-down de reportes (click en fila → desglose) ═══════════════
@@ -475,11 +536,7 @@ function ykDrillGroup(datos, sub) {
   return Object.values(g).sort((a, b) => b.venta - a.venta)
 }
 window.ykDrill = (filtros, sub, titulo) => {
-  let datos = ykVResumen || []
-  const fAnio = document.getElementById('yk-rep-anio')?.value
-  const fMarca = document.getElementById('yk-rep-marca')?.value
-  if (fAnio) datos = datos.filter(r => String(r.anio) === fAnio)
-  if (fMarca) datos = datos.filter(r => r.marca === fMarca)
+  let datos = ykDatosVentas()
   filtros.forEach(([campo, val]) => { datos = datos.filter(r => String(r[campo] ?? '') === String(val)) })
 
   const rows = ykDrillGroup(datos, sub)
@@ -497,10 +554,17 @@ window.ykDrill = (filtros, sub, titulo) => {
     return `<tr><td>${cell}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${totV ? (r.venta / totV * 100).toFixed(1) : 0}%</td></tr>`
   }).join('')
 
+  const contFil = (filtros.find(f => f[0] === 'contenedor') || [])[1]
+  const fIngreso = contFil != null ? ykFechaContenedor(contFil) : null
+  const infoIngreso = fIngreso ? `<div style="font-size:12px;color:var(--gold,#d4af37);margin:2px 0 6px">📦 Ingreso del contenedor ${contFil}: <b>${fIngreso}</b></div>` : ''
   ykOpenModal(`${titulo} · por ${subLabel.toLowerCase()}`, `
-    <div style="font-size:11px;color:var(--text3,#888);margin:2px 0 8px">${rows.length} ${subLabel.toLowerCase()}(s) · toca una fila para bajar otro nivel</div>
+    ${infoIngreso}<div style="font-size:11px;color:var(--text3,#888);margin:2px 0 8px">${rows.length} ${subLabel.toLowerCase()}(s) · toca una fila para bajar otro nivel</div>
     <table class="yk-tbl"><thead><tr><th>${subLabel}</th><th class="yk-num">Líneas</th><th class="yk-num">Venta (L.)</th><th class="yk-num">% del grupo</th></tr></thead>
     <tbody>${body}<tr class="tot"><td>TOTAL</td><td class="yk-num">${ykFmt0(totL)}</td><td class="yk-num">${ykFmt(totV)}</td><td class="yk-num">100%</td></tr></tbody></table>`)
+}
+function ykFechaContenedor(cont) {
+  const r = (ykVRotacion || []).find(x => String(x.contenedor) === String(cont))
+  return r && r.fecha_entrada ? r.fecha_entrada : null
 }
 function ykOpenModal(titulo, html) {
   const ov = document.createElement('div')
@@ -551,12 +615,7 @@ window.ykDrillM = (filtros, sub, titulo) => {
 
 function ykReporteVentas() {
   const dim = document.getElementById('yk-rep-dim').value
-  const fAnio = document.getElementById('yk-rep-anio').value
-  const fMarca = document.getElementById('yk-rep-marca').value
-  const fBuscar = (document.getElementById('yk-rep-buscar')?.value || '').trim().toLowerCase()
-  let datos = ykVResumen
-  if (fAnio) datos = datos.filter(r => String(r.anio) === fAnio)
-  if (fMarca) datos = datos.filter(r => r.marca === fMarca)
+  let datos = ykDatosVentas()
 
   const keyOf = r => dim === 'mes' ? (r.anio_mes || '—')
     : dim === 'marca' ? (r.marca || '(sin marca)')
@@ -569,7 +628,6 @@ function ykReporteVentas() {
   let rows = Object.values(g)
   if (dim === 'mes' || dim === 'anio_veh' || dim === 'contenedor') rows.sort((a, b) => String(a.k).localeCompare(String(b.k), undefined, { numeric: true }))
   else rows.sort((a, b) => b.venta - a.venta)
-  if (fBuscar) rows = rows.filter(r => String(r.k).toLowerCase().includes(fBuscar))
   const totV = rows.reduce((s, r) => s + r.venta, 0), totL = rows.reduce((s, r) => s + r.lineas, 0)
 
   const dimLabel = { mes: 'Mes', marca: 'Marca', modelo: 'Marca + Modelo', anio_veh: 'Año vehículo', contenedor: 'Contenedor' }[dim]
@@ -588,21 +646,30 @@ function ykReporteVentas() {
 
 function ykReporteMargen() {
   const dim = document.getElementById('yk-rep-dim').value
-  const fBuscar = (document.getElementById('yk-rep-buscar')?.value || '').trim().toLowerCase()
+  const fCodigo = (document.getElementById('yk-mar-codigo')?.value || '').trim()
+  const fMarca  = document.getElementById('yk-mar-marca')?.value || ''
+  const fModelo = document.getElementById('yk-mar-modelo')?.value || ''
+  const fDesde  = parseInt(document.getElementById('yk-mar-adesde')?.value, 10)
+  const fHasta  = parseInt(document.getElementById('yk-mar-ahasta')?.value, 10)
+  let datos = ykVMargen || []
+  if (fCodigo) datos = datos.filter(r => String(r.vehiculo_codigo) === fCodigo)   // código exacto
+  if (fMarca)  datos = datos.filter(r => r.marca === fMarca)
+  if (fModelo) datos = datos.filter(r => r.modelo === fModelo)
+  if (!isNaN(fDesde)) datos = datos.filter(r => r.anio_vehiculo != null && +r.anio_vehiculo >= fDesde)
+  if (!isNaN(fHasta)) datos = datos.filter(r => r.anio_vehiculo != null && +r.anio_vehiculo <= fHasta)
   const keyOf = r => dim === 'unidad' ? `${r.vehiculo_codigo} · ${r.marca || ''} ${r.modelo || ''} ${r.anio_vehiculo || ''}`.trim()
     : dim === 'contenedor' ? (r.contenedor ?? '—')
     : dim === 'marca' ? (r.marca || '(sin marca)')
     : `${r.marca || '(sin marca)'} ${r.modelo || ''}`.trim()
   ykDrillReg = {}
   const g = {}
-  ykVMargen.forEach(r => {
+  datos.forEach(r => {
     const k = keyOf(r); (g[k] = g[k] || { k, venta: 0, costo: 0, lineas: 0, n: 0, raw: { marca: r.marca, modelo: r.modelo, anio_vehiculo: r.anio_vehiculo, contenedor: r.contenedor } })
     g[k].venta += +r.venta || 0; g[k].costo += +r.costo_hnl || 0; g[k].lineas += +r.lineas || 0; g[k].n += 1
   })
   let rows = Object.values(g).map(r => ({ ...r, utilidad: r.venta - r.costo, pct: r.costo > 0 ? r.venta / r.costo : null }))
   if (dim === 'contenedor') rows.sort((a, b) => String(a.k).localeCompare(String(b.k), undefined, { numeric: true }))
   else rows.sort((a, b) => b.utilidad - a.utilidad)
-  if (fBuscar) rows = rows.filter(r => String(r.k).toLowerCase().includes(fBuscar))
   const tV = rows.reduce((s, r) => s + r.venta, 0), tC = rows.reduce((s, r) => s + r.costo, 0), tU = tV - tC
 
   const dimLabel = { unidad: 'Unidad', contenedor: 'Contenedor', marca: 'Marca', modelo: 'Marca + Modelo' }[dim]
@@ -833,7 +900,7 @@ window.ykContenedorDetalle = (contenedor) => {
   const ov = document.createElement('div')
   ov.className = 'yk-ov'; ov.id = 'yk-uni-overlay'
   ov.innerHTML = `<div class="yk-modal" style="width:680px">
-      <div class="yk-mhead"><b>📦 Contenedor ${contenedor} · ${unidades.length} unidades</b><button onclick="ykUniCerrar()">✕</button></div>
+      <div class="yk-mhead"><b>📦 Contenedor ${contenedor} · ${unidades.length} unidades${ykFechaContenedor(contenedor) ? ' · Ingreso: ' + ykFechaContenedor(contenedor) : ''}</b><button onclick="ykUniCerrar()">✕</button></div>
       <div style="padding:12px 16px">
         <div class="page-sub" style="margin-bottom:8px">Ordenadas de <b>menor a mayor recuperación</b>. Las primeras son las que aún no venden lo suficiente — útil para ir a auditar el físico.</div>
         <div style="max-height:60vh;overflow:auto">
