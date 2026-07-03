@@ -142,7 +142,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-cotizador'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
@@ -173,7 +173,7 @@ function setupUI() {
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker', 'nav-cotizador']
   window._todosNav = todosNav
   todosNav.forEach(id => {
     const el = document.getElementById(id)
@@ -200,6 +200,10 @@ function setupUI() {
   // Ocultar sección Fiscal si no tiene el módulo
   const sectionFiscal = document.getElementById('section-fiscal')
   if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv') && !visibles.includes('nav-rangos-ventas'))
+
+  // Ocultar sección Cotizador si no tiene el módulo
+  const sectionCotizador = document.getElementById('section-cotizador')
+  if (sectionCotizador) sectionCotizador.classList.toggle('hidden', !visibles.includes('nav-cotizador'))
 
   // Ocultar sección RRHH si no tiene ningún módulo
   const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones']
@@ -295,6 +299,7 @@ window.showView = (id, label) => {
   if (id === 'declaracion-isv' && window.loadDeclaracionISV) window.loadDeclaracionISV()
   if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
   if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
+  if (id === 'cotizador' && window.initCotizador) window.initCotizador()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -595,6 +600,9 @@ const MODULOS_CATALOGO = [
     ['yk-tab-exp', '— Yonker: Explorar'],
     ['yk-tab-cot', '— Yonker: Cotización'],
     ['yk-cot-gestionar', '— Yonker: Cargar/ver cotizaciones']
+  ]},
+  { grupo: 'Cotizador', items: [
+    ['nav-cotizador', 'Cotizador (Proformas)']
   ]}
 ]
 
@@ -5751,6 +5759,7 @@ const PROVEEDORES_MAP = {
 let icFile = null
 let icData = null // { credito: [...], contado: [...] }
 let icProviderFilter = 'todos'
+let icOrdenesFile = null // reporte de órdenes (.xlsx) para alimentar el cotizador
 
 function normalizeProvName(name) {
   return (name || '').toUpperCase()
@@ -5833,8 +5842,12 @@ function parseComprasSheet(wb, sheetName) {
         const nombre = String(pRow[4] || '').trim()
         const cantidad = parseFloat(pRow[7]) || 0
         const costo = parseFloat(pRow[11]) || 0
+        // costo_unit: columna "Costo" real (índice 10), costo unitario crudo.
+        // Se agrega SOLO para el cotizador; el campo 'costo' de arriba no se toca
+        // para no alterar el comportamiento contable existente.
+        const costo_unit = parseFloat(pRow[10]) || 0
         if (nombre || codigo) {
-          productos.push({ codigo, nombre, cantidad, costo })
+          productos.push({ codigo, nombre, cantidad, costo, costo_unit })
         }
       }
       j++
@@ -5898,6 +5911,21 @@ window.onImportComprasFile = (input) => {
   document.getElementById('btn-procesar-compras').disabled = false
 }
 
+// Reporte de órdenes (opcional) — alimenta el cotizador junto con las compras
+window.onImportOrdenesFile = (input) => {
+  icOrdenesFile = input.files?.[0] || null
+  const info = document.getElementById('ic-ord-file-info')
+  const zone = document.getElementById('ic-ord-zone')
+  if (!icOrdenesFile) { if (info) info.innerHTML = ''; if (zone) zone.classList.remove('has-file'); return }
+  if (info) info.innerHTML = `
+    <div class="imp-file-item">
+      <span class="imp-file-icon">🧾</span>
+      <span class="imp-file-name">${icOrdenesFile.name}</span>
+      <span style="font-size:11px;color:var(--text3)">${(icOrdenesFile.size/1024).toFixed(0)} KB</span>
+    </div>`
+  if (zone) zone.classList.add('has-file')
+}
+
 window.resetImportCompras = () => {
   icData = null
   icFile = null
@@ -5907,6 +5935,14 @@ window.resetImportCompras = () => {
   document.getElementById('ic-file-info').innerHTML = ''
   const zone = document.getElementById('ic-zone')
   if (zone) zone.classList.remove('has-file')
+  // Limpiar también el reporte de órdenes del cotizador
+  icOrdenesFile = null
+  const ordInput = document.getElementById('ic-ord-file')
+  if (ordInput) ordInput.value = ''
+  const ordInfo = document.getElementById('ic-ord-file-info')
+  if (ordInfo) ordInfo.innerHTML = ''
+  const ordZone = document.getElementById('ic-ord-zone')
+  if (ordZone) ordZone.classList.remove('has-file')
   const btn = document.getElementById('btn-procesar-compras')
   if (btn) btn.disabled = true
   ;['ic-step1','ic-step2','ic-step3','ic-step4','ic-step5','ic-step6'].forEach(id => {
@@ -6162,6 +6198,179 @@ function renderComprasPreview() {
     </div>`
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  COTIZADOR — ingesta aditiva (se dispara desde guardarImportCompras)
+//  · Alimenta cotizador_compras (historial de costo por producto)
+//  · Alimenta cotizador_ordenes / cotizador_orden_items
+//  Todo va en try/catch aguas arriba: un fallo aquí NUNCA bloquea la
+//  contabilidad, que ya se guardó antes de llamar a estas funciones.
+// ══════════════════════════════════════════════════════════════════
+
+// Alimenta cotizador_compras desde los productos ya parseados (crédito + contado).
+// Usa costo_unit = columna "Costo" real (índice 10), unitario y crudo (sin ISV).
+window.importCotizadorDesdeCompras = async (data, centroCostoId) => {
+  if (!data) return ''
+  const origen = 'import_' + new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  // OJO: usamos TODAS las facturas (incluidas las 'duplicada' de contabilidad).
+  // 'duplicada' marca que la factura ya está CONTABILIZADA, no que ya esté en el
+  // historial del cotizador. cotizador_compras tiene su propio dedup por
+  // (codigo_norm,nombre_norm,proveedor,fecha_compra,costo_unitario), así que
+  // reprocesar facturas ya contabilizadas no duplica nada y sí completa el histórico.
+  const facturas = [...(data.credito || []), ...(data.contado || [])]
+  const rows = []
+  for (const f of facturas) {
+    // fecha dd-mm-yyyy -> yyyy-mm-dd
+    let fechaISO = null
+    const partes = String(f.fecha || '').split('-')
+    if (partes.length === 3) fechaISO = `${partes[2]}-${partes[1]}-${partes[0]}`
+    const prov = String(f.proveedor || '').toUpperCase().trim().slice(0, 40)
+    const noFact = (f.no_factura && f.no_factura !== 'S/F') ? f.no_factura : null
+    for (const p of (f.productos || [])) {
+      const costo = Math.round((p.costo_unit || 0) * 100) / 100
+      if (costo <= 0) continue
+      const codigo = String(p.codigo || '').trim()
+      const nombre = String(p.nombre || '').trim()
+      if (!codigo && !nombre) continue
+      rows.push({
+        codigo, codigo_norm: codigo.toUpperCase(),
+        nombre, nombre_norm: nombre.toUpperCase(),
+        proveedor: prov, costo_unitario: costo,
+        fecha_compra: fechaISO, no_factura: noFact,
+        centro_costo_id: centroCostoId || null, origen,
+      })
+    }
+  }
+  if (!rows.length) return `<div style="color:var(--text3)">🛒 Cotizador · compras: sin líneas de costo válidas.</div>`
+  let ok = 0, err = 0, firstErr = null
+  const CH = 400
+  for (let i = 0; i < rows.length; i += CH) {
+    const slice = rows.slice(i, i + CH)
+    const { error } = await sb.from('cotizador_compras')
+      .upsert(slice, { onConflict: 'codigo_norm,nombre_norm,proveedor,fecha_compra,costo_unitario', ignoreDuplicates: true })
+    if (error) { err += slice.length; if (!firstErr) firstErr = error; console.error('[cotizador_compras]', error) }
+    else ok += slice.length
+  }
+  const eTxt = firstErr ? ` · <span style="color:var(--red)">${err} con error → [${firstErr.code || 's/c'}] ${(firstErr.message || '').slice(0, 180)}${firstErr.hint ? ' · hint: ' + firstErr.hint : ''}</span>` : ''
+  return `<div style="color:var(--green)">🛒 Cotizador · compras: ${ok} línea(s) de costo enviada(s)${eTxt}.</div>`
+}
+
+// Alimenta cotizador_ordenes / cotizador_orden_items desde el reporte de órdenes (.xlsx).
+// precio_unitario = (Monto / 1.15) / cantidad  ← el Monto del reporte YA trae ISV.
+window.importCotizadorOrdenes = async (file) => {
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  const posibles = ['reporte de órdenes', 'reporte de ordenes', 'ordenes', 'órdenes']
+  const sheetName = wb.SheetNames.find(s => posibles.includes(s.trim().toLowerCase()))
+    || wb.SheetNames.find(s => s.toLowerCase().includes('rden'))
+    || wb.SheetNames[0]
+  const ws = wb.Sheets[sheetName]
+  const rowsRaw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+  if (!rowsRaw.length) return `<div style="color:var(--amber)">⚠ Cotizador · órdenes: hoja vacía.</div>`
+
+  const H = rowsRaw[0].map(h => String(h).trim())
+  const idx = {}; H.forEach((h, i) => { idx[h] = i })
+  const C = {
+    orden: idx['#Orden'], factura: idx['#Factura'], fcrea: idx['Fecha de creación'],
+    ma: idx['Marca'], mo: idx['Modelo'], anio: idx['Año'], placa: idx['Placa del vehículo'],
+    cl: idx['Cliente'], idcl: idx['Identificación del Cliente'], estado: idx['Estado'],
+    mecanico: idx['Mecánico asignado'], moneda: idx['Tipo Moneda'],
+    subtotal: idx['Sub Total'], total: idx['Total'],
+    serv: idx['Servicios asignados'], cserv: idx['Cantidad del servicio'], mserv: idx['Monto de servicio'],
+    prod: idx['Productos asignados'], cprod: idx['Cantidad del producto'], mprod: idx['Monto de producto'],
+  }
+  if (C.orden == null || C.prod == null) return `<div style="color:var(--amber)">⚠ Cotizador · órdenes: faltan columnas esperadas (#Orden / Productos asignados).</div>`
+
+  const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n }
+  const ordenNum = (v) => { const d = String(v).replace(/[^0-9]/g, '').replace(/^0+/, ''); return d || String(v).trim() }
+  const fechaStr = (v) => {
+    const s = String(v || '').trim()
+    let m = s.match(/(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`
+    m = s.match(/(\d{2})-(\d{2})-(\d{4})/); if (m) return `${m[3]}-${m[2]}-${m[1]}`
+    return null
+  }
+  const g = (row, k) => (C[k] != null ? String(row[C[k]] || '').trim() : '')
+
+  const ordenes = []; let cur = null
+  const _vistas = new Set()  // órdenes ya vistas: el reporte a veces repite el bloque
+  for (let r = 1; r < rowsRaw.length; r++) {
+    const row = rowsRaw[r]
+    if (!row || row.every(c => c === '' || c == null)) continue
+    const on = String(row[C.orden] || '').trim()
+    if (on) {
+      const numero = ordenNum(on)
+      if (_vistas.has(numero)) { cur = null; continue }  // bloque duplicado: ignorarlo
+      _vistas.add(numero)
+      cur = {
+        numero_orden: numero,
+        numero_factura: g(row, 'factura') || null,
+        fecha_creacion: C.fcrea != null ? fechaStr(row[C.fcrea]) : null,
+        marca: g(row, 'ma'), modelo: g(row, 'mo'), anio: g(row, 'anio'), placa: g(row, 'placa'),
+        cliente: g(row, 'cl'), cliente_id: g(row, 'idcl'), estado: g(row, 'estado'),
+        mecanico: g(row, 'mecanico'), moneda: g(row, 'moneda'),
+        subtotal: C.subtotal != null ? num(row[C.subtotal]) : 0,
+        total: C.total != null ? num(row[C.total]) : 0,
+        _items: [],
+      }
+      ordenes.push(cur)
+    }
+    if (!cur) continue
+    const pushItem = (nombre, cantR, montoR, tipo) => {
+      if (!nombre) return
+      const cant = num(cantR) || 1
+      const monto = num(montoR)
+      cur._items.push({
+        tipo, descripcion: nombre,
+        cantidad: Math.round(cant * 100) / 100,
+        precio_unitario: Math.round(((monto / 1.15) / (cant || 1)) * 10000) / 10000,  // SIN ISV
+        monto_total: Math.round(monto * 100) / 100,                                   // crudo (con ISV)
+      })
+    }
+    const serv = C.serv != null ? String(row[C.serv] || '').trim() : ''
+    if (serv) pushItem(serv, row[C.cserv], row[C.mserv], 's')
+    const prod = C.prod != null ? String(row[C.prod] || '').trim() : ''
+    if (prod) pushItem(prod, row[C.cprod], row[C.mprod], 'p')
+  }
+  if (!ordenes.length) return `<div style="color:var(--text3)">🧾 Cotizador · órdenes: sin órdenes en el archivo.</div>`
+
+  // 1) Upsert cabeceras en lotes, recuperando id por numero_orden (evita tope de 1000 filas)
+  const idByOrden = {}
+  let cabErr = 0, firstErr = null
+  const CH = 300
+  for (let i = 0; i < ordenes.length; i += CH) {
+    const slice = ordenes.slice(i, i + CH).map(({ _items, ...h }) => h)
+    const { data: up, error } = await sb.from('cotizador_ordenes')
+      .upsert(slice, { onConflict: 'numero_orden' }).select('id,numero_orden')
+    if (error) { cabErr += slice.length; if (!firstErr) firstErr = error; console.error('[cotizador_ordenes]', error); continue }
+    ;(up || []).forEach(o => { idByOrden[o.numero_orden] = o.id })
+  }
+
+  // 2) Reemplazar ítems: borrar los existentes de esas órdenes (chunk pequeño por el tope de .in())
+  const ids = Object.values(idByOrden)
+  const DCH = 150
+  for (let i = 0; i < ids.length; i += DCH) {
+    const { error } = await sb.from('cotizador_orden_items').delete().in('orden_id', ids.slice(i, i + DCH))
+    if (error) console.error('[cotizador_orden_items delete]', error)
+  }
+
+  // 3) Insertar ítems frescos en lotes
+  const itemRows = []
+  ordenes.forEach(o => {
+    const oid = idByOrden[o.numero_orden]
+    if (!oid) return
+    o._items.forEach(it => itemRows.push({ orden_id: oid, ...it }))
+  })
+  let itemsOk = 0, itemsErr = 0
+  for (let i = 0; i < itemRows.length; i += 500) {
+    const slice = itemRows.slice(i, i + 500)
+    const { error } = await sb.from('cotizador_orden_items').insert(slice)
+    if (error) { itemsErr += slice.length; if (!firstErr) firstErr = error; console.error('[cotizador_orden_items insert]', error) }
+    else itemsOk += slice.length
+  }
+
+  const eTxt = firstErr ? ` · <span style="color:var(--red)">error → [${firstErr.code || 's/c'}] ${(firstErr.message || '').slice(0, 180)}${firstErr.hint ? ' · hint: ' + firstErr.hint : ''}</span>` : ''
+  return `<div style="color:var(--green)">🧾 Cotizador · órdenes: ${ordenes.length - cabErr} orden(es) y ${itemsOk} ítem(s) procesados${cabErr ? ` · ${cabErr} cabecera(s) con error` : ''}${itemsErr ? ` · ${itemsErr} ítem(s) con error` : ''}${eTxt}.</div>`
+}
+
 window.guardarImportCompras = async () => {
   if (!icData) { toast('No hay datos procesados', 'error'); return }
 
@@ -6355,6 +6564,25 @@ window.guardarImportCompras = async () => {
     }
   }
 
+  // ═══ COTIZADOR (aditivo · la contabilidad ya se guardó; esto nunca la bloquea) ═══
+  let cotizLog = ''
+  try {
+    cotizLog += await window.importCotizadorDesdeCompras(icData, centroCostoId)
+  } catch (e) {
+    console.error('[cotizador][compras]', e)
+    cotizLog += `<div style="color:var(--amber)">⚠ Cotizador · compras: ${e.message}</div>`
+  }
+  if (icOrdenesFile) {
+    try {
+      cotizLog += await window.importCotizadorOrdenes(icOrdenesFile)
+    } catch (e) {
+      console.error('[cotizador][ordenes]', e)
+      cotizLog += `<div style="color:var(--amber)">⚠ Cotizador · órdenes: ${e.message}</div>`
+    }
+  } else {
+    cotizLog += `<div style="color:var(--text3)">🧾 Cotizador · órdenes: no se adjuntó reporte de órdenes en esta subida.</div>`
+  }
+
   // Mostrar resultado
   document.getElementById('ic-step2').classList.add('hidden')
   document.getElementById('ic-step3').classList.add('hidden')
@@ -6368,6 +6596,7 @@ window.guardarImportCompras = async () => {
       ${errores ? `<div style="color:var(--red)">${errores} error(es) en partidas</div>` : ''}
       <div style="color:var(--amber);margin-top:6px">${contCreadas} factura(s) de contado registradas como pendientes</div>
       ${contErrores ? `<div style="color:var(--red)">${contErrores} error(es) en contado</div>` : ''}
+      ${cotizLog ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;line-height:1.9">${cotizLog}</div>` : ''}
     </div>
     <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:500">Detalle</div>
     <div style="max-height:300px;overflow-y:auto;font-size:12px;line-height:2;font-family:var(--mono)">${log.join('<br>')}</div>`

@@ -248,9 +248,19 @@
           <span class="nav-dot"></span>Rango de ventas
         </div>
       </div>
+
+      <div class="sidebar-section hidden" id="section-cotizador">
+        <div class="sidebar-label">Cotizador</div>
+        <div class="nav-item hidden" id="nav-cotizador" onclick="showView('cotizador','Cotizador · Proformas')">
+          <span class="nav-dot"></span>Proformas
+        </div>
+      </div>
     </div>
 
     <div class="content">
+
+      <!-- COTIZADOR (contenido inyectado por js/cotizador.js) -->
+      <div class="view" id="view-cotizador"></div>
 
       <!-- USUARIOS -->
       <div class="view" id="view-usuarios">
@@ -877,6 +887,16 @@
             </div>
             <input type="file" id="ic-file" accept=".xlsx,.xls" class="hidden" onchange="onImportComprasFile(this)">
             <div id="ic-file-info" style="margin-top:10px"></div>
+          </div>
+          <div style="margin-top:18px">
+            <label style="font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500;display:block;margin-bottom:8px">Reporte de órdenes del taller <span style="text-transform:none;letter-spacing:0;color:var(--text3)">(opcional · alimenta el Cotizador)</span></label>
+            <div class="upload-zone" id="ic-ord-zone" onclick="document.getElementById('ic-ord-file').click()" style="padding:20px">
+              <div class="upload-icon">🧾</div>
+              <div class="upload-text">Toca para seleccionar el reporte de órdenes</div>
+              <div class="upload-sub">Archivo .xlsx "Reporte de Órdenes" — se guarda en las órdenes del cotizador</div>
+            </div>
+            <input type="file" id="ic-ord-file" accept=".xlsx,.xls" class="hidden" onchange="onImportOrdenesFile(this)">
+            <div id="ic-ord-file-info" style="margin-top:10px"></div>
           </div>
           <div class="form-actions" style="margin-top:18px">
             <button class="btn btn-gold" id="btn-procesar-compras" onclick="procesarImportCompras()" disabled>Procesar reporte →</button>
@@ -3453,7 +3473,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260630g"></script>
+<script type="module" src="js/app.js?v=20260703c"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3474,6 +3494,7 @@
 <script defer src="js/revision_taxis.js?v=20260701c"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
 <script defer src="js/yonker.js?v=20260701c"></script>
+<script defer src="js/cotizador.js?v=20260703h"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">
