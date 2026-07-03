@@ -566,11 +566,12 @@ function ykFechaContenedor(cont) {
   const r = (ykVRotacion || []).find(x => String(x.contenedor) === String(cont))
   return r && r.fecha_entrada ? r.fecha_entrada : null
 }
-function ykOpenModal(titulo, html) {
+function ykOpenModal(titulo, html, ancho) {
   const ov = document.createElement('div')
   ov.className = 'yk-ov'
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
-  ov.innerHTML = `<div class="yk-modal"><div class="yk-mhead"><b>${titulo}</b><button onclick="this.closest('.yk-ov').remove()">✕</button></div><div style="padding:6px 12px 14px">${html}</div></div>`
+  const w = ancho ? ` style="width:${ancho}"` : ''
+  ov.innerHTML = `<div class="yk-modal"${w}><div class="yk-mhead"><b>${titulo}</b><button onclick="this.closest('.yk-ov').remove()">✕</button></div><div style="padding:6px 12px 14px">${html}</div></div>`
   document.body.appendChild(ov)
 }
 
@@ -589,12 +590,13 @@ window.ykDrillM = (filtros, sub, titulo) => {
     if (sub === 'anio') { k = r.anio_vehiculo ?? '—'; raw = { anio_vehiculo: r.anio_vehiculo } }
     else if (sub === 'modelosolo') { k = r.modelo || '(sin modelo)'; raw = { modelo: r.modelo } }
     else { k = `${r.marca || '(sin marca)'} ${r.modelo || ''}`.trim(); raw = { marca: r.marca, modelo: r.modelo } }
-    ;(g[k] = g[k] || { k, raw, venta: 0, costo: 0, lineas: 0 })
+    ;(g[k] = g[k] || { k, raw, venta: 0, costo: 0, lineas: 0, vehs: new Set() })
     g[k].venta += +r.venta || 0; g[k].costo += +r.costo_hnl || 0; g[k].lineas += +r.lineas || 0
+    if (r.vehiculo_codigo != null && r.vehiculo_codigo !== '') g[k].vehs.add(String(r.vehiculo_codigo))
   })
-  let rows = Object.values(g).map(r => ({ ...r, utilidad: r.venta - r.costo, pct: r.costo > 0 ? r.venta / r.costo : null }))
+  let rows = Object.values(g).map(r => ({ ...r, veh: r.vehs.size, utilidad: r.venta - r.costo, pct: r.costo > 0 ? r.venta / r.costo : null }))
   rows.sort((a, b) => b.utilidad - a.utilidad)
-  const tV = rows.reduce((s, r) => s + r.venta, 0), tC = rows.reduce((s, r) => s + r.costo, 0), tU = tV - tC, tL = rows.reduce((s, r) => s + r.lineas, 0)
+  const tV = rows.reduce((s, r) => s + r.venta, 0), tC = rows.reduce((s, r) => s + r.costo, 0), tU = tV - tC, tL = rows.reduce((s, r) => s + r.lineas, 0), tVeh = rows.reduce((s, r) => s + r.veh, 0)
   const subLabel = sub === 'anio' ? 'Año del vehículo' : sub === 'modelosolo' ? 'Modelo' : 'Marca + Modelo'
   const puedeDrill = sub !== 'anio' && !filtros.some(f => f[0] === 'anio_vehiculo')
 
@@ -604,13 +606,13 @@ window.ykDrillM = (filtros, sub, titulo) => {
       const nf = filtros.concat(sub === 'modelosolo' ? [['modelo', r.raw.modelo]] : [['marca', r.raw.marca], ['modelo', r.raw.modelo]])
       cell = ykDrillCell(nf, 'anio', `${titulo} · ${r.k}`, r.k, 'M')
     }
-    return `<tr><td>${cell}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? '#e06060' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`
+    return `<tr><td>${cell}</td><td class="yk-num">${ykFmt0(r.veh)}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? '#e06060' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`
   }).join('')
 
   ykOpenModal(`${titulo} · por ${subLabel.toLowerCase()}`, `
     <div style="font-size:11px;color:var(--text3,#888);margin:2px 0 8px">${rows.length} ${subLabel.toLowerCase()}(s) · toca una fila para bajar otro nivel</div>
-    <table class="yk-tbl"><thead><tr><th>${subLabel}</th><th class="yk-num">Items</th><th class="yk-num">Venta</th><th class="yk-num">Costo</th><th class="yk-num">Utilidad</th><th class="yk-num">% recup.</th></tr></thead>
-    <tbody>${body}<tr class="tot"><td>TOTAL</td><td class="yk-num">${ykFmt0(tL)}</td><td class="yk-num">${ykFmt(tV)}</td><td class="yk-num">${ykFmt(tC)}</td><td class="yk-num">${ykFmt(tU)}</td><td class="yk-num">${tC ? ykPct(tV / tC) : '—'}</td></tr></tbody></table>`)
+    <table class="yk-tbl"><thead><tr><th>${subLabel}</th><th class="yk-num">Vehículos</th><th class="yk-num">Items</th><th class="yk-num">Venta</th><th class="yk-num">Costo</th><th class="yk-num">Utilidad</th><th class="yk-num">% recup.</th></tr></thead>
+    <tbody>${body}<tr class="tot"><td>TOTAL</td><td class="yk-num">${ykFmt0(tVeh)}</td><td class="yk-num">${ykFmt0(tL)}</td><td class="yk-num">${ykFmt(tV)}</td><td class="yk-num">${ykFmt(tC)}</td><td class="yk-num">${ykFmt(tU)}</td><td class="yk-num">${tC ? ykPct(tV / tC) : '—'}</td></tr></tbody></table>`, 'min(900px, 94vw)')
 }
 
 function ykReporteVentas() {
