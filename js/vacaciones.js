@@ -159,7 +159,7 @@ window.aplicarPagoVacaciones = async () => {
 }
 
 // ══════════════════════════════════════════════
-// ── SUMAR DÍAS (ajuste de saldo · solo super_admin)
+// ── SUMAR DÍAS (ajuste de saldo · solo  super_admin)
 // ── Acredita días al saldo de uno o varios empleados.
 // ── No genera partida: solo movimiento tipo 'ajuste' + saldo.
 // ══════════════════════════════════════════════
