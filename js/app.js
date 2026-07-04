@@ -164,6 +164,10 @@ function setupUI() {
   } else {
     visibles = permisos[p.rol] || []
   }
+  // El Cotizador lo ven TODOS los admin y super_admin, sin importar las casillas guardadas
+  if ((p.rol === 'admin' || p.rol === 'super_admin') && !visibles.includes('nav-cotizador')) {
+    visibles = [...visibles, 'nav-cotizador']
+  }
   // Si tiene alguna pestaña de Yonker marcada, mostrar el menú Yonker aunque no marcaran 'Yonker (Ventas)'
   const YK_TAB_IDS = ['yk-tab-imp', 'yk-tab-rep', 'yk-tab-dev', 'yk-tab-exp', 'yk-tab-cot']
   if (YK_TAB_IDS.some(t => visibles.includes(t)) && !visibles.includes('nav-yonker')) {
