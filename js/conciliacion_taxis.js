@@ -270,9 +270,19 @@
       //   (2) ya conciliadas para otro día reciente (Ficohsa fin de semana: el
       //       mismo extracto del lunes se usa para sábado, domingo y lunes).
       let duplicados = []
-      let movs = movsAll
+      // (0) Duplicados dentro del MISMO extracto: 1-2 veces por mes BAC repite
+      // todos los depósitos con la misma referencia exacta. Se deja el primero
+      // y se omiten los repetidos (referencia idéntica).
+      const _vistos = new Set()
+      let movs = []
+      movsAll.forEach(m => {
+        const key = m.ref ? String(m.ref).trim() : ''
+        if (key && _vistos.has(key)) { m.dupTipo = 'igual'; duplicados.push(m) }
+        else { if (key) _vistos.add(key); movs.push(m) }
+      })
+      movs.forEach((m, i) => { m.idx = i })
       try {
-        const payload = movsAll.filter(m => m.ref).map(m => ({ ref: m.ref, monto: m.monto, desc: m.desc }))
+        const payload = movs.filter(m => m.ref).map(m => ({ ref: m.ref, monto: m.monto, desc: m.desc }))
         if (payload.length) {
           await csb().rpc('tx_refs_guardar', { p_banco: ctxBanco, p_fecha: fechaBanco, p_refs: payload })
         }
@@ -288,12 +298,13 @@
           ;(Array.isArray(conc) ? conc : []).forEach(c => { if (c.referencia) seen[String(c.referencia)] = { tipo: 'conciliado', fecha: c.fecha_entregas } })
         } catch (e) {}
         if (Object.keys(seen).length) {
-          movs = []
-          movsAll.forEach(m => {
+          const _f = []
+          movs.forEach(m => {
             const s = m.ref ? seen[String(m.ref)] : null
             if (s) { m.dupFecha = s.fecha; m.dupTipo = s.tipo; duplicados.push(m) }
-            else movs.push(m)
+            else _f.push(m)
           })
+          movs = _f
           movs.forEach((m, i) => { m.idx = i })   // re-indexar idx contra el array movs
         }
       } catch (e) { /* si falla la detección, seguimos con todos los movimientos */ }
@@ -419,9 +430,11 @@
     // Omitidos: re-envíos del banco o referencias ya conciliadas otro día
     const dups = r.duplicados || []
     const dupRows = dups.map(mv => {
-      const tag = mv.dupTipo === 'conciliado'
-        ? `ya conciliado el ${mv.dupFecha || '—'}`
-        : `ya visto el ${mv.dupFecha || '—'}`
+      const tag = mv.dupTipo === 'igual'
+        ? 'repetido en el extracto'
+        : mv.dupTipo === 'conciliado'
+          ? `ya conciliado el ${mv.dupFecha || '—'}`
+          : `ya visto el ${mv.dupFecha || '—'}`
       return `<div class="ctx-row dup">
         <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${mv.ref ? `<span class="ctx-ref">Ref: ${mv.ref}</span>` : ''}</div>
         <div class="ctx-row-r"><span class="ctx-dup-tag">${tag}</span></div>
@@ -429,14 +442,14 @@
     }).join('')
     const cDup = dups.length
       ? `<div class="ctx-grp"><div class="ctx-grp-t dup">♻️ Referencias omitidas (${dups.length})</div>
-          <div class="ctx-hint">Depósitos que ya se conciliaron otro día, o que el banco re-envió de días anteriores. Se omiten para no presentarlos de nuevo.</div>
+          <div class="ctx-hint">Depósitos repetidos dentro del mismo extracto (misma referencia), o que ya se conciliaron otro día, o que el banco re-envió de días anteriores. Se omiten para no contarlos dos veces.</div>
           ${dupRows}</div>`
       : ''
 
     // guardar totales para ctxGuardar
     ctxRes._totales = { conciliado: totalConc, entregas: totalEnt, extracto: totalExt }
 
-    out.innerHTML = resumen + cCuadre + cConc + cDep + cDup + cEnt
+    out.innerHTML = resumen + cCuadre + cConc + cDep + cEnt + cDup
     ctxDepAplicarFiltro()
   }
 

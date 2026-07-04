@@ -441,7 +441,7 @@
       const saldoBancoNeto = r2(bancoMovs.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.monto : -m.monto), 0))
       const saldoLibroNeto = r2(libroMovs.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.monto : -m.monto), 0))
 
-      estadoConc = { bancoId, banco: bancoDef.label, cuenta: cuentaCod, cuentaNombre, desde, hasta, tol, ...res, saldoBancoNeto, saldoLibroNeto, reversosNetados: _ultimoNeteo }
+      estadoConc = { bancoId, banco: bancoDef.label, cuenta: cuentaCod, cuentaNombre, desde, hasta, tol, ...res, saldoBancoNeto, saldoLibroNeto, reversosNetados: _ultimoNeteo, marcas }
       renderResultado()
     } catch (e) {
       console.error('conciliar:', e)
@@ -451,11 +451,32 @@
     }
   }
 
+  // Marcas (conciliados guardados) cuyo movimiento del banco YA NO está en el
+  // extracto subido: el banco lo eliminó/revirtió. Se surfacea para que no
+  // descuadre en silencio.
+  function marcasFaltantes(marcas, bancoMovs) {
+    if (!marcas || !marcas.length) return []
+    const out = []; const vistos = new Set()
+    for (const mk of marcas) {
+      if (!mk.mov_fecha || mk.mov_monto == null) continue
+      const existe = (bancoMovs || []).some(b => b.fecha === mk.mov_fecha &&
+        Math.abs(b.monto - Number(mk.mov_monto)) <= 0.01 && b.tipo === mk.mov_tipo)
+      if (existe) continue
+      const key = `${mk.mov_fecha}|${mk.mov_monto}|${mk.mov_tipo}|${mk.partida_id || ''}`
+      if (vistos.has(key)) continue
+      vistos.add(key); out.push(mk)
+    }
+    return out
+  }
+
   function renderResultado() {
     const e = estadoConc
     const resumen = document.getElementById('cb-resumen')
     const dif = r2(e.saldoBancoNeto - e.saldoLibroNeto)
-    resumen.innerHTML = `
+    const cuadra = Math.abs(dif) < 0.01
+    const faltan = marcasFaltantes(e.marcas, e.banco)
+    const banner = `<div style="padding:11px 16px;border-radius:10px;margin-bottom:12px;font-weight:700;font-size:15px;background:${cuadra ? 'rgba(22,163,74,.12)' : 'rgba(248,81,73,.12)'};border:1px solid ${cuadra ? 'var(--green)' : 'var(--red)'};color:${cuadra ? 'var(--green)' : 'var(--red)'}">${cuadra ? '✓ CUADRA — banco y libro coinciden' : `⚠ NO CUADRA — Diferencia ${fmtL(dif)}`}${faltan.length ? ` · ${faltan.length} conciliado(s) ya no está(n) en el extracto` : ''}</div>`
+    resumen.innerHTML = banner + `
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
         <div class="stat-card"><div class="stat-num" style="font-size:17px;color:var(--green)">${e.pares.length}</div><div class="stat-label">Conciliados</div></div>
         <div class="stat-card"><div class="stat-num" style="font-size:17px;color:var(--amber)">${e.soloBanco.length}</div><div class="stat-label">Solo en banco</div></div>
@@ -490,6 +511,17 @@
       </div>` : ''
 
     document.getElementById('cb-resultado').innerHTML = `
+      ${faltan.length ? `<div class="table-wrap" style="margin-bottom:14px;border:1px solid var(--red)">
+        <div style="padding:10px 14px;font-weight:700;color:var(--red);background:var(--bg3)">⚠️ Conciliados que ya NO están en el extracto (${faltan.length}) — el banco los eliminó o revirtió</div>
+        <table style="width:100%"><thead><tr><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th>Partida</th></tr></thead>
+        <tbody>${faltan.map(mk => `<tr>
+          <td>${mk.mov_fecha}</td>
+          <td>${(mk.mov_descripcion || '—')}</td>
+          <td style="text-align:right;color:var(--red)">${fmtL(mk.mov_monto)}</td>
+          <td>${mk.partida_numero ? '#' + mk.partida_numero : '—'}</td>
+        </tr>`).join('')}</tbody></table>
+        <div style="padding:8px 14px;font-size:12px;color:var(--text3)">Estaban conciliados antes pero no aparecen en el estado de cuenta subido. Revisá si el banco los revirtió (duplicados) o si falta un extracto — su partida del libro quedó en "Solo en el libro".</div>
+      </div>` : ''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="table-wrap">
           <div style="padding:10px 14px;font-weight:600;color:var(--amber);background:var(--bg3)">⚠️ Solo en el banco (${e.soloBanco.length}) — falta registrar en el sistema</div>
