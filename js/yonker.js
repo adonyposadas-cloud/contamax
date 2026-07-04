@@ -1,4 +1,4 @@
-// ── CONTAMAX · Yonker — Importación de ventas + Reportes ──
+// ──  CONTAMAX · Yonker — Importación de ventas + Reportes ──
 // Pestaña 1 (Importar): lee el .xlsx de Taller Alpha, extrae el número de
 //   vehículo de la columna "Producto" (número antes del primer "-"), trae
 //   marca/modelo/año/contenedor de yonker_unidades, de-duplica por consecutivo
