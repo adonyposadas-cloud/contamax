@@ -1223,16 +1223,21 @@
     const badge = (esAut && pr.total > 0)
       ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
       : ''
-    const accion = esAut
-      ? `<button class="btn btn-ghost" data-dashact="finalizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">Finalizar</button>`
-      : `<button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
+    const editar = `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px">✏ Editar</button>`
+    let accion
+    if (esAut) {
+      const completo = pr.total === 0 || pr.llegados === pr.total
+      accion = editar + ` <button class="btn btn-ghost" data-dashact="finalizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:${completo ? 'var(--green,#16a34a)' : 'var(--text3,#8b949e)'}${completo ? '' : ';opacity:.45;cursor:not-allowed'}"${completo ? '' : ` disabled title="Faltan productos por llegar (${pr.llegados}/${pr.total})"`}>Finalizar</button>`
+    } else {
+      accion = editar + ` <button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
+    }
     const openAttr = esAut ? `data-ped="${p.id}"` : `data-dashopen="${p.id}"`
     return `<div class="cot-hrow" ${openAttr} style="cursor:pointer">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}</div>
       </div>
-      <div data-stop>${accion}</div>
+      <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${accion}</div>
     </div>`
   }
 
@@ -1247,12 +1252,20 @@
   }
 
   async function dashAccion (act, id) {
+    if (act === 'editar') { await recuperarProforma(id); switchTab('nueva'); return }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
       const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada' }).eq('id', id)
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadDashboard()
     } else if (act === 'finalizar') {
+      try {
+        const { data } = await sb().from('cotizador_proformas').select('items').eq('id', id).single()
+        const pr = progresoPedidos(data ? data.items : [])
+        if (pr.total > 0 && pr.llegados < pr.total) {
+          toast(`No podés finalizar: faltan productos por llegar (${pr.llegados}/${pr.total})`, 'error'); return
+        }
+      } catch (e) { console.error('[cotizador finalizar chk]', e) }
       if (!confirm('¿Finalizar? Se quita del Inicio pero queda en Cotización.')) return
       const { error } = await sb().from('cotizador_proformas').update({ estado: 'finalizada' }).eq('id', id)
       if (error) { toast('Error al finalizar', 'error'); return }
