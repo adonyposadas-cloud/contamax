@@ -38,6 +38,11 @@
   let TAB = 'inicio'         // pestaña activa (abre en el dashboard)
   let ES_SUPER = false       // super_admin: puede corregir descripciones en la base
   let _fixIdx = null         // ítem en corrección de descripción
+  let SEG_CAT = ''           // filtro de seguimiento
+  let SEG_DATA = []          // cotizaciones clasificadas para seguimiento
+  let PEDPF = null           // proforma abierta en el modal de pedidos
+  let _pedIdx = null         // índice del ítem que se está pidiendo
+  let PROVS = null           // cache de proveedores
 
   const GAN_KEY = 'cot_gan_default'
   const getGanDefault = () => { let v = 30; try { const s = parseFloat(localStorage.getItem(GAN_KEY)); if (!isNaN(s)) v = s } catch (e) {} return v }
@@ -151,6 +156,13 @@
       #view-cotizador .cot-estado{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;text-transform:uppercase}
       #view-cotizador .cot-estado.pendiente{background:rgba(245,158,11,.15);color:var(--amber,#f59e0b)}
       #view-cotizador .cot-estado.autorizada{background:rgba(22,163,74,.15);color:var(--green,#16a34a)}
+      #view-cotizador .cot-estado.finalizada{background:rgba(139,148,158,.15);color:var(--text3,#8b949e)}
+      #view-cotizador .ped-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border,#2a3340)}
+      #view-cotizador .ped-btn{font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;border:1px solid var(--border,#2a3340);cursor:pointer;background:transparent}
+      #view-cotizador .ped-pedir{color:var(--red,#f85149);border-color:var(--red,#f85149)}
+      #view-cotizador .ped-bodega{color:#a855f7;border-color:#a855f7}
+      #view-cotizador .ped-llego{color:var(--green,#16a34a);border-color:var(--green,#16a34a)}
+      #view-cotizador .ped-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px}
       #view-cotizador #cot-vend,#view-cotizador #cot-cli,#view-cotizador #cot-ma,#view-cotizador #cot-mo,#view-cotizador #cot-anio{text-transform:uppercase}
     </style>
 
@@ -163,6 +175,7 @@
         <button class="cot-tab" data-tab="inicio">Inicio</button>
         <button class="cot-tab on" data-tab="nueva">Nueva</button>
         <button class="cot-tab" data-tab="cotizacion">Cotización</button>
+        <button class="cot-tab" data-tab="seguimiento">Seguimiento</button>
         <button class="cot-tab" data-tab="config" id="cot-tab-config" style="display:none">⚙ Config</button>
       </div>
     </div>
@@ -278,6 +291,24 @@
       </div>
     </div>
 
+    <!-- PANEL SEGUIMIENTO (comercial) -->
+    <div id="cot-panel-seguimiento" class="cot-panel" style="display:none">
+      <div id="cot-seg-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:16px"></div>
+      <div class="form-card">
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="cot-seg-filtros">
+            <button class="cot-chip on" data-cat="">Todas sin cerrar</button>
+            <button class="cot-chip" data-cat="sin_orden">Sin orden</button>
+            <button class="cot-chip" data-cat="sin_factura">Sin factura</button>
+            <button class="cot-chip" data-cat="facturo_menos">Facturó menos</button>
+          </div>
+          <input id="cot-seg-q" class="cot-in" placeholder="🔍 Cliente o placa…" style="flex:1;min-width:180px;text-transform:uppercase">
+          <button class="btn btn-ghost" id="cot-seg-export" style="font-size:12px;padding:6px 12px">⬇ Exportar CSV</button>
+        </div>
+        <div id="cot-seg-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
+      </div>
+    </div>
+
     <!-- PANEL CONFIG -->
     <div id="cot-panel-config" class="cot-panel" style="display:none">
       <div class="form-card">
@@ -382,13 +413,43 @@
           <button class="btn btn-gold" id="cf-guardar">Corregir en la base</button>
         </div>
       </div>
+    </div>
+
+    <!-- MODAL PEDIDOS (seguimiento de compra) -->
+    <div class="modal-backdrop" id="cot-modal-ped">
+      <div class="modal" style="width:700px;max-width:96vw;max-height:88vh;overflow-y:auto">
+        <div class="modal-title" id="ped-title">Pedidos</div>
+        <div id="ped-prog" style="margin:6px 0 12px"></div>
+        <div id="ped-body"></div>
+        <div class="modal-actions" style="justify-content:flex-end;margin-top:12px">
+          <button class="btn btn-ghost" id="ped-close">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL PROVEEDOR (marcar como pedido) -->
+    <div class="modal-backdrop" id="cot-modal-prov">
+      <div class="modal" style="width:420px;max-width:94vw">
+        <div class="modal-title">Marcar como pedido</div>
+        <div id="prov-item" style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:8px"></div>
+        <div class="fld"><label>Proveedor</label>
+          <div class="cot-ac-wrap">
+            <input id="prov-input" class="cot-in" style="text-transform:uppercase" autocomplete="off" placeholder="Proveedor…">
+            <div class="ac-list" id="prov-ac" style="display:none"></div>
+          </div>
+        </div>
+        <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
+          <button class="btn btn-ghost" id="prov-cancel">Cancelar</button>
+          <button class="btn btn-gold" id="prov-ok">Confirmar pedido</button>
+        </div>
+      </div>
     </div>`
   }
 
   // ══════════════════════════════════════════════════════════
   //  AUTOCOMPLETAR (tema CONTAMAX)
   // ══════════════════════════════════════════════════════════
-  function acSetup (inputId, listId, getItems, onChange) {
+  function acSetup (inputId, listId, getItems, onChange, noFocusOpen) {
     const inp = $(inputId); const list = $(listId)
     if (!inp || !list) return
     let active = -1; let items = []
@@ -401,7 +462,7 @@
     }
     const choose = (val) => { inp.value = val; list.style.display = 'none'; onChange(val) }
     inp.addEventListener('input', () => { active = -1; onChange(inp.value); render() })
-    inp.addEventListener('focus', () => { active = -1; render() })
+    inp.addEventListener('focus', () => { if (noFocusOpen) return; active = -1; render() })
     inp.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none' }, 150))
     inp.addEventListener('keydown', e => {
       if (list.style.display === 'none') return
@@ -504,6 +565,19 @@
     $('cm-add').addEventListener('click', addManual)
     $('cf-cancel').addEventListener('click', () => $('cot-modal-fix').classList.remove('open'))
     $('cf-guardar').addEventListener('click', aplicarCorreccion)
+    // Pedidos rápidos
+    $('ped-close').addEventListener('click', () => { $('cot-modal-ped').classList.remove('open'); loadDashboard() })
+    $('ped-body').addEventListener('click', e => {
+      const b = e.target.closest('[data-pedact]'); if (!b) return
+      const i = parseInt(b.dataset.i, 10); const a = b.dataset.pedact
+      if (a === 'pedir') iniciarPedido(i)
+      else if (a === 'bodega') marcarBodega(i)
+      else if (a === 'llego') marcarLlegado(i)
+      else if (a === 'revertir') revertirPedido(i)
+    })
+    $('prov-cancel').addEventListener('click', () => $('cot-modal-prov').classList.remove('open'))
+    $('prov-ok').addEventListener('click', confirmarPedido)
+    acSetup('prov-input', 'prov-ac', (term) => term ? (PROVS || []).filter(p => p.toLowerCase().includes(term)).slice(0, 40) : [], () => {}, true)
     // Cálculo ganancia: costo/utilidad → precio ; precio → utilidad (bidireccional)
     $('cm-costo').addEventListener('input', calcVentaManual)
     $('cm-gan').addEventListener('input', calcVentaManual)
@@ -548,10 +622,7 @@
     })
     // Dashboard
     $('cot-dash-nueva').addEventListener('click', () => { nuevaProforma(); switchTab('nueva') })
-    $('cot-dash-list').addEventListener('click', e => {
-      const el = e.target.closest('[data-pf]'); if (!el) return
-      recuperarProforma(el.dataset.pf).then(() => switchTab('nueva'))
-    })
+    $('cot-dash-list').addEventListener('click', dashClick)
     // Historial
     let debH
     $('cot-hist-q').addEventListener('input', () => { clearTimeout(debH); debH = setTimeout(loadHistorial, 250) })
@@ -562,6 +633,16 @@
       loadHistorial()
     })
     $('cot-hist-list').addEventListener('click', histClick)
+    // Seguimiento
+    let debS
+    $('cot-seg-q').addEventListener('input', () => { clearTimeout(debS); debS = setTimeout(renderSeg, 200) })
+    $('cot-seg-filtros').addEventListener('click', e => {
+      const c = e.target.closest('[data-cat]'); if (!c) return
+      SEG_CAT = c.dataset.cat
+      $('cot-seg-filtros').querySelectorAll('.cot-chip').forEach(x => x.classList.toggle('on', x === c))
+      renderSeg()
+    })
+    $('cot-seg-export').addEventListener('click', exportSeguimiento)
   }
 
   function updVehHint () {
@@ -868,31 +949,44 @@
     $('cot-total').textContent = 'L. ' + fmt(t.total)
   }
 
+  async function fetchCosto (desc) {
+    const key = String(desc || '').toUpperCase().trim()
+    if (!key) return []
+    if (costCache[key]) return costCache[key]
+    try {
+      const term = key.replace(/[%,]/g, ' ').trim()
+      const { data } = await sb().from('cotizador_compras')
+        .select('codigo,proveedor,costo_unitario,fecha_compra')
+        .ilike('nombre_norm', '%' + term + '%')
+        .order('fecha_compra', { ascending: false }).limit(4)
+      costCache[key] = data || []
+    } catch (e) { costCache[key] = [] }
+    return costCache[key]
+  }
+
+  function costoHTML (entradas, conSug) {
+    if (!entradas || !entradas.length) return ''
+    const g = getGanDefault()
+    const sug = (c) => fmt((Number(c) || 0) * (1 + g / 100))
+    const codPrin = entradas[0].codigo || ''
+    const linea = (a, cls) => {
+      const codExtra = (a.codigo && a.codigo !== codPrin) ? ` · cód: ${esc(a.codigo)}` : ''
+      const s = conSug ? (cls === 'cot-hint' ? ` · <span style="color:var(--gold,#c8a24a)">Sug. L. ${sug(a.costo_unitario)}</span>` : ` · Sug. L. ${sug(a.costo_unitario)}`) : ''
+      return `<div class="${cls}">🏪 ${esc(a.proveedor || '')} · L. ${fmt(a.costo_unitario)} · ${esc(fFecha(a.fecha_compra))}${codExtra}${s}</div>`
+    }
+    let html = ''
+    if (codPrin) html += `<div style="font-size:12px;font-weight:800;color:var(--gold,#c8a24a);margin-bottom:1px">🔖 Código: ${esc(codPrin)}</div>`
+    html += linea(entradas[0], 'cot-hint')
+    if (entradas[1]) html += linea(entradas[1], 'cot-hint2')
+    if (entradas[2]) html += linea(entradas[2], 'cot-hint2')
+    return html
+  }
+
   async function cargarCosto (desc, i) {
     const cont = document.querySelector(`[data-cost="${i}"]`)
     if (!cont) return
-    const key = String(desc || '').toUpperCase().trim()
-    if (!key) return
-    try {
-      let entradas = costCache[key]
-      if (!entradas) {
-        const term = key.replace(/[%,]/g, ' ').trim()
-        const { data } = await sb().from('cotizador_compras')
-          .select('proveedor,costo_unitario,fecha_compra')
-          .ilike('nombre_norm', '%' + term + '%')
-          .order('fecha_compra', { ascending: false })
-          .limit(4)
-        entradas = data || []
-        costCache[key] = entradas
-      }
-      if (!entradas.length) return
-      const g = getGanDefault()
-      const sug = (c) => fmt((Number(c) || 0) * (1 + g / 100))
-      const a = entradas[0]
-      let html = `<div class="cot-hint">🏪 ${esc(a.proveedor || '')} · L. ${fmt(a.costo_unitario)} · ${esc(fFecha(a.fecha_compra))} · <span style="color:var(--gold,#c8a24a)">Sug. L. ${sug(a.costo_unitario)}</span></div>`
-      if (entradas[1]) html += `<div class="cot-hint2">🏪 ${esc(entradas[1].proveedor || '')} · L. ${fmt(entradas[1].costo_unitario)} · ${esc(fFecha(entradas[1].fecha_compra))} · Sug. L. ${sug(entradas[1].costo_unitario)}</div>`
-      cont.innerHTML = html
-    } catch (e) { /* costo informativo */ }
+    const entradas = await fetchCosto(desc)
+    cont.innerHTML = costoHTML(entradas, true)
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1049,6 +1143,7 @@
     })
     if (name === 'inicio') loadDashboard()
     else if (name === 'cotizacion') loadHistorial()
+    else if (name === 'seguimiento') loadSeguimiento()
     else if (name === 'config') fillConfigForm()
   }
 
@@ -1063,7 +1158,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,created_at').eq('estado', 'pendiente').order('created_at', { ascending: false }).limit(12)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items').in('estado', ['pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -1075,12 +1170,193 @@
       ]
       stats.innerHTML = st.map(s => `<div class="cot-stat"><div class="n">${s[0]}</div><div class="l">${s[1]}</div></div>`).join('')
       const rows = pend.data || []
-      list.innerHTML = rows.length ? rows.map(p => filaHist(p, true)).join('')
-        : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones pendientes</div>'
+      list.innerHTML = rows.length ? rows.map(filaDash).join('')
+        : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones activas</div>'
     } catch (e) {
       console.error('[cotizador dashboard]', e)
       stats.innerHTML = ''; list.innerHTML = `<div style="text-align:center;color:var(--red,#f85149);padding:20px">Error al cargar: ${esc(e.message || e)}</div>`
     }
+  }
+
+  function progresoPedidos (items) {
+    const prods = (items || []).filter(it => it.tipo !== 's')
+    const total = prods.length
+    const pedidos = prods.filter(it => it.seguimiento === 'pedido' || it.seguimiento === 'llegado').length
+    const llegados = prods.filter(it => it.seguimiento === 'llegado').length
+    let estado = '', color = 'var(--text3,#8b949e)'
+    if (total > 0) {
+      if (llegados === total) { estado = 'Listo'; color = 'var(--green,#16a34a)' }
+      else if (pedidos === total) { estado = 'En camino'; color = '#3b82f6' }
+      else if (pedidos > 0) { estado = 'Parcial'; color = 'var(--amber,#f59e0b)' }
+    }
+    return { total, pedidos, llegados, estado, color }
+  }
+
+  function filaDash (p) {
+    const num = numeroDe(p.vendedor, p.correlativo)
+    const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
+    const esAut = p.estado === 'autorizada'
+    const pr = progresoPedidos(p.items)
+    const badge = (esAut && pr.total > 0)
+      ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
+      : ''
+    const accion = esAut
+      ? `<button class="btn btn-ghost" data-dashact="finalizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">Finalizar</button>`
+      : `<button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
+    const openAttr = esAut ? `data-ped="${p.id}"` : `data-dashopen="${p.id}"`
+    return `<div class="cot-hrow" ${openAttr} style="cursor:pointer">
+      <div style="min-width:0">
+        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}</div>
+      </div>
+      <div data-stop>${accion}</div>
+    </div>`
+  }
+
+  async function dashClick (e) {
+    const act = e.target.closest('[data-dashact]')
+    if (act) { e.stopPropagation(); return dashAccion(act.dataset.dashact, act.dataset.pf) }
+    if (e.target.closest('[data-stop]')) return
+    const ped = e.target.closest('[data-ped]')
+    if (ped) return abrirPedidos(ped.dataset.ped)
+    const op = e.target.closest('[data-dashopen]')
+    if (op) return recuperarProforma(op.dataset.dashopen).then(() => switchTab('nueva'))
+  }
+
+  async function dashAccion (act, id) {
+    if (act === 'autorizar') {
+      if (!confirm('¿Autorizar esta cotización?')) return
+      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada' }).eq('id', id)
+      if (error) { toast('Error al autorizar', 'error'); return }
+      toast('Cotización autorizada', 'success'); loadDashboard()
+    } else if (act === 'finalizar') {
+      if (!confirm('¿Finalizar? Se quita del Inicio pero queda en Cotización.')) return
+      const { error } = await sb().from('cotizador_proformas').update({ estado: 'finalizada' }).eq('id', id)
+      if (error) { toast('Error al finalizar', 'error'); return }
+      toast('Cotización finalizada', 'success'); loadDashboard()
+    }
+  }
+
+  // ── PEDIDOS RÁPIDOS (seguimiento de compra por producto) ──
+  async function abrirPedidos (id) {
+    try {
+      const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
+      if (error) throw error
+      PEDPF = data
+      $('ped-title').textContent = `${numeroDe(data.vendedor, data.correlativo)} — ${[data.marca, data.modelo].filter(Boolean).join(' ')} · ${data.placa || 's/placa'}`
+      renderPedidos()
+      $('cot-modal-ped').classList.add('open')
+      cargarProveedores()
+    } catch (e) { console.error('[cotizador pedidos]', e); toast('No se pudo abrir', 'error') }
+  }
+
+  function renderPedidos () {
+    if (!PEDPF) return
+    const items = Array.isArray(PEDPF.items) ? PEDPF.items : []
+    const pr = progresoPedidos(items)
+    const pct = pr.total ? Math.round(pr.llegados / pr.total * 100) : 0
+    $('ped-prog').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">Productos llegados</span><span style="font-weight:700;color:${pr.color}">${pr.llegados}/${pr.total} (${pct}%)${pr.estado ? ' · ' + pr.estado : ''}</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${pr.color}"></div></div>`
+    const prods = []; const servs = []
+    items.forEach((it, i) => { (it.tipo === 's' ? servs : prods).push({ it, i }) })
+    const rowP = ({ it, i }) => {
+      const seg = it.seguimiento || ''
+      let estadoTxt = ''
+      if (seg === 'llegado') estadoTxt = `<span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">✓ ${it.seg_proveedor === 'BODEGA' ? 'Bodega' : 'Llegó'}</span>`
+      else if (seg === 'pedido') estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">📦 Pedido a ${esc(it.seg_proveedor || '')}</span>`
+      else estadoTxt = '<span style="font-size:11px;color:var(--text3,#8b949e)">Sin pedir</span>'
+      let botones = ''
+      if (seg === 'llegado') botones = `<button class="ped-btn" data-pedact="revertir" data-i="${i}">↩ Revertir</button>`
+      else if (seg === 'pedido') botones = `<button class="ped-btn ped-llego" data-pedact="llego" data-i="${i}">✓ Llegó</button> <button class="ped-btn" data-pedact="revertir" data-i="${i}">↩</button>`
+      else botones = `<button class="ped-btn ped-pedir" data-pedact="pedir" data-i="${i}">Pedir</button> <button class="ped-btn ped-bodega" data-pedact="bodega" data-i="${i}">Bodega</button>`
+      return `<div class="ped-row">
+        <div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div><div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
+        <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">${botones}</div>
+      </div>`
+    }
+    let html = ''
+    if (prods.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:10px 0 2px">PRODUCTOS</div>` + prods.map(rowP).join('')
+    if (servs.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:14px 0 2px">SERVICIOS</div>` + servs.map(({ it }) => `<div class="ped-row"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}<div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)}</div></div><span style="font-size:11px;color:var(--text3,#8b949e)">Servicio</span></div>`).join('')
+    $('ped-body').innerHTML = html
+    // Cargar historial de compras (proveedor · costo · fecha) de cada producto
+    prods.forEach(({ it, i }) => {
+      fetchCosto(it.desc).then(entradas => {
+        const el = document.querySelector(`[data-pcost="${i}"]`)
+        if (el) el.innerHTML = costoHTML(entradas, false)
+      })
+    })
+  }
+
+  async function guardarPedidos () {
+    if (!PEDPF) return
+    try {
+      const { error } = await sb().from('cotizador_proformas').update({ items: PEDPF.items }).eq('id', PEDPF.id)
+      if (error) throw error
+    } catch (e) { console.error('[cotizador guardarPedidos]', e); toast('Error al guardar el pedido', 'error') }
+  }
+
+  function pedItem (i) { return PEDPF && PEDPF.items ? PEDPF.items[i] : null }
+
+  async function iniciarPedido (i) {
+    const it = pedItem(i); if (!it) return
+    _pedIdx = i
+    $('prov-item').textContent = String(it.desc).toUpperCase()
+    $('prov-input').value = it.seg_proveedor || ''
+    $('prov-ac').style.display = 'none'
+    $('cot-modal-prov').classList.add('open')
+    setTimeout(() => $('prov-input').focus(), 120)
+    // Pre-llenar con el último proveedor al que se le compró este producto
+    if (!$('prov-input').value) {
+      try {
+        const term = String(it.desc || '').toUpperCase().replace(/[%,]/g, ' ').trim()
+        const { data } = await sb().from('cotizador_compras')
+          .select('proveedor,fecha_compra').ilike('nombre_norm', '%' + term + '%')
+          .order('fecha_compra', { ascending: false }).limit(1)
+        if (data && data[0] && data[0].proveedor && !$('prov-input').value) {
+          $('prov-input').value = String(data[0].proveedor).toUpperCase()
+        }
+      } catch (e) { /* sin prefill */ }
+    }
+  }
+
+  async function confirmarPedido () {
+    const it = pedItem(_pedIdx); if (!it) return
+    const prov = $('prov-input').value.trim().toUpperCase()
+    if (!prov) { toast('Escribí el proveedor', 'error'); return }
+    it.seguimiento = 'pedido'; it.seg_proveedor = prov; it.seg_fecha_pedido = new Date().toISOString()
+    await guardarPedidos()
+    $('cot-modal-prov').classList.remove('open'); renderPedidos()
+    toast('📦 Pedido a ' + prov, 'success')
+  }
+
+  async function marcarLlegado (i) {
+    const it = pedItem(i); if (!it) return
+    it.seguimiento = 'llegado'; it.seg_fecha_llegada = new Date().toISOString()
+    await guardarPedidos(); renderPedidos(); toast('✓ Llegó', 'success')
+  }
+  async function marcarBodega (i) {
+    const it = pedItem(i); if (!it) return
+    it.seguimiento = 'llegado'; it.seg_proveedor = 'BODEGA'; it.seg_fecha_pedido = new Date().toISOString(); it.seg_fecha_llegada = new Date().toISOString()
+    await guardarPedidos(); renderPedidos(); toast('📦 Tomado de bodega', 'success')
+  }
+  async function revertirPedido (i) {
+    const it = pedItem(i); if (!it) return
+    if (!confirm('¿Revertir a "Sin pedir"?')) return
+    delete it.seguimiento; delete it.seg_proveedor; delete it.seg_fecha_pedido; delete it.seg_fecha_llegada
+    await guardarPedidos(); renderPedidos()
+  }
+
+  async function cargarProveedores () {
+    if (PROVS) return
+    try {
+      const set = {}
+      for (let from = 0; from < 4000; from += 1000) {
+        const { data } = await sb().from('cotizador_compras').select('proveedor').range(from, from + 999)
+        if (!data || !data.length) break
+        data.forEach(x => { if (x.proveedor) set[String(x.proveedor).trim().toUpperCase()] = true })
+        if (data.length < 1000) break
+      }
+      PROVS = Object.keys(set).sort()
+    } catch (e) { PROVS = [] }
   }
 
   async function loadHistorial () {
@@ -1118,6 +1394,98 @@
       ;(data || []).forEach(o => { m[String(o.numero_orden).trim()] = o })
       return m
     } catch (e) { console.error('[cotizador mapaOrdenes]', e); return {} }
+  }
+
+  // ── SEGUIMIENTO COMERCIAL ──
+  function clasificar (p, ord) {
+    const cotizado = Number(p.total) || 0
+    if (!p.numero_orden) return { cat: 'sin_orden', facturado: 0, pendiente: cotizado, factura: '' }
+    if (!ord || !ord.numero_factura) return { cat: 'sin_factura', facturado: 0, pendiente: cotizado, factura: '' }
+    const facturado = Number(ord.total) || 0
+    if (facturado < cotizado - 0.5) return { cat: 'facturo_menos', facturado, pendiente: Math.max(0, cotizado - facturado), factura: ord.numero_factura }
+    return { cat: 'cerrada', facturado, pendiente: 0, factura: ord.numero_factura }
+  }
+  const CAT_LBL = { sin_orden: 'Sin orden', sin_factura: 'Sin factura', facturo_menos: 'Facturó menos', cerrada: 'Cerrada' }
+
+  async function loadSeguimiento () {
+    const list = $('cot-seg-list')
+    list.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
+    try {
+      const { data, error } = await sb().from('cotizador_proformas')
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden')
+        .order('created_at', { ascending: false }).limit(400)
+      if (error) throw error
+      const ordMap = await mapaOrdenes(data || [])
+      SEG_DATA = (data || []).map(p => {
+        const cl = clasificar(p, ordMap[String(p.numero_orden || '').trim()])
+        return Object.assign({}, p, cl)
+      })
+      renderSeg()
+    } catch (e) {
+      console.error('[cotizador seguimiento]', e)
+      list.innerHTML = `<div style="text-align:center;color:var(--red,#f85149);padding:20px">Error: ${esc(e.message || e)}</div>`
+    }
+  }
+
+  function segFiltradas () {
+    const q = ($('cot-seg-q').value || '').trim().toUpperCase()
+    return SEG_DATA.filter(p => p.cat !== 'cerrada')
+      .filter(p => !SEG_CAT || p.cat === SEG_CAT)
+      .filter(p => !q || String(p.cliente || '').toUpperCase().includes(q) || String(p.placa || '').toUpperCase().includes(q))
+  }
+
+  function renderSeg () {
+    const list = $('cot-seg-list')
+    // Stats sobre TODO el set cargado
+    const noCerradas = SEG_DATA.filter(p => p.cat !== 'cerrada')
+    const pendienteTot = noCerradas.reduce((a, p) => a + (p.pendiente || 0), 0)
+    const st = [
+      [noCerradas.length, 'Sin cerrar'],
+      [SEG_DATA.filter(p => p.cat === 'sin_factura' || p.cat === 'sin_orden').length, 'Sin facturar'],
+      [SEG_DATA.filter(p => p.cat === 'facturo_menos').length, 'Facturó menos'],
+      ['L. ' + fmt(pendienteTot), 'Monto pendiente']
+    ]
+    const stats = $('cot-seg-stats')
+    if (stats) stats.innerHTML = st.map(s => `<div class="cot-stat"><div class="n">${s[0]}</div><div class="l">${s[1]}</div></div>`).join('')
+
+    const rows = segFiltradas()
+    if (!rows.length) { list.innerHTML = '<div style="text-align:center;color:var(--green,#16a34a);padding:20px">✓ Nada pendiente en este filtro</div>'; return }
+    list.innerHTML = rows.map(p => {
+      const num = numeroDe(p.vendedor, p.correlativo)
+      const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
+      const col = p.cat === 'facturo_menos' ? 'var(--amber,#f59e0b)' : p.cat === 'sin_factura' ? 'var(--text3,#8b949e)' : 'var(--red,#f85149)'
+      return `<div class="cot-hrow" data-seg="${p.id}" style="cursor:pointer">
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:${col}22;color:${col}">${esc(CAT_LBL[p.cat])}</span></div>
+          <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · ${esc(fFecha(p.created_at))}${p.factura ? ' · Fact #' + esc(p.factura) : ''}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="color:var(--gold,#c8a24a);font-weight:700;white-space:nowrap">Cotizado L. ${fmt(p.total)}</div>
+          <div style="font-size:11px;color:${col}">Pendiente L. ${fmt(p.pendiente)}${p.facturado ? ` · facturado L. ${fmt(p.facturado)}` : ''}</div>
+        </div>
+      </div>`
+    }).join('')
+    list.querySelectorAll('[data-seg]').forEach(el => el.addEventListener('click', () => {
+      recuperarProforma(el.dataset.seg).then(() => switchTab('nueva'))
+    }))
+  }
+
+  function exportSeguimiento () {
+    const rows = segFiltradas()
+    if (!rows.length) { toast('No hay filas para exportar', 'error'); return }
+    const head = ['N°', 'Estado', 'Categoria', 'Cliente', 'Placa', 'Vehiculo', 'Fecha', 'Orden', 'Factura', 'Cotizado', 'Facturado', 'Pendiente']
+    const esc2 = (v) => { const s = String(v == null ? '' : v); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s }
+    const lines = [head.join(',')]
+    rows.forEach(p => {
+      lines.push([numeroDe(p.vendedor, p.correlativo), p.estado || '', CAT_LBL[p.cat], p.cliente || '', p.placa || '',
+        [p.marca, p.modelo, p.anio].filter(Boolean).join(' '), fFecha(p.created_at), p.numero_orden || '', p.factura || '',
+        (Number(p.total) || 0).toFixed(2), (p.facturado || 0).toFixed(2), (p.pendiente || 0).toFixed(2)].map(esc2).join(','))
+    })
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `Seguimiento_cotizaciones_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click(); URL.revokeObjectURL(a.href)
+    toast('CSV exportado', 'success')
   }
 
   function filaHist (p, compacto, ord) {
