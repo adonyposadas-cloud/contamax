@@ -164,6 +164,26 @@
       #view-cotizador .ped-llego{color:var(--green,#16a34a);border-color:var(--green,#16a34a)}
       #view-cotizador .ped-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px}
       #view-cotizador #cot-vend,#view-cotizador #cot-cli,#view-cotizador #cot-ma,#view-cotizador #cot-mo,#view-cotizador #cot-anio{text-transform:uppercase}
+      @media (max-width: 680px) {
+        #view-cotizador .page-header{flex-wrap:wrap;gap:8px}
+        #view-cotizador .cot-tabs{flex-wrap:wrap}
+        #view-cotizador .cot-tab{padding:6px 11px;font-size:12px}
+        #view-cotizador .form-card{padding:12px}
+        #view-cotizador .form-card-title{flex-wrap:wrap;gap:6px}
+        #view-cotizador .form-grid{grid-template-columns:1fr !important}
+        #view-cotizador #cot-dash-stats,#view-cotizador #cot-seg-stats{grid-template-columns:repeat(2,1fr) !important}
+        #view-cotizador [style*="justify-content:flex-end"]{flex-wrap:wrap}
+        #view-cotizador [style*="justify-content:space-between"]{flex-wrap:wrap}
+        #view-cotizador .cot-row{grid-template-columns:52px 84px 46px 1fr 30px;column-gap:6px;row-gap:2px}
+        #view-cotizador .cot-row > div:first-child{grid-column:1 / -1;margin-bottom:4px}
+        #view-cotizador .cot-row.head{display:none}
+        #view-cotizador .cot-hrow{flex-wrap:wrap}
+        #view-cotizador .cot-in{font-size:16px}
+        #view-cotizador .cot-stat{padding:11px 12px}
+        #view-cotizador .cot-stat .n{font-size:18px}
+        #view-cotizador .cot-tot{font-size:13px}
+        #view-cotizador .modal{width:96vw !important;max-height:90vh;overflow-y:auto}
+      }
     </style>
 
     <div class="page-header">
@@ -1024,12 +1044,15 @@
 
   function totales () { return calcTot() }
 
-  async function guardarProforma () {
-    if (!PF.cliente && !PF.placa) { toast('Ingresá al menos cliente o placa', 'error'); return }
-    if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return }
+  async function guardarProforma (opts) {
+    opts = opts || {}
+    if (!PF.cliente && !PF.placa) { toast('Ingresá al menos cliente o placa', 'error'); return false }
+    if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return false }
     const orden = (PF.numero_orden || '').trim()
-    if (!orden) { toast('El N° de Orden Taller es obligatorio', 'error'); $('cot-orden').focus(); return }
-    const btn = $('cot-btn-guardar'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Guardando...'
+    if (!orden) { toast('El N° de Orden Taller es obligatorio', 'error'); $('cot-orden').focus(); return false }
+    const btn = $('cot-btn-guardar'); const prev = btn.textContent
+    if (!opts.silencioso) { btn.disabled = true; btn.textContent = 'Guardando...' }
+    const restore = () => { if (!opts.silencioso) { btn.disabled = false; btn.textContent = prev } }
     const prof = window._currentProfile ? window._currentProfile() : null
     const t = totales()
     // Validar que la orden no esté ya usada en otra cotización
@@ -1040,11 +1063,11 @@
       if (chkErr) throw chkErr
       if (dup && dup.length) {
         toast(`La orden #${orden} ya está en la cotización ${numeroDe(dup[0].vendedor, dup[0].correlativo)}`, 'error')
-        btn.disabled = false; btn.textContent = prev; return
+        restore(); return false
       }
     } catch (e) {
       console.error('[cotizador chk orden]', e); toast('No se pudo validar la orden', 'error')
-      btn.disabled = false; btn.textContent = prev; return
+      restore(); return false
     }
     const payload = {
       vendedor: PF.vendedor || '', vendedor_id: prof ? prof.id : null,
@@ -1059,14 +1082,15 @@
       if (PF.id) {
         const { error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)
         if (error) throw error
-        toast('Cotización N° ' + numeroProforma() + ' actualizada', 'success')
+        if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' actualizada', 'success')
       } else {
         const { data, error } = await sb().from('cotizador_proformas').insert(payload).select('id,correlativo,estado').single()
         if (error) throw error
         PF.id = data.id; PF.correlativo = data.correlativo; PF.estado = data.estado
-        toast('Cotización N° ' + numeroProforma() + ' guardada', 'success')
+        if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' guardada', 'success')
       }
       setNumLabel()
+      restore(); return true
     } catch (e) {
       console.error('[cotizador guardar]', e)
       if (e && (e.code === '23505' || /duplicate|unique|numero_orden/i.test(e.message || ''))) {
@@ -1074,8 +1098,7 @@
       } else {
         toast('Error al guardar: ' + (e.message || e), 'error')
       }
-    } finally {
-      btn.disabled = false; btn.textContent = prev
+      restore(); return false
     }
   }
 
@@ -1615,8 +1638,14 @@
   async function generarPDF () {
     if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return }
     ordenarPF(); renderItems()
-    const btn = $('cot-btn-pdf'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Generando...'
-    try { await pdfDeProforma(PF); toast('PDF generado', 'success') } catch (e) {
+    const btn = $('cot-btn-pdf'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Guardando…'
+    try {
+      const ok = await guardarProforma({ silencioso: true })   // guarda y asigna el número
+      if (!ok) { btn.disabled = false; btn.textContent = prev; return }  // faltó orden/cliente/ítems
+      btn.textContent = 'Generando…'
+      await pdfDeProforma(PF)
+      toast('Cotización N° ' + numeroProforma() + ' guardada e impresa', 'success')
+    } catch (e) {
       console.error('[cotizador PDF]', e); toast('Error al generar PDF: ' + (e.message || e), 'error')
     } finally { btn.disabled = false; btn.textContent = prev }
   }
