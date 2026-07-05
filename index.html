@@ -251,6 +251,9 @@
 
       <div class="sidebar-section hidden" id="section-cotizador">
         <div class="sidebar-label">Cotizador</div>
+        <div class="nav-item hidden" id="nav-estados-fisicos" onclick="showView('estados-fisicos','Conciliación de Estados Físicos')">
+          <span class="nav-dot"></span>Estados Físicos
+        </div>
         <div class="nav-item hidden" id="nav-cotizador" onclick="showView('cotizador','Cotizador · Proformas')">
           <span class="nav-dot"></span>Proformas
         </div>
@@ -261,6 +264,9 @@
 
       <!-- COTIZADOR (contenido inyectado por js/cotizador.js) -->
       <div class="view" id="view-cotizador"></div>
+
+      <!-- ESTADOS FÍSICOS (contenido inyectado por js/estados_fisicos.js) -->
+      <div class="view" id="view-estados-fisicos"></div>
 
       <!-- USUARIOS -->
       <div class="view" id="view-usuarios">
@@ -3473,7 +3479,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260703d"></script>
+<script type="module" src="js/app.js?v=20260703f"></script>
 <script type="module" src="js/reportes.js?v=20260611c"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3491,10 +3497,11 @@
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260701e"></script>
 <script defer src="js/fiscal.js?v=20260606l"></script>
-<script defer src="js/revision_taxis.js?v=20260701c"></script>
+<script defer src="js/revision_taxis.js?v=20260705e"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
 <script defer src="js/yonker.js?v=20260701c"></script>
 <script defer src="js/cotizador.js?v=20260704g"></script>
+<script defer src="js/estados_fisicos.js?v=20260704l"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">

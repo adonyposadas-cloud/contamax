@@ -857,19 +857,52 @@ async function rtxDashKmMap(dia) {
 }
 // Computa la lista de auditoría para un modo/fecha SIN tocar la UI. Reutilizable por el
 // auditor visual (rtxDashAuditar) y por el auto-snapshot.
+function rtxAddDays(f, n) { const d = new Date(f + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) }
+
+// KM acumulado por unidad desde su última entrega ANTERIOR (exclusive) hasta 'hasta' (inclusive).
+async function rtxKmAcumuladoDesdeUltima(unidades, hasta) {
+  const acum = {}
+  if (!unidades || !unidades.length) return acum
+  try {
+    const { data: prev } = await rtxSb().from('entregas_taxis')
+      .select('unidad, fecha_deposito').lt('fecha_deposito', hasta).eq('estado', 'Aprobada')
+      .in('unidad', unidades).order('fecha_deposito', { ascending: false })
+    const ultima = {} // unidad -> última entrega previa
+    ;(prev || []).forEach(d => { const u = String(d.unidad); if (!ultima[u]) ultima[u] = d.fecha_deposito })
+    const desdeMin = Object.keys(ultima).length ? Object.values(ultima).sort()[0] : rtxAddDays(hasta, -60)
+    const tope = desdeMin < rtxAddDays(hasta, -60) ? rtxAddDays(hasta, -60) : desdeMin  // acota a 60 días
+    const { data: fdata } = await rtxSb().rpc('tx_km_fechas')
+    const fechas = (Array.isArray(fdata) ? fdata : []).filter(f => f <= hasta && f > tope).sort()
+    for (const f of fechas) {
+      const m = await rtxDashKmMap(f)
+      unidades.forEach(u => {
+        const us = String(u); const desde = ultima[us]
+        if (!desde || f > desde) acum[us] = (acum[us] || 0) + (m[us] || 0)  // solo km posteriores a su última entrega
+      })
+    }
+  } catch (e) { /* si falla, queda en 0 */ }
+  return acum
+}
+
 async function rtxComputeAudit(modo, fecha) {
-  const diaKM = await rtxDashDiaKM(fecha)
+  // "Trabajó y no entregó": audita la entrega de AYER (día ya cerrado). El KM es el de ESE MISMO día
+  //   (trabajaron ese día y ese mismo día debían entregar) — para llamarlos hoy.
+  // "Entregó pero no cubrió": audita la entrega de HOY (la fecha del dashboard) vs KM acumulado desde su última entrega.
+  const entregaDia = modo === 'no_entrego' ? rtxAddDays(fecha, -1) : fecha
+  const diaKM = modo === 'no_entrego' ? entregaDia : await rtxDashDiaKM(entregaDia)
   const kmMap = await rtxDashKmMap(diaKM)
   let lista = []
   if (modo === 'no_entrego') {
-    lista = (rtxDashData?.pendientes || [])
+    let pend = []
+    try { const { data } = await rtxSb().rpc('tx_dashboard', { p_fecha: entregaDia }); pend = (data && data.pendientes) || [] } catch (e) { pend = [] }
+    lista = pend
       .map(p => ({ ...p, km: kmMap[String(p.unidad)] || 0 }))
       .filter(p => p.km > RTX_KM_TRABAJO)
       .sort((a, b) => b.km - a.km)
   } else if (modo === 'no_cubrio') {
     const { data } = await rtxSb().from('entregas_taxis')
       .select('unidad,identidad,nombre_conductor,monto,monto_esperado,saldo_deudor')
-      .eq('fecha_deposito', fecha).eq('estado', 'Aprobada')
+      .eq('fecha_deposito', entregaDia).eq('estado', 'Aprobada')
     const byU = {}
     ;(data || []).forEach(e => {
       const u = String(e.unidad)
@@ -878,11 +911,12 @@ async function rtxComputeAudit(modo, fecha) {
       byU[u].esperado = Math.max(byU[u].esperado, parseFloat(e.monto_esperado) || 0)
       byU[u].saldo = parseFloat(e.saldo_deudor) || 0
     })
+    const kmAcum = await rtxKmAcumuladoDesdeUltima(Object.keys(byU), entregaDia)  // km acumulado desde su última entrega
     lista = Object.values(byU)
       .map(x => {
         const periodo = Math.max((x.esperado || 0) - (x.saldo || 0), 0)  // cuota del período (sin saldo histórico)
         const faltante = periodo - x.monto                               // lo que sube su saldo este período
-        return { ...x, km: kmMap[String(x.unidad)] || 0, periodo, faltante, saldoNuevo: (x.saldo || 0) + Math.max(faltante, 0) }
+        return { ...x, km: kmAcum[String(x.unidad)] || 0, periodo, faltante, saldoNuevo: (x.saldo || 0) + Math.max(faltante, 0) }
       })
       .filter(x => x.km > RTX_KM_TRABAJO && x.periodo > 0 && x.faltante > 0)
       .sort((a, b) => b.faltante - a.faltante)
@@ -901,7 +935,7 @@ async function rtxComputeAudit(modo, fecha) {
       lista.forEach(x => { x.telefono = telUni[String(x.unidad)] || telId[String(x.identidad)] || '' })
     } catch (e) { /* sin teléfono, los botones de WhatsApp/Llamar no aparecen */ }
   }
-  return { diaKM, lista }
+  return { diaKM, entregaDia, lista }
 }
 
 // Serializa la lista al detalle que se guarda en el snapshot
@@ -964,8 +998,9 @@ window.rtxDashAuditExportar = () => {
   const gen = new Date().toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa' })
   const aoa = [
     ['CONTAMAX · Auditoría Taxis · ' + titulo],
-    ['Fecha auditada:', rtxDashFecha],
+    ['Entrega auditada (día):', d.entregaDia || rtxDashFecha],
     ['KM tomado del día:', d.diaKM || '—'],
+    ['Revisado el:', rtxDashFecha],
     ['Generado:', gen],
     ['Total unidades:', d.lista.length],
     []
@@ -1168,7 +1203,7 @@ function rtxDashAuditCard() {
     return `<div class="dash-card">
       ${barraAcc}
       <div class="dash-card-t">🔎 Trabajó y no entregó (${d.lista.length})</div>
-      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y no han entregado el ${rtxDashFecha}.</div>
+      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y no entregaron el ${d.entregaDia || rtxDashFecha} (revisado hoy ${rtxDashFecha}).</div>
       ${rows || `<div class="rtx-empty">Nadie cumple: o ya entregaron, o no superaron los ${RTX_KM_TRABAJO} km.</div>`}
     </div>`
   }
@@ -1186,7 +1221,7 @@ function rtxDashAuditCard() {
     return `<div class="dash-card">
       ${barraAcc}
       <div class="dash-card-t">💰 Entregó pero no cubrió (${d.lista.length})</div>
-      <div class="dash-audit-sub">Unidades que recorrieron más de ${RTX_KM_TRABAJO} km el ${diaTxt} y entregaron el ${rtxDashFecha}, pero pagaron menos que la cuota del período (reconciliación por km desde su última entrega, sin contar el saldo histórico).</div>
+      <div class="dash-audit-sub">Unidades que acumularon más de ${RTX_KM_TRABAJO} km desde su última entrega y entregaron el ${d.entregaDia || rtxDashFecha}, pero pagaron menos que la cuota del período (reconciliación por km desde su última entrega, sin contar el saldo histórico). La columna km es el acumulado desde su última entrega.</div>
       ${rows || '<div class="rtx-empty">Nadie cumple el criterio.</div>'}
     </div>`
   }
