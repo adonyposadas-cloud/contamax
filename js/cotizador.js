@@ -43,6 +43,7 @@
   let PEDPF = null           // proforma abierta en el modal de pedidos
   let _pedIdx = null         // índice del ítem que se está pidiendo
   let PROVS = null           // cache de proveedores
+  let verTodosCostos = false // privacidad: costos/proveedores ocultos por defecto
 
   const GAN_KEY = 'cot_gan_default'
   const getGanDefault = () => { let v = 30; try { const s = parseFloat(localStorage.getItem(GAN_KEY)); if (!isNaN(s)) v = s } catch (e) {} return v }
@@ -59,7 +60,8 @@
     fecha_limite: '2026-04-16',
     vigencia_dias: 30,
     terminos: 'Si el cliente suministra los repuestos, el precio de mano de obra puede variar. La garantía cubre exclusivamente la instalación, no las piezas externas.',
-    garantia: 'Todo trabajo tiene un mes de garantía en repuesto y mano de obra, excepto repuestos usados.'
+    garantia: 'Todo trabajo tiene un mes de garantía en repuesto y mano de obra, excepto repuestos usados.',
+    aj_3: 5, aj_6: 10, aj_12: 15
   }
   let CFG = null
   const cfg = (k) => (CFG && CFG[k] != null && CFG[k] !== '') ? CFG[k] : DEFAULT_CFG[k]
@@ -276,6 +278,7 @@
           <span>⚙ Ganancia default (productos manuales):</span>
           <input id="cot-gan-def" class="cot-in" type="number" style="width:74px" value="30" min="0" step="0.5"><span>%</span>
           <span style="color:var(--text3,#8b949e)">— se aplica al agregar; siempre editable por producto.</span>
+          <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;color:var(--gold,#c8a24a);font-weight:600"><input type="checkbox" id="cot-ver-costos" style="cursor:pointer"> 👁 Mostrar costos/proveedores</label>
         </div>
         <div id="cot-items-body"><div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Sin ítems. Buscá en órdenes o agregá manual.</div></div>
       </div>
@@ -360,6 +363,15 @@
         <div class="form-card-title">Textos del PDF</div>
         <div class="fld"><label>Términos y condiciones</label><textarea id="cfg-terminos" class="cot-in" rows="3"></textarea></div>
         <div class="fld" style="margin-top:10px"><label>Garantía de trabajo</label><textarea id="cfg-garantia" class="cot-in" rows="2"></textarea></div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title">Ajuste de precio por antigüedad</div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Cuánto se suma a un precio traído de una orden vieja, según cuántos meses tenga.</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="fld"><label>Más de 3 meses (%)</label><input id="cfg-aj3" class="cot-in" type="number" min="0" step="0.5"></div>
+          <div class="fld"><label>Más de 6 meses (%)</label><input id="cfg-aj6" class="cot-in" type="number" min="0" step="0.5"></div>
+          <div class="fld"><label>Más de 12 meses (%)</label><input id="cfg-aj12" class="cot-in" type="number" min="0" step="0.5"></div>
+        </div>
         <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-gold" id="cfg-guardar">💾 Guardar configuración</button></div>
       </div>
     </div>
@@ -461,6 +473,19 @@
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
           <button class="btn btn-ghost" id="prov-cancel">Cancelar</button>
           <button class="btn btn-gold" id="prov-ok">Confirmar pedido</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DETALLE SEGUIMIENTO (cotizado vs facturado) -->
+    <div class="modal-backdrop" id="cot-modal-det">
+      <div class="modal" style="width:720px;max-width:96vw;max-height:88vh;overflow-y:auto">
+        <div class="modal-title" id="det-title">Cotizado vs Facturado</div>
+        <div id="det-sub" style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px"></div>
+        <div id="det-body"></div>
+        <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
+          <button class="btn btn-ghost" id="det-editar">✏ Abrir cotización</button>
+          <button class="btn btn-gold" id="det-close">Cerrar</button>
         </div>
       </div>
     </div>`
@@ -594,6 +619,7 @@
       else if (a === 'bodega') marcarBodega(i)
       else if (a === 'llego') marcarLlegado(i)
       else if (a === 'revertir') revertirPedido(i)
+      else if (a === 'facturar') togglePFfacturado(i)
     })
     $('prov-cancel').addEventListener('click', () => $('cot-modal-prov').classList.remove('open'))
     $('prov-ok').addEventListener('click', confirmarPedido)
@@ -605,7 +631,23 @@
     $('cm-isv').addEventListener('input', updConISV)
     $('cm-tipo').addEventListener('change', toggleTipoManual)
     const gd = $('cot-gan-def')
-    if (gd) { gd.value = getGanDefault(); gd.addEventListener('input', e => setGanDefault(num(e.target.value))) }
+    if (gd) {
+      gd.value = getGanDefault()
+      let dGan
+      gd.addEventListener('input', e => {
+        setGanDefault(num(e.target.value))
+        clearTimeout(dGan)
+        dGan = setTimeout(renderItems, 250)
+      })
+    }
+    const vc = $('cot-ver-costos')
+    if (vc) {
+      vc.checked = verTodosCostos
+      vc.addEventListener('change', e => {
+        verTodosCostos = e.target.checked
+        document.querySelectorAll('#cot-items-body .cot-cost').forEach(el => { el.style.display = verTodosCostos ? 'block' : 'none' })
+      })
+    }
 
     let deb
     $('cot-q').addEventListener('input', e => { clearTimeout(deb); deb = setTimeout(() => buscar(e.target.value.trim()), 250) })
@@ -634,6 +676,8 @@
       if (fx) { corregirDescripcion(parseInt(fx.dataset.fixdesc, 10)); return }
       const pr = e.target.closest('[data-prio]')
       if (pr) { PF.items[parseInt(pr.dataset.i, 10)].prioridad = pr.dataset.prio; renderItems() }
+      const eye = e.target.closest('[data-eye]')
+      if (eye) { const el = document.querySelector(`[data-cost="${eye.dataset.eye}"]`); if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none' }
     })
 
     // ── Pestañas ──
@@ -663,6 +707,11 @@
       renderSeg()
     })
     $('cot-seg-export').addEventListener('click', exportSeguimiento)
+    $('det-close').addEventListener('click', () => $('cot-modal-det').classList.remove('open'))
+    $('det-editar').addEventListener('click', () => {
+      $('cot-modal-det').classList.remove('open')
+      if (_detId) recuperarProforma(_detId).then(() => switchTab('nueva'))
+    })
   }
 
   function updVehHint () {
@@ -921,9 +970,9 @@
       const p = getPrioridad(it)
       return `<div class="cot-row">
         <div>
-          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${esc(String(it.desc).toUpperCase())}${esManual ? ` <button data-edit="${i}" title="Editar descripción/precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button>` : (ES_SUPER ? ` <button data-fixdesc="${i}" title="Corregir esta descripción en la base (todas las órdenes)" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">✏</button>` : '')}</div>
+          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${esc(String(it.desc).toUpperCase())}${esManual ? ` <button data-edit="${i}" title="Editar descripción/precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button>` : (ES_SUPER ? ` <button data-fixdesc="${i}" title="Corregir esta descripción en la base (todas las órdenes)" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">✏</button>` : '')} <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
-          <div class="cot-cost" data-cost="${i}"></div>
+          <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
             <button class="prio-btn crit ${p === 'crit' ? 'on' : ''}" data-prio="crit" data-i="${i}" title="Crítico — debe hacerse ya">🔴 Crít</button>
             <button class="prio-btn rec ${p === 'rec' ? 'on' : ''}" data-prio="rec" data-i="${i}" title="Recomendado — pronto">🟡 Rec</button>
@@ -1016,8 +1065,9 @@
     if (!fechaISO) return null
     const d = new Date(fechaISO); if (isNaN(d)) return null
     const meses = Math.round((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24 * 30.44))
+    const a3 = Number(cfg('aj_3')); const a6 = Number(cfg('aj_6')); const a12 = Number(cfg('aj_12'))
     let pct = 0
-    if (meses > 12) pct = 15; else if (meses > 6) pct = 10; else if (meses > 3) pct = 5
+    if (meses > 12) pct = a12; else if (meses > 6) pct = a6; else if (meses > 3) pct = a3
     return pct > 0 ? { pct, meses } : null
   }
   function fFecha (iso) {
@@ -1161,7 +1211,7 @@
   function switchTab (name) {
     TAB = name
     document.querySelectorAll('#view-cotizador .cot-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name))
-    ;['inicio', 'nueva', 'cotizacion'].forEach(p => {
+    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'config'].forEach(p => {
       const el = $('cot-panel-' + p); if (el) el.style.display = (p === name) ? '' : 'none'
     })
     if (name === 'inicio') loadDashboard()
@@ -1291,7 +1341,17 @@
     const items = Array.isArray(PEDPF.items) ? PEDPF.items : []
     const pr = progresoPedidos(items)
     const pct = pr.total ? Math.round(pr.llegados / pr.total * 100) : 0
-    $('ped-prog').innerHTML = `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">Productos llegados</span><span style="font-weight:700;color:${pr.color}">${pr.llegados}/${pr.total} (${pct}%)${pr.estado ? ' · ' + pr.estado : ''}</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${pr.color}"></div></div>`
+    const totalItems = items.length
+    const facturados = items.filter(it => it.facturado).length
+    const fpct = totalItems ? Math.round(facturados / totalItems * 100) : 0
+    const fcolor = (totalItems && facturados === totalItems) ? 'var(--green,#16a34a)' : (facturados > 0 ? 'var(--amber,#f59e0b)' : 'var(--text3,#8b949e)')
+    const barra = (lbl, a, b, p, color) => `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">${lbl}</span><span style="font-weight:700;color:${color}">${a}/${b} (${p}%)</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${p}%;background:${color}"></div></div></div>`
+    $('ped-prog').innerHTML = barra('Productos llegados' + (pr.estado ? ' · ' + pr.estado : ''), pr.llegados, pr.total, pct, pr.color) + barra('📋 Facturados', facturados, totalItems, fpct, fcolor)
+    const facBtn = (it, i) => it.facturado
+      ? `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Desmarcar facturado" style="color:var(--text3,#8b949e)">↩</button>`
+      : `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Copiar descripción y marcar facturado" style="color:var(--green,#16a34a);border-color:var(--green,#16a34a)">📋</button>`
+    const facBadge = (it) => it.facturado ? ` <span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">📋 Facturado</span>` : ''
+    const dimF = (it) => it.facturado ? 'opacity:.6' : ''
     const prods = []; const servs = []
     items.forEach((it, i) => { (it.tipo === 's' ? servs : prods).push({ it, i }) })
     const rowP = ({ it, i }) => {
@@ -1304,14 +1364,14 @@
       if (seg === 'llegado') botones = `<button class="ped-btn" data-pedact="revertir" data-i="${i}">↩ Revertir</button>`
       else if (seg === 'pedido') botones = `<button class="ped-btn ped-llego" data-pedact="llego" data-i="${i}">✓ Llegó</button> <button class="ped-btn" data-pedact="revertir" data-i="${i}">↩</button>`
       else botones = `<button class="ped-btn ped-pedir" data-pedact="pedir" data-i="${i}">Pedir</button> <button class="ped-btn ped-bodega" data-pedact="bodega" data-i="${i}">Bodega</button>`
-      return `<div class="ped-row">
-        <div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div><div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
-        <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">${botones}</div>
+      return `<div class="ped-row" style="${dimF(it)}">
+        <div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div><div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
+        <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">${botones} ${facBtn(it, i)}</div>
       </div>`
     }
     let html = ''
     if (prods.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:10px 0 2px">PRODUCTOS</div>` + prods.map(rowP).join('')
-    if (servs.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:14px 0 2px">SERVICIOS</div>` + servs.map(({ it }) => `<div class="ped-row"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}<div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)}</div></div><span style="font-size:11px;color:var(--text3,#8b949e)">Servicio</span></div>`).join('')
+    if (servs.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:14px 0 2px">SERVICIOS</div>` + servs.map(({ it, i }) => `<div class="ped-row" style="${dimF(it)}"><div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · Servicio</div></div><div style="flex-shrink:0">${facBtn(it, i)}</div></div>`).join('')
     $('ped-body').innerHTML = html
     // Cargar historial de compras (proveedor · costo · fecha) de cada producto
     prods.forEach(({ it, i }) => {
@@ -1378,6 +1438,22 @@
     const it = pedItem(i); if (!it) return
     if (!confirm('¿Revertir a "Sin pedir"?')) return
     delete it.seguimiento; delete it.seg_proveedor; delete it.seg_fecha_pedido; delete it.seg_fecha_llegada
+    await guardarPedidos(); renderPedidos()
+  }
+
+  // Marca/desmarca un ítem como facturado. Al marcar, copia la descripción al
+  // portapapeles para pegarla en el facturador.
+  async function togglePFfacturado (i) {
+    const it = pedItem(i); if (!it) return
+    if (it.facturado) {
+      delete it.facturado; delete it.fecha_facturado
+    } else {
+      it.facturado = true; it.fecha_facturado = new Date().toISOString()
+      try {
+        await navigator.clipboard.writeText(String(it.desc).toUpperCase())
+        toast('📋 Copiado: ' + String(it.desc).toUpperCase().slice(0, 32), 'success')
+      } catch (e) { toast('Marcado como facturado', 'success') }
+    }
     await guardarPedidos(); renderPedidos()
   }
 
@@ -1501,9 +1577,66 @@
         </div>
       </div>`
     }).join('')
-    list.querySelectorAll('[data-seg]').forEach(el => el.addEventListener('click', () => {
-      recuperarProforma(el.dataset.seg).then(() => switchTab('nueva'))
-    }))
+    list.querySelectorAll('[data-seg]').forEach(el => el.addEventListener('click', () => verDetalleSeguimiento(el.dataset.seg)))
+  }
+
+  let _detId = null
+  async function verDetalleSeguimiento (id) {
+    _detId = id
+    const p = SEG_DATA.find(x => x.id === id); if (!p) return
+    $('det-title').textContent = numeroDe(p.vendedor, p.correlativo) + ' · Cotizado vs Facturado'
+    $('det-sub').textContent = `${p.cliente || 's/n'} · ${p.placa || 's/placa'} · ${CAT_LBL[p.cat]}`
+    $('det-body').innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
+    $('cot-modal-det').classList.add('open')
+    try {
+      const { data: prof } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
+      const cot = Array.isArray(prof.items) ? prof.items : []
+      let fact = []; let factNum = ''
+      if (prof.numero_orden) {
+        const { data: ord } = await sb().from('cotizador_ordenes').select('id,numero_factura,total').eq('numero_orden', String(prof.numero_orden).trim()).limit(1).maybeSingle()
+        if (ord) {
+          factNum = ord.numero_factura || ''
+          const { data: its } = await sb().from('cotizador_orden_items').select('tipo,descripcion,cantidad,precio_unitario,monto_total').eq('orden_id', ord.id)
+          fact = its || []
+        }
+      }
+      renderDetalleSeg(prof, cot, fact, factNum)
+    } catch (e) { console.error('[cotizador detalle seg]', e); $('det-body').innerHTML = '<div style="color:var(--red,#f85149);text-align:center;padding:20px">Error al cargar</div>' }
+  }
+
+  function renderDetalleSeg (prof, cot, fact, factNum) {
+    const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
+    const factSet = fact.map(f => norm(f.descripcion))
+    const estaFacturado = (desc) => { const d = norm(desc); return factSet.some(f => f === d || f.includes(d) || d.includes(f)) }
+    const totCot = Number(prof.total) || cot.reduce((a, it) => a + it.precio * it.cantidad * (1 + (it.isv || 0) / 100), 0)
+    const totFact = fact.reduce((a, f) => a + (Number(f.monto_total) || 0), 0)
+    const noFactCount = cot.filter(it => !estaFacturado(it.desc)).length
+    const cotRows = cot.map(it => {
+      const ok = estaFacturado(it.desc)
+      return `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);${ok ? '' : 'background:rgba(248,81,73,.06)'}">
+        <div style="font-size:12px;min-width:0">${esc(String(it.desc).toUpperCase())}${ok ? '' : ' <span class="ped-badge" style="background:rgba(248,81,73,.15);color:var(--red,#f85149)">no facturado</span>'}</div>
+        <div style="font-size:12px;white-space:nowrap;color:var(--text3,#8b949e)">${fmt(it.cantidad)} × L.${fmt(it.precio)}</div></div>`
+    }).join('')
+    const factRows = fact.length ? fact.map(f => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#2a3340)">
+        <div style="font-size:12px;min-width:0">${esc(String(f.descripcion).toUpperCase())}</div>
+        <div style="font-size:12px;white-space:nowrap;color:var(--text3,#8b949e)">${fmt(f.cantidad)} · L.${fmt(f.monto_total)}</div></div>`).join('')
+      : '<div style="color:var(--text3,#8b949e);padding:10px;text-align:center">Sin factura vinculada todavía.</div>'
+    const pend = totCot - totFact
+    $('det-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:4px">COTIZADO · L. ${fmt(totCot)}</div>
+          ${cotRows || '<div style="color:var(--text3,#8b949e)">—</div>'}
+        </div>
+        <div>
+          <div style="font-weight:700;color:var(--green,#16a34a);margin-bottom:4px">FACTURADO${factNum ? ' · Fact #' + esc(factNum) : ''} · L. ${fmt(totFact)}</div>
+          ${factRows}
+        </div>
+      </div>
+      <div style="margin-top:14px;padding:10px 14px;border-radius:8px;background:var(--bg3,#1c2333);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span style="color:var(--red,#f85149);font-weight:700">${noFactCount} ítem(s) cotizados no aparecen en la factura</span>
+        <span style="font-weight:700">Pendiente: L. ${fmt(pend)}</span>
+      </div>`
   }
 
   function exportSeguimiento () {
@@ -1592,7 +1725,7 @@
     }
   }
 
-  const CFG_MAP = { 'cfg-nombre': 'nombre_comercial', 'cfg-rtn': 'rtn', 'cfg-tel': 'telefono', 'cfg-email': 'email', 'cfg-dir': 'direccion', 'cfg-cai': 'cai', 'cfg-rdesde': 'rango_desde', 'cfg-rhasta': 'rango_hasta', 'cfg-flimite': 'fecha_limite', 'cfg-vig': 'vigencia_dias', 'cfg-terminos': 'terminos', 'cfg-garantia': 'garantia' }
+  const CFG_MAP = { 'cfg-nombre': 'nombre_comercial', 'cfg-rtn': 'rtn', 'cfg-tel': 'telefono', 'cfg-email': 'email', 'cfg-dir': 'direccion', 'cfg-cai': 'cai', 'cfg-rdesde': 'rango_desde', 'cfg-rhasta': 'rango_hasta', 'cfg-flimite': 'fecha_limite', 'cfg-vig': 'vigencia_dias', 'cfg-terminos': 'terminos', 'cfg-garantia': 'garantia', 'cfg-aj3': 'aj_3', 'cfg-aj6': 'aj_6', 'cfg-aj12': 'aj_12' }
 
   async function fillConfigForm () {
     await loadConfig()
@@ -1611,6 +1744,7 @@
     const data = {}
     Object.keys(CFG_MAP).forEach(id => { const el = $(id); if (el) data[CFG_MAP[id]] = el.value })
     data.vigencia_dias = num($('cfg-vig').value) || 30
+    data.aj_3 = num($('cfg-aj3').value); data.aj_6 = num($('cfg-aj6').value); data.aj_12 = num($('cfg-aj12').value)
     const btn = $('cfg-guardar'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Guardando...'
     try {
       const { data: upd, error } = await sb().from('cotizador_config').update({ data, updated_at: new Date().toISOString() }).eq('id', 1).select('id')
