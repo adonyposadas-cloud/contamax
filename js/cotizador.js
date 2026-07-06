@@ -32,6 +32,7 @@
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
   let _editIdx = null        // índice del ítem manual en edición (null = agregar nuevo)
+  let _editOrigDesc = null    // descripción original al abrir el editor (para corregir en base)
   const costCache = {}       // nombre_norm -> [{proveedor,costo,fecha}]
   let VEH = null             // { marcas:[], byMarca:{ MARCA:{ MODELO:{label,anios:Set} } } }
   let CATV = null            // catálogo maestro: { marcas:[{marca,marca_norm,activo,orden}], modelos:{ MARCA_NORM:[{modelo,modelo_norm,activo}] } }
@@ -502,6 +503,7 @@
           <div class="fld"><label>Cantidad</label><input id="cm-cant" class="cot-in" type="number" value="1" min="0.01" step="0.01"></div>
         </div>
         <div class="fld" style="margin-top:10px"><label>Descripción</label><input id="cm-desc" class="cot-in" style="text-transform:uppercase"></div>
+        <div class="fld" style="margin-top:10px"><label>Código (opcional)</label><input id="cm-codigo" class="cot-in" placeholder="Ej: AAA, 10, 20…" style="text-transform:uppercase"></div>
         <div id="cm-prod-fields">
           <div class="form-grid" style="margin-top:10px">
             <div class="fld"><label>Costo (precio de compra)</label><input id="cm-costo" class="cot-in" type="number" value="0" min="0" step="0.01"></div>
@@ -513,6 +515,10 @@
           <div class="fld"><label>ISV %</label><input id="cm-isv" class="cot-in" type="number" value="15" min="0" step="1"></div>
         </div>
         <div id="cm-conisv" style="font-size:11px;color:var(--text3,#8b949e);margin-top:6px"></div>
+        <div id="cm-fixbase-wrap" style="display:none;margin-top:10px;padding:8px 10px;border-radius:6px;background:var(--bg3,#1c2333);border:1px solid var(--border,#2a3340)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;color:var(--text,#e6edf3)"><input type="checkbox" id="cm-fixbase"> Corregir esta descripción en toda la base (todas las órdenes)</label>
+          <div id="cm-fixbase-count" style="font-size:11px;color:var(--text3,#8b949e);margin-top:4px"></div>
+        </div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
           <button class="btn btn-ghost" id="cm-cancel">Cancelar</button>
           <button class="btn btn-gold" id="cm-add">Agregar</button>
@@ -1375,13 +1381,17 @@
   // ── Manual con % de utilidad (réplica de calcVenta/recalcGan del Sheets) ──
   function abrirManual () {
     _editIdx = null
+    _editOrigDesc = null
     $('cm-tipo').value = 'p'
     $('cm-cant').value = '1'
     $('cm-desc').value = ''
+    $('cm-codigo').value = ''
     $('cm-costo').value = '0'
     $('cm-gan').value = String(getGanDefault())   // default configurable
     $('cm-precio').value = '0'
     $('cm-isv').value = '15'
+    if ($('cm-fixbase-wrap')) $('cm-fixbase-wrap').style.display = 'none'
+    if ($('cm-fixbase')) $('cm-fixbase').checked = false
     $('cot-modal-man').querySelector('.modal-title').textContent = 'Agregar ítem manual'
     $('cm-add').textContent = 'Agregar'
     toggleTipoManual()
@@ -1390,12 +1400,14 @@
     setTimeout(() => $('cm-desc').focus(), 120)
   }
 
-  function editarManual (i) {
-    const it = PF.items[i]; if (!it || it.deOrden) return   // solo manuales
+  async function editarManual (i) {
+    const it = PF.items[i]; if (!it) return   // ahora edita cualquier línea (manual o de historial)
     _editIdx = i
+    _editOrigDesc = it.desc
     $('cm-tipo').value = it.tipo
     $('cm-cant').value = it.cantidad
     $('cm-desc').value = it.desc
+    $('cm-codigo').value = it.codigo || ''
     $('cm-costo').value = it.costo || 0
     $('cm-gan').value = it.ganancia || getGanDefault()
     $('cm-precio').value = it.precio
@@ -1404,6 +1416,21 @@
     $('cm-add').textContent = 'Guardar cambios'
     toggleTipoManual()
     updConISV()
+    // Corrección en base: solo super_admin y solo para ítems que vienen del historial
+    const wrap = $('cm-fixbase-wrap'); const esHist = !!it.deOrden
+    if (wrap) {
+      if (ES_SUPER && esHist) {
+        wrap.style.display = ''
+        if ($('cm-fixbase')) $('cm-fixbase').checked = false
+        $('cm-fixbase-count').textContent = 'Contando ocurrencias…'
+        sb().from('cotizador_orden_items').select('*', { count: 'exact', head: true }).ilike('descripcion', escLike(it.desc))
+          .then(({ count }) => { $('cm-fixbase-count').textContent = count != null ? `Aparece en ${count} línea(s) de órdenes.` : '' })
+          .catch(() => { $('cm-fixbase-count').textContent = '' })
+      } else {
+        wrap.style.display = 'none'
+        if ($('cm-fixbase')) $('cm-fixbase').checked = false
+      }
+    }
     $('cot-modal-man').classList.add('open')
     setTimeout(() => $('cm-desc').focus(), 120)
   }
@@ -1426,27 +1453,53 @@
     $('cm-conisv').textContent = v > 0 ? `Con ISV ${isv}%: L. ${fmt(v * (1 + isv / 100))}` : ''
   }
 
-  function addManual () {
+  async function addManual () {
     const desc = $('cm-desc').value.trim().toUpperCase()
     if (!desc) { toast('Escribí una descripción', 'error'); return }
     const precio = num($('cm-precio').value)
     if (!precio) { toast('Ingresá el precio', 'error'); return }
     const tipo = $('cm-tipo').value
-    const item = {
-      tipo, desc, cantidad: num($('cm-cant').value) || 1,
+    const editando = _editIdx != null && PF.items[_editIdx]
+    const orig = editando ? PF.items[_editIdx] : null
+    const patch = {
+      tipo, desc, codigo: ($('cm-codigo').value || '').trim().toUpperCase(),
+      cantidad: num($('cm-cant').value) || 1,
       precio, isv: num($('cm-isv').value),
       costo: tipo === 'p' ? num($('cm-costo').value) : 0,
-      ganancia: tipo === 'p' ? num($('cm-gan').value) : 0,
-      deOrden: '', ajuste: ''
+      ganancia: tipo === 'p' ? num($('cm-gan').value) : 0
     }
-    if (_editIdx != null && PF.items[_editIdx]) {
-      PF.items[_editIdx] = item; _editIdx = null
+    // Al editar preservamos deOrden/ajuste/prioridad y demás campos del ítem original
+    const item = editando ? Object.assign({}, orig, patch) : Object.assign({ deOrden: '', ajuste: '' }, patch)
+    // ¿Corregir también en toda la base? (super_admin · ítem de historial · descripción cambiada)
+    const quiereFix = $('cm-fixbase') && $('cm-fixbase').checked && ES_SUPER && orig && orig.deOrden
+    const descCambio = orig && String(_editOrigDesc || orig.desc).toUpperCase() !== desc
+    if (editando) {
+      const idx = _editIdx; _editIdx = null
+      PF.items[idx] = item
       $('cot-modal-man').classList.remove('open'); renderItems(); toast('Cambios guardados', 'success')
+      if (quiereFix && descCambio) await corregirEnBase(_editOrigDesc || (orig && orig.desc), desc)
     } else {
       PF.items.push(item)
       $('cot-modal-man').classList.remove('open'); renderItems()
       toast((tipo === 'p' ? 'Producto' : 'Servicio') + ' agregado', 'success')
     }
+    _editOrigDesc = null
+  }
+
+  // Corrige la descripción en toda la base (cotizador_orden_items) y la refleja
+  // en la cotización actual. Misma lógica que la corrección super_admin previa.
+  async function corregirEnBase (vieja, nueva) {
+    if (!vieja || !nueva) return
+    try {
+      const { data, error } = await sb().from('cotizador_orden_items')
+        .update({ descripcion: nueva }).ilike('descripcion', escLike(vieja)).select('id')
+      if (error) throw error
+      if (!data || !data.length) { toast('No se actualizó la base (revisá permisos)', 'error'); return }
+      const vU = String(vieja).toUpperCase()
+      PF.items.forEach(x => { if (String(x.desc).toUpperCase() === vU) x.desc = nueva })
+      renderItems()
+      toast(`Descripción corregida en ${data.length} línea(s) de la base`, 'success')
+    } catch (e) { console.error('[cotizador corregir base]', e); toast('Error al corregir en base: ' + (e.message || e), 'error') }
   }
 
   // ── Corregir descripción en la base (super_admin) ──
@@ -1503,11 +1556,10 @@
     const grpTitle = (t) => `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 2px">${t}</div>`
     const rowHTML = ({ it, i }) => {
       const total = it.precio * it.cantidad * (1 + (it.isv || 0) / 100)
-      const esManual = !it.deOrden
       const p = getPrioridad(it)
       return `<div class="cot-row">
         <div>
-          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${esc(String(it.desc).toUpperCase())}${esManual ? ` <button data-edit="${i}" title="Editar descripción/precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button>` : (ES_SUPER ? ` <button data-fixdesc="${i}" title="Corregir esta descripción en la base (todas las órdenes)" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">✏</button>` : '')} <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
+          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${esc(String(it.desc).toUpperCase())} <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
