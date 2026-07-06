@@ -27,7 +27,7 @@
   const PRIO_ORD = { crit: 0, rec: 1, prev: 2 }
 
   // ── Estado de la proforma en curso ──
-  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anio: '', descuento: 0, notas: '', items: [] }
+  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
   let modalTipo = 'p'        // 'p' productos | 's' servicios
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
@@ -255,10 +255,10 @@
             <div class="ac-list" id="cot-mo-ac" style="display:none"></div>
           </div>
         </div>
-        <div class="fld"><label>Año</label>
-          <div class="cot-ac-wrap">
-            <input id="cot-anio" class="cot-in" placeholder="Escribí o elegí…" autocomplete="off">
-            <div class="ac-list" id="cot-anio-ac" style="display:none"></div>
+        <div class="fld"><label>Años (generación — para filtrar repuestos)</label>
+          <div style="display:flex;gap:8px">
+            <input id="cot-anio-desde" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:50%">
+            <input id="cot-anio-hasta" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:50%">
           </div>
         </div>
       </div>
@@ -279,7 +279,7 @@
           <span>⚙ Ganancia default (productos manuales):</span>
           <input id="cot-gan-def" class="cot-in" type="number" style="width:74px" value="30" min="0" step="0.5"><span>%</span>
           <span style="color:var(--text3,#8b949e)">— se aplica al agregar; siempre editable por producto.</span>
-          <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;color:var(--gold,#c8a24a);font-weight:600"><input type="checkbox" id="cot-ver-costos" style="cursor:pointer"> 👁 Mostrar costos/proveedores</label>
+          <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none;color:var(--gold,#c8a24a);font-weight:600" title="Ver/ocultar"><input type="checkbox" id="cot-ver-costos" style="cursor:pointer"> 👁</label>
         </div>
         <div id="cot-items-body"><div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Sin ítems. Buscá en órdenes o agregá manual.</div></div>
       </div>
@@ -611,8 +611,9 @@
     $('cot-btn-nueva').addEventListener('click', nuevaProforma)
     $('cot-recnew').addEventListener('click', nuevaProforma)
     acSetup('cot-ma', 'cot-ma-ac', itemsMarca, v => { PF.marca = v.toUpperCase(); updVehHint() })
-    acSetup('cot-mo', 'cot-mo-ac', itemsModelo, v => { PF.modelo = v.toUpperCase(); updVehHint() })
-    acSetup('cot-anio', 'cot-anio-ac', itemsAnio, v => { PF.anio = v.toUpperCase(); updVehHint() })
+    acSetup('cot-mo', 'cot-mo-ac', itemsModelo, v => { PF.modelo = v.toUpperCase(); autoRangoAnios(); updVehHint() })
+    const dsd = $('cot-anio-desde'); if (dsd) dsd.addEventListener('input', () => { PF.anioDesde = dsd.value.replace(/\D/g, ''); updVehHint() })
+    const hst = $('cot-anio-hasta'); if (hst) hst.addEventListener('input', () => { PF.anioHasta = hst.value.replace(/\D/g, ''); updVehHint() })
 
     $('cot-buscar-prod').addEventListener('click', () => abrirBusq('p'))
     $('cot-buscar-serv').addEventListener('click', () => abrirBusq('s'))
@@ -733,9 +734,24 @@
     })
   }
 
+  function rangoTxt () { const d = PF.anioDesde || ''; const h = PF.anioHasta || ''; return (d || h) ? (d && h ? `${d}–${h}` : (d ? `${d}→` : `→${h}`)) : '' }
+
   function updVehHint () {
-    const t = [PF.marca, PF.modelo, PF.anio].filter(Boolean).join(' ')
+    const t = [PF.marca, PF.modelo, rangoTxt()].filter(Boolean).join(' ')
     $('cot-veh-hint').textContent = t ? `🚗 Filtrando búsquedas para: ${t}` : ''
+  }
+
+  // Sugiere el rango de años (generación) según lo que ya se cotizó de esa marca+modelo
+  function autoRangoAnios () {
+    if (!VEH || !PF.marca || !PF.modelo) return
+    const info = (VEH.byMarca[PF.marca] || {})[PF.modelo]
+    if (!info || !info.anios || !info.anios.size) return
+    const anios = [...info.anios].map(a => parseInt(a, 10)).filter(a => a > 1950 && a < 2100).sort((a, b) => a - b)
+    if (!anios.length) return
+    const dsd = $('cot-anio-desde'); const hst = $('cot-anio-hasta')
+    // solo autocompleta si están vacíos (no pisa lo que el usuario ya escribió)
+    if (dsd && !dsd.value) { dsd.value = String(anios[0]); PF.anioDesde = String(anios[0]) }
+    if (hst && !hst.value) { hst.value = String(anios[anios.length - 1]); PF.anioHasta = String(anios[anios.length - 1]) }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -744,7 +760,7 @@
   function abrirBusq (tipo) {
     modalTipo = tipo
     $('cot-modal-title').textContent = tipo === 'p' ? 'Buscar producto en órdenes' : 'Buscar servicio en órdenes'
-    const veh = [PF.marca, PF.modelo, PF.anio].filter(Boolean).join(' ')
+    const veh = [PF.marca, PF.modelo, rangoTxt()].filter(Boolean).join(' ')
     $('cot-modal-hint').textContent = veh ? `Filtrando para: ${veh}` : 'Sin filtro de vehículo — se busca en todo el histórico'
     $('cot-q').value = ''
     $('cot-res').innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Escribí para buscar...</div>'
@@ -757,7 +773,7 @@
     if (!q || q.length < 2) { res.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Escribí al menos 2 letras...</div>'; return }
     res.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Buscando...</div>'
     const term = q.replace(/[%,]/g, ' ').trim()
-    const useVeh = PF.marca || PF.modelo || PF.anio
+    const useVeh = PF.marca || PF.modelo || PF.anioDesde || PF.anioHasta
     try {
       let query = sb().from('cotizador_orden_items')
         .select('descripcion,cantidad,precio_unitario,tipo,cotizador_ordenes' + (useVeh ? '!inner' : '') + '(id,numero_orden,marca,modelo,anio,fecha_creacion,cliente)')
@@ -766,7 +782,8 @@
         .limit(60)
       if (PF.marca) query = query.ilike('cotizador_ordenes.marca', '%' + escLike(PF.marca) + '%')
       if (PF.modelo) query = query.ilike('cotizador_ordenes.modelo', '%' + escLike(PF.modelo) + '%')
-      if (PF.anio) query = query.eq('cotizador_ordenes.anio', PF.anio)
+      if (PF.anioDesde) query = query.gte('cotizador_ordenes.anio', PF.anioDesde)
+      if (PF.anioHasta) query = query.lte('cotizador_ordenes.anio', PF.anioHasta)
       const { data, error } = await query
       if (error) throw error
       const rows = (data || []).map(r => ({
@@ -1141,7 +1158,7 @@
     const payload = {
       vendedor: PF.vendedor || '', vendedor_id: prof ? prof.id : null,
       cliente: PF.cliente || '', placa: (PF.placa || '').toUpperCase(),
-      marca: PF.marca || '', modelo: PF.modelo || '', anio: PF.anio || '', kilometraje: PF.km || '',
+      marca: PF.marca || '', modelo: PF.modelo || '', anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'), kilometraje: PF.km || '',
       numero_orden: orden,
       items: PF.items, subtotal: t.subtotal, isv: t.isv, total: t.total,
       descuento: t.descPct, notas: PF.notas || '',
@@ -1195,12 +1212,13 @@
       PF = {
         id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente',
         vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '',
-        km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anio: data.anio || '',
+        km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
         items: Array.isArray(data.items) ? data.items : []
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa
-      $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo; $('cot-anio').value = PF.anio
+      $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo
+      $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
       $('cot-orden').value = PF.numero_orden
       $('cot-desc').value = PF.descuento; $('cot-notas').value = PF.notas
       $('cot-placa-ac').style.display = 'none'
@@ -1216,8 +1234,8 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anio: '', descuento: 0, notas: '', items: [] }
-    ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
+    ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
     $('cot-recban').style.display = 'none'
