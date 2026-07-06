@@ -56,7 +56,7 @@ function ykFecha(v) {
 
 const ykR2 = v => Math.round((parseFloat(v) || 0) * 100) / 100
 
-const YK_TABS = [['imp', 'yk-tab-imp'], ['rep', 'yk-tab-rep'], ['dev', 'yk-tab-dev'], ['exp', 'yk-tab-exp'], ['cot', 'yk-tab-cot']]
+const YK_TABS = [['imp', 'yk-tab-imp'], ['rep', 'yk-tab-rep'], ['dev', 'yk-tab-dev'], ['exp', 'yk-tab-exp'], ['cot', 'yk-tab-cot'], ['gen', 'yk-tab-gen']]
 function ykPerms() {
   let esSuper = false, permisos = []
   try { const p = window._currentProfile?.(); esSuper = p?.rol === 'super_admin'; permisos = Array.isArray(p?.permisos_modulos) ? p.permisos_modulos : [] } catch (e) { /* sin perfil */ }
@@ -89,6 +89,7 @@ window.initYonker = async () => {
       <button class="yk-tab" id="yk-tab-dev" onclick="ykTab('dev')">Devoluciones</button>
       <button class="yk-tab" id="yk-tab-exp" onclick="ykTab('exp')">Explorar</button>
       <button class="yk-tab" id="yk-tab-cot" onclick="ykTab('cot')">Cotización</button>
+      <button class="yk-tab" id="yk-tab-gen" onclick="ykTab('gen')">Generaciones</button>
     </div>
     <div id="yk-pane"></div>`
   const primera = ykAplicarPermisos() || 'imp'
@@ -96,16 +97,18 @@ window.initYonker = async () => {
 }
 
 window.ykTab = (which) => {
-  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp'), tc = document.getElementById('yk-tab-cot')
+  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp'), tc = document.getElementById('yk-tab-cot'), tg = document.getElementById('yk-tab-gen')
   if (ti) ti.classList.toggle('active', which === 'imp')
   if (tr) tr.classList.toggle('active', which === 'rep')
   if (td) td.classList.toggle('active', which === 'dev')
   if (te) te.classList.toggle('active', which === 'exp')
   if (tc) tc.classList.toggle('active', which === 'cot')
+  if (tg) tg.classList.toggle('active', which === 'gen')
   if (which === 'rep') ykRenderReportes()
   else if (which === 'dev') ykRenderDevoluciones()
   else if (which === 'exp') ykRenderExplorar()
   else if (which === 'cot') ykRenderCotizar()
+  else if (which === 'gen') ykRenderGeneraciones()
   else ykRenderImport()
 }
 
@@ -1092,11 +1095,14 @@ let ykCotUniTimer = null
 function ykRenderCotizar() {
   const pane = document.getElementById('yk-pane')
   if (!pane) return
+  ykLoadGeneraciones(); ykLoadCompat()
   pane.innerHTML = `
     <div class="page-sub">Consultá a qué precio se ha vendido una pieza. Elegí marca/modelo/año, escribí la pieza (ej. "tijera", "amortiguador") y, si querés, refiná con una sub-palabra. La búsqueda tolera errores de tipeo.</div>
     <div class="yk-ctrl" style="margin:14px 0;align-items:flex-end">
       <div class="fld"><label>Marca</label><select id="yk-cot-mar" style="width:150px" onchange="ykCotMarcaChange()"><option value="">(todas)</option></select></div>
-      <div class="fld"><label>Modelo</label><select id="yk-cot-mod" style="width:160px" onchange="ykCotYearsUpdate(false)"><option value="">(todos)</option></select></div>
+      <div class="fld"><label>Modelo</label><select id="yk-cot-mod" style="width:160px" onchange="ykCotYearsUpdate(false);ykOnAnioVeh()"><option value="">(todos)</option></select></div>
+      <div class="fld"><label>Año del vehículo</label><input id="yk-cot-anioveh" type="text" inputmode="numeric" maxlength="4" style="width:90px" placeholder="ej. 2014" oninput="this.value=this.value.replace(/\D/g,'');ykOnAnioVeh()"></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykAbrirDetalle()" title="Tracción / combustible / grupo">➕ Detalle</button></div>
       <div class="fld"><label>Año desde</label><select id="yk-cot-ad" style="width:95px" onchange="ykUnidadesPanel('yk-cot')"><option value="">—</option></select></div>
       <div class="fld"><label>Año hasta</label><select id="yk-cot-ah" style="width:95px" onchange="ykUnidadesPanel('yk-cot')"><option value="">—</option></select></div>
       <div class="fld"><label>Pieza</label><input id="yk-cot-pza" type="text" style="width:160px" placeholder="ej. tijera" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
@@ -1106,6 +1112,7 @@ function ykRenderCotizar() {
       <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykCotizar()">💵 Cotizar</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykCotLimpiar()">Limpiar</button></div>
     </div>
+    <div id="yk-cot-genhint" style="font-size:12px;margin:-6px 0 8px;min-height:16px"></div><span id="yk-cot-detresumen" style="color:var(--gold,#d4af37);font-size:12px"></span>
     ${ykPuedeCotizaciones() ? `<div style="margin:-4px 0 10px;display:flex;gap:8px">
       <button class="btn btn-ghost" onclick="ykCotAgregar()">➕ Agregar cotización histórica</button>
       <button class="btn btn-ghost" onclick="ykCotGestionar()">📋 Cotizaciones guardadas</button>
@@ -1143,17 +1150,290 @@ window.ykCotMarcaChange = () => {
   sel.innerHTML = '<option value="">(todos)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
   sel.value = modelos.includes(actual) ? actual : ''
   ykCotYearsUpdate()
+  ykOnAnioVeh()
   if (window.ykUnidadesPanel) ykUnidadesPanel('yk-cot')
 }
 window.ykCotLimpiar = () => {
   const mar = document.getElementById('yk-cot-mar'); if (mar) mar.value = ''
   const mod = document.getElementById('yk-cot-mod'); if (mod) mod.value = ''
-  ;['yk-cot-pza', 'yk-cot-sub', 'yk-cot-pmin', 'yk-cot-pmax'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+  ;['yk-cot-anioveh', 'yk-cot-pza', 'yk-cot-sub', 'yk-cot-pmin', 'yk-cot-pmax'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+  const gh = document.getElementById('yk-cot-genhint'); if (gh) gh.textContent = ''
+  ykDetalle = { traccion: '', combustible: '', grupo: '' }
+  const dr = document.getElementById('yk-cot-detresumen'); if (dr) dr.textContent = ''
   if (window.ykCotMarcaChange) ykCotMarcaChange()
   const c = document.getElementById('yk-cot-cards'); if (c) c.innerHTML = ''
   const r = document.getElementById('yk-cot-result'); if (r) r.innerHTML = '<div class="page-sub">Indicá marca/modelo/año o una pieza, y tocá Cotizar.</div>'
 }
+// ── Generaciones (misma tabla que el Cotizador) — autollena Año desde/hasta por el año del vehículo ──
+let ykGEN = {}
+const ykNorm = s => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
+async function ykLoadGeneraciones() {
+  try {
+    const { data } = await ykSb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta,traccion,combustible,grupo_repuesto')
+    ykGEN = {}
+    ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (ykGEN[k] = ykGEN[k] || []).push({ marca: r.marca, modelo: r.modelo, desde: r.anio_desde, hasta: r.anio_hasta, tr: r.traccion || '', co: r.combustible || '', gr: r.grupo_repuesto || '' }) })
+  } catch (e) { console.error('[yk gen load]', e) }
+}
+let ykLISTAS = { traccion: [], combustible: [], grupo: [] }
+let ykPALABRAS = {}
+let ykCORREC = {}
+let ykDetalle = { traccion: '', combustible: '', grupo: '' }
+async function ykLoadCompat() {
+  try {
+    const [l, p, c] = await Promise.all([
+      ykSb().from('cotizador_listas').select('tipo,valor,orden').order('orden', { ascending: true }),
+      ykSb().from('grupo_palabras').select('palabra_norm,grupo'),
+      ykSb().from('correcciones_texto').select('mal_norm,bien')
+    ])
+    ykLISTAS = { traccion: [], combustible: [], grupo: [] }
+    ;(l.data || []).forEach(r => { if (ykLISTAS[r.tipo]) ykLISTAS[r.tipo].push(r.valor) })
+    ykPALABRAS = {}; (p.data || []).forEach(r => { ykPALABRAS[r.palabra_norm] = r.grupo })
+    ykCORREC = {}; (c.data || []).forEach(r => { ykCORREC[r.mal_norm] = r.bien })
+  } catch (e) { console.error('[yk compat]', e) }
+}
+function ykAutocorregir(txt) { return String(txt || '').split(/(\s+)/).map(w => ykCORREC[ykNorm(w)] || w).join('') }
+function ykDetectarGen(marca, modelo, anio) {
+  const a = parseInt(anio, 10); if (!a) return null
+  const list = ykGEN[ykNorm(marca) + '|' + ykNorm(modelo)] || []
+  const tr = ykDetalle.traccion || '', co = ykDetalle.combustible || '', gr = ykDetalle.grupo || ''
+  const aplican = list.filter(g => a >= g.desde && a <= g.hasta && (!g.tr || g.tr === tr) && (!g.co || g.co === co) && (!g.gr || g.gr === gr))
+  if (!aplican.length) return null
+  aplican.sort((x, y) => { const sx = (x.tr ? 1 : 0) + (x.co ? 1 : 0) + (x.gr ? 1 : 0); const sy = (y.tr ? 1 : 0) + (y.co ? 1 : 0) + (y.gr ? 1 : 0); if (sy !== sx) return sy - sx; return (y.hasta - y.desde) - (x.hasta - x.desde) })
+  return aplican[0]
+}
+function ykEnsureOption(sel, val) {
+  if (!sel || !val) return
+  const v = String(val)
+  if (![...sel.options].some(o => o.value === v)) { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o) }
+}
+window.ykOnAnioVeh = () => {
+  const av = document.getElementById('yk-cot-anioveh'); const anio = av ? av.value.replace(/\D/g, '') : ''
+  const marca = document.getElementById('yk-cot-mar')?.value || ''
+  const modelo = document.getElementById('yk-cot-mod')?.value || ''
+  const hint = document.getElementById('yk-cot-genhint')
+  if (!anio || !marca || !modelo) { if (hint) hint.textContent = ''; return }
+  const gen = ykDetectarGen(marca, modelo, anio)
+  const ad = document.getElementById('yk-cot-ad'); const ah = document.getElementById('yk-cot-ah')
+  if (gen) {
+    ykEnsureOption(ad, gen.desde); ykEnsureOption(ah, gen.hasta)
+    if (ad) ad.value = String(gen.desde); if (ah) ah.value = String(gen.hasta)
+    if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${gen.desde}–${gen.hasta} (año ${anio}) — cotizando repuestos de toda la generación.` }
+    if (window.ykUnidadesPanel) ykUnidadesPanel('yk-cot')
+  } else {
+    if (hint) { hint.style.color = '#e0a800'; hint.textContent = `⚠ No hay generación para ${marca} ${modelo} ${anio}. Elegí Año desde/hasta y se guardará al cotizar.` }
+  }
+}
+window.ykGuardarGenSiFalta = async () => {
+  const av = document.getElementById('yk-cot-anioveh'); const anio = av ? av.value.replace(/\D/g, '') : ''
+  const marca = document.getElementById('yk-cot-mar')?.value || ''
+  const modelo = document.getElementById('yk-cot-mod')?.value || ''
+  if (!anio || !marca || !modelo || ykDetectarGen(marca, modelo, anio)) return
+  const d = parseInt(document.getElementById('yk-cot-ad')?.value || '', 10)
+  const h = parseInt(document.getElementById('yk-cot-ah')?.value || '', 10)
+  if (!d || !h || h < d) return
+  try {
+    const prof = window._currentProfile?.()
+    await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+    await ykLoadGeneraciones()
+    const hint = document.getElementById('yk-cot-genhint'); if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${d}–${h} guardada para ${marca} ${modelo}.` }
+  } catch (e) { console.error('[yk gen save]', e) }
+}
+
+// ── Pestaña Generaciones (misma tabla que el Cotizador) ──
+const ykEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+async function ykRenderGeneraciones() {
+  const pane = document.getElementById('yk-pane'); if (!pane) return
+  await Promise.all([ykLoadGeneraciones(), ykLoadCompat()])
+  const opt = arr => '<option value="">(cualquiera)</option>' + arr.map(v => `<option value="${ykEsc(v)}">${v}</option>`).join('')
+  pane.innerHTML = `
+    <div class="page-sub">Reglas de compatibilidad por generación (marca/modelo/años + tracción/combustible/grupo). Se comparten con el Cotizador.</div>
+    <div class="yk-card" style="margin:12px 0;padding:14px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px">
+      <div class="yk-ctrl" style="align-items:flex-end;flex-wrap:wrap;gap:8px">
+        <div class="fld"><label>Marca</label><input id="yk-gen-ma" style="width:120px;text-transform:uppercase"></div>
+        <div class="fld"><label>Modelo</label><input id="yk-gen-mo" style="width:120px;text-transform:uppercase"></div>
+        <div class="fld"><label>Desde</label><input id="yk-gen-d" style="width:72px" inputmode="numeric" maxlength="4"></div>
+        <div class="fld"><label>Hasta</label><input id="yk-gen-h" style="width:72px" inputmode="numeric" maxlength="4"></div>
+        <div class="fld"><label>Tracción</label><select id="yk-gen-tr" style="width:100px">${opt(ykLISTAS.traccion)}</select></div>
+        <div class="fld"><label>Combustible</label><select id="yk-gen-co" style="width:110px">${opt(ykLISTAS.combustible)}</select></div>
+        <div class="fld"><label>Grupo</label><select id="yk-gen-gr" style="width:120px">${opt(ykLISTAS.grupo)}</select></div>
+        <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykGenAdd()">+ Agregar</button></div>
+      </div>
+      <input id="yk-gen-q" style="width:100%;text-transform:uppercase;margin-top:10px" placeholder="🔍 buscar marca/modelo" oninput="ykGenRenderList()">
+      <div id="yk-gen-list" style="margin-top:8px"></div>
+    </div>
+    <div class="yk-card" style="margin:12px 0;padding:14px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px">
+      <b style="color:var(--gold,#d4af37)">🔧 Listas (opciones de los desplegables)</b>
+      <div class="yk-ctrl" style="align-items:flex-end;margin-top:8px;gap:8px">
+        <div class="fld"><select id="yk-lista-tipo" style="width:130px"><option value="traccion">Tracción</option><option value="combustible">Combustible</option><option value="grupo">Grupo</option></select></div>
+        <div class="fld"><input id="yk-lista-val" style="width:150px;text-transform:uppercase" placeholder="Nuevo valor"></div>
+        <div class="fld"><button class="btn btn-gold" onclick="ykListaAdd()">+ Agregar</button></div>
+      </div>
+      <div id="yk-lista-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+    </div>
+    <div class="yk-card" style="margin:12px 0;padding:14px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px">
+      <b style="color:var(--gold,#d4af37)">📖 Diccionario pieza → grupo</b>
+      <div class="yk-ctrl" style="align-items:flex-end;margin-top:8px;gap:8px">
+        <div class="fld"><input id="yk-pal-palabra" style="width:150px;text-transform:uppercase" placeholder="Pieza (CALIPER)"></div>
+        <div class="fld"><select id="yk-pal-grupo" style="width:140px">${ykLISTAS.grupo.map(v => `<option value="${ykEsc(v)}">${v}</option>`).join('')}</select></div>
+        <div class="fld"><button class="btn btn-gold" onclick="ykPalAdd()">+ Agregar</button></div>
+        <div class="fld"><input id="yk-pal-q" style="width:130px;text-transform:uppercase" placeholder="🔍 buscar" oninput="ykPalRender()"></div>
+      </div>
+      <div id="yk-pal-list" style="max-height:200px;overflow:auto;margin-top:8px"></div>
+    </div>
+    <div class="yk-card" style="margin:12px 0;padding:14px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px">
+      <b style="color:var(--gold,#d4af37)">✏️ Autocorrector (mal → bien)</b>
+      <div class="yk-ctrl" style="align-items:flex-end;margin-top:8px;gap:8px">
+        <div class="fld"><input id="yk-cor-mal" style="width:150px;text-transform:uppercase" placeholder="Mal (FRICSION)"></div>
+        <div class="fld"><input id="yk-cor-bien" style="width:150px;text-transform:uppercase" placeholder="Bien (FRICCION)"></div>
+        <div class="fld"><button class="btn btn-gold" onclick="ykCorAdd()">+ Agregar</button></div>
+      </div>
+      <div id="yk-cor-list" style="max-height:180px;overflow:auto;margin-top:8px"></div>
+    </div>`
+  ykGenRenderList(); ykListaRender(); ykPalRender(); ykCorRender()
+}
+window.ykGenRenderList = () => {
+  const cont = document.getElementById('yk-gen-list'); if (!cont) return
+  const t = (document.getElementById('yk-gen-q')?.value || '').toUpperCase()
+  const rows = []
+  Object.keys(ykGEN).forEach(k => ykGEN[k].forEach(g => rows.push(g)))
+  rows.sort((a, b) => (a.marca + a.modelo).localeCompare(b.marca + b.modelo) || a.desde - b.desde)
+  const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo + ' ' + (g.tr || '') + ' ' + (g.gr || '')).toUpperCase().includes(t))
+  const sup = ykEsSuper()
+  cont.innerHTML = list.length ? list.map(g => {
+    const specs = [g.tr, g.co, g.gr].filter(Boolean)
+    const badge = specs.length ? `<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(ykEsc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#888)">general</span>'
+    const del = sup ? `<span class="yk-gen-del" data-ma="${ykEsc(g.marca)}" data-mo="${ykEsc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${ykEsc(g.tr || '')}" data-co="${ykEsc(g.co || '')}" data-gr="${ykEsc(g.gr || '')}" onclick="ykGenDel(this)" style="cursor:pointer;color:#e05353">🗑</span>` : ''
+    return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#3a3a3a)"><div style="flex:1;font-size:13px"><b>${ykEsc(g.marca)} ${ykEsc(g.modelo)}</b> ${badge}</div><div style="font-family:monospace;color:var(--gold,#d4af37);font-weight:700">${g.desde}–${g.hasta}</div>${del}</div>`
+  }).join('') : '<div style="color:var(--text3,#888);padding:10px">Sin reglas. Agregá una arriba.</div>'
+}
+window.ykGenAdd = async () => {
+  const v = id => (document.getElementById(id)?.value || '').trim()
+  const ma = v('yk-gen-ma').toUpperCase(), mo = v('yk-gen-mo').toUpperCase()
+  const d = parseInt(v('yk-gen-d').replace(/\D/g, ''), 10), h = parseInt(v('yk-gen-h').replace(/\D/g, ''), 10)
+  const tr = v('yk-gen-tr'), co = v('yk-gen-co'), gr = v('yk-gen-gr')
+  if (!ma || !mo || !d || !h) { window.toast?.('Completá marca, modelo, desde y hasta', 'error'); return }
+  if (h < d) { window.toast?.('El "hasta" no puede ser menor que el "desde"', 'error'); return }
+  try {
+    const prof = window._currentProfile?.()
+    const { error } = await ykSb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: ykNorm(ma), modelo_norm: ykNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+    if (error) throw error
+    ;['yk-gen-ma', 'yk-gen-mo', 'yk-gen-d', 'yk-gen-h', 'yk-gen-tr', 'yk-gen-co', 'yk-gen-gr'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+    window.toast?.('Regla agregada', 'success'); await ykLoadGeneraciones(); ykGenRenderList()
+  } catch (e) { console.error('[yk gen add]', e); window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykGenDel = async (b) => {
+  if (!ykEsSuper()) { window.toast?.('Solo super_admin puede borrar', 'error'); return }
+  const ds = b.dataset
+  if (!confirm(`¿Borrar la regla ${ds.ma} ${ds.mo} ${ds.d}–${ds.h}?`)) return
+  try {
+    const { error } = await ykSb().from('modelo_generaciones').delete()
+      .eq('marca_norm', ykNorm(ds.ma)).eq('modelo_norm', ykNorm(ds.mo)).eq('anio_desde', parseInt(ds.d, 10)).eq('anio_hasta', parseInt(ds.h, 10))
+      .eq('traccion', ds.tr || '').eq('combustible', ds.co || '').eq('grupo_repuesto', ds.gr || '')
+    if (error) throw error
+    window.toast?.('Borrada', 'success'); await ykLoadGeneraciones(); ykGenRenderList()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykListaRender = async () => {
+  const cont = document.getElementById('yk-lista-list'); if (!cont) return
+  try {
+    const { data } = await ykSb().from('cotizador_listas').select('id,tipo,valor').order('tipo').order('orden')
+    const sup = ykEsSuper()
+    cont.innerHTML = (data || []).map(r => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg3,#232323);border:1px solid var(--border,#3a3a3a);border-radius:12px;padding:3px 10px;font-size:12px"><b style="color:var(--text3,#888);text-transform:uppercase;font-size:10px">${ykEsc(r.tipo)}</b> ${ykEsc(r.valor)}${sup ? ` <span onclick="ykListaDel('${r.id}')" style="cursor:pointer;color:#e05353">✕</span>` : ''}</span>`).join('') || '<span style="color:var(--text3,#888)">Sin valores</span>'
+  } catch (e) { cont.innerHTML = 'Error' }
+}
+window.ykListaAdd = async () => {
+  const tipo = document.getElementById('yk-lista-tipo')?.value; const valor = (document.getElementById('yk-lista-val')?.value || '').trim().toUpperCase()
+  if (!valor) { window.toast?.('Escribí un valor', 'error'); return }
+  try { const { error } = await ykSb().from('cotizador_listas').upsert({ tipo, valor, orden: 100 }, { onConflict: 'tipo,valor', ignoreDuplicates: true }); if (error) throw error; document.getElementById('yk-lista-val').value = ''; window.toast?.('Agregado', 'success'); await ykLoadCompat(); ykListaRender() } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykListaDel = async (id) => { if (!ykEsSuper()) { window.toast?.('Solo super_admin', 'error'); return } try { const { error } = await ykSb().from('cotizador_listas').delete().eq('id', id); if (error) throw error; await ykLoadCompat(); ykListaRender() } catch (e) { window.toast?.('Error', 'error') } }
+window.ykPalRender = async () => {
+  const cont = document.getElementById('yk-pal-list'); if (!cont) return
+  const t = (document.getElementById('yk-pal-q')?.value || '').toUpperCase()
+  try {
+    const { data } = await ykSb().from('grupo_palabras').select('id,palabra,palabra_norm,grupo').order('palabra')
+    const sup = ykEsSuper()
+    const list = (data || []).filter(r => !t || r.palabra_norm.includes(t) || (r.grupo || '').toUpperCase().includes(t))
+    cont.innerHTML = list.map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#3a3a3a);font-size:13px"><div style="flex:1"><b>${ykEsc(r.palabra)}</b> → <span style="color:#3b82f6">${ykEsc(r.grupo)}</span></div>${sup ? `<span onclick="ykPalDel('${r.id}')" style="cursor:pointer;color:#e05353">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#888);padding:8px">Sin palabras</div>'
+  } catch (e) { cont.innerHTML = 'Error' }
+}
+window.ykPalAdd = async () => {
+  const palabra = ykNorm(document.getElementById('yk-pal-palabra')?.value); const grupo = document.getElementById('yk-pal-grupo')?.value
+  if (!palabra) { window.toast?.('Escribí la pieza', 'error'); return }
+  if (!grupo) { window.toast?.('Elegí el grupo', 'error'); return }
+  try { const { error } = await ykSb().from('grupo_palabras').upsert({ palabra, palabra_norm: palabra, grupo }, { onConflict: 'palabra_norm', ignoreDuplicates: false }); if (error) throw error; document.getElementById('yk-pal-palabra').value = ''; ykPALABRAS[palabra] = grupo; window.toast?.('Agregada', 'success'); ykPalRender() } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykPalDel = async (id) => { if (!ykEsSuper()) { window.toast?.('Solo super_admin', 'error'); return } try { const { error } = await ykSb().from('grupo_palabras').delete().eq('id', id); if (error) throw error; await ykLoadCompat(); ykPalRender() } catch (e) { window.toast?.('Error', 'error') } }
+window.ykCorRender = async () => {
+  const cont = document.getElementById('yk-cor-list'); if (!cont) return
+  try {
+    const { data } = await ykSb().from('correcciones_texto').select('id,mal,bien').order('mal')
+    const sup = ykEsSuper()
+    cont.innerHTML = (data || []).map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#3a3a3a);font-size:13px"><div style="flex:1"><span style="color:#e05353">${ykEsc(r.mal)}</span> → <b style="color:#16a34a">${ykEsc(r.bien)}</b></div>${sup ? `<span onclick="ykCorDel('${r.id}')" style="cursor:pointer;color:#e05353">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#888);padding:8px">Sin correcciones</div>'
+  } catch (e) { cont.innerHTML = 'Error' }
+}
+window.ykCorAdd = async () => {
+  const mal = ykNorm(document.getElementById('yk-cor-mal')?.value); const bien = (document.getElementById('yk-cor-bien')?.value || '').trim().toUpperCase()
+  if (!mal || !bien) { window.toast?.('Completá mal y bien', 'error'); return }
+  try { const { error } = await ykSb().from('correcciones_texto').upsert({ mal, mal_norm: mal, bien }, { onConflict: 'mal_norm', ignoreDuplicates: false }); if (error) throw error; document.getElementById('yk-cor-mal').value = ''; document.getElementById('yk-cor-bien').value = ''; ykCORREC[mal] = bien; window.toast?.('Agregada', 'success'); ykCorRender() } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykCorDel = async (id) => { if (!ykEsSuper()) { window.toast?.('Solo super_admin', 'error'); return } try { const { error } = await ykSb().from('correcciones_texto').delete().eq('id', id); if (error) throw error; await ykLoadCompat(); ykCorRender() } catch (e) { window.toast?.('Error', 'error') } }
+
+// ── Modal "Detalle" (tracción/combustible/grupo/pieza) ──
+function ykOpts(arr, sel) { return '<option value="">(cualquiera)</option>' + (arr || []).map(v => `<option value="${String(v).replace(/"/g, '&quot;')}"${v === sel ? ' selected' : ''}>${v}</option>`).join('') }
+window.ykAbrirDetalle = () => {
+  const html = `
+    <div class="fld" style="margin-bottom:8px"><label>Tracción</label><select id="yk-det-tr" style="width:100%">${ykOpts(ykLISTAS.traccion, ykDetalle.traccion)}</select></div>
+    <div class="fld" style="margin-bottom:8px"><label>Combustible</label><select id="yk-det-co" style="width:100%">${ykOpts(ykLISTAS.combustible, ykDetalle.combustible)}</select></div>
+    <div class="fld" style="margin-bottom:8px"><label>Grupo de repuesto</label><select id="yk-det-gr" style="width:100%">${ykOpts(ykLISTAS.grupo, ykDetalle.grupo)}</select></div>
+    <div class="fld" style="margin-bottom:6px"><label>… o escribí la pieza (asigna el grupo solo)</label><input id="yk-det-pieza" style="width:100%;text-transform:uppercase" placeholder="ej. CALIPER" oninput="ykHintPieza()"></div>
+    <div id="yk-det-piezahint" style="font-size:12px;min-height:18px"></div>
+    <div style="display:flex;justify-content:space-between;margin-top:12px">
+      <button class="btn btn-ghost" onclick="this.closest('.yk-ov').remove()">Cancelar</button>
+      <button class="btn btn-gold" onclick="ykAplicarDetalle()">Aplicar</button>
+    </div>`
+  ykOpenModal('Detalle de compatibilidad', html, '440px')
+}
+let _ykPiezaAdd = null
+window.ykHintPieza = () => {
+  const inp = document.getElementById('yk-det-pieza'); if (!inp) return
+  let val = inp.value; const corr = ykAutocorregir(val)
+  if (corr !== val) { inp.value = corr; val = corr; window.toast?.('Corregido: ' + corr, 'success') }
+  const h = document.getElementById('yk-det-piezahint'); _ykPiezaAdd = null
+  const palabra = ykNorm(val).split(/\s+/).filter(w => w.length >= 3)[0]
+  if (!palabra) { if (h) h.textContent = ''; return }
+  const grupo = ykPALABRAS[palabra]
+  if (grupo) {
+    const g = document.getElementById('yk-det-gr'); if (g) g.value = grupo
+    if (h) { h.style.color = '#16a34a'; h.textContent = `→ "${palabra}" es del grupo ${grupo}` }
+  } else {
+    _ykPiezaAdd = palabra
+    if (h) { h.style.color = '#e0a800'; h.innerHTML = `"${palabra}" no está en el diccionario. Elegí grupo arriba y tocá <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="ykAgregarPalabra()">➕ Agregar</button>` }
+  }
+}
+window.ykAgregarPalabra = async () => {
+  const grupo = document.getElementById('yk-det-gr')?.value
+  if (!_ykPiezaAdd) return
+  if (!grupo) { window.toast?.('Elegí un grupo arriba primero', 'error'); return }
+  try {
+    const prof = window._currentProfile?.()
+    const { error } = await ykSb().from('grupo_palabras').upsert({ palabra: _ykPiezaAdd, palabra_norm: _ykPiezaAdd, grupo, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'palabra_norm', ignoreDuplicates: true })
+    if (error) throw error
+    ykPALABRAS[_ykPiezaAdd] = grupo; window.toast?.(`"${_ykPiezaAdd}" → ${grupo} guardado`, 'success'); ykHintPieza()
+  } catch (e) { console.error('[yk pal add]', e); window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+window.ykAplicarDetalle = () => {
+  ykDetalle.traccion = document.getElementById('yk-det-tr')?.value || ''
+  ykDetalle.combustible = document.getElementById('yk-det-co')?.value || ''
+  ykDetalle.grupo = document.getElementById('yk-det-gr')?.value || ''
+  document.querySelector('.yk-ov')?.remove()
+  const parts = [ykDetalle.traccion, ykDetalle.combustible, ykDetalle.grupo].filter(Boolean)
+  const el = document.getElementById('yk-cot-detresumen'); if (el) el.textContent = parts.length ? ' · ' + parts.join(' · ') : ''
+  ykOnAnioVeh()
+}
+
 window.ykCotizar = async () => {
+  ykGuardarGenSiFalta()
   const cont = document.getElementById('yk-cot-result'), cards = document.getElementById('yk-cot-cards')
   const val = id => (document.getElementById(id)?.value || '').trim()
   const num = id => { const v = parseInt(val(id), 10); return isNaN(v) ? null : v }

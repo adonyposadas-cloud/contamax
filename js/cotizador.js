@@ -27,7 +27,7 @@
   const PRIO_ORD = { crit: 0, rec: 1, prev: 2 }
 
   // ── Estado de la proforma en curso ──
-  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
+  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', grupo: '', descuento: 0, notas: '', items: [] }
   let modalTipo = 'p'        // 'p' productos | 's' servicios
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
@@ -114,6 +114,7 @@
     cargarVehiculos()
     loadConfig()
     loadGeneraciones()
+    loadCompat()
     setNumLabel()
     renderItems()
     switchTab(TAB)
@@ -263,6 +264,10 @@
             <input id="cot-anio-desde" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:33%">
             <input id="cot-anio-hasta" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:33%">
           </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+            <button type="button" class="btn btn-ghost" id="cot-detalle-btn" style="font-size:11px;padding:4px 10px">➕ Detalle (tracción/combustible/grupo)</button>
+            <span id="cot-detalle-resumen" style="font-size:11px;color:var(--gold,#c8a24a)"></span>
+          </div>
         </div>
       </div>
       <div id="cot-veh-hint" style="font-size:11px;color:var(--text3,#8b949e);margin-top:8px"></div>
@@ -355,14 +360,49 @@
         <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:10px">🚗 Generaciones de modelos (rangos de años)</div>
         <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:12px">Al cotizar, poné el año del vehículo y el sistema detecta la generación (ej. CR-V 2014 → 2012–2016) y filtra los repuestos de toda la generación.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border,#2a3340)">
-          <input id="cot-gen-ma" class="cot-in" placeholder="Marca" style="width:130px;text-transform:uppercase">
-          <input id="cot-gen-mo" class="cot-in" placeholder="Modelo" style="width:130px;text-transform:uppercase">
-          <input id="cot-gen-d" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:80px">
-          <input id="cot-gen-h" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:80px">
+          <input id="cot-gen-ma" class="cot-in" placeholder="Marca" style="width:120px;text-transform:uppercase">
+          <input id="cot-gen-mo" class="cot-in" placeholder="Modelo" style="width:120px;text-transform:uppercase">
+          <input id="cot-gen-d" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:72px">
+          <input id="cot-gen-h" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:72px">
+          <select id="cot-gen-tr" class="cot-in" style="width:100px" title="Tracción"></select>
+          <select id="cot-gen-co" class="cot-in" style="width:110px" title="Combustible"></select>
+          <select id="cot-gen-gr" class="cot-in" style="width:120px" title="Grupo de repuesto"></select>
           <button class="btn btn-gold" id="cot-gen-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
         </div>
         <input id="cot-gen-q" class="cot-in" placeholder="🔍 Buscar marca o modelo…" style="width:100%;text-transform:uppercase;margin-bottom:10px">
         <div id="cot-gen-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
+      </div>
+
+      <div class="form-card" style="margin-top:14px">
+        <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:8px">🔧 Listas (opciones de los desplegables)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <select id="cot-lista-tipo" class="cot-in" style="width:130px"><option value="traccion">Tracción</option><option value="combustible">Combustible</option><option value="grupo">Grupo</option></select>
+          <input id="cot-lista-val" class="cot-in" placeholder="Nuevo valor" style="width:160px;text-transform:uppercase">
+          <button class="btn btn-gold" id="cot-lista-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
+        </div>
+        <div id="cot-lista-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
+      <div class="form-card" style="margin-top:14px">
+        <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:8px">📖 Diccionario pieza → grupo</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input id="cot-pal-palabra" class="cot-in" placeholder="Pieza (ej. CALIPER)" style="width:160px;text-transform:uppercase">
+          <select id="cot-pal-grupo" class="cot-in" style="width:140px"></select>
+          <button class="btn btn-gold" id="cot-pal-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
+          <input id="cot-pal-q" class="cot-in" placeholder="🔍 buscar…" style="width:140px;text-transform:uppercase">
+        </div>
+        <div id="cot-pal-list" style="max-height:220px;overflow:auto"></div>
+      </div>
+
+      <div class="form-card" style="margin-top:14px">
+        <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:8px">✏️ Autocorrector (mal → bien)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input id="cot-cor-mal" class="cot-in" placeholder="Mal escrito (FRICSION)" style="width:160px;text-transform:uppercase">
+          <span style="color:var(--text3,#8b949e)">→</span>
+          <input id="cot-cor-bien" class="cot-in" placeholder="Correcto (FRICCION)" style="width:160px;text-transform:uppercase">
+          <button class="btn btn-gold" id="cot-cor-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
+        </div>
+        <div id="cot-cor-list" style="max-height:200px;overflow:auto"></div>
       </div>
     </div>
 
@@ -461,6 +501,23 @@
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
           <button class="btn btn-ghost" id="cm-cancel">Cancelar</button>
           <button class="btn btn-gold" id="cm-add">Agregar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DETALLE DE COMPATIBILIDAD (tracción/combustible/grupo/pieza) -->
+    <div class="modal-backdrop" id="cot-modal-detalle">
+      <div class="modal" style="width:480px;max-width:94vw">
+        <div class="modal-title">Detalle de compatibilidad</div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Cuantos más datos, más específico el rango de repuestos compatibles.</div>
+        <div class="fld"><label>Tracción</label><select id="cot-det-tr" class="cot-in" style="width:100%"></select></div>
+        <div class="fld"><label>Combustible</label><select id="cot-det-co" class="cot-in" style="width:100%"></select></div>
+        <div class="fld"><label>Grupo de repuesto</label><select id="cot-det-gr" class="cot-in" style="width:100%"></select></div>
+        <div class="fld"><label>… o escribí la pieza que buscás (asigna el grupo solo)</label><input id="cot-det-pieza" class="cot-in" style="width:100%;text-transform:uppercase" placeholder="ej. CALIPER" autocomplete="off"></div>
+        <div id="cot-det-piezahint" style="font-size:12px;margin-top:6px;min-height:18px"></div>
+        <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
+          <button class="btn btn-ghost" id="cot-det-cancel">Cancelar</button>
+          <button class="btn btn-gold" id="cot-det-ok">Aplicar</button>
         </div>
       </div>
     </div>
@@ -633,6 +690,10 @@
     acSetup('cot-ma', 'cot-ma-ac', itemsMarca, v => { PF.marca = v.toUpperCase(); updVehHint() })
     acSetup('cot-mo', 'cot-mo-ac', itemsModelo, v => { PF.modelo = v.toUpperCase(); onAnioVeh(); updVehHint() })
     const av = $('cot-anio-veh'); if (av) av.addEventListener('input', () => { av.value = av.value.replace(/\D/g, ''); onAnioVeh() })
+    if ($('cot-detalle-btn')) $('cot-detalle-btn').addEventListener('click', abrirDetalle)
+    if ($('cot-det-cancel')) $('cot-det-cancel').addEventListener('click', () => $('cot-modal-detalle').classList.remove('open'))
+    if ($('cot-det-ok')) $('cot-det-ok').addEventListener('click', aplicarDetalle)
+    let debPz; if ($('cot-det-pieza')) $('cot-det-pieza').addEventListener('input', () => { clearTimeout(debPz); debPz = setTimeout(hintPieza, 350) })
     const dsd = $('cot-anio-desde'); if (dsd) dsd.addEventListener('input', () => { PF.anioDesde = dsd.value.replace(/\D/g, ''); updVehHint() })
     const hst = $('cot-anio-hasta'); if (hst) hst.addEventListener('input', () => { PF.anioHasta = hst.value.replace(/\D/g, ''); updVehHint() })
 
@@ -752,7 +813,14 @@
     let debG
     if ($('cot-gen-add')) $('cot-gen-add').addEventListener('click', addGeneracion)
     if ($('cot-gen-q')) $('cot-gen-q').addEventListener('input', () => { clearTimeout(debG); debG = setTimeout(() => renderGeneraciones($('cot-gen-q').value), 200) })
-    if ($('cot-gen-list')) $('cot-gen-list').addEventListener('click', e => { const b = e.target.closest('.cot-gen-del'); if (b) deleteGeneracion(b.dataset.ma, b.dataset.mo, parseInt(b.dataset.d, 10), parseInt(b.dataset.h, 10)) })
+    if ($('cot-gen-list')) $('cot-gen-list').addEventListener('click', e => { const b = e.target.closest('.cot-gen-del'); if (b) deleteGeneracion(b) })
+    if ($('cot-lista-add')) $('cot-lista-add').addEventListener('click', addLista)
+    if ($('cot-lista-list')) $('cot-lista-list').addEventListener('click', e => { const b = e.target.closest('.cot-lista-del'); if (b) deleteLista(b.dataset.id) })
+    if ($('cot-pal-add')) $('cot-pal-add').addEventListener('click', addPalabraManual)
+    if ($('cot-pal-q')) $('cot-pal-q').addEventListener('input', () => renderPalabras($('cot-pal-q').value))
+    if ($('cot-pal-list')) $('cot-pal-list').addEventListener('click', e => { const b = e.target.closest('.cot-pal-del'); if (b) deletePalabra(b.dataset.id) })
+    if ($('cot-cor-add')) $('cot-cor-add').addEventListener('click', addCorreccion)
+    if ($('cot-cor-list')) $('cot-cor-list').addEventListener('click', e => { const b = e.target.closest('.cot-cor-del'); if (b) deleteCorreccion(b.dataset.id) })
     $('det-close').addEventListener('click', () => $('cot-modal-det').classList.remove('open'))
     $('det-editar').addEventListener('click', () => {
       $('cot-modal-det').classList.remove('open')
@@ -767,17 +835,51 @@
   let _genExiste = false
   async function loadGeneraciones () {
     try {
-      const { data } = await sb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta')
+      const { data } = await sb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta,traccion,combustible,grupo_repuesto')
       GEN = {}
-      ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (GEN[k] = GEN[k] || []).push({ desde: r.anio_desde, hasta: r.anio_hasta, marca: r.marca, modelo: r.modelo }) })
+      ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (GEN[k] = GEN[k] || []).push({ desde: r.anio_desde, hasta: r.anio_hasta, marca: r.marca, modelo: r.modelo, traccion: r.traccion || '', combustible: r.combustible || '', grupo: r.grupo_repuesto || '' }) })
     } catch (e) { console.error('[gen load]', e) }
+  }
+
+  // Listas configurables + diccionarios (pieza→grupo, autocorrector)
+  let LISTAS = { traccion: [], combustible: [], grupo: [] }
+  let PALABRAS = {}   // palabra_norm -> grupo
+  let CORREC = {}     // mal_norm -> bien
+  async function loadCompat () {
+    try {
+      const [l, p, c] = await Promise.all([
+        sb().from('cotizador_listas').select('tipo,valor,orden').order('orden', { ascending: true }),
+        sb().from('grupo_palabras').select('palabra_norm,grupo'),
+        sb().from('correcciones_texto').select('mal_norm,bien')
+      ])
+      LISTAS = { traccion: [], combustible: [], grupo: [] }
+      ;(l.data || []).forEach(r => { if (LISTAS[r.tipo]) LISTAS[r.tipo].push(r.valor) })
+      PALABRAS = {}; (p.data || []).forEach(r => { PALABRAS[r.palabra_norm] = r.grupo })
+      CORREC = {}; (c.data || []).forEach(r => { CORREC[r.mal_norm] = r.bien })
+    } catch (e) { console.error('[compat load]', e) }
+  }
+  // aplica el autocorrector palabra por palabra
+  function autocorregir (txt) {
+    return String(txt || '').split(/(\s+)/).map(w => { const k = provNorm(w); return CORREC[k] ? CORREC[k] : w }).join('')
   }
   function detectarGeneracion (marca, modelo, anio) {
     const a = parseInt(anio, 10); if (!a) return null
     const list = GEN[provNorm(marca) + '|' + provNorm(modelo)] || []
-    const cov = list.filter(g => a >= g.desde && a <= g.hasta)
-    if (!cov.length) return null
-    return cov.sort((x, y) => (y.hasta - y.desde) - (x.hasta - x.desde))[0]   // el más amplio
+    const tr = PF.traccion || ''; const co = PF.combustible || ''; const gr = PF.grupo || ''
+    const aplican = list.filter(g =>
+      a >= g.desde && a <= g.hasta &&
+      (!g.traccion || g.traccion === tr) &&
+      (!g.combustible || g.combustible === co) &&
+      (!g.grupo || g.grupo === gr))
+    if (!aplican.length) return null
+    // la más específica (más campos que aplican); desempate: rango más amplio
+    aplican.sort((x, y) => {
+      const sx = (x.traccion ? 1 : 0) + (x.combustible ? 1 : 0) + (x.grupo ? 1 : 0)
+      const sy = (y.traccion ? 1 : 0) + (y.combustible ? 1 : 0) + (y.grupo ? 1 : 0)
+      if (sy !== sx) return sy - sx
+      return (y.hasta - y.desde) - (x.hasta - x.desde)
+    })
+    return aplican[0]
   }
   function onAnioVeh () {
     const av = $('cot-anio-veh'); const anio = (av ? av.value : '').replace(/\D/g, ''); PF.anioVeh = anio
@@ -821,10 +923,143 @@
     } catch (e) { console.error('[gen save]', e) }
   }
 
+  // ── Modal "Detalle" (tracción / combustible / grupo / pieza) ──
+  function optsSelect (arr, sel) {
+    return '<option value="">(cualquiera)</option>' + (arr || []).map(v => `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('')
+  }
+  function abrirDetalle () {
+    $('cot-det-tr').innerHTML = optsSelect(LISTAS.traccion, PF.traccion)
+    $('cot-det-co').innerHTML = optsSelect(LISTAS.combustible, PF.combustible)
+    $('cot-det-gr').innerHTML = optsSelect(LISTAS.grupo, PF.grupo)
+    $('cot-det-pieza').value = ''; $('cot-det-piezahint').textContent = ''
+    $('cot-modal-detalle').classList.add('open')
+  }
+  let _piezaAdd = null
+  function hintPieza () {
+    const inp = $('cot-det-pieza'); let val = inp.value
+    const corr = autocorregir(val)
+    if (corr !== val) { inp.value = corr; val = corr; toast('Corregido: ' + corr, 'success') }
+    const h = $('cot-det-piezahint'); _piezaAdd = null
+    const palabra = provNorm(val).split(/\s+/).filter(w => w.length >= 3)[0]
+    if (!palabra) { h.textContent = ''; return }
+    const grupo = PALABRAS[palabra]
+    if (grupo) {
+      $('cot-det-gr').value = grupo; PF.grupo = grupo
+      h.style.color = 'var(--green,#16a34a)'; h.textContent = `→ "${palabra}" es del grupo ${grupo}`
+    } else {
+      _piezaAdd = palabra
+      h.style.color = 'var(--amber,#f59e0b)'
+      h.innerHTML = `"${esc(palabra)}" no está en el diccionario. Elegí grupo arriba y tocá <button type="button" class="btn btn-ghost" id="cot-det-addpal" style="font-size:11px;padding:2px 8px">➕ Agregar</button>`
+      const b = $('cot-det-addpal'); if (b) b.addEventListener('click', agregarPalabra)
+    }
+  }
+  async function agregarPalabra () {
+    const grupo = $('cot-det-gr').value
+    if (!_piezaAdd) return
+    if (!grupo) { toast('Elegí un grupo arriba primero', 'error'); return }
+    try {
+      const prof = window._currentProfile ? window._currentProfile() : null
+      const { error } = await sb().from('grupo_palabras').upsert({ palabra: _piezaAdd, palabra_norm: _piezaAdd, grupo, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'palabra_norm', ignoreDuplicates: true })
+      if (error) throw error
+      PALABRAS[_piezaAdd] = grupo
+      toast(`"${_piezaAdd}" → ${grupo} guardado`, 'success')
+      hintPieza()
+    } catch (e) { console.error('[palabra add]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  function aplicarDetalle () {
+    PF.traccion = $('cot-det-tr').value || ''
+    PF.combustible = $('cot-det-co').value || ''
+    PF.grupo = $('cot-det-gr').value || ''
+    $('cot-modal-detalle').classList.remove('open')
+    updDetalleResumen()
+    onAnioVeh()   // recalcula la generación con el detalle nuevo
+  }
+  function updDetalleResumen () {
+    const parts = [PF.traccion, PF.combustible, PF.grupo].filter(Boolean)
+    const el = $('cot-detalle-resumen'); if (el) el.textContent = parts.length ? '· ' + parts.join(' · ') : ''
+  }
+
   // ── Pestaña de administración de Generaciones ──
   async function loadGeneracionesTab () {
-    await loadGeneraciones()
+    await Promise.all([loadGeneraciones(), loadCompat()])
+    if ($('cot-gen-tr')) $('cot-gen-tr').innerHTML = optsSelect(LISTAS.traccion, '')
+    if ($('cot-gen-co')) $('cot-gen-co').innerHTML = optsSelect(LISTAS.combustible, '')
+    if ($('cot-gen-gr')) $('cot-gen-gr').innerHTML = optsSelect(LISTAS.grupo, '')
+    if ($('cot-pal-grupo')) $('cot-pal-grupo').innerHTML = LISTAS.grupo.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')
     renderGeneraciones('')
+    renderListas(); renderPalabras(''); renderCorrec()
+  }
+
+  // ── Listas (opciones de desplegables) ──
+  async function renderListas () {
+    const cont = $('cot-lista-list'); if (!cont) return
+    try {
+      const { data } = await sb().from('cotizador_listas').select('id,tipo,valor,orden').order('tipo').order('orden')
+      cont.innerHTML = (data || []).map(r => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg3,#1c2333);border:1px solid var(--border,#2a3340);border-radius:12px;padding:3px 10px;font-size:12px"><b style="color:var(--text3,#8b949e);text-transform:uppercase;font-size:10px">${esc(r.tipo)}</b> ${esc(r.valor)}${ES_SUPER ? ` <span class="cot-lista-del" data-id="${r.id}" style="cursor:pointer;color:var(--red,#f85149)">✕</span>` : ''}</span>`).join('') || '<span style="color:var(--text3,#8b949e)">Sin valores</span>'
+    } catch (e) { cont.innerHTML = '<span style="color:var(--red,#f85149)">Error</span>' }
+  }
+  async function addLista () {
+    const tipo = $('cot-lista-tipo').value; const valor = ($('cot-lista-val').value || '').trim().toUpperCase()
+    if (!valor) { toast('Escribí un valor', 'error'); return }
+    try {
+      const { error } = await sb().from('cotizador_listas').upsert({ tipo, valor, orden: 100 }, { onConflict: 'tipo,valor', ignoreDuplicates: true })
+      if (error) throw error
+      $('cot-lista-val').value = ''; toast('Agregado', 'success')
+      await loadCompat(); renderListas()
+      if ($('cot-pal-grupo')) $('cot-pal-grupo').innerHTML = LISTAS.grupo.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')
+    } catch (e) { console.error('[lista add]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function deleteLista (id) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    try { const { error } = await sb().from('cotizador_listas').delete().eq('id', id); if (error) throw error; await loadCompat(); renderListas() } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+
+  // ── Diccionario pieza → grupo ──
+  async function renderPalabras (filtro) {
+    const cont = $('cot-pal-list'); if (!cont) return
+    const t = (filtro || '').toUpperCase()
+    try {
+      const { data } = await sb().from('grupo_palabras').select('id,palabra,palabra_norm,grupo').order('palabra')
+      const list = (data || []).filter(r => !t || r.palabra_norm.includes(t) || (r.grupo || '').toUpperCase().includes(t))
+      cont.innerHTML = list.map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);font-size:13px"><div style="flex:1"><b>${esc(r.palabra)}</b> → <span style="color:#3b82f6">${esc(r.grupo)}</span></div>${ES_SUPER ? `<span class="cot-pal-del" data-id="${r.id}" style="cursor:pointer;color:var(--red,#f85149)">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin palabras</div>'
+    } catch (e) { cont.innerHTML = '<div style="color:var(--red,#f85149)">Error</div>' }
+  }
+  async function addPalabraManual () {
+    const palabra = provNorm($('cot-pal-palabra').value); const grupo = $('cot-pal-grupo').value
+    if (!palabra) { toast('Escribí la pieza', 'error'); return }
+    if (!grupo) { toast('Elegí el grupo', 'error'); return }
+    try {
+      const { error } = await sb().from('grupo_palabras').upsert({ palabra: palabra, palabra_norm: palabra, grupo }, { onConflict: 'palabra_norm', ignoreDuplicates: false })
+      if (error) throw error
+      $('cot-pal-palabra').value = ''; PALABRAS[palabra] = grupo; toast('Agregada', 'success')
+      renderPalabras($('cot-pal-q') ? $('cot-pal-q').value : '')
+    } catch (e) { console.error('[pal add]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function deletePalabra (id) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    try { const { error } = await sb().from('grupo_palabras').delete().eq('id', id); if (error) throw error; await loadCompat(); renderPalabras($('cot-pal-q') ? $('cot-pal-q').value : '') } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+
+  // ── Autocorrector ──
+  async function renderCorrec () {
+    const cont = $('cot-cor-list'); if (!cont) return
+    try {
+      const { data } = await sb().from('correcciones_texto').select('id,mal,bien').order('mal')
+      cont.innerHTML = (data || []).map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);font-size:13px"><div style="flex:1"><span style="color:var(--red,#f85149)">${esc(r.mal)}</span> → <b style="color:var(--green,#16a34a)">${esc(r.bien)}</b></div>${ES_SUPER ? `<span class="cot-cor-del" data-id="${r.id}" style="cursor:pointer;color:var(--red,#f85149)">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin correcciones</div>'
+    } catch (e) { cont.innerHTML = '<div style="color:var(--red,#f85149)">Error</div>' }
+  }
+  async function addCorreccion () {
+    const mal = provNorm($('cot-cor-mal').value); const bien = ($('cot-cor-bien').value || '').trim().toUpperCase()
+    if (!mal || !bien) { toast('Completá mal y bien', 'error'); return }
+    try {
+      const { error } = await sb().from('correcciones_texto').upsert({ mal, mal_norm: mal, bien }, { onConflict: 'mal_norm', ignoreDuplicates: false })
+      if (error) throw error
+      $('cot-cor-mal').value = ''; $('cot-cor-bien').value = ''; CORREC[mal] = bien; toast('Agregada', 'success'); renderCorrec()
+    } catch (e) { console.error('[cor add]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function deleteCorreccion (id) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    try { const { error } = await sb().from('correcciones_texto').delete().eq('id', id); if (error) throw error; await loadCompat(); renderCorrec() } catch (e) { toast('Error: ' + (e.message || e), 'error') }
   }
   function renderGeneraciones (filtro) {
     const cont = $('cot-gen-list'); if (!cont) return
@@ -832,12 +1067,14 @@
     const rows = []
     Object.keys(GEN).forEach(k => GEN[k].forEach(g => rows.push({ ...g, key: k })))
     rows.sort((a, b) => (a.marca + a.modelo).localeCompare(b.marca + b.modelo) || a.desde - b.desde)
-    const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo).toUpperCase().includes(t))
-    if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin generaciones. Agregá una arriba.</div>'; return }
+    const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo + ' ' + (g.traccion || '') + ' ' + (g.grupo || '')).toUpperCase().includes(t))
+    if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin reglas. Agregá una arriba.</div>'; return }
     cont.innerHTML = list.map(g => {
-      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
+      const specs = [g.traccion, g.combustible, g.grupo].filter(Boolean)
+      const badge = specs.length ? `<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(esc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#8b949e)">general</span>'
+      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${esc(g.traccion || '')}" data-co="${esc(g.combustible || '')}" data-gr="${esc(g.grupo || '')}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
       return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#2a3340)">
-        <div style="flex:1;font-size:13px"><b>${esc(g.marca)} ${esc(g.modelo)}</b></div>
+        <div style="flex:1;font-size:13px"><b>${esc(g.marca)} ${esc(g.modelo)}</b> ${badge}</div>
         <div style="font-family:monospace;color:var(--gold,#c8a24a);font-weight:700">${g.desde}–${g.hasta}</div>
         ${del}
       </div>`
@@ -848,22 +1085,30 @@
     const mo = ($('cot-gen-mo').value || '').trim().toUpperCase()
     const d = parseInt(($('cot-gen-d').value || '').replace(/\D/g, ''), 10)
     const h = parseInt(($('cot-gen-h').value || '').replace(/\D/g, ''), 10)
+    const tr = $('cot-gen-tr') ? $('cot-gen-tr').value : ''
+    const co = $('cot-gen-co') ? $('cot-gen-co').value : ''
+    const gr = $('cot-gen-gr') ? $('cot-gen-gr').value : ''
     if (!ma || !mo || !d || !h) { toast('Completá marca, modelo, desde y hasta', 'error'); return }
     if (h < d) { toast('El "hasta" no puede ser menor que el "desde"', 'error'); return }
     try {
       const prof = window._currentProfile ? window._currentProfile() : null
-      const { error } = await sb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: provNorm(ma), modelo_norm: provNorm(mo), anio_desde: d, anio_hasta: h, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,anio_desde,anio_hasta', ignoreDuplicates: true })
+      const { error } = await sb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: provNorm(ma), modelo_norm: provNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
       if (error) throw error
       ;['cot-gen-ma', 'cot-gen-mo', 'cot-gen-d', 'cot-gen-h'].forEach(id => { const el = $(id); if (el) el.value = '' })
-      toast('Generación agregada', 'success')
+      ;['cot-gen-tr', 'cot-gen-co', 'cot-gen-gr'].forEach(id => { const el = $(id); if (el) el.value = '' })
+      toast('Regla agregada', 'success')
       await loadGeneraciones(); renderGeneraciones($('cot-gen-q') ? $('cot-gen-q').value : '')
     } catch (e) { console.error('[gen add]', e); toast('Error: ' + (e.message || e), 'error') }
   }
-  async function deleteGeneracion (ma, mo, d, h) {
+  async function deleteGeneracion (b) {
     if (!ES_SUPER) { toast('Solo super_admin puede borrar', 'error'); return }
-    if (!confirm(`¿Borrar la generación ${ma} ${mo} ${d}–${h}?`)) return
+    const specs = [b.dataset.tr, b.dataset.co, b.dataset.gr].filter(Boolean).join(' ')
+    if (!confirm(`¿Borrar la regla ${b.dataset.ma} ${b.dataset.mo}${specs ? ' ' + specs : ''} ${b.dataset.d}–${b.dataset.h}?`)) return
     try {
-      const { error } = await sb().from('modelo_generaciones').delete().eq('marca_norm', provNorm(ma)).eq('modelo_norm', provNorm(mo)).eq('anio_desde', d).eq('anio_hasta', h)
+      const { error } = await sb().from('modelo_generaciones').delete()
+        .eq('marca_norm', provNorm(b.dataset.ma)).eq('modelo_norm', provNorm(b.dataset.mo))
+        .eq('anio_desde', parseInt(b.dataset.d, 10)).eq('anio_hasta', parseInt(b.dataset.h, 10))
+        .eq('traccion', b.dataset.tr || '').eq('combustible', b.dataset.co || '').eq('grupo_repuesto', b.dataset.gr || '')
       if (error) throw error
       toast('Borrada', 'success')
       await loadGeneraciones(); renderGeneraciones($('cot-gen-q') ? $('cot-gen-q').value : '')
@@ -1356,7 +1601,7 @@
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
     $('cot-recban').style.display = 'none'
-    setNumLabel(); updVehHint(); renderItems()
+    setNumLabel(); updVehHint(); updDetalleResumen(); renderItems()
   }
 
   // ══════════════════════════════════════════════════════════
