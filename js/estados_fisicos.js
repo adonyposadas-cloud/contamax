@@ -27,13 +27,14 @@
   let PEND = []       // pendientes (no facturado, no cerrado)
   let HUERFANAS = []  // repotenciaciones sin estado físico (EF borrado)
   let ULTIMA = null   // resultado de la última conciliación (para el panel)
+  let ES_SUPER = false
   let _manualLinea = null
 
   function viewHTML () {
     return `
     <style>
       #view-estados-fisicos .ef-wrap{max-width:1080px;margin:0 auto}
-      #view-estados-fisicos .ef-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin:0 0 16px}
+      #view-estados-fisicos .ef-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:11px;margin:0 0 16px}
       #view-estados-fisicos .ef-stat{background:var(--bg2,#161b22);border:1px solid var(--border,#2a3340);border-radius:10px;padding:12px;text-align:center}
       #view-estados-fisicos .ef-stat .n{font-size:20px;font-weight:800}
       #view-estados-fisicos .ef-stat .l{font-size:11px;color:var(--text3,#8b949e);margin-top:2px}
@@ -98,6 +99,7 @@
         <div class="modal-title">Conciliar venta con un estado físico</div>
         <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:8px">Esta venta se facturó sin placa clara. Elegí a qué estado físico pendiente corresponde:</div>
         <div id="ef-modal-linea" style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:var(--bg3,#1c2333);border-radius:6px"></div>
+        <div id="ef-modal-yacon" style="margin-bottom:8px"></div>
         <div id="ef-modal-sug" style="margin-bottom:8px"></div>
         <div class="fld"><label>…o escribí el N° de estado físico</label>
           <input id="ef-modal-num" class="ef-in" type="number" placeholder="ej. 2480" style="width:100%"></div>
@@ -107,6 +109,23 @@
           <button class="btn btn-gold" id="ef-modal-ok">Marcar facturado</button>
         </div>
       </div>
+    </div>
+
+    <div class="modal-backdrop" id="ef-pmodal">
+      <div class="modal" style="width:480px;max-width:94vw">
+        <div class="modal-title">Conciliar pendiente con una factura</div>
+        <div id="ef-pmodal-info" style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:var(--bg3,#1c2333);border-radius:6px"></div>
+        <div class="fld"><label>N° de factura donde se cobró (aunque la placa esté mal escrita)</label>
+          <input id="ef-pmodal-fact" class="ef-in" placeholder="ej. 84858" style="width:100%"></div>
+        <div id="ef-pmodal-hint" style="font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
+          <button class="btn" id="ef-pmodal-cancel">Cancelar</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn" id="ef-pmodal-anular" style="display:none;color:var(--red,#f85149);border-color:var(--red,#f85149)">Anular sin factura</button>
+            <button class="btn btn-gold" id="ef-pmodal-ok">Marcar facturado</button>
+          </div>
+        </div>
+      </div>
     </div>`
   }
 
@@ -114,6 +133,8 @@
     const v = $('view-estados-fisicos')
     if (!v) return
     if (!v.dataset.built) { v.innerHTML = viewHTML(); v.dataset.built = '1'; wire() }
+    const prof = window._currentProfile ? window._currentProfile() : null
+    ES_SUPER = !!(prof && (prof.rol === 'super_admin' || prof.rol === 'superadmin'))
     cargarEstado()
   }
 
@@ -124,6 +145,11 @@
     $('ef-conciliar').addEventListener('click', conciliarVentas)
     $('ef-conc-guardado').addEventListener('click', conciliarGuardado)
     $('ef-cerrar-btn').addEventListener('click', cerrarHasta)
+    $('ef-pmodal-cancel').addEventListener('click', () => $('ef-pmodal').classList.remove('open'))
+    $('ef-pmodal-ok').addEventListener('click', aplicarConciliarPlaca)
+    $('ef-pmodal-anular').addEventListener('click', anularPendiente)
+    let dpf; $('ef-pmodal-fact').addEventListener('input', () => { clearTimeout(dpf); dpf = setTimeout(hintConciliarPlaca, 300) })
+    $('view-estados-fisicos').addEventListener('click', (e) => { const p = e.target.closest('[data-pconc]'); if (p) abrirConciliarPlaca(p.dataset.pconc) })
     $('ef-export').addEventListener('click', exportarExcel)
     $('ef-csv').addEventListener('change', e => { if (e.target.files[0]) sugerirCorte(e.target.files[0]) })
     const fc = $('ef-fecha-corte')
@@ -155,22 +181,24 @@
   async function cargarEstado () {
     const st = $('ef-stats')
     try {
-      const rows = await fetchAll(sb().from('estados_fisicos').select('id,numero,revision,placa_norm,propietario,categoria,fecha_subida,facturado,cerrado,fecha_factura,factura_ref,monto').order('numero', { ascending: true }))
+      const rows = await fetchAll(sb().from('estados_fisicos').select('id,numero,revision,placa_norm,propietario,tipo,servicio,categoria,fecha_subida,facturado,cerrado,descartado,conciliado_manual,fecha_factura,factura_ref,monto').order('numero', { ascending: true }))
       ALL = rows
       const fact = rows.filter(r => r.facturado)
-      const cerr = rows.filter(r => r.cerrado)
-      PEND = rows.filter(r => !r.facturado && !r.cerrado)
+      const cerr = rows.filter(r => r.cerrado && !r.facturado)
+      const desc = rows.filter(r => r.descartado && !r.facturado)
+      PEND = rows.filter(r => !r.facturado && !r.cerrado && !r.descartado)
       const factEF = fact.filter(r => r.categoria === 'estado_fisico')
       const suma = factEF.reduce((a, r) => a + (Number(r.monto) || 0), 0)
       const prom = factEF.length ? suma / factEF.length : 0
-      ESTADO = { total: rows.length, facturados: fact.length, pendientes: PEND.length, cerrados: cerr.length }
+      ESTADO = { total: rows.length, facturados: fact.length, pendientes: PEND.length, cerrados: cerr.length, descartados: desc.length }
       const card = (n, l, color, sub) => `<div class="ef-stat"><div class="n" style="color:${color}">${n}</div><div class="l">${l}</div>${sub ? `<div class="l" style="color:${color};margin-top:2px">${sub}</div>` : ''}</div>`
       st.innerHTML =
         card(rows.length, 'Estados físicos', 'var(--text1,#e6edf3)') +
         card(fact.length, 'Facturados', 'var(--green,#16a34a)', `L. ${fmt(suma)} · prom L. ${fmt(prom)}`) +
         card(PEND.length, 'Pendientes de facturar', 'var(--amber,#f59e0b)') +
         card(PEND.filter(r => r.categoria === 'repotenciacion').length, 'Repotenciación pend.', 'var(--text3,#8b949e)') +
-        card(cerr.length, 'Cerrados', 'var(--text3,#8b949e)')
+        card(cerr.length, 'Cerrados', 'var(--text3,#8b949e)') +
+        card(desc.length, 'Descartados (sin cobro)', 'var(--red,#f85149)')
       if (!ULTIMA) renderPendientes()
     } catch (e) { console.error('[EF estado]', e); st.innerHTML = `<div style="color:var(--red,#f85149)">Error: ${esc(e.message || e)}</div>` }
   }
@@ -267,26 +295,29 @@
   async function conciliarLineas (lineas) {
     await cargarEstado()
     const byActivo = {}; const byCerrado = {}
-    ALL.forEach(e => { const m = e.cerrado ? byCerrado : byActivo; (m[e.placa_norm] = m[e.placa_norm] || []).push(e) })
+    ALL.filter(e => !e.descartado).forEach(e => { const m = e.cerrado ? byCerrado : byActivo; (m[e.placa_norm] = m[e.placa_norm] || []).push(e) })
     Object.values(byActivo).forEach(a => a.sort((x, y) => (x.numero || 0) - (y.numero || 0)))
     Object.values(byCerrado).forEach(a => a.sort((x, y) => (x.numero || 0) - (y.numero || 0)))
+    // E.Físico conciliados a mano por factura (placas mal escritas que no están en la descripción): suman al total
+    const manualCount = {}
+    ALL.filter(e => e.conciliado_manual && e.categoria === 'estado_fisico' && e.factura_ref)
+      .forEach(e => { manualCount[e.factura_ref] = (manualCount[e.factura_ref] || 0) + 1 })
     const usados = new Set(); const updates = []; const conciliados = []; const sinMatch = []; const sinPlaca = []
     const fCorte = getFechaCorte()
     const preCorte = (l) => fCorte && l.fecha && l.fecha < fCorte
     lineas.forEach(l => {
       if (!l.placas.length) {
-        if (preCorte(l)) return   // venta sin placa anterior al corte → histórica, se ignora
-        if (/CANCELAC|ABONO|PAGO PENDIENTE|CUENTA PENDIENTE/.test(String(l.producto).toUpperCase())) return // no es estado físico conciliable
+        if (preCorte(l)) return
+        if (/CANCELAC|ABONO|PAGO PENDIENTE|CUENTA PENDIENTE/.test(String(l.producto).toUpperCase())) return
         sinPlaca.push(l); return
       }
-      const N = l.placas.length
+      const N = l.placas.length + (manualCount[l.factura] || 0)   // placas de la descripción + conciliadas a mano
       const prorat = N ? Math.round((l.monto / N) * 100) / 100 : l.monto
       let algo = false
       l.placas.forEach(pl => {
-        // 1° candidatos activos; si es venta pre-corte sin activo, probar los CERRADOS (los reabre)
         let reabrir = false
-        let cands = (byActivo[pl] || []).filter(e => !usados.has(e.id))
-        if (!cands.length && preCorte(l)) { cands = (byCerrado[pl] || []).filter(e => !usados.has(e.id)); reabrir = true }
+        let cands = (byActivo[pl] || []).filter(e => !usados.has(e.id) && !e.conciliado_manual)
+        if (!cands.length && preCorte(l)) { cands = (byCerrado[pl] || []).filter(e => !usados.has(e.id) && !e.conciliado_manual); reabrir = true }
         if (!cands.length) return
         ;['estado_fisico', 'repotenciacion'].forEach(cat => {
           const cc = cands.filter(e => e.categoria === cat && !usados.has(e.id))
@@ -294,7 +325,7 @@
           const pick = cc.find(e => daysDiff(l.fecha, e.fecha_subida) <= 3) || cc[0]
           usados.add(pick.id); algo = true
           const upd = { id: pick.id, facturado: true, fecha_factura: l.fecha, factura_ref: l.factura, monto: prorat, factura_compartida: N > 1, placas_linea: N, monto_linea: l.monto }
-          if (reabrir) upd.cerrado = false   // estaba cerrado pero sí tenía factura
+          if (reabrir) upd.cerrado = false
           updates.push(upd)
           conciliados.push({ numero: pick.numero, placa: pl, categoria: pick.categoria, propietario: pick.propietario, fecha: l.fecha, factura: l.factura, monto: prorat, compartida: N > 1, placas_linea: N, monto_linea: l.monto })
         })
@@ -391,12 +422,97 @@
       <div id="ef-list-huerf" style="max-height:220px;overflow:auto">${HUERFANAS.map(r => `<div class="ef-row"><span>#${r.numero || '—'} · <span class="ef-plate">${esc(r.placa_norm)}</span></span><span style="color:var(--text3,#8b949e)">${esc(r.propietario || '')}</span></div>`).join('')}</div></div>`
   }
 
+  let _pconcPlaca = null
+  function abrirConciliarPlaca (placa) {
+    _pconcPlaca = placa
+    const items = PEND.filter(e => e.placa_norm === placa)
+    const cats = items.map(x => x.categoria)
+    const label = (cats.includes('estado_fisico') && cats.includes('repotenciacion')) ? 'E.Físico + Repot.' : (cats.includes('repotenciacion') ? 'Repot.' : 'E.Físico')
+    const nums = items.map(x => x.numero).filter(n => n).sort((a, b) => a - b)
+    const tipo = (items.find(x => x.tipo) || {}).tipo || ''
+    $('ef-pmodal-info').innerHTML = `<span class="ef-plate">${esc(placa)}</span> · ${esc(label)}${tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(tipo)}</span>` : ''}${nums.length ? ' · #' + nums.join('/') : ''} · ${esc(items[0] && items[0].propietario || '')}`
+    $('ef-pmodal-fact').value = ''; $('ef-pmodal-hint').textContent = ''
+    const btnA = $('ef-pmodal-anular'); if (btnA) btnA.style.display = ES_SUPER ? '' : 'none'
+    $('ef-pmodal').classList.add('open')
+    setTimeout(() => $('ef-pmodal-fact').focus(), 120)
+  }
+
+  // Solo super_admin: saca un pendiente de la lista SIN factura (no se cobró: repetido/error/baja).
+  async function anularPendiente () {
+    if (!ES_SUPER) { toast('Solo super_admin puede anular sin factura', 'error'); return }
+    const items = PEND.filter(e => e.placa_norm === _pconcPlaca)
+    if (!items.length) { toast('Esta placa ya no está pendiente', 'error'); return }
+    const motivo = prompt('Motivo por el que NO se facturó (ej. repetido por error, no se cobró, unidad de baja):')
+    if (motivo === null) return
+    if (!String(motivo).trim()) { toast('Ingresá un motivo', 'error'); return }
+    try {
+      const prof = window._currentProfile ? window._currentProfile() : null
+      const por = prof ? (prof.nombre || prof.email || '') : ''
+      const { error } = await sb().from('estados_fisicos').update({ descartado: true, motivo_descarte: String(motivo).trim(), descartado_por: por, fecha_descarte: new Date().toISOString(), monto: 0 }).in('id', items.map(e => e.id))
+      if (error) throw error
+      $('ef-pmodal').classList.remove('open')
+      toast(`Descartado (${items.length}) · ${String(motivo).trim().slice(0, 40)}`, 'success')
+      await cargarEstado(); renderResultado()
+    } catch (e) { console.error('[EF anular]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+
+  async function facturaResumen (factura, incluirNuevo) {
+    const { data } = await sb().from('productos_vendidos').select('producto,fecha,total,precio_con_iva').eq('no_factura', factura).eq('es_estado_fisico', true)
+    if (!data || !data.length) return null
+    let descPlacas = 0; let montoTotal = 0; let fecha = null
+    data.forEach(r => { descPlacas += (findPlates(String(r.producto).toUpperCase()).length || 1); montoTotal += (Number(r.total) || Number(r.precio_con_iva) || 0); if (!fecha) fecha = r.fecha })
+    const manualYa = ALL.filter(e => e.conciliado_manual && e.categoria === 'estado_fisico' && String(e.factura_ref) === String(factura)).length
+    const totPlacas = descPlacas + manualYa + (incluirNuevo ? 1 : 0)
+    const prorat = totPlacas ? Math.round(montoTotal / totPlacas * 100) / 100 : montoTotal
+    return { descPlacas, manualYa, totPlacas, montoTotal, fecha, prorat }
+  }
+
+  async function hintConciliarPlaca () {
+    const factura = $('ef-pmodal-fact').value.trim()
+    const h = $('ef-pmodal-hint')
+    if (!factura) { h.textContent = ''; return }
+    try {
+      const r = await facturaResumen(factura, true)
+      if (!r) { h.style.color = 'var(--red,#f85149)'; h.textContent = 'No se encontró esa factura con estados físicos.'; return }
+      h.style.color = 'var(--green,#16a34a)'
+      h.textContent = `Factura ${factura}: quedará en ${r.totPlacas} estados físicos · total L. ${fmt(r.montoTotal)} · ${r.fecha} → L. ${fmt(r.prorat)} c/u`
+    } catch (e) { h.textContent = '' }
+  }
+
+  async function aplicarConciliarPlaca () {
+    const factura = $('ef-pmodal-fact').value.trim()
+    if (!factura) { toast('Ingresá el N° de factura', 'error'); return }
+    try {
+      const r = await facturaResumen(factura, true)
+      if (!r) { toast('No se encontró esa factura con estados físicos', 'error'); return }
+      const items = PEND.filter(e => e.placa_norm === _pconcPlaca)
+      if (!items.length) { toast('Esta placa ya no está pendiente', 'error'); return }
+      const ids = items.map(e => e.id)
+      // 1) marcar los pendientes de esta placa como facturados a mano
+      let resp = await sb().from('estados_fisicos').update({ facturado: true, fecha_factura: r.fecha, factura_ref: factura, conciliado_manual: true }).in('id', ids)
+      if (resp.error) throw resp.error
+      // 2) re-prorratear TODA la factura con el nuevo total de placas → todos a L. prorat
+      resp = await sb().from('estados_fisicos').update({ monto: r.prorat, placas_linea: r.totPlacas, monto_linea: r.montoTotal, factura_compartida: r.totPlacas > 1 }).eq('factura_ref', factura)
+      if (resp.error) throw resp.error
+      // 3) reflejarlo en la vista de Conciliados sin re-conciliar
+      if (ULTIMA && Array.isArray(ULTIMA.conciliados)) {
+        ULTIMA.conciliados.forEach(c => { if (String(c.factura) === String(factura)) { c.monto = r.prorat; c.placas_linea = r.totPlacas; c.monto_linea = r.montoTotal; c.compartida = r.totPlacas > 1 } })
+        items.forEach(e => ULTIMA.conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: r.fecha, factura, monto: r.prorat, compartida: r.totPlacas > 1, placas_linea: r.totPlacas, monto_linea: r.montoTotal }))
+      }
+      // sacar esa factura de "con placa que NO está entre los pendientes" (ya quedó conciliada a mano)
+      if (ULTIMA && Array.isArray(ULTIMA.sinMatch)) ULTIMA.sinMatch = ULTIMA.sinMatch.filter(l => String(l.factura) !== String(factura))
+      $('ef-pmodal').classList.remove('open')
+      toast(`Conciliado · factura ${factura} ahora ${r.totPlacas} estados físicos · L. ${fmt(r.prorat)} c/u`, 'success')
+      await cargarEstado(); renderResultado()
+    } catch (e) { console.error('[EF conc placa]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+
   function exportarExcel () {
     if (!window.XLSX) { toast('Falta la librería XLSX', 'error'); return }
     const wb = window.XLSX.utils.book_new()
     const add = (name, rows) => { const ws = window.XLSX.utils.json_to_sheet(rows.length ? rows : [{ vacio: '' }]); window.XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)) }
     const fC = getFechaCorte()
-    add('Pendientes', pendAgrupados().map(g => ({ Placa: g.placa, Tipo: g.label, Numeros: g.nums.join('/'), Propietario: g.propietario })))
+    add('Pendientes', pendAgrupados().map(g => ({ Placa: g.placa, Categoria: g.label, Tipo: g.tipo, Numeros: g.nums.join('/'), Propietario: g.propietario })))
     if (ULTIMA) {
       add('Sin placa', ULTIMA.sinPlaca.map(l => ({ Producto: l.producto, Factura: l.factura, Fecha: l.fecha, Monto: l.monto })))
       add('Revisar (no pendiente)', ULTIMA.sinMatch.map(l => ({ Producto: l.producto, Placa: (l.placas || []).join(','), Factura: l.factura, Fecha: l.fecha, Monto: l.monto, Revisar: (fC && l.fecha && l.fecha >= fC) ? 'SI' : '' })))
@@ -456,7 +572,8 @@
       const cats = items.map(x => x.categoria)
       const label = (cats.includes('estado_fisico') && cats.includes('repotenciacion')) ? 'E.Físico + Repot.' : (cats.includes('repotenciacion') ? 'Repot.' : 'E.Físico')
       const nums = items.map(x => x.numero).filter(n => n).sort((a, b) => a - b)
-      return { placa, label, nums, propietario: items[0].propietario || '' }
+      const tipo = (items.find(x => x.tipo) || {}).tipo || ''
+      return { placa, label, nums, tipo, propietario: items[0].propietario || '' }
     }).sort((a, b) => (a.nums[0] || 0) - (b.nums[0] || 0))
   }
   function pendientesHTML () {
@@ -467,14 +584,14 @@
       <div id="ef-pend-list" style="max-height:340px;overflow:auto">${filtr.map(filaPend).join('')}${grupos.length > 500 ? `<div style="font-size:12px;color:var(--text3,#8b949e);padding-top:6px">… y ${grupos.length - 500} más (usá el buscador)</div>` : ''}</div></div>`
   }
   function filaPend (g) {
-    return `<div class="ef-row"><span>${g.nums.length ? '#' + g.nums.join('/') + ' · ' : ''}<span class="ef-plate">${esc(g.placa)}</span> · ${esc(g.label)}</span><span style="color:var(--text3,#8b949e)">${esc(g.propietario)}</span></div>`
+    return `<div class="ef-row"><span>${g.nums.length ? '#' + g.nums.join('/') + ' · ' : ''}<span class="ef-plate">${esc(g.placa)}</span> · ${esc(g.label)}${g.tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(g.tipo)}</span>` : ''}</span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><span style="color:var(--text3,#8b949e)">${esc(g.propietario)}</span><button class="btn" data-pconc="${esc(g.placa)}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`
   }
   function renderPendientes () { $('ef-result').innerHTML = huerfanasHTML() + pendientesHTML(); bindPendBuscador() }
   function bindPendBuscador () {
     const q = $('ef-pq'); if (!q) return
     q.addEventListener('input', () => {
       const t = q.value.trim().toUpperCase()
-      const f = pendAgrupados().filter(g => !t || (g.placa || '').includes(t) || g.nums.some(n => String(n).includes(t)) || (g.propietario || '').toUpperCase().includes(t)).slice(0, 500)
+      const f = pendAgrupados().filter(g => !t || (g.placa || '').includes(t) || g.nums.some(n => String(n).includes(t)) || (g.propietario || '').toUpperCase().includes(t) || (g.tipo || '').toUpperCase().includes(t)).slice(0, 500)
       $('ef-pend-list').innerHTML = f.map(filaPend).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin resultados</div>'
     })
   }
@@ -495,9 +612,22 @@
       ? `<div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:4px">Sugerencias (placa parece "${esc(partial)}"):</div>` + sug.map(g => `<button class="btn" data-sugn="${g.nums[0]}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:12px">#${g.nums.join('/')} · ${esc(g.placa)} · ${esc(g.label)} · ${esc(g.propietario)}</button>`).join('')
       : '<div style="font-size:12px;color:var(--text3,#8b949e)">Sin sugerencias por placa — buscá el N° en la lista de pendientes.</div>'
     $('ef-modal-num').value = ''; $('ef-modal-hint').textContent = ''
+    // ¿la factura ya tiene estados físicos conciliados? -> ofrecer ocultar
+    const yaFact = ALL.filter(e => e.facturado && String(e.factura_ref) === String(linea.factura))
+    $('ef-modal-yacon').innerHTML = yaFact.length
+      ? `<div style="padding:8px 10px;border-radius:6px;background:rgba(22,163,74,.12);border:1px solid var(--green,#16a34a);font-size:12px">✓ La factura ${esc(linea.factura)} ya tiene ${yaFact.length} estado(s) físico(s) conciliado(s) (la placa está mal escrita en la factura). <button class="btn" id="ef-modal-ocultar" style="font-size:11px;padding:3px 10px;margin-top:6px;display:block">Ya está conciliada — ocultar de la lista</button></div>`
+      : ''
     $('ef-modal').classList.add('open')
+    const bo = $('ef-modal-ocultar'); if (bo) bo.addEventListener('click', ocultarSinMatch)
     $('ef-modal-sug').querySelectorAll('[data-sugn]').forEach(b => b.addEventListener('click', () => { $('ef-modal-num').value = b.dataset.sugn; hintManual() }))
     setTimeout(() => $('ef-modal-num').focus(), 120)
+  }
+
+  function ocultarSinMatch () {
+    if (ULTIMA && Array.isArray(ULTIMA.sinMatch)) ULTIMA.sinMatch = ULTIMA.sinMatch.filter(l => l !== _manualLinea)
+    $('ef-modal').classList.remove('open')
+    renderResultado()
+    toast('Oculta de la lista', 'success')
   }
   function hintManual () {
     const n = parseInt($('ef-modal-num').value, 10)
