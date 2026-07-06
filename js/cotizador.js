@@ -917,7 +917,7 @@
     if (!d || !h || h < d) return
     try {
       const prof = window._currentProfile ? window._currentProfile() : null
-      const { error } = await sb().from('modelo_generaciones').upsert({ marca: PF.marca, modelo: PF.modelo, marca_norm: provNorm(PF.marca), modelo_norm: provNorm(PF.modelo), anio_desde: d, anio_hasta: h, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,anio_desde,anio_hasta', ignoreDuplicates: true })
+      const { error } = await sb().from('modelo_generaciones').upsert({ marca: PF.marca, modelo: PF.modelo, marca_norm: provNorm(PF.marca), modelo_norm: provNorm(PF.modelo), anio_desde: d, anio_hasta: h, traccion: PF.traccion || '', combustible: PF.combustible || '', grupo_repuesto: PF.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
       if (error) throw error
       await loadGeneraciones(); _genExiste = true; updVehHint()
     } catch (e) { console.error('[gen save]', e) }

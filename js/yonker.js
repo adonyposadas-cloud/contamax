@@ -1233,7 +1233,7 @@ window.ykGuardarGenSiFalta = async () => {
   if (!d || !h || h < d) return
   try {
     const prof = window._currentProfile?.()
-    await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+    await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, traccion: ykDetalle.traccion || '', combustible: ykDetalle.combustible || '', grupo_repuesto: ykDetalle.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
     await ykLoadGeneraciones()
     const hint = document.getElementById('yk-cot-genhint'); if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${d}–${h} guardada para ${marca} ${modelo}.` }
   } catch (e) { console.error('[yk gen save]', e) }

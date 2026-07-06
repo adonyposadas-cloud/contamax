@@ -1366,6 +1366,7 @@ window.guardarCompra = async () => {
 
 // ── PENDIENTES ──
 let pendientesData = []
+let pendientesPartidaMap = {}   // numero_factura(UPPER) -> [numero_partida,...]
 
 async function loadPendientes() {
   const container = document.getElementById('lista-pendientes')
@@ -1380,6 +1381,15 @@ async function loadPendientes() {
   const { data, error } = await query
   if (error) { container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`; return }
   pendientesData = data || []
+  // Cruzar factura -> partida por numero_documento (la partida guarda el N° de factura como documento)
+  try {
+    pendientesPartidaMap = {}
+    const docs = [...new Set(pendientesData.filter(f => f.estado === 'procesada' && f.numero_factura).map(f => String(f.numero_factura).toUpperCase()))]
+    for (let i = 0; i < docs.length; i += 200) {
+      const { data: parts } = await sb.from('partidas_contables').select('numero_partida, numero_documento').in('numero_documento', docs.slice(i, i + 200))
+      ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').toUpperCase(); if (k && p.numero_partida) (pendientesPartidaMap[k] = pendientesPartidaMap[k] || []).push(p.numero_partida) })
+    }
+  } catch (e) { pendientesPartidaMap = {} }
   filtrarPendientes()
 }
 
@@ -1449,7 +1459,7 @@ window.filtrarPendientes = () => {
         <div class="pi-dot ${statusClass}"></div>
         <div>
           <div class="pi-info">${provNombre || 'Sin proveedor'} · Fact. ${f.numero_factura}${f.descripcion_compra ? ' · ' + f.descripcion_compra : ''}${f.centro_costo?.nombre ? ' · ' + f.centro_costo.nombre : ''}</div>
-          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}</div>
+          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}${(f.estado === 'procesada' && pendientesPartidaMap[String(f.numero_factura||'').toUpperCase()]) ? ' · <b style="color:var(--gold)">Partida #' + pendientesPartidaMap[String(f.numero_factura||'').toUpperCase()].join(', #') + '</b>' : ''}</div>
         </div>
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
@@ -2203,6 +2213,8 @@ async function initPartidaNueva() {
   }
   // Start with 2 empty lines
   addLinea(); addLinea()
+  // TC: arrancar con el último usado (persistido en localStorage)
+  if (typeof fetchTCBac === 'function') fetchTCBac()
   calcTotales()
 }
 window.initPartidaNueva = initPartidaNueva
@@ -2694,8 +2706,9 @@ function fetchTCBac() {
 }
 fetchTCBac()
 
-// Guardar TC en localStorage cuando el usuario lo cambia
-document.addEventListener('change', (e) => {
+// Guardar TC en localStorage mientras el usuario lo escribe (así persiste aunque
+// refresque sin quitar el foco del campo)
+document.addEventListener('input', (e) => {
   if (e.target.id === 'calc-usd-tc') {
     const val = parseFloat(e.target.value)
     if (val > 0) {

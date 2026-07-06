@@ -13,7 +13,9 @@ const getCatalogo = () => window.catalogoCuentas || []
 // ── PRIVACIDAD: Helpers ──
 const esSuperAdmin = () => {
   const p = window._currentProfile ? window._currentProfile() : null
-  return p?.rol === 'super_admin'
+  // Usa el rol REAL: app.js aliasa 'admin' -> 'super_admin' (guardando el real en _rolReal).
+  // Para la privacidad de centros de costo, un admin NO debe contar como super_admin.
+  return (p?._rolReal || p?.rol) === 'super_admin'
 }
 
 const getCentrosPrivados = () => {
