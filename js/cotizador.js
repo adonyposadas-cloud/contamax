@@ -198,6 +198,7 @@
         <button class="cot-tab on" data-tab="nueva">Nueva</button>
         <button class="cot-tab" data-tab="cotizacion">Cotización</button>
         <button class="cot-tab" data-tab="seguimiento">Seguimiento</button>
+        <button class="cot-tab" data-tab="proveedores">📇 Proveedores</button>
         <button class="cot-tab" data-tab="config" id="cot-tab-config" style="display:none">⚙ Config</button>
       </div>
     </div>
@@ -329,6 +330,19 @@
           <button class="btn btn-ghost" id="cot-seg-export" style="font-size:12px;padding:6px 12px">⬇ Exportar CSV</button>
         </div>
         <div id="cot-seg-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
+      </div>
+    </div>
+
+    <!-- PANEL PROVEEDORES (contactos) -->
+    <div id="cot-panel-proveedores" class="cot-panel" style="display:none">
+      <div class="form-card">
+        <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <div style="font-weight:700;color:var(--gold,#c8a24a)">📇 Contactos de proveedores</div>
+          <input id="cot-prov-q" class="cot-in" placeholder="🔍 Buscar proveedor…" style="flex:1;min-width:180px;text-transform:uppercase">
+          <button class="btn btn-ghost" id="cot-prov-sync" style="font-size:12px;padding:6px 12px" title="Traer proveedores nuevos desde las compras">⟳ Sincronizar</button>
+        </div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Tocá 📞/💬 para llamar o mandar WhatsApp. Editá el teléfono y el contacto de cada proveedor.</div>
+        <div id="cot-prov-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
       </div>
     </div>
 
@@ -707,6 +721,11 @@
       renderSeg()
     })
     $('cot-seg-export').addEventListener('click', exportSeguimiento)
+    // Proveedores
+    let debP
+    if ($('cot-prov-q')) $('cot-prov-q').addEventListener('input', () => { clearTimeout(debP); debP = setTimeout(() => renderProveedores($('cot-prov-q').value), 200) })
+    if ($('cot-prov-sync')) $('cot-prov-sync').addEventListener('click', loadProveedores)
+    if ($('cot-prov-list')) $('cot-prov-list').addEventListener('click', e => { const b = e.target.closest('.prov-save'); if (b) guardarProveedorRow(parseInt(b.dataset.i, 10)) })
     $('det-close').addEventListener('click', () => $('cot-modal-det').classList.remove('open'))
     $('det-editar').addEventListener('click', () => {
       $('cot-modal-det').classList.remove('open')
@@ -1211,13 +1230,88 @@
   function switchTab (name) {
     TAB = name
     document.querySelectorAll('#view-cotizador .cot-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name))
-    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'config'].forEach(p => {
+    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'proveedores', 'config'].forEach(p => {
       const el = $('cot-panel-' + p); if (el) el.style.display = (p === name) ? '' : 'none'
     })
     if (name === 'inicio') loadDashboard()
     else if (name === 'cotizacion') loadHistorial()
     else if (name === 'seguimiento') loadSeguimiento()
+    else if (name === 'proveedores') loadProveedores()
     else if (name === 'config') fillConfigForm()
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  PROVEEDORES · contactos (WhatsApp / Llamar)
+  // ══════════════════════════════════════════════════════════
+  let PROV_CONT = []
+  const provNorm = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
+  const normTel = (t) => { let n = String(t || '').replace(/\D/g, ''); if (n && n.length <= 8) n = '504' + n; return n }
+  const waHref = (tel, msg) => 'https://wa.me/' + normTel(tel) + '?text=' + encodeURIComponent(msg)
+
+  async function fetchProveedoresCompras () {
+    const set = new Set(); let from = 0; const step = 1000
+    for (let i = 0; i < 12; i++) {
+      const { data, error } = await sb().from('cotizador_compras').select('proveedor').range(from, from + step - 1)
+      if (error || !data) break
+      data.forEach(r => { const p = (r.proveedor || '').trim(); if (p) set.add(p) })
+      if (data.length < step) break
+      from += step
+    }
+    return [...set]
+  }
+
+  async function loadProveedores () {
+    const cont = $('cot-prov-list'); if (cont) cont.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
+    try {
+      const { data: contactos } = await sb().from('proveedores_contacto').select('*')
+      const compras = await fetchProveedoresCompras()
+      const map = {}
+      ;(contactos || []).forEach(c => { map[c.nombre_norm] = { nombre: c.nombre, nombre_norm: c.nombre_norm, telefono: c.telefono || '', contacto: c.contacto || '' } })
+      compras.forEach(nom => { const k = provNorm(nom); if (k && !map[k]) map[k] = { nombre: nom, nombre_norm: k, telefono: '', contacto: '' } })
+      PROV_CONT = Object.values(map).sort((a, b) => a.nombre.localeCompare(b.nombre))
+      renderProveedores('')
+    } catch (e) { console.error('[cot proveedores]', e); if (cont) cont.innerHTML = '<div style="color:var(--red,#f85149)">Error al cargar</div>' }
+  }
+
+  function renderProveedores (filtro) {
+    const cont = $('cot-prov-list'); if (!cont) return
+    const t = (filtro || '').toUpperCase()
+    const list = PROV_CONT.filter(p => !t || p.nombre.toUpperCase().includes(t) || (p.contacto || '').toUpperCase().includes(t))
+    cont._list = list
+    if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin proveedores</div>'; return }
+    cont.innerHTML = list.map((p, i) => {
+      const msg = `Buen día${p.contacto ? ' ' + p.contacto : ''}, le consulto por el estado del envío de los repuestos que solicitamos. Gracias.`
+      const wa = p.telefono ? `<a class="btn" href="${waHref(p.telefono, msg)}" target="_blank" rel="noopener" style="color:#25d366;font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>` : ''
+      const call = p.telefono ? `<a class="btn" href="tel:${esc(p.telefono)}" style="font-size:12px;padding:5px 10px;text-decoration:none">📞 Llamar</a>` : ''
+      return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border,#2a3340)">
+        <div style="min-width:180px;flex:1;font-weight:600;font-size:13px">${esc(p.nombre)}</div>
+        <input class="cot-in prov-cont" data-i="${i}" placeholder="Contacto" value="${esc(p.contacto || '')}" style="width:150px">
+        <input class="cot-in prov-tel" data-i="${i}" placeholder="Teléfono" value="${esc(p.telefono || '')}" style="width:130px">
+        <button class="btn btn-ghost prov-save" data-i="${i}" style="font-size:12px;padding:5px 10px">💾 Guardar</button>
+        ${wa} ${call}
+      </div>`
+    }).join('')
+  }
+
+  async function guardarProveedorRow (i) {
+    const cont = $('cot-prov-list'); const list = cont._list || PROV_CONT
+    const p = list[i]; if (!p) return
+    const tel = normTel((cont.querySelector(`.prov-tel[data-i="${i}"]`) || {}).value || '')
+    const contacto = ((cont.querySelector(`.prov-cont[data-i="${i}"]`) || {}).value || '').trim()
+    try {
+      const { error } = await sb().from('proveedores_contacto').upsert({ nombre: p.nombre, nombre_norm: p.nombre_norm, telefono: tel, contacto }, { onConflict: 'nombre_norm' })
+      if (error) throw error
+      p.telefono = tel; p.contacto = contacto
+      // reflejar en el cache global por si el modal de pedidos lo usa
+      toast('Proveedor guardado', 'success')
+      renderProveedores($('cot-prov-q') ? $('cot-prov-q').value : '')
+    } catch (e) { console.error('[cot prov save]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+
+  // Devuelve el contacto guardado de un proveedor (para el modal de Pedidos)
+  function contactoDe (nombre) {
+    const k = provNorm(nombre)
+    return PROV_CONT.find(p => p.nombre_norm === k) || null
   }
 
   async function loadDashboard () {
@@ -1333,7 +1427,13 @@
       renderPedidos()
       $('cot-modal-ped').classList.add('open')
       cargarProveedores()
+      ensureProvContacts().then(() => renderPedidos())   // recarga con botones de WhatsApp/Llamar
     } catch (e) { console.error('[cotizador pedidos]', e); toast('No se pudo abrir', 'error') }
+  }
+
+  async function ensureProvContacts () {
+    if (PROV_CONT.length) return
+    try { const { data } = await sb().from('proveedores_contacto').select('*'); PROV_CONT = (data || []).map(c => ({ nombre: c.nombre, nombre_norm: c.nombre_norm, telefono: c.telefono || '', contacto: c.contacto || '' })) } catch (e) { /* sin contactos */ }
   }
 
   function renderPedidos () {
@@ -1358,7 +1458,14 @@
       const seg = it.seguimiento || ''
       let estadoTxt = ''
       if (seg === 'llegado') estadoTxt = `<span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">✓ ${it.seg_proveedor === 'BODEGA' ? 'Bodega' : 'Llegó'}</span>`
-      else if (seg === 'pedido') estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">📦 Pedido a ${esc(it.seg_proveedor || '')}</span>`
+      else if (seg === 'pedido') {
+        estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">📦 Pedido a ${esc(it.seg_proveedor || '')}</span>`
+        const c = contactoDe(it.seg_proveedor)
+        if (c && c.telefono) {
+          const msg = `Buen día${c.contacto ? ' ' + c.contacto : ''}, consulto por el estado del envío de: ${String(it.desc).toUpperCase()} (cantidad ${fmt(it.cantidad)}) que solicitamos. Gracias.`
+          estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:#25d366;text-decoration:none">💬</a> <a href="tel:${esc(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
+        }
+      }
       else estadoTxt = '<span style="font-size:11px;color:var(--text3,#8b949e)">Sin pedir</span>'
       let botones = ''
       if (seg === 'llegado') botones = `<button class="ped-btn" data-pedact="revertir" data-i="${i}">↩ Revertir</button>`

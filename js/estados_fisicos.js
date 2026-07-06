@@ -336,6 +336,12 @@
       const { error } = await sb().from('estados_fisicos').upsert(updates.slice(i, i + 500))
       if (error) throw error
     }
+    // incluir los conciliados a mano (facturados que no matchean ninguna línea, ej. placa mal escrita)
+    const yaEnLista = new Set(conciliados.map(c => c.numero + '|' + c.placa))
+    ALL.filter(e => e.facturado && e.conciliado_manual && !e.descartado).forEach(e => {
+      const k = e.numero + '|' + e.placa_norm
+      if (!yaEnLista.has(k)) { yaEnLista.add(k); conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: e.fecha_factura, factura: e.factura_ref, monto: e.monto, compartida: (e.placas_linea || 1) > 1, placas_linea: e.placas_linea || 1, monto_linea: e.monto_linea || e.monto }) }
+    })
     ULTIMA = { conciliados, sinMatch, sinPlaca }
     await cargarEstado(); renderResultado()
     return ULTIMA
@@ -643,11 +649,16 @@
     if (!ef) { toast('Número no encontrado entre pendientes', 'error'); return }
     try {
       // marcar el estado físico elegido Y su repotenciación de la misma placa (misma factura)
-      const hermanos = PEND.filter(e => e.placa_norm === ef.placa_norm)
-      const ids = hermanos.length ? hermanos.map(e => e.id) : [ef.id]
+      const items = PEND.filter(e => e.placa_norm === ef.placa_norm)
+      const lista = items.length ? items : [ef]
+      const ids = lista.map(e => e.id)
       const { error } = await sb().from('estados_fisicos').update({ facturado: true, fecha_factura: _manualLinea.fecha, factura_ref: _manualLinea.factura, monto: _manualLinea.monto, conciliado_manual: true }).in('id', ids)
       if (error) throw error
-      if (ULTIMA) ULTIMA.sinPlaca = ULTIMA.sinPlaca.filter(l => l !== _manualLinea)
+      if (ULTIMA) {
+        if (Array.isArray(ULTIMA.conciliados)) lista.forEach(e => ULTIMA.conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: _manualLinea.fecha, factura: _manualLinea.factura, monto: _manualLinea.monto, compartida: false, placas_linea: 1, monto_linea: _manualLinea.monto }))
+        if (Array.isArray(ULTIMA.sinPlaca)) ULTIMA.sinPlaca = ULTIMA.sinPlaca.filter(l => l !== _manualLinea)
+        if (Array.isArray(ULTIMA.sinMatch)) ULTIMA.sinMatch = ULTIMA.sinMatch.filter(l => l !== _manualLinea)
+      }
       $('ef-modal').classList.remove('open')
       toast(`${ef.placa_norm} marcado facturado (${ids.length})`, 'success')
       await cargarEstado(); renderResultado()
