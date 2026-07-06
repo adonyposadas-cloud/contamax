@@ -34,6 +34,8 @@
   let _editIdx = null        // índice del ítem manual en edición (null = agregar nuevo)
   const costCache = {}       // nombre_norm -> [{proveedor,costo,fecha}]
   let VEH = null             // { marcas:[], byMarca:{ MARCA:{ MODELO:{label,anios:Set} } } }
+  let CATV = null            // catálogo maestro: { marcas:[{marca,marca_norm,activo,orden}], modelos:{ MARCA_NORM:[{modelo,modelo_norm,activo}] } }
+  const _catExp = new Set()  // marcas expandidas en el panel Config
   let HIST_FILTRO = ''       // '' | 'pendiente' | 'autorizada'
   let TAB = 'inicio'         // pestaña activa (abre en el dashboard)
   let ES_SUPER = false       // super_admin: puede corregir descripciones en la base
@@ -112,6 +114,7 @@
     ES_SUPER = !!esSuper
     const tabCfg = $('cot-tab-config'); if (tabCfg) tabCfg.style.display = esSuper ? '' : 'none'
     cargarVehiculos()
+    cargarCatalogoVeh()
     loadConfig()
     loadGeneraciones()
     loadCompat()
@@ -360,8 +363,8 @@
         <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:10px">🚗 Generaciones de modelos (rangos de años)</div>
         <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:12px">Al cotizar, poné el año del vehículo y el sistema detecta la generación (ej. CR-V 2014 → 2012–2016) y filtra los repuestos de toda la generación.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border,#2a3340)">
-          <input id="cot-gen-ma" class="cot-in" placeholder="Marca" style="width:120px;text-transform:uppercase">
-          <input id="cot-gen-mo" class="cot-in" placeholder="Modelo" style="width:120px;text-transform:uppercase">
+          <div class="cot-ac-wrap"><input id="cot-gen-ma" class="cot-in" placeholder="Marca" autocomplete="off" style="width:120px;text-transform:uppercase"><div class="ac-list" id="cot-gen-ma-ac" style="display:none"></div></div>
+          <div class="cot-ac-wrap"><input id="cot-gen-mo" class="cot-in" placeholder="Modelo" autocomplete="off" style="width:120px;text-transform:uppercase"><div class="ac-list" id="cot-gen-mo-ac" style="display:none"></div></div>
           <input id="cot-gen-d" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:72px">
           <input id="cot-gen-h" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:72px">
           <select id="cot-gen-tr" class="cot-in" style="width:100px" title="Tracción"></select>
@@ -447,6 +450,18 @@
           <div class="fld"><label>Más de 12 meses (%)</label><input id="cfg-aj12" class="cot-in" type="number" min="0" step="0.5"></div>
         </div>
         <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-gold" id="cfg-guardar">💾 Guardar configuración</button></div>
+      </div>
+
+      <!-- CATÁLOGO DE MARCAS Y MODELOS -->
+      <div class="form-card">
+        <div class="form-card-title">🚗 Marcas y modelos de vehículos</div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Apagá las marcas o modelos que no atendés en el taller: dejan de sugerirse al cotizar y en Generaciones. No se borra ningún dato ni generación. Se comparte con Yonker.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input id="cfg-cat-nueva-ma" class="cot-in" placeholder="Nueva marca" style="width:170px;text-transform:uppercase">
+          <button class="btn btn-ghost" id="cfg-cat-addma" style="font-size:12px;padding:7px 12px">+ Marca</button>
+          <input id="cfg-cat-q" class="cot-in" placeholder="🔍 Buscar marca o modelo…" style="flex:1;min-width:160px;text-transform:uppercase">
+        </div>
+        <div id="cfg-cat-list" style="max-height:380px;overflow:auto"><div style="text-align:center;color:var(--text3,#8b949e);padding:16px">Cargando…</div></div>
       </div>
     </div>
 
@@ -613,18 +628,30 @@
     })
   }
 
+  // Marcas sugeridas = catálogo maestro (solo activo) + las del historial de
+  // órdenes que no estén deshabilitadas en el catálogo. Deduplicado por norma.
   function itemsMarca (term) {
-    if (!VEH) return []
-    return VEH.marcas.filter(m => m.toLowerCase().includes(term)).slice(0, 80)
+    const desactivadas = new Set((CATV ? CATV.marcas : []).filter(m => !m.activo).map(m => m.marca_norm))
+    const out = new Map()   // norm -> etiqueta a mostrar
+    if (CATV) CATV.marcas.filter(m => m.activo).forEach(m => out.set(m.marca_norm, m.marca))
+    if (VEH) VEH.marcas.forEach(m => { const n = provNorm(m); if (!desactivadas.has(n) && !out.has(n)) out.set(n, m) })
+    return [...out.values()].filter(m => m.toLowerCase().includes(term)).sort((a, b) => a.localeCompare(b)).slice(0, 120)
   }
   function itemsModelo (term) {
+    const maNorm = provNorm(PF.marca || '')
+    if (!maNorm) return []
+    const catMods = (CATV && CATV.modelos[maNorm]) ? CATV.modelos[maNorm] : []
+    const desactivados = new Set(catMods.filter(m => !m.activo).map(m => m.modelo_norm))
+    const out = new Map()   // norm -> etiqueta
+    catMods.filter(m => m.activo).forEach(m => out.set(m.modelo_norm, m.modelo))
     const maKey = String(PF.marca || '').trim().toUpperCase()
     const mods = VEH && VEH.byMarca[maKey] ? VEH.byMarca[maKey] : null
-    if (!mods) return []
-    return Object.keys(mods).map(k => mods[k].label)
-      .filter(l => l.toLowerCase().includes(term))
-      .sort((a, b) => a.localeCompare(b)).slice(0, 80)
+    if (mods) Object.keys(mods).forEach(k => { const n = provNorm(mods[k].label); if (!desactivados.has(n) && !out.has(n)) out.set(n, mods[k].label) })
+    return [...out.values()].filter(l => l.toLowerCase().includes(term)).sort((a, b) => a.localeCompare(b)).slice(0, 120)
   }
+  // Helpers del catálogo maestro (activos), usados por los datalist de Generaciones
+  function catMarcasActivas () { return CATV ? CATV.marcas.filter(m => m.activo).map(m => m.marca).sort((a, b) => a.localeCompare(b)) : [] }
+  function catModelosActivos (marcaNorm) { const l = CATV && CATV.modelos[marcaNorm] ? CATV.modelos[marcaNorm] : []; return l.filter(m => m.activo).map(m => m.modelo).sort((a, b) => a.localeCompare(b)) }
   function itemsAnio (term) {
     const maKey = String(PF.marca || '').trim().toUpperCase()
     const moKey = String(PF.modelo || '').trim().toUpperCase()
@@ -663,6 +690,24 @@
     }
   }
 
+  // Catálogo maestro de marcas/modelos (compartido con Yonker). Se administra
+  // en Config (super_admin). Deshabilitar solo deja de sugerir; no borra nada.
+  async function cargarCatalogoVeh (force) {
+    if (CATV && !force) return CATV
+    try {
+      const [ma, mo] = await Promise.all([
+        sb().from('cotizador_marcas').select('marca,marca_norm,activo,orden').order('orden').order('marca'),
+        sb().from('cotizador_modelos').select('marca,marca_norm,modelo,modelo_norm,activo').order('modelo')
+      ])
+      const modelos = {}
+      ;(mo.data || []).forEach(r => { (modelos[r.marca_norm] = modelos[r.marca_norm] || []).push(r) })
+      CATV = { marcas: ma.data || [], modelos }
+    } catch (e) { console.error('[cotizador catalogo]', e); CATV = CATV || { marcas: [], modelos: {} } }
+    return CATV
+  }
+  function genItemsMarca (term) { return catMarcasActivas().filter(m => m.toLowerCase().includes(term)).slice(0, 120) }
+  function genItemsModelo (term) { const ma = $('cot-gen-ma') ? $('cot-gen-ma').value : ''; return catModelosActivos(provNorm(ma)).filter(m => m.toLowerCase().includes(term)).slice(0, 120) }
+
   // ══════════════════════════════════════════════════════════
   //  WIRING
   // ══════════════════════════════════════════════════════════
@@ -674,6 +719,26 @@
     $('cot-desc').addEventListener('input', e => { PF.descuento = num(e.target.value); recalcTotales() })
     $('cot-notas').addEventListener('input', e => PF.notas = e.target.value)
     $('cfg-guardar').addEventListener('click', saveConfig)
+    if ($('cfg-cat-addma')) $('cfg-cat-addma').addEventListener('click', addCatMarca)
+    if ($('cfg-cat-nueva-ma')) $('cfg-cat-nueva-ma').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCatMarca() } })
+    let debCat; if ($('cfg-cat-q')) $('cfg-cat-q').addEventListener('input', () => { clearTimeout(debCat); debCat = setTimeout(renderCatalogoCfg, 200) })
+    const catList = $('cfg-cat-list')
+    if (catList) {
+      catList.addEventListener('change', e => {
+        const t = e.target
+        if (t.classList && t.classList.contains('cfg-cat-ma-tg')) setMarcaActivo(t.dataset.mn, t.checked)
+        else if (t.classList && t.classList.contains('cfg-cat-mo-tg')) setModeloActivo(t.dataset.mn, t.dataset.on, t.checked)
+      })
+      catList.addEventListener('click', e => {
+        const exp = e.target.closest('.cfg-cat-ma-exp')
+        if (exp) { const mn = exp.dataset.mn; if (_catExp.has(mn)) _catExp.delete(mn); else _catExp.add(mn); renderCatalogoCfg(); return }
+        const addmo = e.target.closest('.cfg-cat-addmo')
+        if (addmo) { const box = addmo.parentElement ? addmo.parentElement.querySelector('.cfg-cat-nuevo-mo') : null; addCatModelo(addmo.dataset.mn, addmo.dataset.ma, box) }
+      })
+      catList.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && e.target.classList && e.target.classList.contains('cfg-cat-nuevo-mo')) { e.preventDefault(); addCatModelo(e.target.dataset.mn, e.target.dataset.ma, e.target) }
+      })
+    }
     let debPl
     $('cot-placa').addEventListener('input', e => {
       PF.placa = e.target.value.toUpperCase()
@@ -811,6 +876,8 @@
     if ($('cot-prov-list')) $('cot-prov-list').addEventListener('click', e => { const b = e.target.closest('.prov-save'); if (b) guardarProveedorRow(parseInt(b.dataset.i, 10)) })
     // Generaciones
     let debG
+    acSetup('cot-gen-ma', 'cot-gen-ma-ac', genItemsMarca, () => { const mo = $('cot-gen-mo'); if (mo) mo.value = '' })
+    acSetup('cot-gen-mo', 'cot-gen-mo-ac', genItemsModelo, () => {})
     if ($('cot-gen-add')) $('cot-gen-add').addEventListener('click', addGeneracion)
     if ($('cot-gen-q')) $('cot-gen-q').addEventListener('input', () => { clearTimeout(debG); debG = setTimeout(() => renderGeneraciones($('cot-gen-q').value), 200) })
     if ($('cot-gen-list')) $('cot-gen-list').addEventListener('click', e => { const b = e.target.closest('.cot-gen-del'); if (b) deleteGeneracion(b) })
@@ -981,7 +1048,7 @@
 
   // ── Pestaña de administración de Generaciones ──
   async function loadGeneracionesTab () {
-    await Promise.all([loadGeneraciones(), loadCompat()])
+    await Promise.all([loadGeneraciones(), loadCompat(), cargarCatalogoVeh()])
     if ($('cot-gen-tr')) $('cot-gen-tr').innerHTML = optsSelect(LISTAS.traccion, '')
     if ($('cot-gen-co')) $('cot-gen-co').innerHTML = optsSelect(LISTAS.combustible, '')
     if ($('cot-gen-gr')) $('cot-gen-gr').innerHTML = optsSelect(LISTAS.grupo, '')
@@ -1012,6 +1079,78 @@
   async function deleteLista (id) {
     if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
     try { const { error } = await sb().from('cotizador_listas').delete().eq('id', id); if (error) throw error; await loadCompat(); renderListas() } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+
+  // ── Catálogo de marcas/modelos (Config · super_admin) ──
+  async function renderCatalogoCfg () {
+    const cont = $('cfg-cat-list'); if (!cont) return
+    await cargarCatalogoVeh()
+    const t = ($('cfg-cat-q') ? $('cfg-cat-q').value : '').trim().toUpperCase()
+    const marcas = CATV.marcas.slice().sort((a, b) => (a.orden - b.orden) || a.marca.localeCompare(b.marca))
+    const html = marcas.map(m => {
+      const mods = CATV.modelos[m.marca_norm] || []
+      const maMatch = !t || m.marca.toUpperCase().includes(t)
+      const modMatch = t ? mods.filter(x => x.modelo.toUpperCase().includes(t)) : mods
+      if (t && !maMatch && !modMatch.length) return ''
+      const exp = _catExp.has(m.marca_norm) || (t && !maMatch && modMatch.length > 0)
+      const act = mods.filter(x => x.activo).length
+      const lista = (t && !maMatch) ? modMatch : mods
+      const modelosHtml = exp ? `<div style="padding:6px 0 8px 26px">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <input class="cot-in cfg-cat-nuevo-mo" data-mn="${esc(m.marca_norm)}" data-ma="${esc(m.marca)}" placeholder="Nuevo modelo" style="width:150px;text-transform:uppercase">
+            <button class="btn btn-ghost cfg-cat-addmo" data-mn="${esc(m.marca_norm)}" data-ma="${esc(m.marca)}" style="font-size:12px;padding:5px 10px">+ Modelo</button>
+          </div>
+          ${lista.length ? lista.map(x => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-size:12px;${x.activo ? '' : 'opacity:.45'}"><input type="checkbox" class="cfg-cat-mo-tg" data-mn="${esc(m.marca_norm)}" data-on="${esc(x.modelo_norm)}" ${x.activo ? 'checked' : ''}> ${esc(x.modelo)}</label>`).join('') : '<span style="font-size:12px;color:var(--text3,#8b949e)">Sin modelos.</span>'}
+        </div>` : ''
+      return `<div style="border-bottom:1px solid var(--border,#2a3340);padding:7px 0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" class="cfg-cat-ma-tg" data-mn="${esc(m.marca_norm)}" ${m.activo ? 'checked' : ''} title="Activar / desactivar marca">
+          <b class="cfg-cat-ma-exp" data-mn="${esc(m.marca_norm)}" style="flex:1;cursor:pointer;${m.activo ? '' : 'opacity:.45;text-decoration:line-through'}">${exp ? '▾' : '▸'} ${esc(m.marca)}</b>
+          <span style="font-size:11px;color:var(--text3,#8b949e)">${act}/${mods.length} modelos</span>
+        </div>${modelosHtml}
+      </div>`
+    }).filter(Boolean).join('')
+    cont.innerHTML = html || '<div style="color:var(--text3,#8b949e);padding:10px">Sin coincidencias.</div>'
+  }
+  async function setMarcaActivo (mn, activo) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    try {
+      const { error } = await sb().from('cotizador_marcas').update({ activo }).eq('marca_norm', mn)
+      if (error) throw error
+      const m = CATV.marcas.find(x => x.marca_norm === mn); if (m) m.activo = activo
+      renderCatalogoCfg()
+    } catch (e) { console.error('[cat marca tg]', e); toast('Error: ' + (e.message || e), 'error'); renderCatalogoCfg() }
+  }
+  async function setModeloActivo (mn, on, activo) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    try {
+      const { error } = await sb().from('cotizador_modelos').update({ activo }).eq('marca_norm', mn).eq('modelo_norm', on)
+      if (error) throw error
+      const l = CATV.modelos[mn] || []; const x = l.find(r => r.modelo_norm === on); if (x) x.activo = activo
+      renderCatalogoCfg()
+    } catch (e) { console.error('[cat modelo tg]', e); toast('Error: ' + (e.message || e), 'error'); renderCatalogoCfg() }
+  }
+  async function addCatMarca () {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    const el = $('cfg-cat-nueva-ma'); const marca = (el ? el.value : '').trim().toUpperCase().replace(/\s+/g, ' ')
+    if (!marca) { toast('Escribí una marca', 'error'); return }
+    try {
+      const { error } = await sb().from('cotizador_marcas').upsert({ marca_norm: marca, marca, activo: true, orden: 100 }, { onConflict: 'marca_norm', ignoreDuplicates: true })
+      if (error) throw error
+      if (el) el.value = ''; _catExp.add(marca)
+      await cargarCatalogoVeh(true); renderCatalogoCfg(); toast('Marca agregada', 'success')
+    } catch (e) { console.error('[cat add marca]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function addCatModelo (mn, marca, inputEl) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    const modelo = (inputEl ? inputEl.value : '').trim().toUpperCase().replace(/\s+/g, ' ')
+    if (!modelo) { toast('Escribí un modelo', 'error'); return }
+    try {
+      const { error } = await sb().from('cotizador_modelos').upsert({ marca_norm: mn, modelo_norm: modelo, marca, modelo, activo: true }, { onConflict: 'marca_norm,modelo_norm', ignoreDuplicates: true })
+      if (error) throw error
+      _catExp.add(mn)
+      await cargarCatalogoVeh(true); renderCatalogoCfg(); toast('Modelo agregado', 'success')
+    } catch (e) { console.error('[cat add modelo]', e); toast('Error: ' + (e.message || e), 'error') }
   }
 
   // ── Diccionario pieza → grupo ──
@@ -1996,14 +2135,30 @@
     } catch (e) { console.error('[cotizador mapaOrdenes]', e); return {} }
   }
 
+  // Foto de lo presentado por proforma (para usar como base del seguimiento)
+  async function mapaPresentaciones (rows) {
+    const ids = [...new Set((rows || []).map(p => p.id).filter(Boolean))]
+    if (!ids.length) return {}
+    const m = {}
+    try {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data } = await sb().from('cotizador_presentaciones')
+          .select('proforma_id,total_presentado,items,veces,primera_presentacion,ultima_presentacion')
+          .in('proforma_id', ids.slice(i, i + 200))
+        ;(data || []).forEach(s => { m[s.proforma_id] = s })
+      }
+    } catch (e) { console.error('[cotizador presentaciones map]', e) }
+    return m
+  }
+
   // ── SEGUIMIENTO COMERCIAL ──
-  function clasificar (p, ord) {
-    const cotizado = Number(p.total) || 0
-    if (!p.numero_orden) return { cat: 'sin_orden', facturado: 0, pendiente: cotizado, factura: '' }
-    if (!ord || !ord.numero_factura) return { cat: 'sin_factura', facturado: 0, pendiente: cotizado, factura: '' }
+  function clasificar (p, ord, snap) {
+    const cotizado = (snap && snap.total_presentado != null) ? Number(snap.total_presentado) : (Number(p.total) || 0)
+    if (!p.numero_orden) return { cat: 'sin_orden', cotizado, facturado: 0, pendiente: cotizado, factura: '' }
+    if (!ord || !ord.numero_factura) return { cat: 'sin_factura', cotizado, facturado: 0, pendiente: cotizado, factura: '' }
     const facturado = Number(ord.total) || 0
-    if (facturado < cotizado - 0.5) return { cat: 'facturo_menos', facturado, pendiente: Math.max(0, cotizado - facturado), factura: ord.numero_factura }
-    return { cat: 'cerrada', facturado, pendiente: 0, factura: ord.numero_factura }
+    if (facturado < cotizado - 0.5) return { cat: 'facturo_menos', cotizado, facturado, pendiente: Math.max(0, cotizado - facturado), factura: ord.numero_factura }
+    return { cat: 'cerrada', cotizado, facturado, pendiente: 0, factura: ord.numero_factura }
   }
   const CAT_LBL = { sin_orden: 'Sin orden', sin_factura: 'Sin factura', facturo_menos: 'Facturó menos', cerrada: 'Cerrada' }
 
@@ -2016,8 +2171,9 @@
         .order('created_at', { ascending: false }).limit(400)
       if (error) throw error
       const ordMap = await mapaOrdenes(data || [])
+      const snapMap = await mapaPresentaciones(data || [])
       SEG_DATA = (data || []).map(p => {
-        const cl = clasificar(p, ordMap[String(p.numero_orden || '').trim()])
+        const cl = clasificar(p, ordMap[String(p.numero_orden || '').trim()], snapMap[p.id])
         return Object.assign({}, p, cl)
       })
       renderSeg()
@@ -2060,7 +2216,7 @@
           <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · ${esc(fFecha(p.created_at))}${p.factura ? ' · Fact #' + esc(p.factura) : ''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="color:var(--gold,#c8a24a);font-weight:700;white-space:nowrap">Cotizado L. ${fmt(p.total)}</div>
+          <div style="color:var(--gold,#c8a24a);font-weight:700;white-space:nowrap">Cotizado L. ${fmt(p.cotizado != null ? p.cotizado : p.total)}</div>
           <div style="font-size:11px;color:${col}">Pendiente L. ${fmt(p.pendiente)}${p.facturado ? ` · facturado L. ${fmt(p.facturado)}` : ''}</div>
         </div>
       </div>`
@@ -2078,7 +2234,10 @@
     $('cot-modal-det').classList.add('open')
     try {
       const { data: prof } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
-      const cot = Array.isArray(prof.items) ? prof.items : []
+      const { data: snap } = await sb().from('cotizador_presentaciones')
+        .select('items,total_presentado,veces,primera_presentacion,ultima_presentacion').eq('proforma_id', id).maybeSingle()
+      const cot = (snap && Array.isArray(snap.items) && snap.items.length) ? snap.items : (Array.isArray(prof.items) ? prof.items : [])
+      const baseTotal = (snap && snap.total_presentado != null) ? Number(snap.total_presentado) : (Number(prof.total) || 0)
       let fact = []; let factNum = ''
       if (prof.numero_orden) {
         const { data: ord } = await sb().from('cotizador_ordenes').select('id,numero_factura,total').eq('numero_orden', String(prof.numero_orden).trim()).limit(1).maybeSingle()
@@ -2088,15 +2247,17 @@
           fact = its || []
         }
       }
-      renderDetalleSeg(prof, cot, fact, factNum)
+      renderDetalleSeg(prof, cot, fact, factNum, baseTotal, snap)
     } catch (e) { console.error('[cotizador detalle seg]', e); $('det-body').innerHTML = '<div style="color:var(--red,#f85149);text-align:center;padding:20px">Error al cargar</div>' }
   }
 
-  function renderDetalleSeg (prof, cot, fact, factNum) {
+  function renderDetalleSeg (prof, cot, fact, factNum, baseTotal, snap) {
     const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
     const factSet = fact.map(f => norm(f.descripcion))
     const estaFacturado = (desc) => { const d = norm(desc); return factSet.some(f => f === d || f.includes(d) || d.includes(f)) }
-    const totCot = Number(prof.total) || cot.reduce((a, it) => a + it.precio * it.cantidad * (1 + (it.isv || 0) / 100), 0)
+    const totCot = (baseTotal != null) ? baseTotal : (Number(prof.total) || cot.reduce((a, it) => a + it.precio * it.cantidad * (1 + (it.isv || 0) / 100), 0))
+    const baseLbl = snap ? 'PRESENTADO AL CLIENTE' : 'COTIZADO'
+    const snapNota = snap ? `<div style="font-size:11px;color:var(--text3,#8b949e);margin-bottom:6px">Presentado ${num(snap.veces) || 1} vez(es)${snap.ultima_presentacion ? ' · última ' + fFecha(snap.ultima_presentacion) : ''}</div>` : ''
     const totFact = fact.reduce((a, f) => a + (Number(f.monto_total) || 0), 0)
     const noFactCount = cot.filter(it => !estaFacturado(it.desc)).length
     const cotRows = cot.map(it => {
@@ -2113,7 +2274,8 @@
     $('det-body').innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div>
-          <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:4px">COTIZADO · L. ${fmt(totCot)}</div>
+          <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:4px">${baseLbl} · L. ${fmt(totCot)}</div>
+          ${snapNota}
           ${cotRows || '<div style="color:var(--text3,#8b949e)">—</div>'}
         </div>
         <div>
@@ -2217,6 +2379,7 @@
 
   async function fillConfigForm () {
     await loadConfig()
+    renderCatalogoCfg()
     Object.keys(CFG_MAP).forEach(id => { const el = $(id); if (el) el.value = cfg(CFG_MAP[id]) })
     const sarFields = ['cfg-cai', 'cfg-rdesde', 'cfg-rhasta', 'cfg-flimite']
     sarFields.forEach(id => { const el = $(id); if (el) { el.disabled = !!(CFG && CFG._sar); el.style.opacity = (CFG && CFG._sar) ? '0.7' : '1' } })
@@ -2270,6 +2433,46 @@
     })
   }
 
+  // Captura la foto de "lo presentado al cliente" al generar el PDF.
+  // Une los ítems actuales con los ya presentados: crece al agregar, no encoge
+  // al quitar. Seguimiento mide contra esta foto, no contra la proforma viva.
+  async function capturarPresentacion () {
+    if (!PF.id) return
+    try {
+      const actuales = (PF.items || []).map(it => ({
+        tipo: it.tipo,
+        desc: String(it.desc || '').toUpperCase(),
+        desc_norm: provNorm(autocorregir(it.desc || '')),
+        cantidad: num(it.cantidad) || 1,
+        precio: num(it.precio) || 0,
+        isv: (it.isv != null ? num(it.isv) : 15)
+      }))
+      const { data: prev } = await sb().from('cotizador_presentaciones')
+        .select('items,veces,primera_presentacion').eq('proforma_id', PF.id).maybeSingle()
+      const union = {}
+      if (prev && Array.isArray(prev.items)) prev.items.forEach(it => { union[it.desc_norm || provNorm(it.desc)] = it })
+      // re-presentar un ítem actualiza precio/cantidad al último presentado; los
+      // que ya no aparecen NO se borran (quedan como oportunidad de seguimiento)
+      actuales.forEach(it => { union[it.desc_norm] = it })
+      const items = Object.values(union)
+      const total = items.reduce((a, it) => a + it.precio * it.cantidad * (1 + (it.isv || 0) / 100), 0)
+      const now = new Date().toISOString()
+      const row = {
+        proforma_id: PF.id,
+        correlativo: PF.correlativo, vendedor: PF.vendedor, cliente: PF.cliente, placa: PF.placa,
+        marca: PF.marca, modelo: PF.modelo, anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'),
+        numero_orden: PF.numero_orden || '',
+        total_presentado: Math.round(total * 100) / 100,
+        veces: prev ? (num(prev.veces) || 1) + 1 : 1,
+        primera_presentacion: (prev && prev.primera_presentacion) ? prev.primera_presentacion : now,
+        ultima_presentacion: now,
+        items, updated_at: now
+      }
+      const { error } = await sb().from('cotizador_presentaciones').upsert(row, { onConflict: 'proforma_id' })
+      if (error) throw error
+    } catch (e) { console.error('[cotizador presentacion]', e) }  // nunca bloquea el PDF
+  }
+
   async function generarPDF () {
     if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return }
     ordenarPF(); renderItems()
@@ -2277,6 +2480,7 @@
     try {
       const ok = await guardarProforma({ silencioso: true })   // guarda y asigna el número
       if (!ok) { btn.disabled = false; btn.textContent = prev; return }  // faltó orden/cliente/ítems
+      await capturarPresentacion()   // foto de lo presentado al cliente (para Seguimiento)
       btn.textContent = 'Generando…'
       await pdfDeProforma(PF)
       toast('Cotización N° ' + numeroProforma() + ' guardada e impresa', 'success')

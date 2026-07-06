@@ -1174,6 +1174,57 @@ async function ykLoadGeneraciones() {
     ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (ykGEN[k] = ykGEN[k] || []).push({ marca: r.marca, modelo: r.modelo, desde: r.anio_desde, hasta: r.anio_hasta, tr: r.traccion || '', co: r.combustible || '', gr: r.grupo_repuesto || '' }) })
   } catch (e) { console.error('[yk gen load]', e) }
 }
+// Catálogo maestro de marcas/modelos (compartido con el Cotizador). Solo lectura
+// desde acá; la administración (activar/desactivar) vive en Cotizador · Config.
+let ykCATV = null
+async function ykLoadCatalogoVeh(force) {
+  if (ykCATV && !force) return ykCATV
+  try {
+    const [ma, mo] = await Promise.all([
+      ykSb().from('cotizador_marcas').select('marca,marca_norm,activo,orden').order('orden').order('marca'),
+      ykSb().from('cotizador_modelos').select('marca,marca_norm,modelo,modelo_norm,activo').order('modelo')
+    ])
+    const modelos = {}
+    ;(mo.data || []).forEach(r => { (modelos[r.marca_norm] = modelos[r.marca_norm] || []).push(r) })
+    ykCATV = { marcas: ma.data || [], modelos }
+  } catch (e) { console.error('[yk catalogo]', e); ykCATV = ykCATV || { marcas: [], modelos: {} } }
+  return ykCATV
+}
+function ykCatMarcasActivas() { return ykCATV ? ykCATV.marcas.filter(m => m.activo).map(m => m.marca).sort((a, b) => a.localeCompare(b)) : [] }
+function ykCatModelosActivos(mn) { const l = ykCATV && ykCATV.modelos[mn] ? ykCATV.modelos[mn] : []; return l.filter(m => m.activo).map(m => m.modelo).sort((a, b) => a.localeCompare(b)) }
+function ykGenItemsMarca (term) { return ykCatMarcasActivas().filter(m => m.toLowerCase().includes(term)).slice(0, 120) }
+function ykGenItemsModelo (term) { const ma = document.getElementById('yk-gen-ma') ? document.getElementById('yk-gen-ma').value : ''; return ykCatModelosActivos(ykNorm(ma)).filter(m => m.toLowerCase().includes(term)).slice(0, 120) }
+// Autocompletar temado (autocontenido, sin depender del CSS del Cotizador)
+function ykAC (inputId, listId, getItems, onChange) {
+  const inp = document.getElementById(inputId), list = document.getElementById(listId)
+  if (!inp || !list) return
+  if (!document.getElementById('yk-ac-style')) {
+    const s = document.createElement('style'); s.id = 'yk-ac-style'
+    s.textContent = '.yk-ac-item:hover{background:var(--gold,#d4af37)!important;color:#000!important}'
+    document.head.appendChild(s)
+  }
+  let active = -1, items = []
+  const base = 'position:absolute;top:100%;left:0;right:0;z-index:130;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5)'
+  const render = () => {
+    const term = inp.value.trim().toLowerCase()
+    items = getItems(term)
+    if (!items.length) { list.style.display = 'none'; return }
+    list.innerHTML = items.map((it, i) => `<div class="yk-ac-item" data-i="${i}" style="padding:8px 12px;font-size:13px;cursor:pointer;color:var(--text,#e6e6e6);border-bottom:.5px solid var(--border,#3a3a3a);${i === active ? 'background:var(--gold,#d4af37);color:#000' : ''}">${ykEsc(it)}</div>`).join('')
+    list.setAttribute('style', base + ';display:block')
+  }
+  const choose = v => { inp.value = v; list.style.display = 'none'; if (onChange) onChange(v) }
+  inp.addEventListener('input', () => { active = -1; if (onChange) onChange(inp.value); render() })
+  inp.addEventListener('focus', () => { active = -1; render() })
+  inp.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none' }, 150))
+  inp.addEventListener('keydown', e => {
+    if (list.style.display === 'none') return
+    if (e.key === 'ArrowDown') { active = Math.min(active + 1, items.length - 1); render(); e.preventDefault() }
+    else if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); render(); e.preventDefault() }
+    else if (e.key === 'Enter' && active >= 0) { choose(items[active]); e.preventDefault() }
+    else if (e.key === 'Escape') { list.style.display = 'none' }
+  })
+  list.addEventListener('mousedown', e => { const el = e.target.closest('[data-i]'); if (!el) return; choose(items[parseInt(el.dataset.i, 10)]); e.preventDefault() })
+}
 let ykLISTAS = { traccion: [], combustible: [], grupo: [] }
 let ykPALABRAS = {}
 let ykCORREC = {}
@@ -1243,14 +1294,14 @@ window.ykGuardarGenSiFalta = async () => {
 const ykEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 async function ykRenderGeneraciones() {
   const pane = document.getElementById('yk-pane'); if (!pane) return
-  await Promise.all([ykLoadGeneraciones(), ykLoadCompat()])
+  await Promise.all([ykLoadGeneraciones(), ykLoadCompat(), ykLoadCatalogoVeh()])
   const opt = arr => '<option value="">(cualquiera)</option>' + arr.map(v => `<option value="${ykEsc(v)}">${v}</option>`).join('')
   pane.innerHTML = `
     <div class="page-sub">Reglas de compatibilidad por generación (marca/modelo/años + tracción/combustible/grupo). Se comparten con el Cotizador.</div>
     <div class="yk-card" style="margin:12px 0;padding:14px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px">
       <div class="yk-ctrl" style="align-items:flex-end;flex-wrap:wrap;gap:8px">
-        <div class="fld"><label>Marca</label><input id="yk-gen-ma" style="width:120px;text-transform:uppercase"></div>
-        <div class="fld"><label>Modelo</label><input id="yk-gen-mo" style="width:120px;text-transform:uppercase"></div>
+        <div class="fld"><label>Marca</label><span style="position:relative;display:inline-block"><input id="yk-gen-ma" autocomplete="off" style="width:120px;text-transform:uppercase"><div id="yk-gen-ma-ac" style="display:none"></div></span></div>
+        <div class="fld"><label>Modelo</label><span style="position:relative;display:inline-block"><input id="yk-gen-mo" autocomplete="off" style="width:120px;text-transform:uppercase"><div id="yk-gen-mo-ac" style="display:none"></div></span></div>
         <div class="fld"><label>Desde</label><input id="yk-gen-d" style="width:72px" inputmode="numeric" maxlength="4"></div>
         <div class="fld"><label>Hasta</label><input id="yk-gen-h" style="width:72px" inputmode="numeric" maxlength="4"></div>
         <div class="fld"><label>Tracción</label><select id="yk-gen-tr" style="width:100px">${opt(ykLISTAS.traccion)}</select></div>
@@ -1290,6 +1341,8 @@ async function ykRenderGeneraciones() {
       <div id="yk-cor-list" style="max-height:180px;overflow:auto;margin-top:8px"></div>
     </div>`
   ykGenRenderList(); ykListaRender(); ykPalRender(); ykCorRender()
+  ykAC('yk-gen-ma', 'yk-gen-ma-ac', ykGenItemsMarca, () => { const mo = document.getElementById('yk-gen-mo'); if (mo) mo.value = '' })
+  ykAC('yk-gen-mo', 'yk-gen-mo-ac', ykGenItemsModelo, null)
 }
 window.ykGenRenderList = () => {
   const cont = document.getElementById('yk-gen-list'); if (!cont) return
