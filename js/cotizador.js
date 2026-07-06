@@ -27,7 +27,7 @@
   const PRIO_ORD = { crit: 0, rec: 1, prev: 2 }
 
   // ── Estado de la proforma en curso ──
-  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
+  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
   let modalTipo = 'p'        // 'p' productos | 's' servicios
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
@@ -113,6 +113,7 @@
     const tabCfg = $('cot-tab-config'); if (tabCfg) tabCfg.style.display = esSuper ? '' : 'none'
     cargarVehiculos()
     loadConfig()
+    loadGeneraciones()
     setNumLabel()
     renderItems()
     switchTab(TAB)
@@ -199,6 +200,7 @@
         <button class="cot-tab" data-tab="cotizacion">Cotización</button>
         <button class="cot-tab" data-tab="seguimiento">Seguimiento</button>
         <button class="cot-tab" data-tab="proveedores">📇 Proveedores</button>
+        <button class="cot-tab" data-tab="generaciones">🚗 Generaciones</button>
         <button class="cot-tab" data-tab="config" id="cot-tab-config" style="display:none">⚙ Config</button>
       </div>
     </div>
@@ -255,10 +257,11 @@
             <div class="ac-list" id="cot-mo-ac" style="display:none"></div>
           </div>
         </div>
-        <div class="fld"><label>Años (generación — para filtrar repuestos)</label>
+        <div class="fld"><label>Año del vehículo → generación (filtra repuestos)</label>
           <div style="display:flex;gap:8px">
-            <input id="cot-anio-desde" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:50%">
-            <input id="cot-anio-hasta" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:50%">
+            <input id="cot-anio-veh" class="cot-in" placeholder="Año" inputmode="numeric" maxlength="4" style="width:34%">
+            <input id="cot-anio-desde" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:33%">
+            <input id="cot-anio-hasta" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:33%">
           </div>
         </div>
       </div>
@@ -343,6 +346,23 @@
         </div>
         <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Tocá 📞/💬 para llamar o mandar WhatsApp. Editá el teléfono y el contacto de cada proveedor.</div>
         <div id="cot-prov-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
+      </div>
+    </div>
+
+    <!-- PANEL GENERACIONES (rangos de años por modelo) -->
+    <div id="cot-panel-generaciones" class="cot-panel" style="display:none">
+      <div class="form-card">
+        <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:10px">🚗 Generaciones de modelos (rangos de años)</div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:12px">Al cotizar, poné el año del vehículo y el sistema detecta la generación (ej. CR-V 2014 → 2012–2016) y filtra los repuestos de toda la generación.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border,#2a3340)">
+          <input id="cot-gen-ma" class="cot-in" placeholder="Marca" style="width:130px;text-transform:uppercase">
+          <input id="cot-gen-mo" class="cot-in" placeholder="Modelo" style="width:130px;text-transform:uppercase">
+          <input id="cot-gen-d" class="cot-in" placeholder="Desde" inputmode="numeric" maxlength="4" style="width:80px">
+          <input id="cot-gen-h" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:80px">
+          <button class="btn btn-gold" id="cot-gen-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
+        </div>
+        <input id="cot-gen-q" class="cot-in" placeholder="🔍 Buscar marca o modelo…" style="width:100%;text-transform:uppercase;margin-bottom:10px">
+        <div id="cot-gen-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
       </div>
     </div>
 
@@ -611,7 +631,8 @@
     $('cot-btn-nueva').addEventListener('click', nuevaProforma)
     $('cot-recnew').addEventListener('click', nuevaProforma)
     acSetup('cot-ma', 'cot-ma-ac', itemsMarca, v => { PF.marca = v.toUpperCase(); updVehHint() })
-    acSetup('cot-mo', 'cot-mo-ac', itemsModelo, v => { PF.modelo = v.toUpperCase(); autoRangoAnios(); updVehHint() })
+    acSetup('cot-mo', 'cot-mo-ac', itemsModelo, v => { PF.modelo = v.toUpperCase(); onAnioVeh(); updVehHint() })
+    const av = $('cot-anio-veh'); if (av) av.addEventListener('input', () => { av.value = av.value.replace(/\D/g, ''); onAnioVeh() })
     const dsd = $('cot-anio-desde'); if (dsd) dsd.addEventListener('input', () => { PF.anioDesde = dsd.value.replace(/\D/g, ''); updVehHint() })
     const hst = $('cot-anio-hasta'); if (hst) hst.addEventListener('input', () => { PF.anioHasta = hst.value.replace(/\D/g, ''); updVehHint() })
 
@@ -727,6 +748,11 @@
     if ($('cot-prov-q')) $('cot-prov-q').addEventListener('input', () => { clearTimeout(debP); debP = setTimeout(() => renderProveedores($('cot-prov-q').value), 200) })
     if ($('cot-prov-sync')) $('cot-prov-sync').addEventListener('click', loadProveedores)
     if ($('cot-prov-list')) $('cot-prov-list').addEventListener('click', e => { const b = e.target.closest('.prov-save'); if (b) guardarProveedorRow(parseInt(b.dataset.i, 10)) })
+    // Generaciones
+    let debG
+    if ($('cot-gen-add')) $('cot-gen-add').addEventListener('click', addGeneracion)
+    if ($('cot-gen-q')) $('cot-gen-q').addEventListener('input', () => { clearTimeout(debG); debG = setTimeout(() => renderGeneraciones($('cot-gen-q').value), 200) })
+    if ($('cot-gen-list')) $('cot-gen-list').addEventListener('click', e => { const b = e.target.closest('.cot-gen-del'); if (b) deleteGeneracion(b.dataset.ma, b.dataset.mo, parseInt(b.dataset.d, 10), parseInt(b.dataset.h, 10)) })
     $('det-close').addEventListener('click', () => $('cot-modal-det').classList.remove('open'))
     $('det-editar').addEventListener('click', () => {
       $('cot-modal-det').classList.remove('open')
@@ -736,22 +762,112 @@
 
   function rangoTxt () { const d = PF.anioDesde || ''; const h = PF.anioHasta || ''; return (d || h) ? (d && h ? `${d}–${h}` : (d ? `${d}→` : `→${h}`)) : '' }
 
-  function updVehHint () {
-    const t = [PF.marca, PF.modelo, rangoTxt()].filter(Boolean).join(' ')
-    $('cot-veh-hint').textContent = t ? `🚗 Filtrando búsquedas para: ${t}` : ''
+  // ── Generaciones de modelos (rangos de años) ──
+  let GEN = {}          // "MARCA|MODELO" -> [{desde,hasta,marca,modelo}]
+  let _genExiste = false
+  async function loadGeneraciones () {
+    try {
+      const { data } = await sb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta')
+      GEN = {}
+      ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (GEN[k] = GEN[k] || []).push({ desde: r.anio_desde, hasta: r.anio_hasta, marca: r.marca, modelo: r.modelo }) })
+    } catch (e) { console.error('[gen load]', e) }
+  }
+  function detectarGeneracion (marca, modelo, anio) {
+    const a = parseInt(anio, 10); if (!a) return null
+    const list = GEN[provNorm(marca) + '|' + provNorm(modelo)] || []
+    const cov = list.filter(g => a >= g.desde && a <= g.hasta)
+    if (!cov.length) return null
+    return cov.sort((x, y) => (y.hasta - y.desde) - (x.hasta - x.desde))[0]   // el más amplio
+  }
+  function onAnioVeh () {
+    const av = $('cot-anio-veh'); const anio = (av ? av.value : '').replace(/\D/g, ''); PF.anioVeh = anio
+    if (!anio || !PF.marca || !PF.modelo) { _genExiste = false; updVehHint(); return }
+    const gen = detectarGeneracion(PF.marca, PF.modelo, anio)
+    const dsd = $('cot-anio-desde'); const hst = $('cot-anio-hasta')
+    if (gen) {
+      _genExiste = true
+      if (dsd) { dsd.value = String(gen.desde); PF.anioDesde = String(gen.desde) }
+      if (hst) { hst.value = String(gen.hasta); PF.anioHasta = String(gen.hasta) }
+    } else {
+      _genExiste = false   // no hay generación → pre-llena con el año para que el usuario abra el rango
+      if (dsd && !dsd.value) { dsd.value = anio; PF.anioDesde = anio }
+      if (hst && !hst.value) { hst.value = anio; PF.anioHasta = anio }
+    }
+    updVehHint()
   }
 
-  // Sugiere el rango de años (generación) según lo que ya se cotizó de esa marca+modelo
-  function autoRangoAnios () {
-    if (!VEH || !PF.marca || !PF.modelo) return
-    const info = (VEH.byMarca[PF.marca] || {})[PF.modelo]
-    if (!info || !info.anios || !info.anios.size) return
-    const anios = [...info.anios].map(a => parseInt(a, 10)).filter(a => a > 1950 && a < 2100).sort((a, b) => a - b)
-    if (!anios.length) return
-    const dsd = $('cot-anio-desde'); const hst = $('cot-anio-hasta')
-    // solo autocompleta si están vacíos (no pisa lo que el usuario ya escribió)
-    if (dsd && !dsd.value) { dsd.value = String(anios[0]); PF.anioDesde = String(anios[0]) }
-    if (hst && !hst.value) { hst.value = String(anios[anios.length - 1]); PF.anioHasta = String(anios[anios.length - 1]) }
+  function updVehHint () {
+    const hint = $('cot-veh-hint'); if (!hint) return
+    if (PF.anioVeh && !_genExiste && PF.marca && PF.modelo) {
+      hint.innerHTML = `⚠ No hay generación para ${esc(PF.marca)} ${esc(PF.modelo)} ${esc(PF.anioVeh)} — poné el rango (desde/hasta) y se guardará al buscar.`
+      hint.style.color = 'var(--amber,#f59e0b)'; return
+    }
+    hint.style.color = ''
+    const t = [PF.marca, PF.modelo, rangoTxt() ? 'gen. ' + rangoTxt() : '', PF.anioVeh ? '(año ' + PF.anioVeh + ')' : ''].filter(Boolean).join(' ')
+    hint.textContent = t ? `🚗 Filtrando búsquedas para: ${t}` : ''
+  }
+
+  // Guarda una generación nueva SOLO si el año del vehículo no cae en ninguna existente
+  async function guardarGeneracionSiFalta () {
+    if (!PF.marca || !PF.modelo || !PF.anioVeh) return
+    if (detectarGeneracion(PF.marca, PF.modelo, PF.anioVeh)) return   // ya cae en una generación → no guardar (sub-rango manual)
+    const d = parseInt(PF.anioDesde, 10); const h = parseInt(PF.anioHasta, 10)
+    if (!d || !h || h < d) return
+    try {
+      const prof = window._currentProfile ? window._currentProfile() : null
+      const { error } = await sb().from('modelo_generaciones').upsert({ marca: PF.marca, modelo: PF.modelo, marca_norm: provNorm(PF.marca), modelo_norm: provNorm(PF.modelo), anio_desde: d, anio_hasta: h, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,anio_desde,anio_hasta', ignoreDuplicates: true })
+      if (error) throw error
+      await loadGeneraciones(); _genExiste = true; updVehHint()
+    } catch (e) { console.error('[gen save]', e) }
+  }
+
+  // ── Pestaña de administración de Generaciones ──
+  async function loadGeneracionesTab () {
+    await loadGeneraciones()
+    renderGeneraciones('')
+  }
+  function renderGeneraciones (filtro) {
+    const cont = $('cot-gen-list'); if (!cont) return
+    const t = (filtro || '').toUpperCase()
+    const rows = []
+    Object.keys(GEN).forEach(k => GEN[k].forEach(g => rows.push({ ...g, key: k })))
+    rows.sort((a, b) => (a.marca + a.modelo).localeCompare(b.marca + b.modelo) || a.desde - b.desde)
+    const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo).toUpperCase().includes(t))
+    if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin generaciones. Agregá una arriba.</div>'; return }
+    cont.innerHTML = list.map(g => {
+      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
+      return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#2a3340)">
+        <div style="flex:1;font-size:13px"><b>${esc(g.marca)} ${esc(g.modelo)}</b></div>
+        <div style="font-family:monospace;color:var(--gold,#c8a24a);font-weight:700">${g.desde}–${g.hasta}</div>
+        ${del}
+      </div>`
+    }).join('')
+  }
+  async function addGeneracion () {
+    const ma = ($('cot-gen-ma').value || '').trim().toUpperCase()
+    const mo = ($('cot-gen-mo').value || '').trim().toUpperCase()
+    const d = parseInt(($('cot-gen-d').value || '').replace(/\D/g, ''), 10)
+    const h = parseInt(($('cot-gen-h').value || '').replace(/\D/g, ''), 10)
+    if (!ma || !mo || !d || !h) { toast('Completá marca, modelo, desde y hasta', 'error'); return }
+    if (h < d) { toast('El "hasta" no puede ser menor que el "desde"', 'error'); return }
+    try {
+      const prof = window._currentProfile ? window._currentProfile() : null
+      const { error } = await sb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: provNorm(ma), modelo_norm: provNorm(mo), anio_desde: d, anio_hasta: h, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,anio_desde,anio_hasta', ignoreDuplicates: true })
+      if (error) throw error
+      ;['cot-gen-ma', 'cot-gen-mo', 'cot-gen-d', 'cot-gen-h'].forEach(id => { const el = $(id); if (el) el.value = '' })
+      toast('Generación agregada', 'success')
+      await loadGeneraciones(); renderGeneraciones($('cot-gen-q') ? $('cot-gen-q').value : '')
+    } catch (e) { console.error('[gen add]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function deleteGeneracion (ma, mo, d, h) {
+    if (!ES_SUPER) { toast('Solo super_admin puede borrar', 'error'); return }
+    if (!confirm(`¿Borrar la generación ${ma} ${mo} ${d}–${h}?`)) return
+    try {
+      const { error } = await sb().from('modelo_generaciones').delete().eq('marca_norm', provNorm(ma)).eq('modelo_norm', provNorm(mo)).eq('anio_desde', d).eq('anio_hasta', h)
+      if (error) throw error
+      toast('Borrada', 'success')
+      await loadGeneraciones(); renderGeneraciones($('cot-gen-q') ? $('cot-gen-q').value : '')
+    } catch (e) { console.error('[gen del]', e); toast('Error: ' + (e.message || e), 'error') }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -759,6 +875,7 @@
   // ══════════════════════════════════════════════════════════
   function abrirBusq (tipo) {
     modalTipo = tipo
+    guardarGeneracionSiFalta()   // si el año no cae en ninguna generación, guarda el rango puesto
     $('cot-modal-title').textContent = tipo === 'p' ? 'Buscar producto en órdenes' : 'Buscar servicio en órdenes'
     const veh = [PF.marca, PF.modelo, rangoTxt()].filter(Boolean).join(' ')
     $('cot-modal-hint').textContent = veh ? `Filtrando para: ${veh}` : 'Sin filtro de vehículo — se busca en todo el histórico'
@@ -1212,13 +1329,13 @@
       PF = {
         id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente',
         vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '',
-        km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
+        km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
         items: Array.isArray(data.items) ? data.items : []
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa
       $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo
-      $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
+      $('cot-anio-veh').value = ''; $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
       $('cot-orden').value = PF.numero_orden
       $('cot-desc').value = PF.descuento; $('cot-notas').value = PF.notas
       $('cot-placa-ac').style.display = 'none'
@@ -1234,8 +1351,8 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
-    ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
+    ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
     $('cot-recban').style.display = 'none'
@@ -1248,13 +1365,14 @@
   function switchTab (name) {
     TAB = name
     document.querySelectorAll('#view-cotizador .cot-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name))
-    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'proveedores', 'config'].forEach(p => {
+    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'proveedores', 'generaciones', 'config'].forEach(p => {
       const el = $('cot-panel-' + p); if (el) el.style.display = (p === name) ? '' : 'none'
     })
     if (name === 'inicio') loadDashboard()
     else if (name === 'cotizacion') loadHistorial()
     else if (name === 'seguimiento') loadSeguimiento()
     else if (name === 'proveedores') loadProveedores()
+    else if (name === 'generaciones') loadGeneracionesTab()
     else if (name === 'config') fillConfigForm()
   }
 
