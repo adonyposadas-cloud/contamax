@@ -1,6 +1,6 @@
 // ── CONTAMAX · Control de rango de VENTAS propias (SAR) ──
 // Registra los rangos/CAI propios por centro de costo y analiza el libro de
-// ventas para: estado del CAI (vigente/por vencer/vencido), facturas usadas vs
+// ventas  para: estado del CAI (vigente/por vencer/vencido), facturas usadas vs
 // restantes del rango (alerta 5%), y saltos en el correlativo (faltantes).
 // Depende de: window._sb, window._currentProfile, window.toast, window.logActividad
 
