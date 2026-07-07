@@ -416,10 +416,17 @@
 
     <!-- PANEL CONFIG -->
     <div id="cot-panel-estadisticas" class="cot-panel" style="display:none">
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-        <button class="btn est-rango btn-gold" data-rango="7d">Últimos 7 días</button>
-        <button class="btn est-rango btn-ghost" data-rango="mes">Este mes</button>
-        <button class="btn est-rango btn-ghost" data-rango="anio">Este año</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <button class="btn btn-ghost" id="est-prev" title="Día anterior">◀</button>
+        <input type="date" id="est-dia" class="cot-in" value="${EST_DIA}" style="width:auto">
+        <button class="btn btn-ghost" id="est-next" title="Día siguiente">▶</button>
+        <button class="btn btn-ghost" id="est-hoy">Hoy</button>
+        <span style="color:var(--text3,#8b949e);margin:0 2px">·</span>
+        <span style="color:var(--text3,#8b949e);font-size:12px">Rango:</span>
+        <input type="date" id="est-desde" class="cot-in" value="${EST_DESDE}" style="width:auto">
+        <span style="color:var(--text3,#8b949e)">a</span>
+        <input type="date" id="est-hasta" class="cot-in" value="${EST_HASTA}" style="width:auto">
+        <button class="btn btn-gold" id="est-verrango">Ver rango</button>
       </div>
       <div id="est-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:16px"></div>
       <div class="form-card" style="margin-bottom:16px">
@@ -431,7 +438,7 @@
         <div id="est-hist"></div>
       </div>
       <div class="form-card">
-        <div class="form-card-title" id="est-tabla-tit">Últimos 7 días</div>
+        <div class="form-card-title" id="est-tabla-tit">Hoy</div>
         <div id="est-tabla"></div>
       </div>
     </div>
@@ -817,12 +824,11 @@
     // Pedidos rápidos
     $('ped-close').addEventListener('click', () => { $('cot-modal-ped').classList.remove('open'); loadDashboard() })
     if ($('ped-finproc')) $('ped-finproc').addEventListener('click', finalizarProcesoManual)
-    document.querySelectorAll('.est-rango').forEach(b => b.addEventListener('click', () => {
-      EST_RANGO = b.dataset.rango
-      document.querySelectorAll('.est-rango').forEach(x => { x.classList.toggle('btn-gold', x === b); x.classList.toggle('btn-ghost', x !== b) })
-      const tit = $('est-tabla-tit'); if (tit) tit.textContent = b.textContent
-      loadEstadisticas()
-    }))
+    if ($('est-prev')) $('est-prev').addEventListener('click', () => { EST_MODO = 'dia'; EST_DIA = _estSumaDia(EST_DIA, -1); if ($('est-dia')) $('est-dia').value = EST_DIA; loadEstadisticas() })
+    if ($('est-next')) $('est-next').addEventListener('click', () => { EST_MODO = 'dia'; EST_DIA = _estSumaDia(EST_DIA, 1); if ($('est-dia')) $('est-dia').value = EST_DIA; loadEstadisticas() })
+    if ($('est-hoy')) $('est-hoy').addEventListener('click', () => { EST_MODO = 'dia'; EST_DIA = _estHoy(); if ($('est-dia')) $('est-dia').value = EST_DIA; loadEstadisticas() })
+    if ($('est-dia')) $('est-dia').addEventListener('change', () => { EST_MODO = 'dia'; EST_DIA = $('est-dia').value || _estHoy(); loadEstadisticas() })
+    if ($('est-verrango')) $('est-verrango').addEventListener('click', () => { EST_MODO = 'rango'; EST_DESDE = ($('est-desde') && $('est-desde').value) || EST_DESDE; EST_HASTA = ($('est-hasta') && $('est-hasta').value) || EST_HASTA; loadEstadisticas() })
     $('ped-body').addEventListener('click', e => {
       const b = e.target.closest('[data-pedact]'); if (!b) return
       const i = parseInt(b.dataset.i, 10); const a = b.dataset.pedact
@@ -1877,7 +1883,14 @@
   //  TIEMPOS DE PROCESO (2 fases) · reloj en vivo · Estadísticas
   // ══════════════════════════════════════════════════════════
   let _clockTimer = null
-  let EST_RANGO = '7d'
+  let EST_MODO = 'dia'          // 'dia' | 'rango'
+  let EST_DIA = _estHoy()       // yyyy-mm-dd (hoy por defecto)
+  let EST_DESDE = _estHoy()
+  let EST_HASTA = _estHoy()
+  function _estHoy () { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Tegucigalpa', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) } catch (e) { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` } }
+  function _estBoundISO (fecha, addDays) { const [y, m, d] = String(fecha).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + (addDays || 0), 6, 0, 0)).toISOString() }  // 00:00 hora Honduras (-06:00)
+  function _estSumaDia (fecha, n) { const [y, m, d] = String(fecha).split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d + n)); return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}` }
+  function _estFechaCorta (fecha) { const [y, m, d] = String(fecha).split('-'); return `${d}/${m}/${y.slice(2)}` }
 
   function _fmtCrono (ms) {
     if (ms == null || ms < 0) ms = 0
@@ -1975,28 +1988,26 @@
     } catch (e) { console.error('[proc fin manual]', e); toast('Error al finalizar', 'error') }
   }
 
-  function _rangoDesde (r) {
-    const d = new Date()
-    if (r === 'mes') d.setMonth(d.getMonth() - 1)
-    else if (r === 'anio') d.setFullYear(d.getFullYear() - 1)
-    else d.setDate(d.getDate() - 7)
-    d.setHours(0, 0, 0, 0)
-    return d
-  }
   function _esAutorizada (p) { return p.estado === 'autorizada' || p.estado === 'finalizada' || !!p.proc_aprobada }
 
   async function loadEstadisticas () {
     const body = $('est-kpis'); if (body) body.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3,#8b949e);padding:16px">Cargando…</div>'
+    if (EST_MODO === 'rango' && EST_DESDE > EST_HASTA) { const t = EST_DESDE; EST_DESDE = EST_HASTA; EST_HASTA = t }
+    const start = EST_MODO === 'rango' ? _estBoundISO(EST_DESDE, 0) : _estBoundISO(EST_DIA, 0)
+    const end = EST_MODO === 'rango' ? _estBoundISO(EST_HASTA, 1) : _estBoundISO(EST_DIA, 1)
+    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por'
+    const tit = $('est-tabla-tit')
+    if (tit) tit.textContent = EST_MODO === 'rango' ? `${_estFechaCorta(EST_DESDE)} a ${_estFechaCorta(EST_HASTA)}` : (EST_DIA === _estHoy() ? 'Hoy' : _estFechaCorta(EST_DIA))
     try {
-      const { data, error } = await sb().from('cotizador_proformas')
-        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por')
-        .gte('created_at', _rangoDesde(EST_RANGO).toISOString())
-        .order('created_at', { ascending: false }).limit(2000)
-      if (error) throw error
-      renderEstadisticas(data || [])
+      const [rango, curso] = await Promise.all([
+        sb().from('cotizador_proformas').select(cols).gte('created_at', start).lt('created_at', end).order('created_at', { ascending: false }).limit(3000),
+        sb().from('cotizador_proformas').select(cols).not('proc_inicio', 'is', null).is('proc_completada', null).order('proc_inicio', { ascending: true }).limit(200)
+      ])
+      if (rango.error) throw rango.error
+      renderEstadisticas(rango.data || [], curso.data || [])
     } catch (e) { console.error('[estadisticas]', e); if (body) body.innerHTML = '<div style="grid-column:1/-1;color:var(--red,#f85149);padding:12px">Error al cargar</div>' }
   }
-  function renderEstadisticas (rows) {
+  function renderEstadisticas (rows, enCursoRows) {
     const nCot = rows.length
     const aut = rows.filter(_esAutorizada)
     const tasa = nCot ? Math.round(aut.length / nCot * 100) : 0
@@ -2010,7 +2021,7 @@
       card('L ' + fmt(totCot), 'Total cotizado') +
       card('L ' + fmt(totAut), 'Total autorizado', 'var(--green,#16a34a)')
 
-    const porMes = EST_RANGO === 'anio'
+    const porMes = EST_MODO === 'rango' && (new Date(_estBoundISO(EST_HASTA, 1)) - new Date(_estBoundISO(EST_DESDE, 0))) > 62 * 864e5
     const grupos = {}
     rows.forEach(p => {
       const d = new Date(p.created_at)
@@ -2037,7 +2048,7 @@
         <th style="padding:6px 10px;text-align:left">Período</th><th style="padding:6px 10px;text-align:center">Cotizadas</th><th style="padding:6px 10px;text-align:left">Autorizadas</th><th style="padding:6px 10px;text-align:right">Monto cotizado</th><th style="padding:6px 10px;text-align:right">Monto autorizado</th><th style="padding:6px 10px;text-align:right">% éxito</th>
       </tr></thead><tbody>${filasHtml || '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text3,#8b949e)">Sin datos en el período</td></tr>'}</tbody></table></div>`
 
-    const enCurso = rows.filter(p => p.proc_inicio && !p.proc_completada).sort((a, b) => new Date(a.proc_inicio) - new Date(b.proc_inicio))
+    const enCurso = (enCursoRows || []).slice().sort((a, b) => new Date(a.proc_inicio) - new Date(b.proc_inicio))
     $('est-tablero').innerHTML = enCurso.length ? enCurso.map(p => {
       const f = _procFase(p)
       const faseLbl = f.fase === 'autorizacion' ? '⏳ Esperando autorización' : '📦 Compra y entrega'

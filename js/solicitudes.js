@@ -15,6 +15,8 @@ const SOL_PRIOR_COLOR = { baja: '#8b8f98', media: '#f59e0b', alta: '#f85149' }
 
 let solData = []
 let solFiltroEstado = ''
+let solArchivos = []   // archivos seleccionados (aún no subidos)
+let solPasteReady = false
 
 function solStyles() {
   if (document.getElementById('sol-styles')) return
@@ -52,6 +54,8 @@ function solStyles() {
 
 window.initSolicitudes = async () => {
   solStyles()
+  solArchivos = []
+  solSetupPaste()
   const root = document.getElementById('view-solicitudes')
   if (!root) return
   const esSuper = solEsSuper()
@@ -68,7 +72,12 @@ window.initSolicitudes = async () => {
           <div class="sol-fld"><label>Prioridad sugerida</label><select id="sol-prior" class="sol-inp">${opPri}</select></div>
         </div>
         <div class="sol-fld" style="margin-bottom:10px"><label>Descripción / detalle</label><textarea id="sol-desc" class="sol-inp" placeholder="Explicá con detalle qué necesitás, en qué pantalla, y para qué te sirve."></textarea></div>
-        <div style="display:flex;justify-content:flex-end"><button class="sol-b ok" onclick="solEnviar()">Enviar solicitud</button></div>
+        <div class="sol-fld" style="margin-bottom:10px">
+          <label>Adjuntos — subí archivos o pegá una captura con Ctrl+V (opcional)</label>
+          <input type="file" id="sol-files" accept="image/*,application/pdf" multiple onchange="solAddArchivos(this)" style="font-size:12px;color:#c8ccd2">
+          <div id="sol-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end"><button class="sol-b ok" id="sol-enviar-btn" onclick="solEnviar()">Enviar solicitud</button></div>
       </div>
       <div class="sol-card-form">
         <div class="sol-h">${esSuper ? '📋 Todas las solicitudes' : '📋 Mis solicitudes'}</div>
@@ -128,6 +137,7 @@ function solCardUser(r) {
     <div class="sol-card-h"><b>${solEsc(r.titulo)}</b> ${solBadgeEstado(r)}${nuevo}</div>
     <div class="sol-meta">${solEsc(r.modulo)} · ${solFecha(r.created_at)}${r.prioridad ? ' · prioridad ' + (SOL_PRIOR[r.prioridad] || r.prioridad) : ''}</div>
     ${r.descripcion ? `<div class="sol-desc">${solEsc(r.descripcion)}</div>` : ''}
+    ${solAdjuntosHTML(r)}
     ${r.respuesta ? `<div class="sol-resp"><b>Respuesta:</b> ${solEsc(r.respuesta)}${r.atendido_por ? ' — ' + solEsc(r.atendido_por) : ''}</div>` : ''}
   </div>`
 }
@@ -140,6 +150,7 @@ function solCardSuper(r) {
     <div class="sol-card-h"><b>${solEsc(r.titulo)}</b> ${solBadgeEstado(r)} <span class="sol-pri" style="color:${cs}">sugerida: ${SOL_PRIOR[r.prioridad_sugerida] || '—'}</span></div>
     <div class="sol-meta">${solEsc(r.modulo)} · ${solEsc(r.creado_por || '—')} · ${solFecha(r.created_at)}</div>
     ${r.descripcion ? `<div class="sol-desc">${solEsc(r.descripcion)}</div>` : ''}
+    ${solAdjuntosHTML(r)}
     <div class="sol-gest">
       <select id="sol-est-${r.id}" class="sol-inp" style="width:auto">${opE}</select>
       <select id="sol-pri-${r.id}" class="sol-inp" style="width:auto">${opP}</select>
@@ -157,21 +168,92 @@ window.solEnviar = async () => {
   const titulo = (t?.value || '').trim()
   if (!titulo) { window.toast?.('Escribí un título', 'error'); return }
   const prof = solProfile()
+  const btn = document.getElementById('sol-enviar-btn')
+  if (btn) { btn.disabled = true; btn.textContent = solArchivos.length ? 'Subiendo…' : 'Enviando…' }
   try {
+    const adjuntos = []
+    for (let i = 0; i < solArchivos.length; i++) {
+      const file = solArchivos[i]
+      const safe = String(file.name || 'archivo').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-60)
+      const path = `${prof.auth_user_id}/${Date.now()}_${i}_${safe}`
+      const { error: upErr } = await solSb().storage.from('solicitudes').upload(path, file)
+      if (upErr) throw upErr
+      adjuntos.push({ path, nombre: file.name, tipo: file.type || '' })
+    }
     const { error } = await solSb().from('solicitudes_mejora').insert({
       titulo,
       descripcion: (document.getElementById('sol-desc')?.value || '').trim(),
       modulo: document.getElementById('sol-modulo')?.value || 'Otro',
       prioridad_sugerida: document.getElementById('sol-prior')?.value || 'media',
       creado_por: prof.nombre || '',
-      creado_por_id: prof.auth_user_id
+      creado_por_id: prof.auth_user_id,
+      adjuntos
     })
     if (error) throw error
     if (t) t.value = ''
     const d = document.getElementById('sol-desc'); if (d) d.value = ''
+    solArchivos = []; solRenderPreview()
     window.toast?.('✅ Solicitud enviada. La vamos a revisar con calma.', 'success')
     solCargar()
-  } catch (e) { console.error('[sol enviar]', e); window.toast?.('Error al enviar: ' + (e.message || e), 'error') }
+  } catch (e) { console.error('[sol enviar]', e); window.toast?.('Error al enviar: ' + (e.message || e), 'error') } finally { if (btn) { btn.disabled = false; btn.textContent = 'Enviar solicitud' } }
+}
+
+// ── Adjuntos ──
+window.solAddArchivos = (input) => {
+  Array.from(input.files || []).forEach(f => {
+    if (f.size > 10 * 1024 * 1024) { window.toast?.(`"${f.name}" supera 10 MB`, 'error'); return }
+    solArchivos.push(f)
+  })
+  input.value = ''
+  solRenderPreview()
+}
+window.solQuitarArchivo = (i) => { solArchivos.splice(i, 1); solRenderPreview() }
+function solRenderPreview () {
+  const c = document.getElementById('sol-preview'); if (!c) return
+  c.innerHTML = solArchivos.map((f, i) => {
+    const esImg = (f.type || '').startsWith('image/')
+    const thumb = esImg ? `<img src="${URL.createObjectURL(f)}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid #2a2e37">` : '<span style="font-size:22px">📄</span>'
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:#15171c;border:1px solid #2a2e37;border-radius:8px;padding:4px 8px;font-size:12px;color:#c8ccd2">${thumb}<span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${solEsc(f.name)}</span><span style="cursor:pointer;color:#f85149" onclick="solQuitarArchivo(${i})">✕</span></span>`
+  }).join('')
+}
+// Pegar captura con Ctrl+V mientras el módulo está abierto (una sola vez)
+function solSetupPaste () {
+  if (solPasteReady) return
+  solPasteReady = true
+  document.addEventListener('paste', e => {
+    const view = document.getElementById('view-solicitudes')
+    if (!view || !view.classList.contains('active')) return
+    const item = [...(e.clipboardData?.items || [])].find(it => it.type && it.type.startsWith('image/'))
+    if (!item) return
+    const ae = document.activeElement
+    const enTexto = ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && !['file', 'checkbox', 'radio', 'button'].includes((ae.type || 'text').toLowerCase())))
+    const hayTexto = !!(e.clipboardData?.getData?.('text/plain') || '').trim()
+    if (enTexto && hayTexto) return   // están pegando texto, no imagen
+    const blob = item.getAsFile()
+    if (!blob) return
+    e.preventDefault()
+    if (blob.size > 10 * 1024 * 1024) { window.toast?.('La imagen pegada supera 10 MB', 'error'); return }
+    const ext = ((blob.type || 'image/png').split('/')[1] || 'png').replace('jpeg', 'jpg')
+    solArchivos.push(new File([blob], `captura_${Date.now()}.${ext}`, { type: blob.type || 'image/png' }))
+    solRenderPreview()
+    window.toast?.('📸 Captura pegada ✓', 'success')
+  })
+}
+window.solAbrirAdjunto = async (path) => {
+  try {
+    const { data, error } = await solSb().storage.from('solicitudes').createSignedUrl(path, 3600)
+    if (error || !data || !data.signedUrl) throw (error || new Error('sin url'))
+    window.open(data.signedUrl, '_blank')
+  } catch (e) { window.toast?.('No se pudo abrir el adjunto', 'error') }
+}
+function solAdjuntosHTML (r) {
+  const a = Array.isArray(r.adjuntos) ? r.adjuntos : []
+  if (!a.length) return ''
+  return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + a.map(x => {
+    const icon = (x.tipo || '').includes('pdf') ? '📄' : '🖼️'
+    const p = String(x.path || '').replace(/'/g, "\\'")
+    return `<span class="sol-chip" style="cursor:pointer" onclick="solAbrirAdjunto('${p}')">${icon} ${solEsc(x.nombre || 'archivo')}</span>`
+  }).join('') + '</div>'
 }
 
 window.solGuardarGestion = async (id) => {
