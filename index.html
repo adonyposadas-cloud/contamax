@@ -111,29 +111,48 @@
           <span class="nav-dot"></span>Aprobaciones
           <span class="nav-badge hidden" id="badge-aprobaciones">0</span>
         </div>
-        <div class="nav-item hidden" id="nav-vehiculos" onclick="showView('vehiculos','Registro de vehículos (VIN)')">
-          <span class="nav-dot"></span>Vehículos VIN
+      </div>
+
+      <div class="sidebar-section hidden" id="section-flota">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('flota-items')">
+          Gestión de flota <span class="toggle-arrow collapsed" id="arrow-flota-items">▾</span>
         </div>
-        <div class="nav-item hidden" id="nav-unidades-taxis" onclick="showView('unidades-taxis','Unidades de Taxis')">
-          <span class="nav-dot"></span>Unidades Taxis
+        <div class="sidebar-group collapsed" id="flota-items">
+          <div class="nav-item hidden" id="nav-vehiculos" onclick="showView('vehiculos','Registro de vehículos (VIN)')">
+            <span class="nav-dot"></span>Vehículos VIN
+          </div>
+          <div class="nav-item hidden" id="nav-unidades-taxis" onclick="showView('unidades-taxis','Unidades de Taxis')">
+            <span class="nav-dot"></span>Unidades Taxis
+          </div>
+          <div class="nav-item hidden" id="nav-financiamiento" onclick="showView('financiamiento','Financiamiento Taxis')">
+            <span class="nav-dot"></span>Financiamiento
+          </div>
+          <div class="nav-item hidden" id="nav-cierre-recibos" onclick="showView('cierre-recibos','Cierre mensual recibos')">
+            <span class="nav-dot"></span>Cierre Recibos
+          </div>
+          <div class="nav-item hidden" id="nav-revision-taxis" onclick="showView('revision-taxis','Revisión de entregas de Taxis');initRevisionTaxis()">
+            <span class="nav-dot"></span>Revisión Taxis
+          </div>
         </div>
-        <div class="nav-item hidden" id="nav-financiamiento" onclick="showView('financiamiento','Financiamiento Taxis')">
-          <span class="nav-dot"></span>Financiamiento
+      </div>
+
+      <div class="sidebar-section hidden" id="section-concilia">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('concilia-items')">
+          Conciliaciones <span class="toggle-arrow collapsed" id="arrow-concilia-items">▾</span>
         </div>
-        <div class="nav-item hidden" id="nav-cierre-recibos" onclick="showView('cierre-recibos','Cierre mensual recibos')">
-          <span class="nav-dot"></span>Cierre Recibos
-        </div>
-        <div class="nav-item hidden" id="nav-revision-taxis" onclick="showView('revision-taxis','Revisión de entregas de Taxis');initRevisionTaxis()">
-          <span class="nav-dot"></span>Revisión Taxis
-        </div>
-        <div class="nav-item hidden" id="nav-concilia-taxis" onclick="showView('concilia-taxis','Conciliación de depósitos · Taxis')">
-          <span class="nav-dot"></span>Conciliación Taxis
-        </div>
-        <div class="nav-item hidden" id="nav-conciliacion" onclick="showView('conciliacion','Conciliación bancaria');initConciliacion()">
-          <span class="nav-dot"></span>Conciliación Bancaria
-        </div>
-        <div class="nav-item" id="nav-conciliacion-puente" onclick="showView('conciliacion-puente','Conciliación de cuentas puente')">
-          <span class="nav-dot"></span>Conciliación Puente
+        <div class="sidebar-group collapsed" id="concilia-items">
+          <div class="nav-item hidden" id="nav-concilia-taxis" onclick="showView('concilia-taxis','Conciliación de depósitos · Taxis')">
+            <span class="nav-dot"></span>Conciliación Taxis
+          </div>
+          <div class="nav-item hidden" id="nav-conciliacion" onclick="showView('conciliacion','Conciliación bancaria');initConciliacion()">
+            <span class="nav-dot"></span>Conciliación Bancaria
+          </div>
+          <div class="nav-item" id="nav-conciliacion-puente" onclick="showView('conciliacion-puente','Conciliación de cuentas puente')">
+            <span class="nav-dot"></span>Conciliación Puente
+          </div>
+          <div class="nav-item hidden" id="nav-estados-fisicos" onclick="showView('estados-fisicos','Conciliación de Estados Físicos')">
+            <span class="nav-dot"></span>Estados Físicos
+          </div>
         </div>
       </div>
       <div class="sidebar-section" id="section-contab">
@@ -244,22 +263,30 @@
         </div>
       </div>
       <div class="sidebar-section hidden" id="section-fiscal">
-        <div class="sidebar-label">Fiscal</div>
-        <div class="nav-item hidden" id="nav-declaracion-isv" onclick="showView('declaracion-isv','Declaración de ISV')">
-          <span class="nav-dot"></span>Declaración ISV
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('fiscal-items')">
+          Fiscal <span class="toggle-arrow collapsed" id="arrow-fiscal-items">▾</span>
         </div>
-        <div class="nav-item" id="nav-rangos-ventas" onclick="showView('rangos-ventas','Control de rango de ventas')">
-          <span class="nav-dot"></span>Rango de ventas
+        <div class="sidebar-group collapsed" id="fiscal-items">
+          <div class="nav-item hidden" id="nav-declaracion-isv" onclick="showView('declaracion-isv','Declaración de ISV')">
+            <span class="nav-dot"></span>Declaración ISV
+          </div>
+          <div class="nav-item" id="nav-rangos-ventas" onclick="showView('rangos-ventas','Control de rango de ventas')">
+            <span class="nav-dot"></span>Rango de ventas
+          </div>
         </div>
       </div>
 
       <div class="sidebar-section hidden" id="section-cotizador">
-        <div class="sidebar-label">Cotizador</div>
-        <div class="nav-item hidden" id="nav-estados-fisicos" onclick="showView('estados-fisicos','Conciliación de Estados Físicos')">
-          <span class="nav-dot"></span>Estados Físicos
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('cotizador-items')">
+          Cotizador <span class="toggle-arrow collapsed" id="arrow-cotizador-items">▾</span>
         </div>
-        <div class="nav-item hidden" id="nav-cotizador" onclick="showView('cotizador','Cotizador · Proformas')">
-          <span class="nav-dot"></span>Proformas
+        <div class="sidebar-group collapsed" id="cotizador-items">
+          <div class="nav-item hidden" id="nav-jefe-pista" onclick="showView('jefe-pista','Jefe de pista · Solicitar cotización'); initJefePista()">
+            <span class="nav-dot"></span>🧰 Jefe de pista
+          </div>
+          <div class="nav-item hidden" id="nav-cotizador" onclick="showView('cotizador','Cotizador · Proformas')">
+            <span class="nav-dot"></span>Proformas
+          </div>
         </div>
       </div>
     </div>
@@ -268,6 +295,9 @@
 
       <!-- COTIZADOR (contenido inyectado por js/cotizador.js) -->
       <div class="view" id="view-cotizador"></div>
+
+      <!-- JEFE DE PISTA (contenido inyectado por js/jefe_pista.js) -->
+      <div class="view" id="view-jefe-pista"></div>
 
       <!-- ESTADOS FÍSICOS (contenido inyectado por js/estados_fisicos.js) -->
       <div class="view" id="view-estados-fisicos"></div>
@@ -3486,7 +3516,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260707c"></script>
+<script type="module" src="js/app.js?v=20260707f"></script>
 <script type="module" src="js/reportes.js?v=20260706a"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3508,7 +3538,8 @@
 <script defer src="js/revision_taxis.js?v=20260705e"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
-<script defer src="js/cotizador.js?v=20260706h"></script>
+<script defer src="js/cotizador.js?v=20260707acum16"></script>
+<script defer src="js/jefe_pista.js?v=20260707k"></script>
 <script defer src="js/estados_fisicos.js?v=20260704s"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->

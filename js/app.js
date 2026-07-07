@@ -143,10 +143,10 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-cotizador', 'nav-estados-fisicos'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
-    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
+    compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
     contador_fiscal: ['nav-declaracion-isv']
   }
   // Rol "admin": plantilla = TODO (navs + pestañas), para que al elegirlo se premarque
@@ -179,7 +179,7 @@ function setupUI() {
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker', 'nav-cotizador', 'nav-estados-fisicos']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos']
   window._todosNav = todosNav
   todosNav.forEach(id => {
     const el = document.getElementById(id)
@@ -209,7 +209,17 @@ function setupUI() {
 
   // Ocultar sección Cotizador si no tiene el módulo
   const sectionCotizador = document.getElementById('section-cotizador')
-  if (sectionCotizador) sectionCotizador.classList.toggle('hidden', !visibles.includes('nav-cotizador') && !visibles.includes('nav-estados-fisicos'))
+  if (sectionCotizador) sectionCotizador.classList.toggle('hidden', !visibles.includes('nav-cotizador') && !visibles.includes('nav-jefe-pista'))
+
+  // Sección Gestión de flota
+  const flotaItems = ['nav-vehiculos', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis']
+  const sectionFlota = document.getElementById('section-flota')
+  if (sectionFlota) sectionFlota.classList.toggle('hidden', !flotaItems.some(id => visibles.includes(id)))
+
+  // Sección Conciliaciones (incluye Estados Físicos)
+  const conciliaItems = ['nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-estados-fisicos']
+  const sectionConcilia = document.getElementById('section-concilia')
+  if (sectionConcilia) sectionConcilia.classList.toggle('hidden', !conciliaItems.some(id => visibles.includes(id)))
 
   // Ocultar sección RRHH si no tiene ningún módulo
   const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones']
@@ -609,6 +619,7 @@ const MODULOS_CATALOGO = [
     ['yk-cot-gestionar', '— Yonker: Cargar/ver cotizaciones']
   ]},
   { grupo: 'Cotizador', items: [
+    ['nav-jefe-pista', '🧰 Jefe de Pista'],
     ['nav-cotizador', 'Cotizador (Proformas)'],
     ['nav-estados-fisicos', 'Conciliación de Estados Físicos']
   ]}

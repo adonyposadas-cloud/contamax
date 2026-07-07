@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260707-jefe9' } catch (e) {}
+  try { window.__cotBuild = '20260707-acum16' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -220,6 +220,18 @@
       <div class="form-card">
         <div class="form-card-title" style="justify-content:space-between"><span>Cotizaciones pendientes</span><button class="btn btn-ghost" id="cot-dash-nueva" style="font-size:12px;padding:6px 12px">＋ Nueva cotización</button></div>
         <div id="cot-dash-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
+      </div>
+      <div class="form-card" style="margin-top:14px">
+        <div class="form-card-title" style="justify-content:space-between"><span>⚡ Pedidos rápidos</span><button class="btn btn-ghost" id="cot-pr-hist" style="font-size:11px;padding:4px 10px">📋 Ver historial</button></div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin:-4px 0 10px">Repuestos sueltos que te piden (fuera de cotización). Anotalos para no olvidarlos; el contador corre desde que los creás hasta que llegan.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+          <div class="fld" style="flex:2;min-width:150px"><label>Repuesto</label><input id="cot-pr-rep" class="cot-in" placeholder="Ej: SOPORTE DE MOTOR" style="text-transform:uppercase"></div>
+          <div class="fld" style="flex:0 0 70px"><label>Cant.</label><input id="cot-pr-cant" class="cot-in" type="number" value="1" min="1"></div>
+          <div class="fld"><label>Vehículo</label><input id="cot-pr-veh" class="cot-in" placeholder="Toyota Corolla 2015"></div>
+          <div class="fld"><label>Pedido por</label><input id="cot-pr-por" class="cot-in" placeholder="Cliente, mecánico"></div>
+          <button class="btn btn-gold" id="cot-pr-add" style="font-size:12px;padding:8px 14px">✓ Agregar</button>
+        </div>
+        <div id="cot-pr-list"></div>
       </div>
     </div>
 
@@ -915,6 +927,19 @@
     // Dashboard
     $('cot-dash-nueva').addEventListener('click', () => { nuevaProforma(); switchTab('nueva') })
     $('cot-dash-list').addEventListener('click', dashClick)
+    if ($('cot-pr-add')) $('cot-pr-add').addEventListener('click', prAddRapido)
+    if ($('cot-pr-hist')) $('cot-pr-hist').addEventListener('click', () => {
+      _prVerHist = !_prVerHist
+      $('cot-pr-hist').textContent = _prVerHist ? '⚡ Ver activos' : '📋 Ver historial'
+      loadPedidosRapidos()
+    })
+    if ($('cot-pr-rep')) $('cot-pr-rep').addEventListener('keydown', e => { if (e.key === 'Enter') prAddRapido() })
+    if ($('cot-pr-list')) $('cot-pr-list').addEventListener('click', e => {
+      const bp = e.target.closest('[data-pr-pedir]'); if (bp) return prPedir(bp.getAttribute('data-pr-pedir'))
+      const bl = e.target.closest('[data-pr-llego]'); if (bl) return prLlego(bl.getAttribute('data-pr-llego'))
+      const be = e.target.closest('[data-pr-entregar]'); if (be) return prEntregar(be.getAttribute('data-pr-entregar'))
+      const bd = e.target.closest('[data-pr-del]'); if (bd) return prDel(bd.getAttribute('data-pr-del'))
+    })
     // Historial
     let debH
     $('cot-hist-q').addEventListener('input', () => { clearTimeout(debH); debH = setTimeout(loadHistorial, 250) })
@@ -1625,7 +1650,7 @@
       const p = getPrioridad(it)
       return `<div class="cot-row">
         <div>
-          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${esc(String(it.desc).toUpperCase())} <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
+          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}${esc(String(it.desc).toUpperCase())} <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
@@ -1777,7 +1802,7 @@
     const payload = {
       vendedor: PF.vendedor || '', vendedor_id: prof ? prof.id : null,
       cliente: PF.cliente || '', placa: (PF.placa || '').toUpperCase(),
-      marca: PF.marca || '', modelo: PF.modelo || '', anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'), kilometraje: PF.km || '',
+      marca: PF.marca || '', modelo: PF.modelo || '', anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'), anio_vehiculo: PF.anioVeh || '', kilometraje: PF.km || '',
       numero_orden: orden,
       items: PF.items, subtotal: t.subtotal, isv: t.isv, total: t.total,
       descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
@@ -1831,15 +1856,17 @@
       PF = {
         id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente',
         vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '', jefe_pista: data.jefe_pista || '',
-        km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
+        km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: data.anio_vehiculo || '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
         proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
+        proc_solicitada: data.proc_solicitada || null,
         procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
         items: Array.isArray(data.items) ? data.items : []
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa; $('cot-jefe') && ($('cot-jefe').value = PF.jefe_pista || '')
       $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo
-      $('cot-anio-veh').value = ''; $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
+      $('cot-anio-veh').value = PF.anioVeh || ''; $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
+      if (PF.anioVeh) { try { onAnioVeh() } catch (e) {} }   // año del vehículo → auto-detecta la generación
       $('cot-orden').value = PF.numero_orden
       $('cot-desc').value = PF.descuento; $('cot-notas').value = PF.notas
       $('cot-placa-ac').style.display = 'none'
@@ -1916,14 +1943,16 @@
     return h + 'h' + ((m % 60) ? ' ' + (m % 60) + 'm' : '')
   }
   function _procFase (p) {
-    if (!p || !p.proc_inicio) return { fase: 'sin_iniciar' }
+    if (!p) return { fase: 'sin_iniciar' }
+    if (p.proc_solicitada && !p.proc_inicio) return { fase: 'cotizacion', desde: p.proc_solicitada }
+    if (!p.proc_inicio) return { fase: 'sin_iniciar' }
     if (!p.proc_aprobada) return { fase: 'autorizacion', desde: p.proc_inicio }
     if (!p.proc_completada) return { fase: 'compra', desde: p.proc_aprobada }
     return { fase: 'completado', desde: p.proc_inicio, hasta: p.proc_completada }
   }
   function _colorFaseMs (ms, fase) {
     const h = ms / 3600000
-    const lim = fase === 'autorizacion' ? [2, 8] : [24, 72]
+    const lim = fase === 'cotizacion' ? [0.5, 2] : (fase === 'autorizacion' ? [2, 8] : [24, 72])
     if (h <= lim[0]) return 'var(--green,#16a34a)'
     if (h <= lim[1]) return 'var(--amber,#f59e0b)'
     return 'var(--red,#f85149)'
@@ -1950,7 +1979,8 @@
   }
   function tickTablero () {
     document.querySelectorAll('[data-crono-desde]').forEach(el => {
-      const ms = Date.now() - new Date(el.getAttribute('data-crono-desde')).getTime()
+      const acum = parseInt(el.getAttribute('data-crono-acum') || '0', 10) || 0
+      const ms = acum + (Date.now() - new Date(el.getAttribute('data-crono-desde')).getTime())
       el.textContent = _fmtCrono(ms)
       el.style.color = _colorFaseMs(ms, el.getAttribute('data-crono-fase'))
     })
@@ -1960,9 +1990,10 @@
     if (p.estado === 'finalizada' || p.estado === 'anulada') return ''   // proceso cerrado → sin reloj
     const f = _procFase(p)
     if (!f.fase || f.fase === 'sin_iniciar' || f.fase === 'completado') return ''
-    const ms = Date.now() - new Date(f.desde).getTime()
-    const lbl = f.fase === 'autorizacion' ? '⏱ Autoriz.' : '📦 Pedido'
-    return `<span style="font-size:11px;color:var(--text3,#8b949e)">${lbl}</span> <span data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" style="font-weight:700;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</span>`
+    const acumMs = f.fase === 'cotizacion' ? (p.proc_cotiz_ms || 0) : (f.fase === 'autorizacion' ? (p.proc_autor_ms || 0) : (p.proc_compra_ms || 0))
+    const ms = acumMs + (Date.now() - new Date(f.desde).getTime())
+    const lbl = f.fase === 'cotizacion' ? '📝 Cotización' : (f.fase === 'autorizacion' ? '⏱ Autoriz.' : '📦 Pedido')
+    return `<span style="font-size:11px;color:var(--text3,#8b949e)">${lbl}</span> <span data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" data-crono-acum="${acumMs}" style="font-weight:700;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</span>`
   }
 
   async function marcarProcInicio () {
@@ -1976,8 +2007,8 @@
     if (PF.proc_inicio) return
     const ts = new Date().toISOString()
     try {
-      const { error } = await sb().from('cotizador_proformas').update({ proc_inicio: ts }).eq('id', PF.id).is('proc_inicio', null)
-      if (!error) { PF.proc_inicio = ts; renderProcClock(); startClock() }
+      const { error } = await sb().rpc('cot_marcar_pdf', { p_id: PF.id })
+      if (!error) { PF.proc_inicio = ts; if (PF.estado === 'solicitada') PF.estado = 'pendiente'; renderProcClock(); startClock() }
     } catch (e) { console.error('[proc inicio]', e) }
   }
   async function nuevoCicloProceso () {
@@ -2049,14 +2080,14 @@
     if (EST_MODO === 'rango' && EST_DESDE > EST_HASTA) { const t = EST_DESDE; EST_DESDE = EST_HASTA; EST_HASTA = t }
     const start = EST_MODO === 'rango' ? _estBoundISO(EST_DESDE, 0) : _estBoundISO(EST_DIA, 0)
     const end = EST_MODO === 'rango' ? _estBoundISO(EST_HASTA, 1) : _estBoundISO(EST_DIA, 1)
-    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por,procesos_previos,jefe_pista'
+    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por,procesos_previos,jefe_pista,proc_solicitada,proc_cotiz_ms,proc_autor_ms,proc_compra_ms'
     const tit = $('est-tabla-tit')
     if (tit) tit.textContent = EST_MODO === 'rango' ? `${_estFechaCorta(EST_DESDE)} a ${_estFechaCorta(EST_HASTA)}` : (EST_DIA === _estHoy() ? 'Hoy' : _estFechaCorta(EST_DIA))
     try {
       const [rango, curso, hist] = await Promise.all([
         sb().from('cotizador_proformas').select(cols).gte('created_at', start).lt('created_at', end).order('created_at', { ascending: false }).limit(3000),
-        sb().from('cotizador_proformas').select(cols).not('proc_inicio', 'is', null).is('proc_completada', null).neq('estado', 'finalizada').order('proc_inicio', { ascending: true }).limit(200),
-        sb().from('cotizador_proformas').select(cols).not('proc_inicio', 'is', null).or(`proc_completada.gte.${start},proc_completada.is.null`).order('proc_inicio', { ascending: false }).limit(1000)
+        sb().from('cotizador_proformas').select(cols).or('proc_inicio.not.is.null,proc_solicitada.not.is.null').is('proc_completada', null).neq('estado', 'finalizada').order('proc_inicio', { ascending: true }).limit(200),
+        sb().from('cotizador_proformas').select(cols).or('proc_inicio.not.is.null,proc_solicitada.not.is.null').or(`proc_completada.gte.${start},proc_completada.is.null`).order('proc_inicio', { ascending: false }).limit(1000)
       ])
       if (rango.error) throw rango.error
       renderEstadisticas(rango.data || [], curso.data || [], hist.data || [], new Date(start).getTime(), new Date(end).getTime())
@@ -2106,16 +2137,18 @@
     const enCurso = (enCursoRows || []).slice().sort((a, b) => new Date(a.proc_inicio) - new Date(b.proc_inicio))
     $('est-tablero').innerHTML = enCurso.length ? enCurso.map(p => {
       const f = _procFase(p)
-      const faseLbl = f.fase === 'autorizacion' ? '⏳ Esperando autorización' : '📦 Compra y entrega'
-      const faseBg = f.fase === 'autorizacion' ? 'rgba(245,158,11,.12)' : 'rgba(59,130,246,.12)'
-      const resp = f.fase === 'autorizacion' ? (p.jefe_pista || p.vendedor || '—') : (p.proc_aprobada_por || p.jefe_pista || p.vendedor || '—')
-      const ms = Date.now() - new Date(f.desde).getTime()
+      const faseLbl = f.fase === 'cotizacion' ? '📝 Esperando cotización' : (f.fase === 'autorizacion' ? '⏳ Esperando autorización' : '📦 Compra y entrega')
+      const faseBg = f.fase === 'cotizacion' ? 'rgba(139,92,246,.12)' : (f.fase === 'autorizacion' ? 'rgba(245,158,11,.12)' : 'rgba(59,130,246,.12)')
+      const resp = f.fase === 'cotizacion' ? (p.vendedor || 'Cotizador') : (f.fase === 'autorizacion' ? (p.jefe_pista || p.vendedor || '—') : (p.proc_aprobada_por || p.jefe_pista || p.vendedor || '—'))
+      const respLbl = f.fase === 'cotizacion' ? 'Cotizador' : (f.fase === 'autorizacion' ? 'Jefe de pista' : 'Resp')
+      const acumMs = f.fase === 'cotizacion' ? (p.proc_cotiz_ms || 0) : (f.fase === 'autorizacion' ? (p.proc_autor_ms || 0) : (p.proc_compra_ms || 0))
+      const ms = acumMs + (Date.now() - new Date(f.desde).getTime())
       return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;background:${faseBg};margin-bottom:8px">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}</div>
-          <div style="font-size:11px;color:var(--text3,#8b949e)">${faseLbl} · ${f.fase === 'autorizacion' ? 'Jefe de pista' : 'Resp'}: ${esc(resp)}${p.cliente ? ' · ' + esc(p.cliente) : ''}</div>
+          <div style="font-size:11px;color:var(--text3,#8b949e)">${faseLbl} · ${respLbl}: ${esc(resp)}${p.cliente ? ' · ' + esc(p.cliente) : ''}</div>
         </div>
-        <div data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</div>
+        <div data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" data-crono-acum="${acumMs}" style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</div>
       </div>`
     }).join('') : '<div style="text-align:center;color:var(--text3,#8b949e);padding:16px">No hay procesos en curso ahora mismo.</div>'
 
@@ -2126,27 +2159,42 @@
     ;(histSrc || []).forEach(p => {
       const prev = Array.isArray(p.procesos_previos) ? p.procesos_previos : []
       prev.forEach(c => procsAll.push({ p, ciclo: c.ciclo, ini: c.proc_inicio, apr: c.proc_aprobada, com: c.proc_completada, por: c.proc_aprobada_por }))
-      if (p.proc_inicio) procsAll.push({ p, ciclo: prev.length + 1, ini: p.proc_inicio, apr: p.proc_aprobada, com: p.proc_completada, por: p.proc_aprobada_por })
+      if (p.proc_inicio || p.proc_solicitada) procsAll.push({ p, ciclo: prev.length + 1, sol: p.proc_solicitada, ini: p.proc_inicio, apr: p.proc_aprobada, com: p.proc_completada, por: p.proc_aprobada_por, actual: true, cotizMs: p.proc_cotiz_ms, autorMs: p.proc_autor_ms, compraMs: p.proc_compra_ms })
     })
+    const _ahora = Date.now()
     const procs = procsAll.filter(x => {
-      const fecha = x.com || x.apr || x.ini   // fecha del proceso: completado > autorizado > inicio
-      if (!fecha) return false
-      const t = new Date(fecha).getTime()
-      return t >= startMs && t < endMs
+      if (x.com) { const t = new Date(x.com).getTime(); return t >= startMs && t < endMs }   // completado → día en que se completó
+      return _ahora >= startMs && _ahora < endMs   // en curso → visible cuando el período incluye "ahora" (hoy)
     })
+    const fase0s = []
     const histRows = procs.map(x => {
-      const t0 = new Date(x.ini).getTime()
+      const ts = x.sol ? new Date(x.sol).getTime() : null
+      const t0 = x.ini ? new Date(x.ini).getTime() : null
       const t1 = x.apr ? new Date(x.apr).getTime() : null
       const t2 = x.com ? new Date(x.com).getTime() : null
-      const f1 = t1 != null ? t1 - t0 : null
-      const f2 = (t2 != null && t1 != null) ? t2 - t1 : null
+      let f0, f1, f2
+      if (x.actual) {
+        const enCot = x.ini == null && x.sol != null       // fase cotización en curso
+        const enAut = x.ini != null && x.apr == null        // fase autorización en curso
+        const enComp = x.apr != null && x.com == null       // fase compra en curso
+        f0 = ((x.cotizMs || 0) === 0 && !enCot) ? null : ((x.cotizMs || 0) + (enCot ? (Date.now() - ts) : 0))
+        f1 = ((x.autorMs || 0) === 0 && !enAut) ? null : ((x.autorMs || 0) + (enAut ? (Date.now() - t0) : 0))
+        const compStint = x.com ? (t2 - t1) : (enComp ? (Date.now() - t1) : 0)
+        f2 = ((x.compraMs || 0) === 0 && x.apr == null && !x.com) ? null : ((x.compraMs || 0) + compStint)
+      } else {
+        f0 = (t0 != null && ts != null) ? t0 - ts : null    // ciclos previos: por timestamps
+        f1 = (t1 != null && t0 != null) ? t1 - t0 : null
+        f2 = (t2 != null && t1 != null) ? t2 - t1 : null
+      }
+      if (f0 != null) fase0s.push(f0)
       if (f1 != null) fase1s.push(f1)
       if (f2 != null) fase2s.push(f2)
-      const estadoTxt = x.com ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (x.apr ? '<span style="color:#3b82f6">En compra</span>' : '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>')
-      return { p: x.p, ciclo: x.ciclo, por: x.por, com: x.com, f1, f2, estadoTxt, orden: t2 || t1 || t0 }
+      const estadoTxt = x.com ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (x.apr ? '<span style="color:#3b82f6">En compra</span>' : (x.ini ? '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>' : '<span style="color:#8b5cf6">Esperando cotización</span>'))
+      return { p: x.p, ciclo: x.ciclo, por: x.por, com: x.com, f0, f1, f2, estadoTxt, orden: t2 || t1 || t0 || ts || 0 }
     }).sort((a, b) => b.orden - a.orden)
     const prom = arr => arr.length ? Math.round(arr.reduce((a, x) => a + x, 0) / arr.length) : null
     const resumen = `<div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
+      <div>Promedio cotización: <b style="color:var(--gold,#c8a24a)">${_fmtDur2(prom(fase0s))}</b> <span style="color:var(--text3,#8b949e)">(${fase0s.length})</span></div>
       <div>Promedio autorización: <b style="color:var(--gold,#c8a24a)">${_fmtDur2(prom(fase1s))}</b> <span style="color:var(--text3,#8b949e)">(${fase1s.length})</span></div>
       <div>Promedio compra/entrega: <b style="color:var(--gold,#c8a24a)">${_fmtDur2(prom(fase2s))}</b> <span style="color:var(--text3,#8b949e)">(${fase2s.length})</span></div>
     </div>`
@@ -2155,15 +2203,16 @@
       return `<tr style="border-top:1px solid var(--border,#2a3340)">
         <td style="padding:7px 10px">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}${h.ciclo > 1 ? ` <span style="color:var(--gold,#c8a24a);font-size:11px">· ciclo ${h.ciclo}</span>` : ''}</td>
         <td style="padding:7px 10px">${esc(p.vendedor || '—')}</td>
+        <td style="padding:7px 10px;text-align:right;color:${h.f0 != null ? _colorFaseMs(h.f0, 'cotizacion') : 'var(--text3,#8b949e)'}">${h.f0 != null ? _fmtDur2(h.f0) : '—'}</td>
         <td style="padding:7px 10px;text-align:right;color:${h.f1 != null ? _colorFaseMs(h.f1, 'autorizacion') : 'var(--text3,#8b949e)'}">${h.f1 != null ? _fmtDur2(h.f1) : '—'}</td>
         <td style="padding:7px 10px">${esc(h.por || '—')}</td>
         <td style="padding:7px 10px;text-align:right;color:${h.f2 != null ? _colorFaseMs(h.f2, 'compra') : 'var(--text3,#8b949e)'}">${h.f2 != null ? _fmtDur2(h.f2) : '—'}</td>
-        <td style="padding:7px 10px">${h.estadoTxt}${ES_SUPER && !h.com && h.f1 == null ? ` <button data-descartar="${h.p.id}" title="Cerrar / descartar este proceso trabado" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:13px;padding:0 4px">✕</button>` : ''}</td>
+        <td style="padding:7px 10px">${h.estadoTxt}${ES_SUPER && !h.com && h.f1 == null && h.f0 == null && !h.p.proc_solicitada ? ` <button data-descartar="${h.p.id}" title="Cerrar / descartar este proceso trabado" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:13px;padding:0 4px">✕</button>` : ''}</td>
       </tr>`
     }).join('')
     $('est-hist').innerHTML = procs.length ? resumen + `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="color:var(--text3,#8b949e);font-size:11px;text-transform:uppercase">
-        <th style="padding:6px 10px;text-align:left">Cotización</th><th style="padding:6px 10px;text-align:left">Vendedor</th><th style="padding:6px 10px;text-align:right">Autorización</th><th style="padding:6px 10px;text-align:left">Autorizó</th><th style="padding:6px 10px;text-align:right">Compra/entrega</th><th style="padding:6px 10px;text-align:left">Estado</th>
+        <th style="padding:6px 10px;text-align:left">Vehículo</th><th style="padding:6px 10px;text-align:left">Vendedor</th><th style="padding:6px 10px;text-align:right">Cotización</th><th style="padding:6px 10px;text-align:right">Autorización</th><th style="padding:6px 10px;text-align:left">Autorizó</th><th style="padding:6px 10px;text-align:right">Compra/entrega</th><th style="padding:6px 10px;text-align:left">Estado</th>
       </tr></thead><tbody>${histHtml}</tbody></table></div>`
       : '<div style="text-align:center;color:var(--text3,#8b949e);padding:16px">Aún no hay procesos con tiempos en este período.</div>'
     startClock()
@@ -2244,6 +2293,105 @@
     return PROV_CONT.find(p => p.nombre_norm === k) || null
   }
 
+  // ── Pedidos rápidos (Inicio del cotizador) ──
+  let _prTimer = null
+  let _prVerHist = false
+  function colorPrMin (min) { const h = (min || 0) / 60; return h <= 8 ? 'var(--green,#16a34a)' : (h <= 48 ? 'var(--amber,#f59e0b)' : 'var(--red,#f85149)') }
+  function tickPrRapidos () {
+    document.querySelectorAll('#cot-pr-list [data-pr-desde]').forEach(el => {
+      const min = difMin(el.getAttribute('data-pr-desde'), null)
+      el.textContent = fmtDur(min); el.style.color = colorPrMin(min)
+    })
+  }
+  async function loadPedidosRapidos () {
+    const cont = $('cot-pr-list'); if (!cont) return
+    try {
+      let q = sb().from('pedidos_rapidos').select('*')
+      if (_prVerHist) q = q.eq('estado', 'entregado').order('fecha_entrega', { ascending: false }).limit(100)
+      else q = q.neq('estado', 'entregado').order('creado_en', { ascending: true }).limit(200)
+      const { data, error } = await q
+      if (error) throw error
+      renderPrRapidos(data || [])
+      if (!_prTimer) _prTimer = setInterval(tickPrRapidos, 30000)
+    } catch (e) { console.error('[pr rapidos]', e); cont.innerHTML = `<div style="color:var(--red,#f85149);font-size:12px;padding:8px">Error: ${esc(e.message || e)}</div>` }
+  }
+  function renderPrRapidos (list) {
+    const cont = $('cot-pr-list'); if (!cont) return
+    if (!list.length) { cont.innerHTML = `<div style="text-align:center;color:var(--text3,#8b949e);padding:12px;font-size:13px">${_prVerHist ? 'Sin pedidos entregados aún.' : 'Sin pedidos rápidos.'}</div>`; return }
+    cont.innerHTML = list.map(p => {
+      const pend = p.estado === 'pendiente', pedido = p.estado === 'pedido'
+      let reloj, estadoTxt, botones
+      if (p.estado === 'entregado') {
+        const min = difMin(p.creado_en, p.fecha_entrega || p.fecha_llegada)
+        reloj = `<span style="color:var(--text3,#8b949e);font-size:12px">entregado ${(p.fecha_entrega || '').slice(0, 10)} · tardó ${fmtDur(min)}</span>`
+        estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:#8b5cf6;font-weight:700">ENTREGADO</span>'
+        botones = ''
+      } else if (p.estado === 'llegado') {
+        const min = difMin(p.creado_en, p.fecha_llegada)
+        reloj = `<span style="font-weight:700;color:${colorPrMin(min)}">✓ tardó ${fmtDur(min)}</span>`
+        estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(22,163,74,.18);color:#16a34a;font-weight:700">LLEGÓ</span>'
+        botones = `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-entregar="${p.id}">📦 Entregado</button>`
+      } else {
+        const min = difMin(p.creado_en, null)
+        reloj = `<span data-pr-desde="${esc(p.creado_en)}" style="font-weight:700;font-variant-numeric:tabular-nums;color:${colorPrMin(min)}">${fmtDur(min)}</span>`
+        estadoTxt = pedido
+          ? `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(59,130,246,.18);color:#3b82f6;font-weight:700">PEDIDO${p.proveedor ? ' · ' + esc(p.proveedor) : ''}</span>`
+          : '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:#8b5cf6;font-weight:700">POR PEDIR</span>'
+        botones = (pend ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-pedir="${p.id}">🚚 Pedir</button>` : '')
+          + `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-llego="${p.id}">✓ Llegó</button>`
+      }
+      return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 4px;border-top:1px solid var(--border,#2a3340)">
+        <span style="flex:1;min-width:150px;font-size:13px"><b>${esc(p.repuesto)}</b> <span style="color:var(--text3,#8b949e)">x${fmt(p.cantidad)}</span>${p.vehiculo ? ` · <span style="color:var(--text3,#8b949e)">${esc(p.vehiculo)}</span>` : ''}${p.pedido_por ? ` · <span style="color:var(--text3,#8b949e)">👤 ${esc(p.pedido_por)}</span>` : ''}</span>
+        ${estadoTxt} ${reloj} ${botones}
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--red,#f85149)" data-pr-del="${p.id}">🗑</button>
+      </div>`
+    }).join('')
+  }
+  async function prAddRapido () {
+    const rep = ($('cot-pr-rep')?.value || '').trim().toUpperCase()
+    if (!rep) { toast('Escribí el repuesto', 'error'); return }
+    const cant = parseFloat($('cot-pr-cant')?.value) || 1
+    const veh = ($('cot-pr-veh')?.value || '').trim().toUpperCase()
+    const por = ($('cot-pr-por')?.value || '').trim()
+    try {
+      const prof = window._currentProfile ? window._currentProfile() : null
+      const { error } = await sb().from('pedidos_rapidos').insert({ repuesto: rep, cantidad: cant, vehiculo: veh || null, pedido_por: por || null, creado_por: prof ? (prof.nombre || '') : '' })
+      if (error) throw error
+      toast('⚡ Pedido rápido agregado', 'success')
+      ;['cot-pr-rep', 'cot-pr-veh', 'cot-pr-por'].forEach(id => { const el = $(id); if (el) el.value = '' })
+      const c = $('cot-pr-cant'); if (c) c.value = '1'
+      const r = $('cot-pr-rep'); if (r) r.focus()
+      loadPedidosRapidos()
+    } catch (e) { console.error('[pr add]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function prPedir (id) {
+    const prov = prompt('¿A qué proveedor se lo pedís? (opcional)')
+    if (prov === null) return
+    try {
+      const { error } = await sb().from('pedidos_rapidos').update({ estado: 'pedido', proveedor: (prov || '').trim() || null, fecha_pedido: new Date().toISOString() }).eq('id', id)
+      if (error) throw error
+      toast('🚚 Pedido', 'success'); loadPedidosRapidos()
+    } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function prLlego (id) {
+    try {
+      const { error } = await sb().from('pedidos_rapidos').update({ estado: 'llegado', fecha_llegada: new Date().toISOString() }).eq('id', id)
+      if (error) throw error
+      toast('✓ Llegó', 'success'); loadPedidosRapidos()
+    } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function prEntregar (id) {
+    try {
+      const { error } = await sb().from('pedidos_rapidos').update({ estado: 'entregado', fecha_entrega: new Date().toISOString() }).eq('id', id)
+      if (error) throw error
+      toast('📦 Entregado', 'success'); loadPedidosRapidos()
+    } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+  async function prDel (id) {
+    if (!confirm('¿Eliminar este pedido rápido?')) return
+    try { const { error } = await sb().from('pedidos_rapidos').delete().eq('id', id); if (error) throw error; loadPedidosRapidos() } catch (e) { toast('Error: ' + (e.message || e), 'error') }
+  }
+
   async function loadDashboard () {
     const stats = $('cot-dash-stats'); const list = $('cot-dash-list')
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0); const desdeHoy = hoy.toISOString()
@@ -2255,7 +2403,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada').in('estado', ['pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2270,6 +2418,7 @@
       list.innerHTML = rows.length ? rows.map(filaDash).join('')
         : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones activas</div>'
       startClock()
+      loadPedidosRapidos()
     } catch (e) {
       console.error('[cotizador dashboard]', e)
       stats.innerHTML = ''; list.innerHTML = `<div style="text-align:center;color:var(--red,#f85149);padding:20px">Error al cargar: ${esc(e.message || e)}</div>`
@@ -2295,6 +2444,8 @@
     const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
     const esAut = p.estado === 'autorizada'
     const pr = progresoPedidos(p.items)
+    const nuevos = (p.items || []).filter(it => it && it.nuevo).length
+    const badgeNuevo = nuevos > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">➕ ${nuevos} nuevo${nuevos > 1 ? 's' : ''}</span>` : ''
     const badge = (esAut && pr.total > 0)
       ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
       : ''
@@ -2309,7 +2460,7 @@
     const openAttr = esAut ? `data-ped="${p.id}"` : `data-dashopen="${p.id}"`
     return `<div class="cot-hrow" ${openAttr} style="cursor:pointer">
       <div style="min-width:0">
-        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}</div>
+        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}${badgeNuevo}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
       </div>
       <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${accion}</div>
@@ -2330,7 +2481,7 @@
     if (act === 'editar') { await recuperarProforma(id); switchTab('nueva'); return }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
-      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada', proc_aprobada: new Date().toISOString(), proc_aprobada_por: ((window._currentProfile() || {}).nombre || '') }).eq('id', id)
+      const { error } = await sb().rpc('cot_autorizar', { p_id: id, p_por: ((window._currentProfile() || {}).nombre || '') })
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadDashboard()
     } else if (act === 'finalizar') {
@@ -2838,7 +2989,7 @@
     }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
-      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada', proc_aprobada: new Date().toISOString(), proc_aprobada_por: ((window._currentProfile() || {}).nombre || '') }).eq('id', id)
+      const { error } = await sb().rpc('cot_autorizar', { p_id: id, p_por: ((window._currentProfile() || {}).nombre || '') })
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadHistorial(); return
     }
@@ -2958,6 +3109,7 @@
 
   async function generarPDF () {
     if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return }
+    ;(PF.items || []).forEach(it => { if (it && it.nuevo) delete it.nuevo })   // se incluyen en el PDF → dejan de ser "nuevos"
     ordenarPF(); renderItems()
     const btn = $('cot-btn-pdf'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Guardando…'
     try {
