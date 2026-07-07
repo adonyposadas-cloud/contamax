@@ -637,17 +637,17 @@
     // Compras separadas en dos hojas: Costos y Gastos (cada una con su fila de totales)
     const hojaCompras = (titulo, lista) => {
       const aoa = [[titulo + ' · ' + etiquetaMes(fPeriodo)], [],
-        ['Fecha', 'Factura', 'Proveedor', 'RTN', 'Centro', 'Actividad', 'Subtotal', 'ISV', 'Total', 'Incluida']]
+        ['Fecha', 'Factura', 'Proveedor', 'RTN', 'Centro', 'Actividad', 'Subtotal', 'ISV', 'Condición', 'Total', 'Incluida']]
       let sSub = 0, sIsv = 0, sTot = 0, nInc = 0
       lista.forEach(c => {
         aoa.push([
           c.fecha, c.numero_factura || '', c.proveedor || '', c.rtn_proveedor || '',
           nombreCentro(c.centro_costo_id), tipoActividad(c.centro_costo_id),
-          +c.subtotal || 0, +c.isv || 0, +c.total || 0, c.incluir_fiscal ? 'Sí' : 'No'])
+          +c.subtotal || 0, +c.isv || 0, ((+c.isv || 0) > 0 ? 'Gravado' : 'Exento'), +c.total || 0, c.incluir_fiscal ? 'Sí' : 'No'])
         if (c.incluir_fiscal) { sSub += +c.subtotal || 0; sIsv += +c.isv || 0; sTot += +c.total || 0; nInc++ }
       })
       aoa.push([])
-      aoa.push(['TOTALES (solo incluidas)', '', '', '', '', '', round2(sSub), round2(sIsv), round2(sTot), nInc])
+      aoa.push(['TOTALES (solo incluidas)', '', '', '', '', '', round2(sSub), round2(sIsv), '', round2(sTot), nInc])
       return aoa
     }
     const comprasCostoExp = fCompras.filter(c => c.tipo_compra === 'costo')
