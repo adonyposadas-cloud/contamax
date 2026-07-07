@@ -3,7 +3,7 @@
 // cambia estado/prioridad y responde. Depende de: window._sb, window._currentProfile, window.toast
 const solSb = () => window._sb
 const solProfile = () => { try { return window._currentProfile?.() || {} } catch (e) { return {} } }
-const solEsSuper = () => solProfile().rol === 'super_admin'
+const solEsSuper = () => { const p = solProfile(); return (p._rolReal || p.rol) === 'super_admin' }
 const solEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const solFecha = ts => { if (!ts) return ''; try { return new Date(ts).toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch (e) { return '' } }
 
@@ -124,6 +124,8 @@ function solRender() {
   }
   let rows = solData.slice()
   if (esSuper && solFiltroEstado) rows = rows.filter(r => r.estado === solFiltroEstado)
+  const _ord = { nueva: 0, en_revision: 1, en_progreso: 2, hecha: 3, descartada: 4 }
+  rows.sort((a, b) => (_ord[a.estado] ?? 9) - (_ord[b.estado] ?? 9) || new Date(b.created_at) - new Date(a.created_at))
   if (!rows.length) {
     cont.innerHTML = `<div class="sol-empty">${esSuper ? 'No hay solicitudes con ese filtro.' : 'Todavía no tenés solicitudes. Creá una arriba.'}</div>`
     return
@@ -241,10 +243,19 @@ function solSetupPaste () {
 }
 window.solAbrirAdjunto = async (path) => {
   try {
-    const { data, error } = await solSb().storage.from('solicitudes').createSignedUrl(path, 3600)
-    if (error || !data || !data.signedUrl) throw (error || new Error('sin url'))
-    window.open(data.signedUrl, '_blank')
-  } catch (e) { window.toast?.('No se pudo abrir el adjunto', 'error') }
+    // Descargar el blob directo — maneja rutas con espacios/caracteres raros
+    const { data, error } = await solSb().storage.from('solicitudes').download(path)
+    if (error || !data) throw (error || new Error('no data'))
+    const url = URL.createObjectURL(data)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (e) {
+    try {
+      const { data, error } = await solSb().storage.from('solicitudes').createSignedUrl(path, 3600)
+      if (error || !data || !data.signedUrl) throw (error || new Error('sin url'))
+      window.open(data.signedUrl, '_blank')
+    } catch (e2) { console.error('[sol adjunto]', e, e2); window.toast?.('No se pudo abrir el adjunto', 'error') }
+  }
 }
 function solAdjuntosHTML (r) {
   const a = Array.isArray(r.adjuntos) ? r.adjuntos : []

@@ -12,6 +12,7 @@ const ykSb = () => window._sb
 const ykEsSuper = () => { try { return window._currentProfile?.()?.rol === 'super_admin' } catch (e) { return false } }
 const ykFmt = n => (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const ykFmt0 = n => (parseFloat(n) || 0).toLocaleString('es-HN', { maximumFractionDigits: 0 })
+const ykRangoPrecio = (min, max) => { const a = Number(min) || 0; return (max != null && Number(max) > a) ? (ykFmt(a) + ' – ' + ykFmt(Number(max))) : ykFmt(a) }
 const ykPct = n => (n == null ? '—' : (parseFloat(n) * 100).toLocaleString('es-HN', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + '%')
 
 let ykFile = null
@@ -1721,13 +1722,15 @@ window.ykCotAgregar = () => {
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <div class="fld"><label>Marca *</label><select id="yk-cotm-mar" style="width:160px" onchange="ykCotMarcaModalChange()"><option value="">— elegí —</option>${marcas.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')}</select></div>
         <div class="fld"><label>Modelo</label><select id="yk-cotm-mod" style="width:170px"><option value="">(opcional)</option></select></div>
-        <div class="fld"><label>Año</label><input id="yk-cotm-anio" type="number" style="width:90px" placeholder="2014"></div>
+        <div class="fld"><label>Año *</label><input id="yk-cotm-anio" type="number" style="width:90px" placeholder="2014"></div>
       </div>
       <div class="fld"><label>Descripción de la pieza *</label><input id="yk-cotm-prod" type="text" style="width:100%" placeholder="ej. MOTOR K24 4X4"></div>
-      <div style="display:flex;gap:10px">
-        <div class="fld"><label>Precio (L.) *</label><input id="yk-cotm-precio" type="number" style="width:140px" placeholder="ej. 25000"></div>
-        <div class="fld" style="flex:1"><label>Nota (opcional)</label><input id="yk-cotm-nota" type="text" style="width:100%" placeholder="ej. cotizado por taller X"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="fld"><label>Precio desde (L.) *</label><input id="yk-cotm-precio" type="number" style="width:120px" placeholder="ej. 16000"></div>
+        <div class="fld"><label>Precio hasta (L.)</label><input id="yk-cotm-precio-max" type="number" style="width:120px" placeholder="opcional"></div>
+        <div class="fld" style="flex:1;min-width:150px"><label>Nota (opcional)</label><input id="yk-cotm-nota" type="text" style="width:100%" placeholder="ej. cotizado por taller X"></div>
       </div>
+      <div class="page-sub" style="margin-top:-4px">El año es obligatorio. Dejá "hasta" vacío para un precio fijo, o llenalo para guardar un rango (ej. 16,000 – 18,000).</div>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">
         <button class="btn btn-ghost" onclick="ykCotCerrarOv('yk-cotm-ov')">Cancelar</button>
         <button class="btn btn-gold" onclick="ykCotGuardar()">Guardar</button>
@@ -1745,20 +1748,22 @@ window.ykCotGuardar = async () => {
   const v = id => (document.getElementById(id)?.value || '').trim()
   const marca = v('yk-cotm-mar'), prod = v('yk-cotm-prod')
   const precio = parseFloat(v('yk-cotm-precio'))
+  const precioMax = v('yk-cotm-precio-max') ? parseFloat(v('yk-cotm-precio-max')) : null
   const anio = parseInt(v('yk-cotm-anio'), 10)
   if (!marca || !prod) { window.toast?.('Marca y descripción son obligatorias', 'error'); return }
-  if (isNaN(precio) || precio <= 0) { window.toast?.('Precio inválido', 'error'); return }
+  if (isNaN(anio)) { window.toast?.('El año del vehículo es obligatorio', 'error'); return }
+  if (isNaN(precio) || precio <= 0) { window.toast?.('Precio desde inválido', 'error'); return }
+  if (precioMax != null && (isNaN(precioMax) || precioMax < precio)) { window.toast?.('El precio hasta no puede ser menor al desde', 'error'); return }
   try {
     const { data, error } = await ykSb().rpc('yonker_cotizacion_guardar', {
-      p_marca: marca, p_modelo: v('yk-cotm-mod') || null, p_anio: isNaN(anio) ? null : anio,
-      p_producto: prod, p_precio: precio, p_nota: v('yk-cotm-nota') || null
+      p_marca: marca, p_modelo: v('yk-cotm-mod') || null, p_anio: anio,
+      p_producto: prod, p_precio: precio, p_precio_max: precioMax, p_nota: v('yk-cotm-nota') || null
     })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'Error', 'error'); return }
     window.toast?.('Cotización guardada', 'success')
-    if (window.logActividad) window.logActividad('cotizacion_guardar', 'yonker', `Cotización: ${marca} ${v('yk-cotm-mod') || ''} ${prod} · L. ${precio}`, data.id)
+    if (window.logActividad) window.logActividad('cotizacion_guardar', 'yonker', `Cotización: ${marca} ${v('yk-cotm-mod') || ''} ${prod} · L. ${precio}${precioMax ? '–' + precioMax : ''}`, data.id)
     ykCotCerrarOv('yk-cotm-ov')
-    // si hay una búsqueda activa, refrescar
     if (document.getElementById('yk-cot-result') && ykCotRows.length) ykCotizar()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
@@ -1782,7 +1787,7 @@ window.ykCotGestionar = async () => {
     const rows = cots.map(c => `<tr>
       <td>${c.marca || ''} ${c.modelo || ''} ${c.anio_vehiculo || ''}</td>
       <td>${(c.producto || '').slice(0, 50)}</td>
-      <td class="yk-num">${ykFmt(c.precio)}</td>
+      <td class="yk-num">${ykRangoPrecio(c.precio, c.precio_max)}</td>
       <td>${(c.creado_en || '').slice(0, 10)}</td>
       <td>${c.creado_por || ''}</td>
       <td>${ykEsSuper() ? `<button class="btn btn-ghost" style="padding:1px 8px" onclick="ykCotEliminar('${c.id}')">🗑️</button>` : ''}</td>

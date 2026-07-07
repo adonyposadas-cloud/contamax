@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260707-fecha8' } catch (e) {}
+  try { window.__cotBuild = '20260707-jefe9' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -28,7 +28,7 @@
   const PRIO_ORD = { crit: 0, rec: 1, prev: 2 }
 
   // ── Estado de la proforma en curso ──
-  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', items: [] }
+  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', jefe_pista: '', items: [] }
   let modalTipo = 'p'        // 'p' productos | 's' servicios
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
@@ -239,9 +239,10 @@
 
     <div class="form-card">
       <div class="form-card-title">Información general</div>
-      <div class="form-grid">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
         <div class="fld"><label>Vendedor</label><input id="cot-vend" class="cot-in" placeholder="Nombre del vendedor"></div>
         <div class="fld"><label>Cliente</label><input id="cot-cli" class="cot-in" placeholder="Nombre del cliente"></div>
+        <div class="fld"><label>Jefe de pista <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(autoriza)</span></label><input id="cot-jefe" class="cot-in" placeholder="Responsable de autorizar" style="text-transform:uppercase"></div>
       </div>
       <div class="form-grid" style="margin-top:10px;grid-template-columns:1fr 1fr 1fr">
         <div class="fld"><label>Placa <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(recupera cotización pendiente)</span></label>
@@ -763,6 +764,7 @@
   // ══════════════════════════════════════════════════════════
   function wire () {
     $('cot-vend').addEventListener('input', e => PF.vendedor = e.target.value.toUpperCase())
+    if ($('cot-jefe')) $('cot-jefe').addEventListener('input', e => PF.jefe_pista = e.target.value.toUpperCase())
     $('cot-cli').addEventListener('input', e => PF.cliente = e.target.value.toUpperCase())
     $('cot-km').addEventListener('input', e => PF.km = e.target.value)
     $('cot-orden').addEventListener('input', e => PF.numero_orden = e.target.value.trim())
@@ -1778,7 +1780,7 @@
       marca: PF.marca || '', modelo: PF.modelo || '', anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'), kilometraje: PF.km || '',
       numero_orden: orden,
       items: PF.items, subtotal: t.subtotal, isv: t.isv, total: t.total,
-      descuento: t.descPct, notas: PF.notas || '',
+      descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
       ganancia_default: getGanDefault(), estado: PF.estado || 'pendiente'
     }
     try {
@@ -1828,14 +1830,14 @@
       if (error) throw error
       PF = {
         id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente',
-        vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '',
+        vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '', jefe_pista: data.jefe_pista || '',
         km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
         proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
         procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
         items: Array.isArray(data.items) ? data.items : []
       }
-      $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa
+      $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa; $('cot-jefe') && ($('cot-jefe').value = PF.jefe_pista || '')
       $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo
       $('cot-anio-veh').value = ''; $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
       $('cot-orden').value = PF.numero_orden
@@ -1854,11 +1856,12 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', items: [] }
     if ($('cot-proc-clock')) renderProcClock()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
+    if ($('cot-jefe')) $('cot-jefe').value = PF.jefe_pista || ''
     $('cot-recban').style.display = 'none'
     setNumLabel(); updVehHint(); updDetalleResumen(); renderItems()
   }
@@ -2046,7 +2049,7 @@
     if (EST_MODO === 'rango' && EST_DESDE > EST_HASTA) { const t = EST_DESDE; EST_DESDE = EST_HASTA; EST_HASTA = t }
     const start = EST_MODO === 'rango' ? _estBoundISO(EST_DESDE, 0) : _estBoundISO(EST_DIA, 0)
     const end = EST_MODO === 'rango' ? _estBoundISO(EST_HASTA, 1) : _estBoundISO(EST_DIA, 1)
-    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por,procesos_previos'
+    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por,procesos_previos,jefe_pista'
     const tit = $('est-tabla-tit')
     if (tit) tit.textContent = EST_MODO === 'rango' ? `${_estFechaCorta(EST_DESDE)} a ${_estFechaCorta(EST_HASTA)}` : (EST_DIA === _estHoy() ? 'Hoy' : _estFechaCorta(EST_DIA))
     try {
@@ -2105,12 +2108,12 @@
       const f = _procFase(p)
       const faseLbl = f.fase === 'autorizacion' ? '⏳ Esperando autorización' : '📦 Compra y entrega'
       const faseBg = f.fase === 'autorizacion' ? 'rgba(245,158,11,.12)' : 'rgba(59,130,246,.12)'
-      const resp = f.fase === 'autorizacion' ? (p.vendedor || '—') : (p.proc_aprobada_por || p.vendedor || '—')
+      const resp = f.fase === 'autorizacion' ? (p.jefe_pista || p.vendedor || '—') : (p.proc_aprobada_por || p.jefe_pista || p.vendedor || '—')
       const ms = Date.now() - new Date(f.desde).getTime()
       return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;background:${faseBg};margin-bottom:8px">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}</div>
-          <div style="font-size:11px;color:var(--text3,#8b949e)">${faseLbl} · Resp: ${esc(resp)}${p.cliente ? ' · ' + esc(p.cliente) : ''}</div>
+          <div style="font-size:11px;color:var(--text3,#8b949e)">${faseLbl} · ${f.fase === 'autorizacion' ? 'Jefe de pista' : 'Resp'}: ${esc(resp)}${p.cliente ? ' · ' + esc(p.cliente) : ''}</div>
         </div>
         <div data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</div>
       </div>`
