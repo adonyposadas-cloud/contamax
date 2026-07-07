@@ -10,6 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
+  try { window.__cotBuild = '20260707-fecha8' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -829,6 +830,7 @@
     if ($('est-hoy')) $('est-hoy').addEventListener('click', () => { EST_MODO = 'dia'; EST_DIA = _estHoy(); if ($('est-dia')) $('est-dia').value = EST_DIA; loadEstadisticas() })
     if ($('est-dia')) $('est-dia').addEventListener('change', () => { EST_MODO = 'dia'; EST_DIA = $('est-dia').value || _estHoy(); loadEstadisticas() })
     if ($('est-verrango')) $('est-verrango').addEventListener('click', () => { EST_MODO = 'rango'; EST_DESDE = ($('est-desde') && $('est-desde').value) || EST_DESDE; EST_HASTA = ($('est-hasta') && $('est-hasta').value) || EST_HASTA; loadEstadisticas() })
+    if ($('est-hist')) $('est-hist').addEventListener('click', e => { const b = e.target.closest('[data-descartar]'); if (b) descartarProceso(b.getAttribute('data-descartar')) })
     $('ped-body').addEventListener('click', e => {
       const b = e.target.closest('[data-pedact]'); if (!b) return
       const i = parseInt(b.dataset.i, 10); const a = b.dataset.pedact
@@ -1830,6 +1832,7 @@
         km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
         proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
+        procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
         items: Array.isArray(data.items) ? data.items : []
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa
@@ -1851,7 +1854,7 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
@@ -1951,6 +1954,7 @@
   }
   // Reloj compacto para las tarjetas de lista (Inicio/Cotización)
   function clockCardHTML (p) {
+    if (p.estado === 'finalizada' || p.estado === 'anulada') return ''   // proceso cerrado → sin reloj
     const f = _procFase(p)
     if (!f.fase || f.fase === 'sin_iniciar' || f.fase === 'completado') return ''
     const ms = Date.now() - new Date(f.desde).getTime()
@@ -1959,22 +1963,59 @@
   }
 
   async function marcarProcInicio () {
-    if (!PF.id || PF.proc_inicio) return
+    if (!PF.id) return
+    if (PF.estado === 'finalizada' || PF.proc_completada) {
+      // El proceso anterior ya terminó → ofrecer reabrir como NUEVO proceso
+      const ok = confirm('Esta cotización ya estaba finalizada.\n\n¿Iniciar un NUEVO proceso para los repuestos agregados?\n\n• Se archivan los tiempos del proceso anterior (no se pierden).\n• Arranca un cronómetro nuevo de autorización.\n• Los repuestos ya entregados se conservan; el nuevo queda "Sin pedir".')
+      if (ok) await nuevoCicloProceso()
+      return
+    }
+    if (PF.proc_inicio) return
     const ts = new Date().toISOString()
     try {
       const { error } = await sb().from('cotizador_proformas').update({ proc_inicio: ts }).eq('id', PF.id).is('proc_inicio', null)
       if (!error) { PF.proc_inicio = ts; renderProcClock(); startClock() }
     } catch (e) { console.error('[proc inicio]', e) }
   }
-  async function checkProcCompletada () {
-    if (!PEDPF || !PEDPF.id || PEDPF.proc_completada) return
-    const prods = (PEDPF.items || []).filter(it => it.tipo === 'p')
-    if (!prods.length || !prods.every(it => it.seguimiento === 'llegado')) return
-    const ts = new Date().toISOString()
+  async function nuevoCicloProceso () {
+    const previos = Array.isArray(PF.procesos_previos) ? PF.procesos_previos.slice() : []
+    previos.push({
+      ciclo: previos.length + 1,
+      proc_inicio: PF.proc_inicio, proc_aprobada: PF.proc_aprobada,
+      proc_completada: PF.proc_completada, proc_aprobada_por: PF.proc_aprobada_por,
+      cerrado: new Date().toISOString()
+    })
+    const now = new Date().toISOString()
+    const upd = { procesos_previos: previos, proc_inicio: now, proc_aprobada: null, proc_completada: null, proc_aprobada_por: null, estado: 'pendiente' }
     try {
-      const { error } = await sb().from('cotizador_proformas').update({ proc_completada: ts }).eq('id', PEDPF.id).is('proc_completada', null)
-      if (!error) { PEDPF.proc_completada = ts; toast('✅ Repuestos completos — reloj de pedido detenido. Falta que finalices la cotización.', 'success') }
-    } catch (e) { console.error('[proc completada]', e) }
+      const { error } = await sb().from('cotizador_proformas').update(upd).eq('id', PF.id)
+      if (error) throw error
+      Object.assign(PF, upd)
+      setNumLabel(); startClock()
+      toast(`🔄 Nuevo proceso iniciado (ciclo ${previos.length + 1}). Volvió a Inicio; gestioná el repuesto agregado.`, 'success')
+    } catch (e) { console.error('[nuevo ciclo]', e); toast('Error al iniciar el nuevo proceso: ' + (e.message || e), 'error') }
+  }
+  async function checkProcCompletada () {
+    if (!PEDPF || !PEDPF.id) return
+    const prods = (PEDPF.items || []).filter(it => it.tipo === 'p')
+    // Pendiente = ítem pedido a proveedor y aún NO llegó, o sin decidir.
+    // Los de bodega y los ya llegados NO cuentan (no están en el proceso de compra).
+    const pendientes = prods.filter(it => it.seguimiento === 'pedido' || !it.seguimiento)
+    const completo = prods.length > 0 && pendientes.length === 0
+    const now = new Date().toISOString()
+    try {
+      if (completo && !PEDPF.proc_completada) {
+        // llegó el último que estaba en proceso de pedido → detener el reloj de compra
+        const { error } = await sb().from('cotizador_proformas').update({ proc_completada: now }).eq('id', PEDPF.id).is('proc_completada', null)
+        if (!error) { PEDPF.proc_completada = now; toast('✅ Repuestos completos — reloj de compra detenido. Falta que finalices la cotización.', 'success') }
+      } else if (!completo && PEDPF.proc_completada) {
+        // todavía falta un repuesto por llegar → el reloj de compra debe seguir corriendo
+        const upd = { proc_completada: null }
+        if (PEDPF.estado === 'finalizada') upd.estado = 'autorizada'   // se cerró mal: reactivar
+        const { error } = await sb().from('cotizador_proformas').update(upd).eq('id', PEDPF.id)
+        if (!error) { PEDPF.proc_completada = null; if (upd.estado) PEDPF.estado = upd.estado; toast(`⏱ Falta ${pendientes.length} repuesto(s) por llegar — reloj de compra reactivado.`, 'success') }
+      }
+    } catch (e) { console.error('[proc reconciliar]', e) }
   }
   async function finalizarProcesoManual () {
     if (!PEDPF || !PEDPF.id) return
@@ -1990,24 +2031,35 @@
 
   function _esAutorizada (p) { return p.estado === 'autorizada' || p.estado === 'finalizada' || !!p.proc_aprobada }
 
+  async function descartarProceso (id) {
+    if (!ES_SUPER) { toast('Solo super_admin', 'error'); return }
+    if (!confirm('¿Cerrar el seguimiento de tiempos de este proceso?\n\nSe quita de "Procesos en curso" y del histórico. No afecta la cotización ni sus pedidos.')) return
+    try {
+      const { error } = await sb().from('cotizador_proformas').update({ proc_inicio: null, proc_aprobada: null, proc_completada: null }).eq('id', id)
+      if (error) throw error
+      toast('Proceso cerrado', 'success'); loadEstadisticas()
+    } catch (e) { console.error('[descartar proc]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+
   async function loadEstadisticas () {
     const body = $('est-kpis'); if (body) body.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3,#8b949e);padding:16px">Cargando…</div>'
     if (EST_MODO === 'rango' && EST_DESDE > EST_HASTA) { const t = EST_DESDE; EST_DESDE = EST_HASTA; EST_HASTA = t }
     const start = EST_MODO === 'rango' ? _estBoundISO(EST_DESDE, 0) : _estBoundISO(EST_DIA, 0)
     const end = EST_MODO === 'rango' ? _estBoundISO(EST_HASTA, 1) : _estBoundISO(EST_DIA, 1)
-    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por'
+    const cols = 'id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por,procesos_previos'
     const tit = $('est-tabla-tit')
     if (tit) tit.textContent = EST_MODO === 'rango' ? `${_estFechaCorta(EST_DESDE)} a ${_estFechaCorta(EST_HASTA)}` : (EST_DIA === _estHoy() ? 'Hoy' : _estFechaCorta(EST_DIA))
     try {
-      const [rango, curso] = await Promise.all([
+      const [rango, curso, hist] = await Promise.all([
         sb().from('cotizador_proformas').select(cols).gte('created_at', start).lt('created_at', end).order('created_at', { ascending: false }).limit(3000),
-        sb().from('cotizador_proformas').select(cols).not('proc_inicio', 'is', null).is('proc_completada', null).order('proc_inicio', { ascending: true }).limit(200)
+        sb().from('cotizador_proformas').select(cols).not('proc_inicio', 'is', null).is('proc_completada', null).neq('estado', 'finalizada').order('proc_inicio', { ascending: true }).limit(200),
+        sb().from('cotizador_proformas').select(cols).not('proc_inicio', 'is', null).or(`proc_completada.gte.${start},proc_completada.is.null`).order('proc_inicio', { ascending: false }).limit(1000)
       ])
       if (rango.error) throw rango.error
-      renderEstadisticas(rango.data || [], curso.data || [])
+      renderEstadisticas(rango.data || [], curso.data || [], hist.data || [], new Date(start).getTime(), new Date(end).getTime())
     } catch (e) { console.error('[estadisticas]', e); if (body) body.innerHTML = '<div style="grid-column:1/-1;color:var(--red,#f85149);padding:12px">Error al cargar</div>' }
   }
-  function renderEstadisticas (rows, enCursoRows) {
+  function renderEstadisticas (rows, enCursoRows, histSrc, startMs, endMs) {
     const nCot = rows.length
     const aut = rows.filter(_esAutorizada)
     const tasa = nCot ? Math.round(aut.length / nCot * 100) : 0
@@ -2064,19 +2116,31 @@
       </div>`
     }).join('') : '<div style="text-align:center;color:var(--text3,#8b949e);padding:16px">No hay procesos en curso ahora mismo.</div>'
 
-    // Histórico de tiempos por fase (para medir responsables)
-    const procs = rows.filter(p => p.proc_inicio)
+    // Histórico de tiempos por fase — ubica cada ciclo por la FECHA DEL PROCESO:
+    // un ciclo completado cuenta el día que se completó; los en curso siempre se muestran.
     const fase1s = [], fase2s = []
-    const histRows = procs.map(p => {
-      const t0 = new Date(p.proc_inicio).getTime()
-      const t1 = p.proc_aprobada ? new Date(p.proc_aprobada).getTime() : null
-      const t2 = p.proc_completada ? new Date(p.proc_completada).getTime() : null
+    const procsAll = []
+    ;(histSrc || []).forEach(p => {
+      const prev = Array.isArray(p.procesos_previos) ? p.procesos_previos : []
+      prev.forEach(c => procsAll.push({ p, ciclo: c.ciclo, ini: c.proc_inicio, apr: c.proc_aprobada, com: c.proc_completada, por: c.proc_aprobada_por }))
+      if (p.proc_inicio) procsAll.push({ p, ciclo: prev.length + 1, ini: p.proc_inicio, apr: p.proc_aprobada, com: p.proc_completada, por: p.proc_aprobada_por })
+    })
+    const procs = procsAll.filter(x => {
+      const fecha = x.com || x.apr || x.ini   // fecha del proceso: completado > autorizado > inicio
+      if (!fecha) return false
+      const t = new Date(fecha).getTime()
+      return t >= startMs && t < endMs
+    })
+    const histRows = procs.map(x => {
+      const t0 = new Date(x.ini).getTime()
+      const t1 = x.apr ? new Date(x.apr).getTime() : null
+      const t2 = x.com ? new Date(x.com).getTime() : null
       const f1 = t1 != null ? t1 - t0 : null
       const f2 = (t2 != null && t1 != null) ? t2 - t1 : null
       if (f1 != null) fase1s.push(f1)
       if (f2 != null) fase2s.push(f2)
-      const estadoTxt = p.proc_completada ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (p.proc_aprobada ? '<span style="color:#3b82f6">En compra</span>' : '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>')
-      return { p, f1, f2, estadoTxt, orden: t2 || t1 || t0 }
+      const estadoTxt = x.com ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (x.apr ? '<span style="color:#3b82f6">En compra</span>' : '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>')
+      return { p: x.p, ciclo: x.ciclo, por: x.por, com: x.com, f1, f2, estadoTxt, orden: t2 || t1 || t0 }
     }).sort((a, b) => b.orden - a.orden)
     const prom = arr => arr.length ? Math.round(arr.reduce((a, x) => a + x, 0) / arr.length) : null
     const resumen = `<div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
@@ -2086,12 +2150,12 @@
     const histHtml = histRows.map(h => {
       const p = h.p
       return `<tr style="border-top:1px solid var(--border,#2a3340)">
-        <td style="padding:7px 10px">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}</td>
+        <td style="padding:7px 10px">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}${h.ciclo > 1 ? ` <span style="color:var(--gold,#c8a24a);font-size:11px">· ciclo ${h.ciclo}</span>` : ''}</td>
         <td style="padding:7px 10px">${esc(p.vendedor || '—')}</td>
         <td style="padding:7px 10px;text-align:right;color:${h.f1 != null ? _colorFaseMs(h.f1, 'autorizacion') : 'var(--text3,#8b949e)'}">${h.f1 != null ? _fmtDur2(h.f1) : '—'}</td>
-        <td style="padding:7px 10px">${esc(p.proc_aprobada_por || '—')}</td>
+        <td style="padding:7px 10px">${esc(h.por || '—')}</td>
         <td style="padding:7px 10px;text-align:right;color:${h.f2 != null ? _colorFaseMs(h.f2, 'compra') : 'var(--text3,#8b949e)'}">${h.f2 != null ? _fmtDur2(h.f2) : '—'}</td>
-        <td style="padding:7px 10px">${h.estadoTxt}</td>
+        <td style="padding:7px 10px">${h.estadoTxt}${ES_SUPER && !h.com && h.f1 == null ? ` <button data-descartar="${h.p.id}" title="Cerrar / descartar este proceso trabado" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:13px;padding:0 4px">✕</button>` : ''}</td>
       </tr>`
     }).join('')
     $('est-hist').innerHTML = procs.length ? resumen + `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -2109,6 +2173,7 @@
   const provNorm = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
   const normTel = (t) => { let n = String(t || '').replace(/\D/g, ''); if (n && n.length <= 8) n = '504' + n; return n }
   const waHref = (tel, msg) => 'https://wa.me/' + normTel(tel) + '?text=' + encodeURIComponent(msg)
+  const telHref = (tel) => 'tel:+' + normTel(tel)
 
   async function fetchProveedoresCompras () {
     const set = new Set(); let from = 0; const step = 1000
@@ -2144,7 +2209,7 @@
     cont.innerHTML = list.map((p, i) => {
       const msg = `Buen día${p.contacto ? ' ' + p.contacto : ''}, le consulto por el estado del envío de los repuestos que solicitamos. Gracias.`
       const wa = p.telefono ? `<a class="btn" href="${waHref(p.telefono, msg)}" target="_blank" rel="noopener" style="color:#25d366;font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>` : ''
-      const call = p.telefono ? `<a class="btn" href="tel:${esc(p.telefono)}" style="font-size:12px;padding:5px 10px;text-decoration:none">📞 Llamar</a>` : ''
+      const call = p.telefono ? `<a class="btn" href="${telHref(p.telefono)}" style="font-size:12px;padding:5px 10px;text-decoration:none">📞 Llamar</a>` : ''
       return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border,#2a3340)">
         <div style="min-width:180px;flex:1;font-weight:600;font-size:13px">${esc(p.nombre)}</div>
         <input class="cot-in prov-cont" data-i="${i}" placeholder="Contacto" value="${esc(p.contacto || '')}" style="width:150px">
@@ -2276,6 +2341,7 @@
       if (!confirm('¿Finalizar? Se quita del Inicio pero queda en Cotización.')) return
       const { error } = await sb().from('cotizador_proformas').update({ estado: 'finalizada' }).eq('id', id)
       if (error) { toast('Error al finalizar', 'error'); return }
+      await sb().from('cotizador_proformas').update({ proc_completada: new Date().toISOString() }).eq('id', id).is('proc_completada', null)  // detiene el reloj si aún corría
       toast('Cotización finalizada', 'success'); loadDashboard()
     }
   }
@@ -2290,6 +2356,7 @@
       renderPedidos()
       $('cot-modal-ped').classList.add('open')
       cargarProveedores()
+      checkProcCompletada()   // corrige si quedó "completado" con repuestos aún pendientes
       ensureProvContacts().then(() => renderPedidos())   // recarga con botones de WhatsApp/Llamar
     } catch (e) { console.error('[cotizador pedidos]', e); toast('No se pudo abrir', 'error') }
   }
@@ -2335,8 +2402,10 @@
           estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">🚚 Pedido a ${prov}</span>`
           const c = contactoDe(it.seg_proveedor)
           if (c && c.telefono) {
-            const msg = `Buen día${c.contacto ? ' ' + c.contacto : ''}, consulto por el estado del envío de: ${String(it.desc).toUpperCase()} (cantidad ${fmt(it.cantidad)}) que solicitamos. Gracias.`
-            estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:#25d366;text-decoration:none">💬</a> <a href="tel:${esc(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
+            const _min = it.seg_fecha_pedido ? difMin(it.seg_fecha_pedido) : null
+            const _hace = _min != null ? ` (pedido hace ${fmtDur(_min)})` : ''
+            const msg = `Buen día${c.contacto ? ' ' + c.contacto : ''}, de TECNIMAX consultamos por el estado del envío de: ${String(it.desc).toUpperCase()} (cantidad ${fmt(it.cantidad)})${_hace} que solicitamos. Gracias.`
+            estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:#25d366;text-decoration:none">💬</a> <a href="${telHref(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
           }
         }
         if (it.seg_fecha_pedido) {
@@ -2453,6 +2522,7 @@
     await guardarPedidos()
     $('cot-modal-prov').classList.remove('open'); renderPedidos()
     toast(_pedModo === 'recoge' ? ('🚶 A recoger — ' + conserje) : ('🚚 Pedido a ' + prov), 'success')
+    await checkProcCompletada()
   }
 
   async function marcarLlegado (i) {
@@ -2473,6 +2543,7 @@
     if (!confirm('¿Revertir a "Sin pedir"?')) return
     delete it.seguimiento; delete it.seg_proveedor; delete it.seg_modo; delete it.seg_conserje; delete it.seg_fecha_pedido; delete it.seg_fecha_llegada
     await guardarPedidos(); renderPedidos()
+    await checkProcCompletada()
   }
 
   // Marca/desmarca un ítem como facturado. Al marcar, copia la descripción al
