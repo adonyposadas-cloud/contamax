@@ -144,7 +144,7 @@ function setupUI() {
   // Definir qué nav-items ve cada rol
   const permisos = {
     super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-cotizador', 'nav-estados-fisicos'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos'],
     contador_fiscal: ['nav-declaracion-isv']
@@ -2586,6 +2586,7 @@ function renderLineas() {
   const tbody = document.getElementById('tbody-lineas')
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
   const esAuxContable = currentProfile?.rol === 'aux_contable'
+  const esDuenoCajaChica = ['aux_contable', 'contador'].includes(currentProfile?.rol)   // ambos manejan caja chica
   tbody.innerHTML = partidaLineas.map(l => {
     const debeVal = l.tipo === 'debito' && l.monto ? l.monto : ''
     const haberVal = l.tipo === 'credito' && l.monto ? l.monto : ''
@@ -2597,14 +2598,14 @@ function renderLineas() {
     // Otros roles: pueden AGREGAR nuevas líneas de caja (solo ingreso/débito con conteo)
     //              NO pueden modificar líneas de caja que ya existían en la BD (_fromDB)
     // ── Política de Caja Chica ──
-    // Aux. Contable: control total de caja chica (debe y haber)
+    // Aux. Contable y Contador: control total de caja chica (debe y haber)
     // Otros roles: solo débito en caja chica, haber bloqueado
-    const cajaReadonly = esCaja && !esSuperAdmin && !(esCajaChica && esAuxContable) && l._fromDB
+    const cajaReadonly = esCaja && !esSuperAdmin && !(esCajaChica && esDuenoCajaChica) && l._fromDB
 
     let debeInput, haberInput
 
-    if (esCajaChica && esAuxContable) {
-      // Aux. Contable es dueña de caja chica: control total con botón 💵
+    if (esCajaChica && esDuenoCajaChica) {
+      // Dueño de caja chica (aux_contable/contador): control total con botón 💵
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
@@ -2992,6 +2993,7 @@ window.guardarPartida = async (estado) => {
   const hayEgresoCaja = tieneEgresoCaja(lineasValidas)
   const esSuperAdmin = currentProfile.rol === 'super_admin'
   const esAuxContable = currentProfile.rol === 'aux_contable'
+  const esDuenoCajaChica = ['aux_contable', 'contador'].includes(currentProfile.rol)   // ambos manejan caja chica
 
   // Egreso de Caja General: solo super_admin
   const hayEgresoCajaGeneral = lineasValidas.some(l => lineaAfectaCaja(l) && l.tipo === 'credito' && l.monto > 0 && l.cuenta_codigo !== CUENTA_CAJA_CHICA)
@@ -3000,10 +3002,10 @@ window.guardarPartida = async (estado) => {
     return
   }
 
-  // Egreso de Caja Chica: solo aux_contable o super_admin
+  // Egreso de Caja Chica: aux_contable, contador o super_admin
   const hayEgresoCajaChica = lineasValidas.some(l => l.cuenta_codigo === CUENTA_CAJA_CHICA && l.tipo === 'credito' && l.monto > 0)
-  if (hayEgresoCajaChica && !esAuxContable && !esSuperAdmin) {
-    toast('Solo Aux. Contable o Super Admin pueden registrar egresos de Caja Chica', 'error')
+  if (hayEgresoCajaChica && !esDuenoCajaChica && !esSuperAdmin) {
+    toast('Solo Aux. Contable, Contador o Super Admin pueden registrar egresos de Caja Chica', 'error')
     return
   }
 
@@ -3017,8 +3019,8 @@ window.guardarPartida = async (estado) => {
     const lineasCajaChicaConBilletes = lineasValidas.filter(l => l.billetes && l.cuenta_codigo === CUENTA_CAJA_CHICA)
     if (esSuperAdmin && lineasCajaConBilletes.length > 0) {
       estadoFinal = 'aprobada'
-    } else if (esAuxContable && lineasCajaChicaConBilletes.length > 0 && !lineasValidas.some(l => esCuentaCaja(l.cuenta_codigo) && l.cuenta_codigo !== CUENTA_CAJA_CHICA)) {
-      // Aux. Contable con conteo en caja chica y sin tocar caja general → aprobada
+    } else if (esDuenoCajaChica && lineasCajaChicaConBilletes.length > 0 && !lineasValidas.some(l => esCuentaCaja(l.cuenta_codigo) && l.cuenta_codigo !== CUENTA_CAJA_CHICA)) {
+      // Dueño de caja chica (aux_contable/contador) con conteo en caja chica y sin tocar caja general → aprobada
       estadoFinal = 'aprobada'
     } else {
       estadoFinal = 'pendiente_caja'
@@ -3027,7 +3029,7 @@ window.guardarPartida = async (estado) => {
 
   // ── CONTROL CAJA CHICA: partidas de otros usuarios quedan pendientes para el auxiliar ──
   const tocaCajaChica = lineasValidas.some(l => l.cuenta_codigo === CUENTA_CAJA_CHICA && l.monto > 0)
-  if (tocaCajaChica && !esAuxContable && !esSuperAdmin && estado === 'aprobada') {
+  if (tocaCajaChica && !esDuenoCajaChica && !esSuperAdmin && estado === 'aprobada') {
     estadoFinal = 'pendiente_caja'
   }
 
