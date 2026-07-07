@@ -27,7 +27,7 @@
   const PRIO_ORD = { crit: 0, rec: 1, prev: 2 }
 
   // ── Estado de la proforma en curso ──
-  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', grupo: '', descuento: 0, notas: '', items: [] }
+  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', items: [] }
   let modalTipo = 'p'        // 'p' productos | 's' servicios
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
@@ -45,6 +45,8 @@
   let SEG_DATA = []          // cotizaciones clasificadas para seguimiento
   let PEDPF = null           // proforma abierta en el modal de pedidos
   let _pedIdx = null         // índice del ítem que se está pidiendo
+  let _pedModo = 'envia'     // modo de entrega en el modal: 'envia' | 'recoge'
+  let _pedTimer = null       // intervalo para refrescar el tiempo transcurrido
   let PROVS = null           // cache de proveedores
   let verTodosCostos = false // privacidad: costos/proveedores ocultos por defecto
 
@@ -198,6 +200,7 @@
       <div>
         <div class="page-title">🧾 Cotizador · Proformas</div>
         <div class="page-sub" id="cot-num-label">Nueva cotización</div>
+        <div id="cot-proc-clock" style="font-size:12px;margin-top:2px;display:none"></div>
       </div>
       <div class="cot-tabs">
         <button class="cot-tab" data-tab="inicio">Inicio</button>
@@ -206,6 +209,7 @@
         <button class="cot-tab" data-tab="seguimiento">Seguimiento</button>
         <button class="cot-tab" data-tab="proveedores">📇 Proveedores</button>
         <button class="cot-tab" data-tab="generaciones">🚗 Generaciones</button>
+        <button class="cot-tab" data-tab="estadisticas">📊 Estadísticas</button>
         <button class="cot-tab" data-tab="config" id="cot-tab-config" style="display:none">⚙ Config</button>
       </div>
     </div>
@@ -371,6 +375,7 @@
           <select id="cot-gen-tr" class="cot-in" style="width:100px" title="Tracción"></select>
           <select id="cot-gen-co" class="cot-in" style="width:110px" title="Combustible"></select>
           <select id="cot-gen-gr" class="cot-in" style="width:120px" title="Grupo de repuesto"></select>
+          <select id="cot-gen-mt" class="cot-in" style="width:90px" title="Motor"></select>
           <button class="btn btn-gold" id="cot-gen-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
         </div>
         <input id="cot-gen-q" class="cot-in" placeholder="🔍 Buscar marca o modelo…" style="width:100%;text-transform:uppercase;margin-bottom:10px">
@@ -380,7 +385,7 @@
       <div class="form-card" style="margin-top:14px">
         <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:8px">🔧 Listas (opciones de los desplegables)</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <select id="cot-lista-tipo" class="cot-in" style="width:130px"><option value="traccion">Tracción</option><option value="combustible">Combustible</option><option value="grupo">Grupo</option></select>
+          <select id="cot-lista-tipo" class="cot-in" style="width:130px"><option value="traccion">Tracción</option><option value="combustible">Combustible</option><option value="motor">Motor</option><option value="grupo">Grupo</option></select>
           <input id="cot-lista-val" class="cot-in" placeholder="Nuevo valor" style="width:160px;text-transform:uppercase">
           <button class="btn btn-gold" id="cot-lista-add" style="font-size:12px;padding:7px 14px">+ Agregar</button>
         </div>
@@ -411,6 +416,23 @@
     </div>
 
     <!-- PANEL CONFIG -->
+    <div id="cot-panel-estadisticas" class="cot-panel" style="display:none">
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn est-rango btn-gold" data-rango="7d">Últimos 7 días</button>
+        <button class="btn est-rango btn-ghost" data-rango="mes">Este mes</button>
+        <button class="btn est-rango btn-ghost" data-rango="anio">Este año</button>
+      </div>
+      <div id="est-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:16px"></div>
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-card-title">⏱ Procesos en curso — tiempo real</div>
+        <div id="est-tablero"><div style="text-align:center;color:var(--text3,#8b949e);padding:16px">Cargando…</div></div>
+      </div>
+      <div class="form-card">
+        <div class="form-card-title" id="est-tabla-tit">Últimos 7 días</div>
+        <div id="est-tabla"></div>
+      </div>
+    </div>
+
     <div id="cot-panel-config" class="cot-panel" style="display:none">
       <div class="form-card">
         <div class="form-card-title">Datos de la empresa (encabezado del PDF)</div>
@@ -534,6 +556,7 @@
         <div class="fld"><label>Tracción</label><select id="cot-det-tr" class="cot-in" style="width:100%"></select></div>
         <div class="fld"><label>Combustible</label><select id="cot-det-co" class="cot-in" style="width:100%"></select></div>
         <div class="fld"><label>Grupo de repuesto</label><select id="cot-det-gr" class="cot-in" style="width:100%"></select></div>
+        <div class="fld"><label>Motor</label><select id="cot-det-mt" class="cot-in" style="width:100%"></select></div>
         <div class="fld"><label>… o escribí la pieza que buscás (asigna el grupo solo)</label><input id="cot-det-pieza" class="cot-in" style="width:100%;text-transform:uppercase" placeholder="ej. CALIPER" autocomplete="off"></div>
         <div id="cot-det-piezahint" style="font-size:12px;margin-top:6px;min-height:18px"></div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
@@ -565,7 +588,8 @@
         <div class="modal-title" id="ped-title">Pedidos</div>
         <div id="ped-prog" style="margin:6px 0 12px"></div>
         <div id="ped-body"></div>
-        <div class="modal-actions" style="justify-content:flex-end;margin-top:12px">
+        <div class="modal-actions" style="justify-content:space-between;margin-top:12px">
+          <button class="btn btn-ghost" id="ped-finproc" style="color:var(--green,#16a34a)">🏁 Finalizar proceso</button>
           <button class="btn btn-ghost" id="ped-close">Cerrar</button>
         </div>
       </div>
@@ -581,6 +605,15 @@
             <input id="prov-input" class="cot-in" style="text-transform:uppercase" autocomplete="off" placeholder="Proveedor…">
             <div class="ac-list" id="prov-ac" style="display:none"></div>
           </div>
+        </div>
+        <div class="fld" style="margin-top:12px"><label>¿Cómo llega?</label>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-ghost prov-modo-btn" data-modo="envia" style="flex:1">🚚 Proveedor envía</button>
+            <button type="button" class="btn btn-ghost prov-modo-btn" data-modo="recoge" style="flex:1">🚶 Conserje recoge</button>
+          </div>
+        </div>
+        <div class="fld" id="prov-conserje-wrap" style="margin-top:10px;display:none"><label>Nombre del conserje</label>
+          <input id="prov-conserje" class="cot-in" style="text-transform:uppercase" autocomplete="off" placeholder="¿Quién lo recoge?">
         </div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
           <button class="btn btn-ghost" id="prov-cancel">Cancelar</button>
@@ -780,6 +813,13 @@
     $('cf-guardar').addEventListener('click', aplicarCorreccion)
     // Pedidos rápidos
     $('ped-close').addEventListener('click', () => { $('cot-modal-ped').classList.remove('open'); loadDashboard() })
+    if ($('ped-finproc')) $('ped-finproc').addEventListener('click', finalizarProcesoManual)
+    document.querySelectorAll('.est-rango').forEach(b => b.addEventListener('click', () => {
+      EST_RANGO = b.dataset.rango
+      document.querySelectorAll('.est-rango').forEach(x => { x.classList.toggle('btn-gold', x === b); x.classList.toggle('btn-ghost', x !== b) })
+      const tit = $('est-tabla-tit'); if (tit) tit.textContent = b.textContent
+      loadEstadisticas()
+    }))
     $('ped-body').addEventListener('click', e => {
       const b = e.target.closest('[data-pedact]'); if (!b) return
       const i = parseInt(b.dataset.i, 10); const a = b.dataset.pedact
@@ -791,6 +831,7 @@
     })
     $('prov-cancel').addEventListener('click', () => $('cot-modal-prov').classList.remove('open'))
     $('prov-ok').addEventListener('click', confirmarPedido)
+    document.querySelectorAll('.prov-modo-btn').forEach(b => b.addEventListener('click', () => setPedModo(b.dataset.modo)))
     acSetup('prov-input', 'prov-ac', (term) => term ? (PROVS || []).filter(p => p.toLowerCase().includes(term)).slice(0, 40) : [], () => {}, true)
     // Cálculo ganancia: costo/utilidad → precio ; precio → utilidad (bidireccional)
     $('cm-costo').addEventListener('input', calcVentaManual)
@@ -798,6 +839,12 @@
     $('cm-precio').addEventListener('input', () => { recalcGanManual(); updConISV() })
     $('cm-isv').addEventListener('input', updConISV)
     $('cm-tipo').addEventListener('change', toggleTipoManual)
+    // Al enfocar/tocar un campo del modal, seleccionar su contenido para editar directo
+    const _modalMan = $('cot-modal-man')
+    if (_modalMan) _modalMan.addEventListener('focusin', e => {
+      const t = e.target
+      if (t && t.tagName === 'INPUT' && t.type !== 'checkbox') setTimeout(() => { try { t.select() } catch (_) {} }, 0)
+    })
     const gd = $('cot-gan-def')
     if (gd) {
       gd.value = getGanDefault()
@@ -908,14 +955,14 @@
   let _genExiste = false
   async function loadGeneraciones () {
     try {
-      const { data } = await sb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta,traccion,combustible,grupo_repuesto')
+      const { data } = await sb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta,traccion,combustible,motor,grupo_repuesto')
       GEN = {}
-      ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (GEN[k] = GEN[k] || []).push({ desde: r.anio_desde, hasta: r.anio_hasta, marca: r.marca, modelo: r.modelo, traccion: r.traccion || '', combustible: r.combustible || '', grupo: r.grupo_repuesto || '' }) })
+      ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (GEN[k] = GEN[k] || []).push({ desde: r.anio_desde, hasta: r.anio_hasta, marca: r.marca, modelo: r.modelo, traccion: r.traccion || '', combustible: r.combustible || '', motor: r.motor || '', grupo: r.grupo_repuesto || '' }) })
     } catch (e) { console.error('[gen load]', e) }
   }
 
   // Listas configurables + diccionarios (pieza→grupo, autocorrector)
-  let LISTAS = { traccion: [], combustible: [], grupo: [] }
+  let LISTAS = { traccion: [], combustible: [], motor: [], grupo: [] }
   let PALABRAS = {}   // palabra_norm -> grupo
   let CORREC = {}     // mal_norm -> bien
   async function loadCompat () {
@@ -925,7 +972,7 @@
         sb().from('grupo_palabras').select('palabra_norm,grupo'),
         sb().from('correcciones_texto').select('mal_norm,bien')
       ])
-      LISTAS = { traccion: [], combustible: [], grupo: [] }
+      LISTAS = { traccion: [], combustible: [], motor: [], grupo: [] }
       ;(l.data || []).forEach(r => { if (LISTAS[r.tipo]) LISTAS[r.tipo].push(r.valor) })
       PALABRAS = {}; (p.data || []).forEach(r => { PALABRAS[r.palabra_norm] = r.grupo })
       CORREC = {}; (c.data || []).forEach(r => { CORREC[r.mal_norm] = r.bien })
@@ -938,17 +985,18 @@
   function detectarGeneracion (marca, modelo, anio) {
     const a = parseInt(anio, 10); if (!a) return null
     const list = GEN[provNorm(marca) + '|' + provNorm(modelo)] || []
-    const tr = PF.traccion || ''; const co = PF.combustible || ''; const gr = PF.grupo || ''
+    const tr = PF.traccion || ''; const co = PF.combustible || ''; const mt = PF.motor || ''; const gr = PF.grupo || ''
     const aplican = list.filter(g =>
       a >= g.desde && a <= g.hasta &&
       (!g.traccion || g.traccion === tr) &&
       (!g.combustible || g.combustible === co) &&
+      (!g.motor || g.motor === mt) &&
       (!g.grupo || g.grupo === gr))
     if (!aplican.length) return null
     // la más específica (más campos que aplican); desempate: rango más amplio
     aplican.sort((x, y) => {
-      const sx = (x.traccion ? 1 : 0) + (x.combustible ? 1 : 0) + (x.grupo ? 1 : 0)
-      const sy = (y.traccion ? 1 : 0) + (y.combustible ? 1 : 0) + (y.grupo ? 1 : 0)
+      const sx = (x.traccion ? 1 : 0) + (x.combustible ? 1 : 0) + (x.motor ? 1 : 0) + (x.grupo ? 1 : 0)
+      const sy = (y.traccion ? 1 : 0) + (y.combustible ? 1 : 0) + (y.motor ? 1 : 0) + (y.grupo ? 1 : 0)
       if (sy !== sx) return sy - sx
       return (y.hasta - y.desde) - (x.hasta - x.desde)
     })
@@ -990,7 +1038,7 @@
     if (!d || !h || h < d) return
     try {
       const prof = window._currentProfile ? window._currentProfile() : null
-      const { error } = await sb().from('modelo_generaciones').upsert({ marca: PF.marca, modelo: PF.modelo, marca_norm: provNorm(PF.marca), modelo_norm: provNorm(PF.modelo), anio_desde: d, anio_hasta: h, traccion: PF.traccion || '', combustible: PF.combustible || '', grupo_repuesto: PF.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+      const { error } = await sb().from('modelo_generaciones').upsert({ marca: PF.marca, modelo: PF.modelo, marca_norm: provNorm(PF.marca), modelo_norm: provNorm(PF.modelo), anio_desde: d, anio_hasta: h, traccion: PF.traccion || '', combustible: PF.combustible || '', motor: PF.motor || '', grupo_repuesto: PF.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
       if (error) throw error
       await loadGeneraciones(); _genExiste = true; updVehHint()
     } catch (e) { console.error('[gen save]', e) }
@@ -1004,6 +1052,7 @@
     $('cot-det-tr').innerHTML = optsSelect(LISTAS.traccion, PF.traccion)
     $('cot-det-co').innerHTML = optsSelect(LISTAS.combustible, PF.combustible)
     $('cot-det-gr').innerHTML = optsSelect(LISTAS.grupo, PF.grupo)
+    $('cot-det-mt').innerHTML = optsSelect(LISTAS.motor, PF.motor)
     $('cot-det-pieza').value = ''; $('cot-det-piezahint').textContent = ''
     $('cot-modal-detalle').classList.add('open')
   }
@@ -1043,12 +1092,13 @@
     PF.traccion = $('cot-det-tr').value || ''
     PF.combustible = $('cot-det-co').value || ''
     PF.grupo = $('cot-det-gr').value || ''
+    PF.motor = $('cot-det-mt').value || ''
     $('cot-modal-detalle').classList.remove('open')
     updDetalleResumen()
     onAnioVeh()   // recalcula la generación con el detalle nuevo
   }
   function updDetalleResumen () {
-    const parts = [PF.traccion, PF.combustible, PF.grupo].filter(Boolean)
+    const parts = [PF.traccion, PF.combustible, PF.motor, PF.grupo].filter(Boolean)
     const el = $('cot-detalle-resumen'); if (el) el.textContent = parts.length ? '· ' + parts.join(' · ') : ''
   }
 
@@ -1058,6 +1108,7 @@
     if ($('cot-gen-tr')) $('cot-gen-tr').innerHTML = optsSelect(LISTAS.traccion, '')
     if ($('cot-gen-co')) $('cot-gen-co').innerHTML = optsSelect(LISTAS.combustible, '')
     if ($('cot-gen-gr')) $('cot-gen-gr').innerHTML = optsSelect(LISTAS.grupo, '')
+    if ($('cot-gen-mt')) $('cot-gen-mt').innerHTML = optsSelect(LISTAS.motor, '')
     if ($('cot-pal-grupo')) $('cot-pal-grupo').innerHTML = LISTAS.grupo.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')
     renderGeneraciones('')
     renderListas(); renderPalabras(''); renderCorrec()
@@ -1212,12 +1263,12 @@
     const rows = []
     Object.keys(GEN).forEach(k => GEN[k].forEach(g => rows.push({ ...g, key: k })))
     rows.sort((a, b) => (a.marca + a.modelo).localeCompare(b.marca + b.modelo) || a.desde - b.desde)
-    const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo + ' ' + (g.traccion || '') + ' ' + (g.grupo || '')).toUpperCase().includes(t))
+    const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo + ' ' + (g.traccion || '') + ' ' + (g.motor || '') + ' ' + (g.grupo || '')).toUpperCase().includes(t))
     if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin reglas. Agregá una arriba.</div>'; return }
     cont.innerHTML = list.map(g => {
-      const specs = [g.traccion, g.combustible, g.grupo].filter(Boolean)
+      const specs = [g.traccion, g.combustible, g.motor ? g.motor + 'L' : '', g.grupo].filter(Boolean)
       const badge = specs.length ? `<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(esc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#8b949e)">general</span>'
-      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${esc(g.traccion || '')}" data-co="${esc(g.combustible || '')}" data-gr="${esc(g.grupo || '')}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
+      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${esc(g.traccion || '')}" data-co="${esc(g.combustible || '')}" data-mt="${esc(g.motor || '')}" data-gr="${esc(g.grupo || '')}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
       return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#2a3340)">
         <div style="flex:1;font-size:13px"><b>${esc(g.marca)} ${esc(g.modelo)}</b> ${badge}</div>
         <div style="font-family:monospace;color:var(--gold,#c8a24a);font-weight:700">${g.desde}–${g.hasta}</div>
@@ -1233,14 +1284,15 @@
     const tr = $('cot-gen-tr') ? $('cot-gen-tr').value : ''
     const co = $('cot-gen-co') ? $('cot-gen-co').value : ''
     const gr = $('cot-gen-gr') ? $('cot-gen-gr').value : ''
+    const mt = $('cot-gen-mt') ? $('cot-gen-mt').value : ''
     if (!ma || !mo || !d || !h) { toast('Completá marca, modelo, desde y hasta', 'error'); return }
     if (h < d) { toast('El "hasta" no puede ser menor que el "desde"', 'error'); return }
     try {
       const prof = window._currentProfile ? window._currentProfile() : null
-      const { error } = await sb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: provNorm(ma), modelo_norm: provNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+      const { error } = await sb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: provNorm(ma), modelo_norm: provNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, motor: mt, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
       if (error) throw error
       ;['cot-gen-ma', 'cot-gen-mo', 'cot-gen-d', 'cot-gen-h'].forEach(id => { const el = $(id); if (el) el.value = '' })
-      ;['cot-gen-tr', 'cot-gen-co', 'cot-gen-gr'].forEach(id => { const el = $(id); if (el) el.value = '' })
+      ;['cot-gen-tr', 'cot-gen-co', 'cot-gen-mt', 'cot-gen-gr'].forEach(id => { const el = $(id); if (el) el.value = '' })
       toast('Regla agregada', 'success')
       await loadGeneraciones(); renderGeneraciones($('cot-gen-q') ? $('cot-gen-q').value : '')
     } catch (e) { console.error('[gen add]', e); toast('Error: ' + (e.message || e), 'error') }
@@ -1253,7 +1305,7 @@
       const { error } = await sb().from('modelo_generaciones').delete()
         .eq('marca_norm', provNorm(b.dataset.ma)).eq('modelo_norm', provNorm(b.dataset.mo))
         .eq('anio_desde', parseInt(b.dataset.d, 10)).eq('anio_hasta', parseInt(b.dataset.h, 10))
-        .eq('traccion', b.dataset.tr || '').eq('combustible', b.dataset.co || '').eq('grupo_repuesto', b.dataset.gr || '')
+        .eq('traccion', b.dataset.tr || '').eq('combustible', b.dataset.co || '').eq('motor', b.dataset.mt || '').eq('grupo_repuesto', b.dataset.gr || '')
       if (error) throw error
       toast('Borrada', 'success')
       await loadGeneraciones(); renderGeneraciones($('cot-gen-q') ? $('cot-gen-q').value : '')
@@ -1580,7 +1632,7 @@
     if (servs.length) html += grpTitle('Servicios') + headRow + servs.map(rowHTML).join('')
     body.innerHTML = html
     recalcTotales()
-    PF.items.forEach((it, i) => { if (it.tipo === 'p') cargarCosto(it.desc, i) })
+    PF.items.forEach((it, i) => { if (it.tipo === 'p' && it.deOrden) cargarCosto(it.desc, i) })   // manuales NO auto-asocian proveedor (se asigna al pedir)
   }
 
   function calcTot () {
@@ -1767,6 +1819,7 @@
         vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '',
         km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
+        proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
         items: Array.isArray(data.items) ? data.items : []
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa
@@ -1778,6 +1831,7 @@
       $('cot-recmsg').textContent = `📂 Recuperada N° ${numeroProforma()} — ${PF.placa} ${PF.marca} ${PF.modelo}`
       $('cot-recban').style.display = 'flex'
       setNumLabel(); updVehHint(); renderItems()
+      renderProcClock(); startClock()
       toast('Cotización recuperada', 'success')
     } catch (e) {
       console.error('[cotizador recuperar]', e); toast('No se pudo recuperar', 'error')
@@ -1787,7 +1841,8 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', descuento: 0, notas: '', items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, items: [] }
+    if ($('cot-proc-clock')) renderProcClock()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
@@ -1801,7 +1856,7 @@
   function switchTab (name) {
     TAB = name
     document.querySelectorAll('#view-cotizador .cot-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name))
-    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'proveedores', 'generaciones', 'config'].forEach(p => {
+    ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'proveedores', 'generaciones', 'estadisticas', 'config'].forEach(p => {
       const el = $('cot-panel-' + p); if (el) el.style.display = (p === name) ? '' : 'none'
     })
     if (name === 'inicio') loadDashboard()
@@ -1810,6 +1865,181 @@
     else if (name === 'proveedores') loadProveedores()
     else if (name === 'generaciones') loadGeneracionesTab()
     else if (name === 'config') fillConfigForm()
+    else if (name === 'estadisticas') loadEstadisticas()
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  TIEMPOS DE PROCESO (2 fases) · reloj en vivo · Estadísticas
+  // ══════════════════════════════════════════════════════════
+  let _clockTimer = null
+  let EST_RANGO = '7d'
+
+  function _fmtCrono (ms) {
+    if (ms == null || ms < 0) ms = 0
+    const s = Math.floor(ms / 1000)
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0')
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0')
+    const ss = String(s % 60).padStart(2, '0')
+    return `${hh}:${mm}:${ss}`
+  }
+  function _fmtDur2 (ms) {
+    if (ms == null || ms < 0) return '—'
+    const s = Math.floor(ms / 1000)
+    if (s < 60) return s + 's'
+    const m = Math.floor(s / 60)
+    if (m < 60) return m + 'm'
+    const h = Math.floor(m / 60)
+    return h + 'h' + ((m % 60) ? ' ' + (m % 60) + 'm' : '')
+  }
+  function _procFase (p) {
+    if (!p || !p.proc_inicio) return { fase: 'sin_iniciar' }
+    if (!p.proc_aprobada) return { fase: 'autorizacion', desde: p.proc_inicio }
+    if (!p.proc_completada) return { fase: 'compra', desde: p.proc_aprobada }
+    return { fase: 'completado', desde: p.proc_inicio, hasta: p.proc_completada }
+  }
+  function _colorFaseMs (ms, fase) {
+    const h = ms / 3600000
+    const lim = fase === 'autorizacion' ? [2, 8] : [24, 72]
+    if (h <= lim[0]) return 'var(--green,#16a34a)'
+    if (h <= lim[1]) return 'var(--amber,#f59e0b)'
+    return 'var(--red,#f85149)'
+  }
+
+  function renderProcClock () {
+    const el = $('cot-proc-clock'); if (!el) return
+    const f = _procFase(PF)
+    if (!f.fase || f.fase === 'sin_iniciar') { el.style.display = 'none'; return }
+    el.style.display = ''
+    if (f.fase === 'completado') {
+      const t1 = new Date(PF.proc_aprobada || PF.proc_inicio).getTime() - new Date(PF.proc_inicio).getTime()
+      const t2 = new Date(PF.proc_completada).getTime() - new Date(PF.proc_aprobada || PF.proc_inicio).getTime()
+      el.innerHTML = `<span style="color:var(--green,#16a34a);font-weight:700">✅ Proceso completado</span> <span style="color:var(--text3,#8b949e)">· Autorización ${_fmtDur2(t1)} · Compra ${_fmtDur2(t2)}</span>`
+      return
+    }
+    const ms = Date.now() - new Date(f.desde).getTime()
+    const lbl = f.fase === 'autorizacion' ? '⏱ Esperando autorización' : '⏱ Compra y entrega'
+    el.innerHTML = `<span style="color:${_colorFaseMs(ms, f.fase)};font-weight:700;font-variant-numeric:tabular-nums">${lbl}: ${_fmtCrono(ms)}</span>`
+  }
+  function startClock () {
+    if (_clockTimer) return
+    _clockTimer = setInterval(() => { renderProcClock(); tickTablero() }, 1000)
+  }
+  function tickTablero () {
+    document.querySelectorAll('#est-tablero [data-crono-desde]').forEach(el => {
+      const ms = Date.now() - new Date(el.getAttribute('data-crono-desde')).getTime()
+      el.textContent = _fmtCrono(ms)
+      el.style.color = _colorFaseMs(ms, el.getAttribute('data-crono-fase'))
+    })
+  }
+
+  async function marcarProcInicio () {
+    if (!PF.id || PF.proc_inicio) return
+    const ts = new Date().toISOString()
+    try {
+      const { error } = await sb().from('cotizador_proformas').update({ proc_inicio: ts }).eq('id', PF.id).is('proc_inicio', null)
+      if (!error) { PF.proc_inicio = ts; renderProcClock(); startClock() }
+    } catch (e) { console.error('[proc inicio]', e) }
+  }
+  async function checkProcCompletada () {
+    if (!PEDPF || !PEDPF.id || PEDPF.proc_completada) return
+    const prods = (PEDPF.items || []).filter(it => it.tipo === 'p')
+    if (!prods.length || !prods.every(it => it.seguimiento === 'llegado')) return
+    const ts = new Date().toISOString()
+    try {
+      const { error } = await sb().from('cotizador_proformas').update({ proc_completada: ts, estado: 'finalizada' }).eq('id', PEDPF.id).is('proc_completada', null)
+      if (!error) { PEDPF.proc_completada = ts; PEDPF.estado = 'finalizada'; toast('✅ Proceso completado — todos los repuestos entregados', 'success') }
+    } catch (e) { console.error('[proc completada]', e) }
+  }
+  async function finalizarProcesoManual () {
+    if (!PEDPF || !PEDPF.id) return
+    if (PEDPF.proc_completada) { toast('El proceso ya estaba completado', 'success'); return }
+    if (!confirm('¿Finalizar el proceso ahora? Se detiene el cronómetro de compra.')) return
+    const ts = new Date().toISOString()
+    try {
+      const { error } = await sb().from('cotizador_proformas').update({ proc_completada: ts }).eq('id', PEDPF.id).is('proc_completada', null)
+      if (error) throw error
+      PEDPF.proc_completada = ts; toast('🏁 Proceso finalizado', 'success'); renderPedidos()
+    } catch (e) { console.error('[proc fin manual]', e); toast('Error al finalizar', 'error') }
+  }
+
+  function _rangoDesde (r) {
+    const d = new Date()
+    if (r === 'mes') d.setMonth(d.getMonth() - 1)
+    else if (r === 'anio') d.setFullYear(d.getFullYear() - 1)
+    else d.setDate(d.getDate() - 7)
+    d.setHours(0, 0, 0, 0)
+    return d
+  }
+  function _esAutorizada (p) { return p.estado === 'autorizada' || p.estado === 'finalizada' || !!p.proc_aprobada }
+
+  async function loadEstadisticas () {
+    const body = $('est-kpis'); if (body) body.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text3,#8b949e);padding:16px">Cargando…</div>'
+    try {
+      const { data, error } = await sb().from('cotizador_proformas')
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,total,estado,created_at,proc_inicio,proc_aprobada,proc_completada,proc_aprobada_por')
+        .gte('created_at', _rangoDesde(EST_RANGO).toISOString())
+        .order('created_at', { ascending: false }).limit(2000)
+      if (error) throw error
+      renderEstadisticas(data || [])
+    } catch (e) { console.error('[estadisticas]', e); if (body) body.innerHTML = '<div style="grid-column:1/-1;color:var(--red,#f85149);padding:12px">Error al cargar</div>' }
+  }
+  function renderEstadisticas (rows) {
+    const nCot = rows.length
+    const aut = rows.filter(_esAutorizada)
+    const tasa = nCot ? Math.round(aut.length / nCot * 100) : 0
+    const totCot = rows.reduce((a, p) => a + (Number(p.total) || 0), 0)
+    const totAut = aut.reduce((a, p) => a + (Number(p.total) || 0), 0)
+    const card = (val, lbl, color) => `<div class="form-card" style="padding:14px 16px"><div style="font-size:25px;font-weight:800;color:${color || 'var(--text,#e6edf3)'}">${val}</div><div style="font-size:12px;color:var(--text3,#8b949e)">${lbl}</div></div>`
+    $('est-kpis').innerHTML =
+      card(nCot, 'Cotizaciones') +
+      card(aut.length, 'Autorizadas', 'var(--green,#16a34a)') +
+      card(tasa + '%', 'Tasa autorización', 'var(--gold,#c8a24a)') +
+      card('L ' + fmt(totCot), 'Total cotizado') +
+      card('L ' + fmt(totAut), 'Total autorizado', 'var(--green,#16a34a)')
+
+    const porMes = EST_RANGO === 'anio'
+    const grupos = {}
+    rows.forEach(p => {
+      const d = new Date(p.created_at)
+      const key = porMes ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const lbl = porMes ? d.toLocaleDateString('es', { month: 'short', year: '2-digit' }) : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+      const g = (grupos[key] = grupos[key] || { key, lbl, cot: 0, aut: 0, mc: 0, ma: 0 })
+      g.cot++; g.mc += Number(p.total) || 0
+      if (_esAutorizada(p)) { g.aut++; g.ma += Number(p.total) || 0 }
+    })
+    const pctColor = pct => pct >= 40 ? 'var(--green,#16a34a)' : (pct >= 15 ? 'var(--amber,#f59e0b)' : 'var(--red,#f85149)')
+    const filasHtml = Object.values(grupos).sort((a, b) => b.key.localeCompare(a.key)).map(g => {
+      const pct = g.cot ? Math.round(g.aut / g.cot * 100) : 0
+      return `<tr style="border-top:1px solid var(--border,#2a3340)">
+        <td style="padding:8px 10px;font-weight:600">${g.lbl}</td>
+        <td style="padding:8px 10px;text-align:center">${g.cot}</td>
+        <td style="padding:8px 10px"><div style="display:flex;align-items:center;gap:8px"><span style="min-width:14px">${g.aut}</span><div style="flex:1;height:6px;background:var(--bg3,#1c2333);border-radius:4px;overflow:hidden;max-width:110px"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div></div></td>
+        <td style="padding:8px 10px;text-align:right;color:var(--text2,#9aa4b2)">L ${fmt(g.mc)}</td>
+        <td style="padding:8px 10px;text-align:right;color:var(--green,#16a34a)">L ${fmt(g.ma)}</td>
+        <td style="padding:8px 10px;text-align:right;font-weight:700;color:${pctColor(pct)}">${pct}%</td>
+      </tr>`
+    }).join('')
+    $('est-tabla').innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="color:var(--text3,#8b949e);font-size:11px;text-transform:uppercase">
+        <th style="padding:6px 10px;text-align:left">Período</th><th style="padding:6px 10px;text-align:center">Cotizadas</th><th style="padding:6px 10px;text-align:left">Autorizadas</th><th style="padding:6px 10px;text-align:right">Monto cotizado</th><th style="padding:6px 10px;text-align:right">Monto autorizado</th><th style="padding:6px 10px;text-align:right">% éxito</th>
+      </tr></thead><tbody>${filasHtml || '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--text3,#8b949e)">Sin datos en el período</td></tr>'}</tbody></table></div>`
+
+    const enCurso = rows.filter(p => p.proc_inicio && !p.proc_completada).sort((a, b) => new Date(a.proc_inicio) - new Date(b.proc_inicio))
+    $('est-tablero').innerHTML = enCurso.length ? enCurso.map(p => {
+      const f = _procFase(p)
+      const faseLbl = f.fase === 'autorizacion' ? '⏳ Esperando autorización' : '📦 Compra y entrega'
+      const faseBg = f.fase === 'autorizacion' ? 'rgba(245,158,11,.12)' : 'rgba(59,130,246,.12)'
+      const resp = f.fase === 'autorizacion' ? (p.vendedor || '—') : (p.proc_aprobada_por || p.vendedor || '—')
+      const ms = Date.now() - new Date(f.desde).getTime()
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;background:${faseBg};margin-bottom:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}</div>
+          <div style="font-size:11px;color:var(--text3,#8b949e)">${faseLbl} · Resp: ${esc(resp)}${p.cliente ? ' · ' + esc(p.cliente) : ''}</div>
+        </div>
+        <div data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</div>
+      </div>`
+    }).join('') : '<div style="text-align:center;color:var(--text3,#8b949e);padding:16px">No hay procesos en curso ahora mismo.</div>'
+    startClock()
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1971,7 +2201,7 @@
     if (act === 'editar') { await recuperarProforma(id); switchTab('nueva'); return }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
-      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada' }).eq('id', id)
+      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada', proc_aprobada: new Date().toISOString(), proc_aprobada_por: ((window._currentProfile() || {}).nombre || '') }).eq('id', id)
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadDashboard()
     } else if (act === 'finalizar') {
@@ -2029,13 +2259,28 @@
     const rowP = ({ it, i }) => {
       const seg = it.seguimiento || ''
       let estadoTxt = ''
-      if (seg === 'llegado') estadoTxt = `<span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">✓ ${it.seg_proveedor === 'BODEGA' ? 'Bodega' : 'Llegó'}</span>`
+      if (seg === 'llegado') {
+        estadoTxt = `<span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">✓ ${it.seg_proveedor === 'BODEGA' ? 'Bodega' : 'Llegó'}</span>`
+        if (it.seg_fecha_pedido && it.seg_fecha_llegada && it.seg_proveedor !== 'BODEGA') {
+          const min = difMin(it.seg_fecha_pedido, it.seg_fecha_llegada)
+          estadoTxt += ` <span style="font-size:11px;color:${colorDur(min)}">Tardó ${fmtDur(min)}${it.seg_modo === 'recoge' ? ' · recogido' : ''}</span>`
+        }
+      }
       else if (seg === 'pedido') {
-        estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">📦 Pedido a ${esc(it.seg_proveedor || '')}</span>`
-        const c = contactoDe(it.seg_proveedor)
-        if (c && c.telefono) {
-          const msg = `Buen día${c.contacto ? ' ' + c.contacto : ''}, consulto por el estado del envío de: ${String(it.desc).toUpperCase()} (cantidad ${fmt(it.cantidad)}) que solicitamos. Gracias.`
-          estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:#25d366;text-decoration:none">💬</a> <a href="tel:${esc(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
+        const modo = it.seg_modo || 'envia'; const prov = esc(it.seg_proveedor || '')
+        if (modo === 'recoge') {
+          estadoTxt = `<span class="ped-badge" style="background:rgba(245,158,11,.15);color:var(--amber,#f59e0b)">🚶 A recoger${it.seg_conserje ? ' — ' + esc(it.seg_conserje) : ''}</span>${prov ? ` <span style="font-size:11px;color:var(--text3,#8b949e)">en ${prov}</span>` : ''}`
+        } else {
+          estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">🚚 Pedido a ${prov}</span>`
+          const c = contactoDe(it.seg_proveedor)
+          if (c && c.telefono) {
+            const msg = `Buen día${c.contacto ? ' ' + c.contacto : ''}, consulto por el estado del envío de: ${String(it.desc).toUpperCase()} (cantidad ${fmt(it.cantidad)}) que solicitamos. Gracias.`
+            estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:#25d366;text-decoration:none">💬</a> <a href="tel:${esc(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
+          }
+        }
+        if (it.seg_fecha_pedido) {
+          const min = difMin(it.seg_fecha_pedido, null)
+          estadoTxt += ` <span data-elapsed-desde="${esc(it.seg_fecha_pedido)}" style="font-size:11px;color:${colorDur(min)}">hace ${fmtDur(min)}</span>`
         }
       }
       else estadoTxt = '<span style="font-size:11px;color:var(--text3,#8b949e)">Sin pedir</span>'
@@ -2052,6 +2297,7 @@
     if (prods.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:10px 0 2px">PRODUCTOS</div>` + prods.map(rowP).join('')
     if (servs.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:14px 0 2px">SERVICIOS</div>` + servs.map(({ it, i }) => `<div class="ped-row" style="${dimF(it)}"><div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · Servicio</div></div><div style="flex-shrink:0">${facBtn(it, i)}</div></div>`).join('')
     $('ped-body').innerHTML = html
+    if (!_pedTimer) _pedTimer = setInterval(tickPedidos, 60000)   // refresca "hace Xh Ym" en vivo
     // Cargar historial de compras (proveedor · costo · fecha) de cada producto
     prods.forEach(({ it, i }) => {
       fetchCosto(it.desc).then(entradas => {
@@ -2071,12 +2317,53 @@
 
   function pedItem (i) { return PEDPF && PEDPF.items ? PEDPF.items[i] : null }
 
+  // ── Modo de entrega + cronómetro de pedidos ──
+  function setPedModo (m) {
+    _pedModo = (m === 'recoge') ? 'recoge' : 'envia'
+    document.querySelectorAll('.prov-modo-btn').forEach(b => {
+      const sel = b.dataset.modo === _pedModo
+      b.classList.toggle('btn-gold', sel)
+      b.classList.toggle('btn-ghost', !sel)
+    })
+    const w = $('prov-conserje-wrap'); if (w) w.style.display = _pedModo === 'recoge' ? '' : 'none'
+    if (_pedModo === 'recoge') setTimeout(() => { const c = $('prov-conserje'); if (c) c.focus() }, 60)
+  }
+  function difMin (a, b) {
+    if (!a) return null
+    const t0 = new Date(a).getTime(); const t1 = b ? new Date(b).getTime() : Date.now()
+    if (isNaN(t0) || isNaN(t1)) return null
+    return Math.max(0, Math.round((t1 - t0) / 60000))
+  }
+  function fmtDur (min) {
+    if (min == null) return ''
+    if (min < 60) return min + 'min'
+    const h = Math.floor(min / 60); const m = min % 60
+    return h + 'h' + (m ? ' ' + m + 'min' : '')
+  }
+  function colorDur (min) { // verde rápido · ámbar medio · rojo lento
+    if (min == null) return 'var(--text3,#8b949e)'
+    if (min <= 60) return 'var(--green,#16a34a)'
+    if (min <= 180) return 'var(--amber,#f59e0b)'
+    return 'var(--red,#f85149)'
+  }
+  function tickPedidos () {
+    const cont = $('ped-body')
+    if (!cont || cont.offsetParent === null) { if (_pedTimer) { clearInterval(_pedTimer); _pedTimer = null } return }
+    cont.querySelectorAll('[data-elapsed-desde]').forEach(el => {
+      const min = difMin(el.getAttribute('data-elapsed-desde'), null)
+      el.textContent = 'hace ' + fmtDur(min)
+      el.style.color = colorDur(min)
+    })
+  }
+
   async function iniciarPedido (i) {
     const it = pedItem(i); if (!it) return
     _pedIdx = i
     $('prov-item').textContent = String(it.desc).toUpperCase()
     $('prov-input').value = it.seg_proveedor || ''
     $('prov-ac').style.display = 'none'
+    setPedModo(it.seg_modo || 'envia')
+    $('prov-conserje').value = it.seg_conserje || ''
     $('cot-modal-prov').classList.add('open')
     setTimeout(() => $('prov-input').focus(), 120)
     // Pre-llenar con el último proveedor al que se le compró este producto
@@ -2097,26 +2384,33 @@
     const it = pedItem(_pedIdx); if (!it) return
     const prov = $('prov-input').value.trim().toUpperCase()
     if (!prov) { toast('Escribí el proveedor', 'error'); return }
-    it.seguimiento = 'pedido'; it.seg_proveedor = prov; it.seg_fecha_pedido = new Date().toISOString()
+    const conserje = ($('prov-conserje').value || '').trim().toUpperCase()
+    if (_pedModo === 'recoge' && !conserje) { toast('Escribí el nombre del conserje', 'error'); return }
+    it.seguimiento = 'pedido'; it.seg_proveedor = prov; it.seg_modo = _pedModo
+    if (_pedModo === 'recoge') it.seg_conserje = conserje; else delete it.seg_conserje
+    it.seg_fecha_pedido = new Date().toISOString(); delete it.seg_fecha_llegada
     await guardarPedidos()
     $('cot-modal-prov').classList.remove('open'); renderPedidos()
-    toast('📦 Pedido a ' + prov, 'success')
+    toast(_pedModo === 'recoge' ? ('🚶 A recoger — ' + conserje) : ('🚚 Pedido a ' + prov), 'success')
   }
 
   async function marcarLlegado (i) {
     const it = pedItem(i); if (!it) return
     it.seguimiento = 'llegado'; it.seg_fecha_llegada = new Date().toISOString()
     await guardarPedidos(); renderPedidos(); toast('✓ Llegó', 'success')
+    await checkProcCompletada()
   }
   async function marcarBodega (i) {
     const it = pedItem(i); if (!it) return
-    it.seguimiento = 'llegado'; it.seg_proveedor = 'BODEGA'; it.seg_fecha_pedido = new Date().toISOString(); it.seg_fecha_llegada = new Date().toISOString()
+    it.seguimiento = 'llegado'; it.seg_proveedor = 'BODEGA'; it.seg_modo = 'bodega'; delete it.seg_conserje
+    it.seg_fecha_pedido = new Date().toISOString(); it.seg_fecha_llegada = new Date().toISOString()
     await guardarPedidos(); renderPedidos(); toast('📦 Tomado de bodega', 'success')
+    await checkProcCompletada()
   }
   async function revertirPedido (i) {
     const it = pedItem(i); if (!it) return
     if (!confirm('¿Revertir a "Sin pedir"?')) return
-    delete it.seguimiento; delete it.seg_proveedor; delete it.seg_fecha_pedido; delete it.seg_fecha_llegada
+    delete it.seguimiento; delete it.seg_proveedor; delete it.seg_modo; delete it.seg_conserje; delete it.seg_fecha_pedido; delete it.seg_fecha_llegada
     await guardarPedidos(); renderPedidos()
   }
 
@@ -2407,7 +2701,7 @@
     }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
-      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada' }).eq('id', id)
+      const { error } = await sb().from('cotizador_proformas').update({ estado: 'autorizada', proc_aprobada: new Date().toISOString(), proc_aprobada_por: ((window._currentProfile() || {}).nombre || '') }).eq('id', id)
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadHistorial(); return
     }
@@ -2533,6 +2827,7 @@
       const ok = await guardarProforma({ silencioso: true })   // guarda y asigna el número
       if (!ok) { btn.disabled = false; btn.textContent = prev; return }  // faltó orden/cliente/ítems
       await capturarPresentacion()   // foto de lo presentado al cliente (para Seguimiento)
+      await marcarProcInicio()       // arranca Fase 1 (autorización) en el primer PDF
       btn.textContent = 'Generando…'
       await pdfDeProforma(PF)
       toast('Cotización N° ' + numeroProforma() + ' guardada e impresa', 'success')

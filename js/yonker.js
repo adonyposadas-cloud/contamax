@@ -1158,7 +1158,7 @@ window.ykCotLimpiar = () => {
   const mod = document.getElementById('yk-cot-mod'); if (mod) mod.value = ''
   ;['yk-cot-anioveh', 'yk-cot-pza', 'yk-cot-sub', 'yk-cot-pmin', 'yk-cot-pmax'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
   const gh = document.getElementById('yk-cot-genhint'); if (gh) gh.textContent = ''
-  ykDetalle = { traccion: '', combustible: '', grupo: '' }
+  ykDetalle = { traccion: '', combustible: '', motor: '', grupo: '' }
   const dr = document.getElementById('yk-cot-detresumen'); if (dr) dr.textContent = ''
   if (window.ykCotMarcaChange) ykCotMarcaChange()
   const c = document.getElementById('yk-cot-cards'); if (c) c.innerHTML = ''
@@ -1169,9 +1169,9 @@ let ykGEN = {}
 const ykNorm = s => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
 async function ykLoadGeneraciones() {
   try {
-    const { data } = await ykSb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta,traccion,combustible,grupo_repuesto')
+    const { data } = await ykSb().from('modelo_generaciones').select('marca,modelo,marca_norm,modelo_norm,anio_desde,anio_hasta,traccion,combustible,motor,grupo_repuesto')
     ykGEN = {}
-    ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (ykGEN[k] = ykGEN[k] || []).push({ marca: r.marca, modelo: r.modelo, desde: r.anio_desde, hasta: r.anio_hasta, tr: r.traccion || '', co: r.combustible || '', gr: r.grupo_repuesto || '' }) })
+    ;(data || []).forEach(r => { const k = r.marca_norm + '|' + r.modelo_norm; (ykGEN[k] = ykGEN[k] || []).push({ marca: r.marca, modelo: r.modelo, desde: r.anio_desde, hasta: r.anio_hasta, tr: r.traccion || '', co: r.combustible || '', mt: r.motor || '', gr: r.grupo_repuesto || '' }) })
   } catch (e) { console.error('[yk gen load]', e) }
 }
 // Catálogo maestro de marcas/modelos (compartido con el Cotizador). Solo lectura
@@ -1225,10 +1225,10 @@ function ykAC (inputId, listId, getItems, onChange) {
   })
   list.addEventListener('mousedown', e => { const el = e.target.closest('[data-i]'); if (!el) return; choose(items[parseInt(el.dataset.i, 10)]); e.preventDefault() })
 }
-let ykLISTAS = { traccion: [], combustible: [], grupo: [] }
+let ykLISTAS = { traccion: [], combustible: [], motor: [], grupo: [] }
 let ykPALABRAS = {}
 let ykCORREC = {}
-let ykDetalle = { traccion: '', combustible: '', grupo: '' }
+let ykDetalle = { traccion: '', combustible: '', motor: '', grupo: '' }
 async function ykLoadCompat() {
   try {
     const [l, p, c] = await Promise.all([
@@ -1236,7 +1236,7 @@ async function ykLoadCompat() {
       ykSb().from('grupo_palabras').select('palabra_norm,grupo'),
       ykSb().from('correcciones_texto').select('mal_norm,bien')
     ])
-    ykLISTAS = { traccion: [], combustible: [], grupo: [] }
+    ykLISTAS = { traccion: [], combustible: [], motor: [], grupo: [] }
     ;(l.data || []).forEach(r => { if (ykLISTAS[r.tipo]) ykLISTAS[r.tipo].push(r.valor) })
     ykPALABRAS = {}; (p.data || []).forEach(r => { ykPALABRAS[r.palabra_norm] = r.grupo })
     ykCORREC = {}; (c.data || []).forEach(r => { ykCORREC[r.mal_norm] = r.bien })
@@ -1246,10 +1246,10 @@ function ykAutocorregir(txt) { return String(txt || '').split(/(\s+)/).map(w => 
 function ykDetectarGen(marca, modelo, anio) {
   const a = parseInt(anio, 10); if (!a) return null
   const list = ykGEN[ykNorm(marca) + '|' + ykNorm(modelo)] || []
-  const tr = ykDetalle.traccion || '', co = ykDetalle.combustible || '', gr = ykDetalle.grupo || ''
-  const aplican = list.filter(g => a >= g.desde && a <= g.hasta && (!g.tr || g.tr === tr) && (!g.co || g.co === co) && (!g.gr || g.gr === gr))
+  const tr = ykDetalle.traccion || '', co = ykDetalle.combustible || '', mt = ykDetalle.motor || '', gr = ykDetalle.grupo || ''
+  const aplican = list.filter(g => a >= g.desde && a <= g.hasta && (!g.tr || g.tr === tr) && (!g.co || g.co === co) && (!g.mt || g.mt === mt) && (!g.gr || g.gr === gr))
   if (!aplican.length) return null
-  aplican.sort((x, y) => { const sx = (x.tr ? 1 : 0) + (x.co ? 1 : 0) + (x.gr ? 1 : 0); const sy = (y.tr ? 1 : 0) + (y.co ? 1 : 0) + (y.gr ? 1 : 0); if (sy !== sx) return sy - sx; return (y.hasta - y.desde) - (x.hasta - x.desde) })
+  aplican.sort((x, y) => { const sx = (x.tr ? 1 : 0) + (x.co ? 1 : 0) + (x.mt ? 1 : 0) + (x.gr ? 1 : 0); const sy = (y.tr ? 1 : 0) + (y.co ? 1 : 0) + (y.mt ? 1 : 0) + (y.gr ? 1 : 0); if (sy !== sx) return sy - sx; return (y.hasta - y.desde) - (x.hasta - x.desde) })
   return aplican[0]
 }
 function ykEnsureOption(sel, val) {
@@ -1284,7 +1284,7 @@ window.ykGuardarGenSiFalta = async () => {
   if (!d || !h || h < d) return
   try {
     const prof = window._currentProfile?.()
-    await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, traccion: ykDetalle.traccion || '', combustible: ykDetalle.combustible || '', grupo_repuesto: ykDetalle.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+    await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, traccion: ykDetalle.traccion || '', combustible: ykDetalle.combustible || '', motor: ykDetalle.motor || '', grupo_repuesto: ykDetalle.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
     await ykLoadGeneraciones()
     const hint = document.getElementById('yk-cot-genhint'); if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${d}–${h} guardada para ${marca} ${modelo}.` }
   } catch (e) { console.error('[yk gen save]', e) }
@@ -1307,6 +1307,7 @@ async function ykRenderGeneraciones() {
         <div class="fld"><label>Tracción</label><select id="yk-gen-tr" style="width:100px">${opt(ykLISTAS.traccion)}</select></div>
         <div class="fld"><label>Combustible</label><select id="yk-gen-co" style="width:110px">${opt(ykLISTAS.combustible)}</select></div>
         <div class="fld"><label>Grupo</label><select id="yk-gen-gr" style="width:120px">${opt(ykLISTAS.grupo)}</select></div>
+        <div class="fld"><label>Motor</label><select id="yk-gen-mt" style="width:90px">${opt(ykLISTAS.motor)}</select></div>
         <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykGenAdd()">+ Agregar</button></div>
       </div>
       <input id="yk-gen-q" style="width:100%;text-transform:uppercase;margin-top:10px" placeholder="🔍 buscar marca/modelo" oninput="ykGenRenderList()">
@@ -1315,7 +1316,7 @@ async function ykRenderGeneraciones() {
     <div class="yk-card" style="margin:12px 0;padding:14px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px">
       <b style="color:var(--gold,#d4af37)">🔧 Listas (opciones de los desplegables)</b>
       <div class="yk-ctrl" style="align-items:flex-end;margin-top:8px;gap:8px">
-        <div class="fld"><select id="yk-lista-tipo" style="width:130px"><option value="traccion">Tracción</option><option value="combustible">Combustible</option><option value="grupo">Grupo</option></select></div>
+        <div class="fld"><select id="yk-lista-tipo" style="width:130px"><option value="traccion">Tracción</option><option value="combustible">Combustible</option><option value="motor">Motor</option><option value="grupo">Grupo</option></select></div>
         <div class="fld"><input id="yk-lista-val" style="width:150px;text-transform:uppercase" placeholder="Nuevo valor"></div>
         <div class="fld"><button class="btn btn-gold" onclick="ykListaAdd()">+ Agregar</button></div>
       </div>
@@ -1350,12 +1351,12 @@ window.ykGenRenderList = () => {
   const rows = []
   Object.keys(ykGEN).forEach(k => ykGEN[k].forEach(g => rows.push(g)))
   rows.sort((a, b) => (a.marca + a.modelo).localeCompare(b.marca + b.modelo) || a.desde - b.desde)
-  const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo + ' ' + (g.tr || '') + ' ' + (g.gr || '')).toUpperCase().includes(t))
+  const list = rows.filter(g => !t || (g.marca + ' ' + g.modelo + ' ' + (g.tr || '') + ' ' + (g.mt || '') + ' ' + (g.gr || '')).toUpperCase().includes(t))
   const sup = ykEsSuper()
   cont.innerHTML = list.length ? list.map(g => {
-    const specs = [g.tr, g.co, g.gr].filter(Boolean)
+    const specs = [g.tr, g.co, g.mt ? g.mt + 'L' : '', g.gr].filter(Boolean)
     const badge = specs.length ? `<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(ykEsc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#888)">general</span>'
-    const del = sup ? `<span class="yk-gen-del" data-ma="${ykEsc(g.marca)}" data-mo="${ykEsc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${ykEsc(g.tr || '')}" data-co="${ykEsc(g.co || '')}" data-gr="${ykEsc(g.gr || '')}" onclick="ykGenDel(this)" style="cursor:pointer;color:#e05353">🗑</span>` : ''
+    const del = sup ? `<span class="yk-gen-del" data-ma="${ykEsc(g.marca)}" data-mo="${ykEsc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${ykEsc(g.tr || '')}" data-co="${ykEsc(g.co || '')}" data-mt="${ykEsc(g.mt || '')}" data-gr="${ykEsc(g.gr || '')}" onclick="ykGenDel(this)" style="cursor:pointer;color:#e05353">🗑</span>` : ''
     return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#3a3a3a)"><div style="flex:1;font-size:13px"><b>${ykEsc(g.marca)} ${ykEsc(g.modelo)}</b> ${badge}</div><div style="font-family:monospace;color:var(--gold,#d4af37);font-weight:700">${g.desde}–${g.hasta}</div>${del}</div>`
   }).join('') : '<div style="color:var(--text3,#888);padding:10px">Sin reglas. Agregá una arriba.</div>'
 }
@@ -1363,14 +1364,14 @@ window.ykGenAdd = async () => {
   const v = id => (document.getElementById(id)?.value || '').trim()
   const ma = v('yk-gen-ma').toUpperCase(), mo = v('yk-gen-mo').toUpperCase()
   const d = parseInt(v('yk-gen-d').replace(/\D/g, ''), 10), h = parseInt(v('yk-gen-h').replace(/\D/g, ''), 10)
-  const tr = v('yk-gen-tr'), co = v('yk-gen-co'), gr = v('yk-gen-gr')
+  const tr = v('yk-gen-tr'), co = v('yk-gen-co'), gr = v('yk-gen-gr'), mt = v('yk-gen-mt')
   if (!ma || !mo || !d || !h) { window.toast?.('Completá marca, modelo, desde y hasta', 'error'); return }
   if (h < d) { window.toast?.('El "hasta" no puede ser menor que el "desde"', 'error'); return }
   try {
     const prof = window._currentProfile?.()
-    const { error } = await ykSb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: ykNorm(ma), modelo_norm: ykNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
+    const { error } = await ykSb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: ykNorm(ma), modelo_norm: ykNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, motor: mt, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
     if (error) throw error
-    ;['yk-gen-ma', 'yk-gen-mo', 'yk-gen-d', 'yk-gen-h', 'yk-gen-tr', 'yk-gen-co', 'yk-gen-gr'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
+    ;['yk-gen-ma', 'yk-gen-mo', 'yk-gen-d', 'yk-gen-h', 'yk-gen-tr', 'yk-gen-co', 'yk-gen-mt', 'yk-gen-gr'].forEach(id => { const e = document.getElementById(id); if (e) e.value = '' })
     window.toast?.('Regla agregada', 'success'); await ykLoadGeneraciones(); ykGenRenderList()
   } catch (e) { console.error('[yk gen add]', e); window.toast?.('Error: ' + (e.message || e), 'error') }
 }
@@ -1381,7 +1382,7 @@ window.ykGenDel = async (b) => {
   try {
     const { error } = await ykSb().from('modelo_generaciones').delete()
       .eq('marca_norm', ykNorm(ds.ma)).eq('modelo_norm', ykNorm(ds.mo)).eq('anio_desde', parseInt(ds.d, 10)).eq('anio_hasta', parseInt(ds.h, 10))
-      .eq('traccion', ds.tr || '').eq('combustible', ds.co || '').eq('grupo_repuesto', ds.gr || '')
+      .eq('traccion', ds.tr || '').eq('combustible', ds.co || '').eq('motor', ds.mt || '').eq('grupo_repuesto', ds.gr || '')
     if (error) throw error
     window.toast?.('Borrada', 'success'); await ykLoadGeneraciones(); ykGenRenderList()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
@@ -1439,6 +1440,7 @@ window.ykAbrirDetalle = () => {
     <div class="fld" style="margin-bottom:8px"><label>Tracción</label><select id="yk-det-tr" style="width:100%">${ykOpts(ykLISTAS.traccion, ykDetalle.traccion)}</select></div>
     <div class="fld" style="margin-bottom:8px"><label>Combustible</label><select id="yk-det-co" style="width:100%">${ykOpts(ykLISTAS.combustible, ykDetalle.combustible)}</select></div>
     <div class="fld" style="margin-bottom:8px"><label>Grupo de repuesto</label><select id="yk-det-gr" style="width:100%">${ykOpts(ykLISTAS.grupo, ykDetalle.grupo)}</select></div>
+    <div class="fld" style="margin-bottom:8px"><label>Motor</label><select id="yk-det-mt" style="width:100%">${ykOpts(ykLISTAS.motor, ykDetalle.motor)}</select></div>
     <div class="fld" style="margin-bottom:6px"><label>… o escribí la pieza (asigna el grupo solo)</label><input id="yk-det-pieza" style="width:100%;text-transform:uppercase" placeholder="ej. CALIPER" oninput="ykHintPieza()"></div>
     <div id="yk-det-piezahint" style="font-size:12px;min-height:18px"></div>
     <div style="display:flex;justify-content:space-between;margin-top:12px">
@@ -1479,8 +1481,9 @@ window.ykAplicarDetalle = () => {
   ykDetalle.traccion = document.getElementById('yk-det-tr')?.value || ''
   ykDetalle.combustible = document.getElementById('yk-det-co')?.value || ''
   ykDetalle.grupo = document.getElementById('yk-det-gr')?.value || ''
+  ykDetalle.motor = document.getElementById('yk-det-mt')?.value || ''
   document.querySelector('.yk-ov')?.remove()
-  const parts = [ykDetalle.traccion, ykDetalle.combustible, ykDetalle.grupo].filter(Boolean)
+  const parts = [ykDetalle.traccion, ykDetalle.combustible, ykDetalle.motor, ykDetalle.grupo].filter(Boolean)
   const el = document.getElementById('yk-cot-detresumen'); if (el) el.textContent = parts.length ? ' · ' + parts.join(' · ') : ''
   ykOnAnioVeh()
 }
