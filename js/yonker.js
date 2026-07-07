@@ -142,6 +142,7 @@ function ykEnsureStyles() {
     .yk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;max-height:130px;overflow:auto;padding:2px}
     .yk-chip{display:inline-block;padding:3px 10px;border-radius:14px;background:var(--bg3,#222);border:1px solid var(--border,#3a3a3a);color:var(--gold,#d4af37);font-size:12px;font-family:var(--mono,monospace);cursor:pointer;transition:all .12s}
     .yk-chip:hover{background:var(--gold,#d4af37);color:#1a1a1a}
+    .yk-chip-on{background:var(--gold,#d4af37)!important;color:#1a1a1a!important;font-weight:700;box-shadow:0 0 0 2px var(--gold,#d4af37)}
     .yk-chip-static{cursor:default;color:var(--text,#ddd)}
     .yk-chip-static:hover{background:var(--bg3,#222);color:var(--text,#ddd)}
     .yk-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center}
@@ -921,6 +922,8 @@ window.ykContenedorDetalle = (contenedor) => {
 
 // ── CONTAMAX · Yonker — Explorar (buscador de dos niveles, línea por línea) ──
 let ykExpRows = []
+let _ykExpVehSel = null   // vehículo seleccionado para filtrar resultados en memoria
+let _ykExpMeta = null     // meta de la última búsqueda (total, truncado)
 let ykUnidades = null   // cache de unidades para autocompletar (marca/modelo/código/año)
 async function ykCargarUnidades() {
   if (ykUnidades) return ykUnidades
@@ -1047,29 +1050,10 @@ window.ykExplorar = async () => {
     const { data, error } = await ykSb().rpc('yonker_explorar', params)
     if (error) throw error
     if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:#e0a800">${data?.error || 'Error'}</div>`; return }
-    const lineas = data.lineas || []
-    ykExpRows = lineas
-    const esSuper = ykEsSuper()
-    if (cards) cards.innerHTML = `<div class="yk-cards">
-      ${esSuper ? `<div class="yk-card ok"><div class="v">${ykFmt(data.total_venta)}</div><div class="l">Venta filtrada (L.)</div></div>` : ''}
-      <div class="yk-card"><div class="v">${ykFmt0(data.total_lineas)}</div><div class="l">Líneas</div></div>
-      ${esSuper ? `<div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()">📥 Exportar Excel</button></div>` : ''}</div>`
-    if (!lineas.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esos filtros.</div>'; return }
-    const rows = lineas.map(l => `<tr>
-      <td>${l.fecha || ''}</td>
-      <td>${l.vehiculo_codigo || '—'}</td>
-      <td>${(l.marca || '')} ${(l.modelo || '')} ${(l.anio_vehiculo || '')}</td>
-      <td>${(l.producto || '').slice(0, 60)}</td>
-      <td class="yk-num">${ykFmt(l.cantidad)}</td>
-      <td class="yk-num" style="${l.venta_hnl < 0 ? 'color:#e06060' : ''}">${ykFmt(l.venta_hnl)}</td>
-      <td>${l.factura || '—'}</td>
-      <td>${l.cliente || '—'}</td>
-    </tr>`).join('')
-    cont.innerHTML = `
-      <div class="table-wrap" style="max-height:520px;overflow:auto">
-      <table class="yk-tbl"><thead><tr><th>Fecha</th><th>Veh.</th><th>Marca/Modelo/Año</th><th>Producto</th><th class="yk-num">Cant.</th><th class="yk-num">Venta</th><th>Factura</th><th>Cliente</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
-      <div class="page-sub" style="margin-top:8px">Mostrando ${data.mostradas} de ${data.total_lineas} línea(s)${data.truncado ? ' · resultado limitado, afiná los filtros para ver todo' : ''}.</div>`
+    ykExpRows = data.lineas || []
+    _ykExpMeta = { total_lineas: data.total_lineas, mostradas: data.mostradas, truncado: data.truncado }
+    _ykExpVehSel = null
+    ykRenderExpResult()
   } catch (e) {
     if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
   }
@@ -1271,7 +1255,7 @@ window.ykOnAnioVeh = () => {
     if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${gen.desde}–${gen.hasta} (año ${anio}) — cotizando repuestos de toda la generación.` }
     if (window.ykUnidadesPanel) ykUnidadesPanel('yk-cot')
   } else {
-    if (hint) { hint.style.color = '#e0a800'; hint.textContent = `⚠ No hay generación para ${marca} ${modelo} ${anio}. Elegí Año desde/hasta y se guardará al cotizar.` }
+    if (hint) { hint.style.color = '#e0a800'; hint.textContent = `⚠ No hay generación para ${marca} ${modelo} ${anio}. Cotiza igual por año; si querés fijar la generación, agregala en la pestaña Generaciones.` }
   }
 }
 window.ykGuardarGenSiFalta = async () => {
@@ -1489,7 +1473,6 @@ window.ykAplicarDetalle = () => {
 }
 
 window.ykCotizar = async () => {
-  ykGuardarGenSiFalta()
   const cont = document.getElementById('yk-cot-result'), cards = document.getElementById('yk-cot-cards')
   const val = id => (document.getElementById(id)?.value || '').trim()
   const num = id => { const v = parseInt(val(id), 10); return isNaN(v) ? null : v }
@@ -1644,6 +1627,7 @@ window.ykCotExport = () => {
 window.ykUnidadesPanel = (prefix) => {
   const cont = document.getElementById(prefix + '-unidades')
   if (!cont) return
+  if (prefix === 'yk-exp') _ykExpVehSel = null   // al cambiar el filtro, se limpia la selección de vehículo
   const marca = document.getElementById(prefix + '-mar')?.value || ''
   const modelo = document.getElementById(prefix + '-mod')?.value || ''
   const ad = parseInt(document.getElementById(prefix + '-ad')?.value, 10)
@@ -1669,9 +1653,50 @@ window.ykUnidadesPanel = (prefix) => {
   }).join('')
   cont.innerHTML = `<div class="page-sub" style="margin:8px 0 4px"><b>${codes.length}</b> unidad(es) en catálogo que cumplen${esExp ? ' · tocá un número para filtrar por ese vehículo' : ''}:</div><div class="yk-chips">${chips}</div>`
 }
-window.ykChipVeh = (cod) => {
-  const inp = document.getElementById('yk-exp-cod'); if (inp) inp.value = cod
-  if (window.ykExplorar) ykExplorar()
+window.ykRenderExpResult = () => {
+  const cont = document.getElementById('yk-exp-result')
+  const cards = document.getElementById('yk-exp-cards')
+  if (!cont) return
+  const all = ykExpRows || []
+  const sel = _ykExpVehSel
+  const lineas = sel ? all.filter(l => String(l.vehiculo_codigo) === String(sel)) : all
+  const esSuper = ykEsSuper()
+  const venta = lineas.reduce((a, l) => a + (Number(l.venta_hnl) || 0), 0)
+  if (cards) cards.innerHTML = all.length ? `<div class="yk-cards">
+    ${esSuper ? `<div class="yk-card ok"><div class="v">${ykFmt(venta)}</div><div class="l">Venta ${sel ? 'del veh. ' + sel : 'filtrada'} (L.)</div></div>` : ''}
+    <div class="yk-card"><div class="v">${ykFmt0(lineas.length)}</div><div class="l">Líneas${sel ? ' · veh. ' + sel : ''}</div></div>
+    ${esSuper ? `<div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()">📥 Exportar Excel</button></div>` : ''}</div>` : ''
+  if (!all.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esos filtros.</div>'; return }
+  const nota = sel
+    ? `<div class="page-sub" style="margin:4px 0">Mostrando solo el vehículo <b>${sel}</b> · <a onclick="ykChipVeh('${String(sel).replace(/'/g, "\\'")}')" style="cursor:pointer;color:var(--gold,#d4af37)">ver todos</a></div>`
+    : `<div class="page-sub" style="margin:4px 0">Ventas de todos los vehículos del filtro. Tocá un número arriba para ver uno solo.</div>`
+  const rows = lineas.map(l => `<tr>
+    <td>${l.fecha || ''}</td>
+    <td>${l.vehiculo_codigo || '—'}</td>
+    <td>${(l.marca || '')} ${(l.modelo || '')} ${(l.anio_vehiculo || '')}</td>
+    <td>${(l.producto || '').slice(0, 60)}</td>
+    <td class="yk-num">${ykFmt(l.cantidad)}</td>
+    <td class="yk-num" style="${l.venta_hnl < 0 ? 'color:#e06060' : ''}">${ykFmt(l.venta_hnl)}</td>
+    <td>${l.factura || '—'}</td>
+    <td>${l.cliente || '—'}</td>
+  </tr>`).join('')
+  cont.innerHTML = nota + `
+    <div class="table-wrap" style="max-height:520px;overflow:auto">
+    <table class="yk-tbl"><thead><tr><th>Fecha</th><th>Veh.</th><th>Marca/Modelo/Año</th><th>Producto</th><th class="yk-num">Cant.</th><th class="yk-num">Venta</th><th>Factura</th><th>Cliente</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="page-sub" style="margin-top:8px">Mostrando ${lineas.length} de ${all.length} línea(s)${_ykExpMeta && _ykExpMeta.truncado ? ' · resultado limitado, afiná los filtros' : ''}.</div>`
+}
+function ykHighlightChips () {
+  document.querySelectorAll('#yk-exp-unidades .yk-chip').forEach(ch => {
+    ch.classList.toggle('yk-chip-on', _ykExpVehSel != null && ch.textContent.trim() === String(_ykExpVehSel))
+  })
+}
+window.ykChipVeh = async (cod) => {
+  const target = (String(_ykExpVehSel) === String(cod)) ? null : String(cod)   // toggle
+  if (!ykExpRows || !ykExpRows.length) { await ykExplorar() }   // carga las ventas de TODOS los vehículos del filtro
+  _ykExpVehSel = target
+  ykHighlightChips()
+  ykRenderExpResult()
 }
 
 // ── Cotizaciones históricas: alta y gestión ──

@@ -200,7 +200,6 @@
       <div>
         <div class="page-title">🧾 Cotizador · Proformas</div>
         <div class="page-sub" id="cot-num-label">Nueva cotización</div>
-        <div id="cot-proc-clock" style="font-size:12px;margin-top:2px;display:none"></div>
       </div>
       <div class="cot-tabs">
         <button class="cot-tab" data-tab="inicio">Inicio</button>
@@ -426,6 +425,10 @@
       <div class="form-card" style="margin-bottom:16px">
         <div class="form-card-title">⏱ Procesos en curso — tiempo real</div>
         <div id="est-tablero"><div style="text-align:center;color:var(--text3,#8b949e);padding:16px">Cargando…</div></div>
+      </div>
+      <div class="form-card" style="margin-bottom:16px">
+        <div class="form-card-title">🏁 Tiempos de proceso — histórico</div>
+        <div id="est-hist"></div>
       </div>
       <div class="form-card">
         <div class="form-card-title" id="est-tabla-tit">Últimos 7 días</div>
@@ -791,7 +794,7 @@
     $('cot-btn-guardar').addEventListener('click', guardarProforma)
     $('cot-btn-nueva').addEventListener('click', nuevaProforma)
     $('cot-recnew').addEventListener('click', nuevaProforma)
-    acSetup('cot-ma', 'cot-ma-ac', itemsMarca, v => { PF.marca = v.toUpperCase(); updVehHint() })
+    acSetup('cot-ma', 'cot-ma-ac', itemsMarca, v => { PF.marca = v.toUpperCase(); PF.modelo = ''; if ($('cot-mo')) $('cot-mo').value = ''; updVehHint() })
     acSetup('cot-mo', 'cot-mo-ac', itemsModelo, v => { PF.modelo = v.toUpperCase(); onAnioVeh(); updVehHint() })
     const av = $('cot-anio-veh'); if (av) av.addEventListener('input', () => { av.value = av.value.replace(/\D/g, ''); onAnioVeh() })
     if ($('cot-detalle-btn')) $('cot-detalle-btn').addEventListener('click', abrirDetalle)
@@ -1041,7 +1044,8 @@
       const { error } = await sb().from('modelo_generaciones').upsert({ marca: PF.marca, modelo: PF.modelo, marca_norm: provNorm(PF.marca), modelo_norm: provNorm(PF.modelo), anio_desde: d, anio_hasta: h, traccion: PF.traccion || '', combustible: PF.combustible || '', motor: PF.motor || '', grupo_repuesto: PF.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
       if (error) throw error
       await loadGeneraciones(); _genExiste = true; updVehHint()
-    } catch (e) { console.error('[gen save]', e) }
+      toast(`🚗 Generación ${d}–${h} guardada para ${PF.marca} ${PF.modelo}`, 'success')
+    } catch (e) { console.error('[gen save]', e); toast('No se pudo guardar la generación: ' + (e.message || e), 'error') }
   }
 
   // ── Modal "Detalle" (tracción / combustible / grupo / pieza) ──
@@ -1866,6 +1870,7 @@
     else if (name === 'generaciones') loadGeneracionesTab()
     else if (name === 'config') fillConfigForm()
     else if (name === 'estadisticas') loadEstadisticas()
+    const _clk = $('cot-proc-clock'); if (_clk) { if (name === 'nueva') renderProcClock(); else _clk.style.display = 'none' }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1925,11 +1930,19 @@
     _clockTimer = setInterval(() => { renderProcClock(); tickTablero() }, 1000)
   }
   function tickTablero () {
-    document.querySelectorAll('#est-tablero [data-crono-desde]').forEach(el => {
+    document.querySelectorAll('[data-crono-desde]').forEach(el => {
       const ms = Date.now() - new Date(el.getAttribute('data-crono-desde')).getTime()
       el.textContent = _fmtCrono(ms)
       el.style.color = _colorFaseMs(ms, el.getAttribute('data-crono-fase'))
     })
+  }
+  // Reloj compacto para las tarjetas de lista (Inicio/Cotización)
+  function clockCardHTML (p) {
+    const f = _procFase(p)
+    if (!f.fase || f.fase === 'sin_iniciar' || f.fase === 'completado') return ''
+    const ms = Date.now() - new Date(f.desde).getTime()
+    const lbl = f.fase === 'autorizacion' ? '⏱ Autoriz.' : '📦 Pedido'
+    return `<span style="font-size:11px;color:var(--text3,#8b949e)">${lbl}</span> <span data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" style="font-weight:700;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</span>`
   }
 
   async function marcarProcInicio () {
@@ -1946,8 +1959,8 @@
     if (!prods.length || !prods.every(it => it.seguimiento === 'llegado')) return
     const ts = new Date().toISOString()
     try {
-      const { error } = await sb().from('cotizador_proformas').update({ proc_completada: ts, estado: 'finalizada' }).eq('id', PEDPF.id).is('proc_completada', null)
-      if (!error) { PEDPF.proc_completada = ts; PEDPF.estado = 'finalizada'; toast('✅ Proceso completado — todos los repuestos entregados', 'success') }
+      const { error } = await sb().from('cotizador_proformas').update({ proc_completada: ts }).eq('id', PEDPF.id).is('proc_completada', null)
+      if (!error) { PEDPF.proc_completada = ts; toast('✅ Repuestos completos — reloj de pedido detenido. Falta que finalices la cotización.', 'success') }
     } catch (e) { console.error('[proc completada]', e) }
   }
   async function finalizarProcesoManual () {
@@ -2039,6 +2052,42 @@
         <div data-crono-desde="${esc(f.desde)}" data-crono-fase="${f.fase}" style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;color:${_colorFaseMs(ms, f.fase)}">${_fmtCrono(ms)}</div>
       </div>`
     }).join('') : '<div style="text-align:center;color:var(--text3,#8b949e);padding:16px">No hay procesos en curso ahora mismo.</div>'
+
+    // Histórico de tiempos por fase (para medir responsables)
+    const procs = rows.filter(p => p.proc_inicio)
+    const fase1s = [], fase2s = []
+    const histRows = procs.map(p => {
+      const t0 = new Date(p.proc_inicio).getTime()
+      const t1 = p.proc_aprobada ? new Date(p.proc_aprobada).getTime() : null
+      const t2 = p.proc_completada ? new Date(p.proc_completada).getTime() : null
+      const f1 = t1 != null ? t1 - t0 : null
+      const f2 = (t2 != null && t1 != null) ? t2 - t1 : null
+      if (f1 != null) fase1s.push(f1)
+      if (f2 != null) fase2s.push(f2)
+      const estadoTxt = p.proc_completada ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (p.proc_aprobada ? '<span style="color:#3b82f6">En compra</span>' : '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>')
+      return { p, f1, f2, estadoTxt, orden: t2 || t1 || t0 }
+    }).sort((a, b) => b.orden - a.orden)
+    const prom = arr => arr.length ? Math.round(arr.reduce((a, x) => a + x, 0) / arr.length) : null
+    const resumen = `<div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
+      <div>Promedio autorización: <b style="color:var(--gold,#c8a24a)">${_fmtDur2(prom(fase1s))}</b> <span style="color:var(--text3,#8b949e)">(${fase1s.length})</span></div>
+      <div>Promedio compra/entrega: <b style="color:var(--gold,#c8a24a)">${_fmtDur2(prom(fase2s))}</b> <span style="color:var(--text3,#8b949e)">(${fase2s.length})</span></div>
+    </div>`
+    const histHtml = histRows.map(h => {
+      const p = h.p
+      return `<tr style="border-top:1px solid var(--border,#2a3340)">
+        <td style="padding:7px 10px">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}</td>
+        <td style="padding:7px 10px">${esc(p.vendedor || '—')}</td>
+        <td style="padding:7px 10px;text-align:right;color:${h.f1 != null ? _colorFaseMs(h.f1, 'autorizacion') : 'var(--text3,#8b949e)'}">${h.f1 != null ? _fmtDur2(h.f1) : '—'}</td>
+        <td style="padding:7px 10px">${esc(p.proc_aprobada_por || '—')}</td>
+        <td style="padding:7px 10px;text-align:right;color:${h.f2 != null ? _colorFaseMs(h.f2, 'compra') : 'var(--text3,#8b949e)'}">${h.f2 != null ? _fmtDur2(h.f2) : '—'}</td>
+        <td style="padding:7px 10px">${h.estadoTxt}</td>
+      </tr>`
+    }).join('')
+    $('est-hist').innerHTML = procs.length ? resumen + `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="color:var(--text3,#8b949e);font-size:11px;text-transform:uppercase">
+        <th style="padding:6px 10px;text-align:left">Cotización</th><th style="padding:6px 10px;text-align:left">Vendedor</th><th style="padding:6px 10px;text-align:right">Autorización</th><th style="padding:6px 10px;text-align:left">Autorizó</th><th style="padding:6px 10px;text-align:right">Compra/entrega</th><th style="padding:6px 10px;text-align:left">Estado</th>
+      </tr></thead><tbody>${histHtml}</tbody></table></div>`
+      : '<div style="text-align:center;color:var(--text3,#8b949e);padding:16px">Aún no hay procesos con tiempos en este período.</div>'
     startClock()
   }
 
@@ -2127,7 +2176,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items').in('estado', ['pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada').in('estado', ['pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2141,6 +2190,7 @@
       const rows = pend.data || []
       list.innerHTML = rows.length ? rows.map(filaDash).join('')
         : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones activas</div>'
+      startClock()
     } catch (e) {
       console.error('[cotizador dashboard]', e)
       stats.innerHTML = ''; list.innerHTML = `<div style="text-align:center;color:var(--red,#f85149);padding:20px">Error al cargar: ${esc(e.message || e)}</div>`
@@ -2181,7 +2231,7 @@
     return `<div class="cot-hrow" ${openAttr} style="cursor:pointer">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}</div>
-        <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
       </div>
       <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${accion}</div>
     </div>`
@@ -2449,7 +2499,7 @@
     const q = ($('cot-hist-q').value || '').trim()
     try {
       let query = sb().from('cotizador_proformas')
-        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden')
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,proc_inicio,proc_aprobada,proc_completada')
         .order('created_at', { ascending: false }).limit(100)
       if (HIST_FILTRO) query = query.eq('estado', HIST_FILTRO)
       if (q) {
@@ -2462,6 +2512,7 @@
       const ordMap = await mapaOrdenes(data || [])
       list.innerHTML = (data && data.length) ? data.map(p => filaHist(p, false, ordMap[String(p.numero_orden || '').trim()])).join('')
         : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones</div>'
+      startClock()
     } catch (e) {
       console.error('[cotizador historial]', e)
       list.innerHTML = `<div style="text-align:center;color:var(--red,#f85149);padding:20px">Error: ${esc(e.message || e)}</div>`
@@ -2513,7 +2564,7 @@
     list.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
     try {
       const { data, error } = await sb().from('cotizador_proformas')
-        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden')
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,proc_inicio,proc_aprobada,proc_completada')
         .order('created_at', { ascending: false }).limit(400)
       if (error) throw error
       const ordMap = await mapaOrdenes(data || [])
@@ -2681,6 +2732,7 @@
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} ${p.estado ? `<span class="cot-estado ${esc(est)}">${esc(est)}</span>` : ''}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · ${esc(fFecha(p.created_at))}</div>
         ${vinculo}
+        ${clockCardHTML(p) ? `<div style="font-size:11px;margin-top:2px">${clockCardHTML(p)}</div>` : ''}
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <div style="color:var(--gold,#c8a24a);font-weight:700;white-space:nowrap">L. ${fmt(p.total)}</div>

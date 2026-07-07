@@ -79,6 +79,10 @@
     <div class="sidebar" id="sidebar">
       <div class="sidebar-section">
         <div class="sidebar-label">Principal</div>
+        <div class="nav-item" id="nav-solicitudes" onclick="showView('solicitudes','Solicitudes de mejora'); initSolicitudes()">
+          <span class="nav-dot"></span>🎫 Solicitudes
+          <span class="nav-badge hidden" id="badge-solicitudes">0</span>
+        </div>
         <div class="nav-item" id="nav-usuarios" onclick="showView('usuarios','Gestión de usuarios')">
           <span class="nav-dot"></span>Usuarios
         </div>
@@ -267,6 +271,9 @@
 
       <!-- ESTADOS FÍSICOS (contenido inyectado por js/estados_fisicos.js) -->
       <div class="view" id="view-estados-fisicos"></div>
+
+      <!-- SOLICITUDES DE MEJORA (contenido inyectado por js/solicitudes.js) -->
+      <div class="view" id="view-solicitudes"></div>
 
       <!-- USUARIOS -->
       <div class="view" id="view-usuarios">
@@ -3479,13 +3486,14 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260706b"></script>
+<script type="module" src="js/app.js?v=20260707a"></script>
 <script type="module" src="js/reportes.js?v=20260706a"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
 <script defer src="js/proveedores.js?v=20260613c"></script>
 <script defer src="js/verif_compras.js?v=20260613b"></script>
 <script defer src="js/rangos_ventas.js?v=20260613a"></script>
+<script defer src="js/solicitudes.js?v=20260707a"></script>
 <script src="js/jspdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20260613a"></script>

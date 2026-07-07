@@ -129,6 +129,7 @@ async function initSession(user) {
   // Load caja badge for super_admin
   if (profile.rol === 'super_admin') initCajaBadge()
   initAprobacionesBadge()
+  window.initSolicitudesBadge?.()
 }
 
 function setupUI() {

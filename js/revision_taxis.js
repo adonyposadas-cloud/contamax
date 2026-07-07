@@ -2231,6 +2231,9 @@ let rtxKmFUsuario = ''          // filtro por usuario de GPS (chip)
 let rtxKmOp = ''                // '' | 'gt' | 'lt'
 let rtxKmUmbral = ''            // número para el filtro mayor/menor que
 let rtxKmEditUnidad = null      // unidad cuya validación se está editando
+let rtxKmEsRango = false        // true = vista por rango de fechas (agregado por unidad)
+let rtxKmDesde = ''             // yyyy-mm-dd
+let rtxKmHasta = ''             // yyyy-mm-dd
 const RTX_KM_NOMARCO = 5        // km por debajo de esto = "posible no marcó"
 
 const rtxKmLocalDate = (d) => (d || new Date()).toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
@@ -2422,6 +2425,8 @@ function rtxHistEnsureStyles() {
 
 window.rtxKmAbrir = async () => {
   rtxKmEnsureStyles()
+  if (!rtxKmHasta) rtxKmHasta = rtxKmLocalDate()
+  if (!rtxKmDesde) { const d = new Date(); d.setDate(d.getDate() - 30); rtxKmDesde = rtxKmLocalDate(d) }
   // arrancar en la fecha más reciente con datos (evita ver un día vacío)
   if (!rtxKmFecha) {
     try {
@@ -2436,6 +2441,7 @@ window.rtxKmAbrir = async () => {
 async function rtxKmCargar() {
   const root = document.getElementById('rtx-km-root')
   if (!root) return
+  rtxKmEsRango = false
   rtxKmRenderShell(true)
   try {
     const { data, error } = await rtxSb().rpc('tx_km_listar', { p_fecha: rtxKmFecha })
@@ -2446,6 +2452,109 @@ async function rtxKmCargar() {
   } catch (e) {
     root.innerHTML = `<div style="color:#f0a500;padding:20px">Error: ${e.message || e}</div>`
   }
+}
+
+// Carga agregada por unidad sobre un rango de fechas (reusa tx_km_listar por día con datos)
+async function rtxKmCargarRango() {
+  const root = document.getElementById('rtx-km-root'); if (!root) return
+  if (!rtxKmDesde || !rtxKmHasta) { alert('Elegí las fechas Desde y Hasta.'); return }
+  if (rtxKmDesde > rtxKmHasta) { const t = rtxKmDesde; rtxKmDesde = rtxKmHasta; rtxKmHasta = t }
+  rtxKmEsRango = true
+  rtxKmRenderShell(true)
+  try {
+    const { data: fechasData } = await rtxSb().rpc('tx_km_fechas')
+    const todas = (Array.isArray(fechasData) ? fechasData : []).map(f => (typeof f === 'string' ? f : (f && f.fecha ? f.fecha : String(f))))
+    const dias = todas.filter(f => f >= rtxKmDesde && f <= rtxKmHasta).sort()
+    if (!dias.length) { rtxKmData = []; rtxKmRenderShell(false); return }
+    if (dias.length > 120) { alert('El rango tiene demasiados días con datos (' + dias.length + '). Acotá el rango.'); rtxKmRenderShell(false); return }
+    const results = await Promise.all(dias.map(d =>
+      rtxSb().rpc('tx_km_listar', { p_fecha: d }).then(r => ({ d, rows: Array.isArray(r.data) ? r.data : [] })).catch(() => ({ d, rows: [] }))
+    ))
+    const byU = {}
+    results.forEach(({ d, rows }) => rows.forEach(r => {
+      const u = String(r.unidad)
+      if (!byU[u]) byU[u] = { unidad: r.unidad, km: 0, dias: 0, usuario_gps: '', detalle: [] }
+      const km = parseFloat(r.km) || 0
+      byU[u].km += km
+      byU[u].dias += 1
+      if (r.usuario_gps) byU[u].usuario_gps = r.usuario_gps   // el más reciente (días ordenados asc)
+      byU[u].detalle.push({ fecha: d, km, usuario_gps: r.usuario_gps || '' })
+    }))
+    rtxKmData = Object.values(byU)
+    rtxKmEditUnidad = null
+    rtxKmRenderShell(false)
+  } catch (e) { root.innerHTML = `<div style="color:#f0a500;padding:20px">Error: ${e.message || e}</div>` }
+}
+window.rtxKmVerRango = () => {
+  const d = document.getElementById('rtx-km-desde'); const h = document.getElementById('rtx-km-hasta')
+  if (d && d.value) rtxKmDesde = d.value
+  if (h && h.value) rtxKmHasta = h.value
+  rtxKmCargarRango()
+}
+window.rtxKmVerDia = () => { rtxKmEsRango = false; rtxKmCargar() }
+
+// Render de la tabla en modo rango (KM total por unidad en el intervalo)
+function rtxKmRenderTablaRango() {
+  const body = document.getElementById('rtx-km-body')
+  const res = document.getElementById('rtx-km-resumen')
+  if (!body) return
+  const escTxt = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const totUnidades = rtxKmData.length
+  const totKm = rtxKmData.reduce((s, r) => s + (parseFloat(r.km) || 0), 0)
+  const prom = totUnidades ? totKm / totUnidades : 0
+  if (res) {
+    res.innerHTML = totUnidades ? `
+      <div class="rtx-km-tot">
+        <span>Rango <b>${rtxKmDesde}</b> a <b>${rtxKmHasta}</b></span>
+        <span><b>${totUnidades}</b> unidades</span>
+        <span><b>${rtxFmt(totKm)}</b> km totales</span>
+        <span><b>${rtxFmt(prom)}</b> km/unidad prom.</span>
+      </div>` : ''
+  }
+  if (!rtxKmData.length) {
+    body.innerHTML = `<div class="rtx-km-empty">No hay KM cargados entre ${rtxKmDesde} y ${rtxKmHasta}. Elegí otro rango o importá el Excel del GPS.</div>`
+    return
+  }
+  const rows = rtxKmFiltradas()
+  // Si quedó UNA sola unidad (p.ej. filtraste por ella), mostramos el KM día por día
+  if (rows.length === 1 && Array.isArray(rows[0].detalle) && rows[0].detalle.length) {
+    const u = rows[0]
+    const det = u.detalle.slice().sort((a, b) => b.fecha.localeCompare(a.fecha))   // más reciente arriba
+    const cuerpoD = det.map(x => {
+      const km = parseFloat(x.km) || 0
+      const noMarco = km < RTX_KM_NOMARCO
+      return `<tr class="${noMarco ? 'rtx-km-low' : ''}">
+        <td><b>${escTxt(x.fecha)}</b></td>
+        <td class="rtx-km-kmcell">${rtxFmt(km)}</td>
+        <td>${x.usuario_gps ? escTxt(x.usuario_gps) : '<span style="color:#8b8f98">—</span>'}</td>
+      </tr>`
+    }).join('')
+    body.innerHTML = `
+      <div class="rtx-km-count">Unidad <b>${escTxt(u.unidad)}</b> · ${u.detalle.length} día(s) con dato · total <b>${rtxFmt(parseFloat(u.km) || 0)}</b> km (${rtxKmDesde} a ${rtxKmHasta})</div>
+      <table class="rtx-km-tbl">
+        <thead><tr><th>Fecha</th><th>KM del día</th><th>Usuario GPS</th></tr></thead>
+        <tbody>${cuerpoD}</tbody>
+      </table>`
+    return
+  }
+  const arrow = (c) => rtxKmSortCampo === c ? (rtxKmSortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  const cuerpo = rows.map(r => `<tr>
+      <td><b>${escTxt(r.unidad)}</b></td>
+      <td class="rtx-km-kmcell">${rtxFmt(parseFloat(r.km) || 0)}</td>
+      <td>${r.dias || 0}</td>
+      <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:#8b8f98">—</span>'}</td>
+    </tr>`).join('')
+  body.innerHTML = `
+    <div class="rtx-km-count">${rows.length} de ${rtxKmData.length} unidades${(rtxKmFUnidad || rtxKmFUsuario || rtxKmOp) ? ' (filtrado)' : ''}</div>
+    <table class="rtx-km-tbl">
+      <thead><tr>
+        <th class="sortable" onclick="rtxKmOrdenar('unidad')">Unidad${arrow('unidad')}</th>
+        <th class="sortable" onclick="rtxKmOrdenar('km')">KM total${arrow('km')}</th>
+        <th>Días c/dato</th>
+        <th class="sortable" onclick="rtxKmOrdenar('usuario')">Usuario GPS${arrow('usuario')}</th>
+      </tr></thead>
+      <tbody>${cuerpo || '<tr><td colspan="4" class="rtx-km-empty">Ninguna unidad cumple el filtro.</td></tr>'}</tbody>
+    </table>`
 }
 
 function rtxKmRenderShell(cargando) {
@@ -2465,6 +2574,16 @@ function rtxKmRenderShell(cargando) {
         ⬆️ Importar Excel GPS
         <input type="file" accept=".xls,.xlsx,.csv" style="display:none" onchange="rtxKmImportar(this.files[0]); this.value=''">
       </label>
+    </div>
+    <div class="rtx-km-bar rtx-km-rangobar">
+      <div class="rtx-km-fecha">
+        <span style="color:#8b8f98;font-size:12px;font-weight:600">📅 Rango:</span>
+        <input type="date" id="rtx-km-desde" class="rtx-inp" value="${rtxKmDesde}">
+        <span style="color:#8b8f98">a</span>
+        <input type="date" id="rtx-km-hasta" class="rtx-inp" value="${rtxKmHasta}">
+        <button class="rtx-b ok" onclick="rtxKmVerRango()">Ver rango</button>
+        ${rtxKmEsRango ? '<button class="rtx-b ghost" onclick="rtxKmVerDia()">✕ Volver al día</button>' : ''}
+      </div>
     </div>
     <div class="rtx-km-filtros">
       <input id="rtx-km-funidad" class="rtx-inp rtx-km-fmini" placeholder="Filtrar por unidad…" value="${escA(rtxKmFUnidad)}" oninput="rtxKmSetFUnidad(this.value)" autocomplete="off">
@@ -2504,6 +2623,7 @@ function rtxKmFiltradas() {
 }
 
 function rtxKmRenderTabla() {
+  if (rtxKmEsRango) return rtxKmRenderTablaRango()
   const body = document.getElementById('rtx-km-body')
   const res = document.getElementById('rtx-km-resumen')
   if (!body) return
