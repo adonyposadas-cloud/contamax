@@ -3560,6 +3560,7 @@ window.filtroCaja = (btn, filtro) => {
 }
 
 let cajaPartidas = []
+let cajaCambios = []
 
 async function loadCaja() {
   const container = document.getElementById('lista-caja')
@@ -3579,6 +3580,7 @@ async function loadCaja() {
 
   if (!lineasCaja?.length) {
     cajaPartidas = []
+    await loadCajaCambios()
     updateCajaStats()
     renderCajaList()
     loadCajaExtras()
@@ -3624,12 +3626,74 @@ async function loadCaja() {
     }
   }
 
+  await loadCajaCambios()
   updateCajaStats()
   renderCajaList()
   updateCajaBadge()
   loadCajaExtras()
 }
 window.loadCaja = loadCaja
+
+// ── Cargar los cambios (billetes L. y USD) como movimientos para la lista ──
+// Cambio de billetes L.: dos filas en conteo_billetes (ingreso+egreso) con el
+// mismo cambio_grupo. Cambio USD: fila en caja_usd + su lado L. en conteo_billetes,
+// también con el mismo cambio_grupo. Los cambios no afectan el saldo/estadísticas
+// (el de billetes es neto cero); solo se muestran como tarjeta.
+async function loadCajaCambios() {
+  cajaCambios = []
+  try {
+    const { data: conteosRaw } = await sb.from('conteo_billetes')
+      .select('*').is('partida_id', null).not('cambio_grupo', 'is', null)
+      .order('created_at', { ascending: false })
+    const { data: usdRaw } = await sb.from('caja_usd')
+      .select('*').not('cambio_grupo', 'is', null)
+      .order('created_at', { ascending: false })
+
+    const conteos = conteosRaw || []
+    const usds = usdRaw || []
+
+    // Nombres de quién registró
+    const ids = new Set()
+    conteos.forEach(c => c.registrado_por && ids.add(c.registrado_por))
+    usds.forEach(u => u.registrado_por && ids.add(u.registrado_por))
+    const nombres = {}
+    if (ids.size) {
+      const { data: us } = await sb.from('usuarios').select('id,nombre').in('id', [...ids])
+      ;(us || []).forEach(u => { nombres[u.id] = u.nombre })
+    }
+
+    // Agrupar conteos por cambio_grupo
+    const grupos = {}
+    conteos.forEach(c => { (grupos[c.cambio_grupo] = grupos[c.cambio_grupo] || []).push(c) })
+
+    const out = []
+    // Cambios USD (consumen su cambio_grupo del lado L. si existe)
+    usds.forEach(u => {
+      const cs = grupos[u.cambio_grupo] || []
+      out.push({
+        _cambio: true, tipo: 'usd', id: 'usd-' + u.id, cambio_grupo: u.cambio_grupo,
+        created_at: u.created_at, fecha_partida: String(u.created_at || '').slice(0, 10),
+        por: nombres[u.registrado_por] || 'Sistema', usd: u, lpsConteos: cs
+      })
+      delete grupos[u.cambio_grupo]
+    })
+    // Cambios de billetes L. (grupos restantes)
+    Object.keys(grupos).forEach(g => {
+      const cs = grupos[g]
+      const entra = cs.find(c => c.tipo === 'ingreso')
+      const sale = cs.find(c => c.tipo === 'egreso')
+      const created = (cs[0] && cs[0].created_at) || null
+      out.push({
+        _cambio: true, tipo: 'denoms', id: 'den-' + g, cambio_grupo: g,
+        created_at: created, fecha_partida: String(created || '').slice(0, 10),
+        por: cs[0] ? (nombres[cs[0].registrado_por] || 'Sistema') : 'Sistema',
+        cuenta_codigo: (cs[0] && cs[0].cuenta_codigo) || '110102-001',
+        entra, sale, monto: (entra?.total_monto || sale?.total_monto || 0)
+      })
+    })
+    cajaCambios = out
+  } catch (e) { console.error('[caja cambios]', e); cajaCambios = [] }
+}
 
 function updateCajaStats() {
   const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
@@ -3715,45 +3779,78 @@ function renderCajaList(fechaFiltro) {
     return
   }
 
-  container.innerHTML = filtered.map(p => {
-    const esIngreso = p.caja_tipo === 'ingreso'
-    const iconClass = esIngreso ? 'ingreso' : 'egreso'
-    const icon = esIngreso ? '↓' : '↑'
-    const montoClass = esIngreso ? 'ingreso' : 'egreso'
-    const signo = esIngreso ? '+' : '-'
-    const estadoBadge = p.estado === 'pendiente_caja' ? 'badge-amber'
-      : p.estado === 'aprobada' ? 'badge-green' : 'badge-red'
-    const estadoLabel = p.estado === 'pendiente_caja' ? 'Pendiente aprobación'
-      : p.estado === 'aprobada' ? 'Aprobada' : 'Rechazada'
-    const fecha = new Date(p.created_at).toLocaleDateString('es-HN')
-    const hora = new Date(p.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })
+  // Los cambios son movimientos ya realizados → visibles en "Aprobadas" y "Todos"
+  let cambios = (filtroCajaActual === 'aprobada' || filtroCajaActual === 'todos') ? cajaCambios : []
+  if (fechaFiltro) cambios = cambios.filter(c => c.fecha_partida === fechaFiltro)
 
-    const actions = p.estado === 'pendiente_caja' ? `
+  if (!filtered.length && !cambios.length) {
+    const msgs = {
+      pendiente_caja: 'No hay entregas pendientes de aprobación',
+      aprobada: 'No hay movimientos aprobados',
+      rechazada: 'No hay movimientos rechazados',
+      todos: 'No hay movimientos de caja registrados'
+    }
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">${msgs[filtroCajaActual]}</div><div class="empty-sub">Los movimientos que afecten Caja General aparecerán aquí</div></div>`
+    return
+  }
+
+  const unificado = [
+    ...filtered.map(p => ({ _t: 'p', created_at: p.created_at, obj: p })),
+    ...cambios.map(c => ({ _t: 'c', created_at: c.created_at, obj: c }))
+  ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+
+  container.innerHTML = unificado.map(row =>
+    row._t === 'c' ? cambioCardHTML(row.obj) : partidaCardHTML(row.obj)
+  ).join('')
+}
+
+function cajaEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// "23×L.500 + 12×L.200 ..." a partir de una fila de conteo_billetes
+function denomStrFromRow(row) {
+  if (!row) return ''
+  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  return denoms.map(d => ({ d, q: row[`den_${d}`] || 0 })).filter(x => x.q > 0)
+    .map(x => `${x.q}×L.${x.d}`).join(' + ')
+}
+
+function partidaCardHTML(p) {
+  const esIngreso = p.caja_tipo === 'ingreso'
+  const iconClass = esIngreso ? 'ingreso' : 'egreso'
+  const icon = esIngreso ? '↓' : '↑'
+  const montoClass = esIngreso ? 'ingreso' : 'egreso'
+  const signo = esIngreso ? '+' : '-'
+  const estadoBadge = p.estado === 'pendiente_caja' ? 'badge-amber'
+    : p.estado === 'aprobada' ? 'badge-green' : 'badge-red'
+  const estadoLabel = p.estado === 'pendiente_caja' ? 'Pendiente aprobación'
+    : p.estado === 'aprobada' ? 'Aprobada' : 'Rechazada'
+  const fecha = new Date(p.created_at).toLocaleDateString('es-HN')
+  const hora = new Date(p.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })
+
+  const actions = p.estado === 'pendiente_caja' ? `
       <div class="caja-actions">
         <button class="caja-btn aprobar" onclick="aprobarCaja('${p.id}')">✓ Aprobar</button>
         <button class="caja-btn rechazar" onclick="rechazarCaja('${p.id}')">✕ Rechazar</button>
       </div>` : ''
 
-    const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
-      ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
+  const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
+    ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
 
-    // Detalle de billetes si existe
-    let billetesInfo = ''
-    if (p.billetes?.length) {
-      const denoms = [500,200,100,50,20,10,5,2,1]
-      const detalles = p.billetes.map(b => {
-        const partes = denoms
-          .map(d => ({ d, q: b[`den_${d}`] || 0 }))
-          .filter(x => x.q > 0)
-          .map(x => `${x.q}×L.${x.d}`)
-        return partes.length ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes.join(' + ')}</span>` : ''
-      }).filter(Boolean)
-      if (detalles.length) {
-        billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
-      }
+  // Detalle de billetes si existe
+  let billetesInfo = ''
+  if (p.billetes?.length) {
+    const detalles = p.billetes.map(b => {
+      const partes = denomStrFromRow(b)
+      return partes ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes}</span>` : ''
+    }).filter(Boolean)
+    if (detalles.length) {
+      billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
     }
+  }
 
-    return `
+  return `
     <div class="caja-card ${p.estado}">
       <div class="caja-left">
         <div class="caja-icon ${iconClass}">${icon}</div>
@@ -3773,7 +3870,73 @@ function renderCajaList(fechaFiltro) {
         <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
       </div>
     </div>`
-  }).join('')
+}
+
+// Tarjeta de un cambio (mismo estilo que las de partida)
+function cambioCardHTML(c) {
+  const fmt = (v) => 'L. ' + (Number(v) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const fecha = c.created_at ? new Date(c.created_at).toLocaleDateString('es-HN') : '—'
+  const hora = c.created_at ? new Date(c.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' }) : ''
+  const iconStyle = 'background:rgba(200,162,74,0.15);color:var(--gold)'
+  const badgeStyle = 'background:rgba(200,162,74,0.15);color:var(--gold)'
+
+  if (c.tipo === 'usd') {
+    const u = c.usd || {}
+    const usdEntra = u.tipo === 'ingreso'                 // entran dólares → salen L.
+    const dirLabel = usdEntra ? 'Entran USD · Salen L.' : 'Salen USD · Entran L.'
+    const lpsSigno = usdEntra ? '-' : '+'
+    const lpsClass = usdEntra ? 'egreso' : 'ingreso'
+    const lps = Number(u.monto_lps) || 0
+    const usd = Number(u.monto_usd) || 0
+    const tc = Number(u.tipo_cambio) || 0
+    const detBilletes = denomStrFromRow((c.lpsConteos || [])[0])
+    const detalle =
+      `<p style="margin-top:4px;font-size:11px">💱 $ ${usd.toLocaleString('es-HN', { minimumFractionDigits: 2 })} ↔ ${fmt(lps)} · TC ${tc.toFixed(4)} · ${dirLabel}</p>` +
+      (detBilletes ? `<p style="margin-top:2px;font-size:11px">💵 <span style="color:${usdEntra ? 'var(--red)' : 'var(--green)'}">${detBilletes}</span></p>` : '')
+    return `
+    <div class="caja-card aprobada">
+      <div class="caja-left">
+        <div class="caja-icon" style="${iconStyle}">⇄</div>
+        <div class="caja-info">
+          <h4>💱 Cambio de dólares</h4>
+          <p>${fecha} ${hora} · ${cajaEsc(c.por)}${u.descripcion ? ' · ' + cajaEsc(u.descripcion) : ''}</p>
+          ${detalle}
+        </div>
+      </div>
+      <div class="caja-right">
+        <div>
+          <div class="caja-monto ${lpsClass}">${lpsSigno} ${fmt(lps)}</div>
+          <div style="text-align:right;margin-top:4px"><span class="badge" style="${badgeStyle}">Cambio USD</span></div>
+        </div>
+      </div>
+    </div>`
+  }
+
+  // Cambio de billetes L. (neto cero: mismo total, cambian denominaciones)
+  const cuentaLbl = String(c.cuenta_codigo || '').startsWith('110101') ? 'Caja Chica' : 'Caja General'
+  const sale = denomStrFromRow(c.sale)
+  const entra = denomStrFromRow(c.entra)
+  const det = []
+  if (sale) det.push(`<span style="color:var(--red)">Sale: ${sale}</span>`)
+  if (entra) det.push(`<span style="color:var(--green)">Entra: ${entra}</span>`)
+  const detalle = det.length ? `<p style="margin-top:4px;font-size:11px">💵 ${det.join(' &nbsp;·&nbsp; ')}</p>` : ''
+  return `
+    <div class="caja-card aprobada">
+      <div class="caja-left">
+        <div class="caja-icon" style="${iconStyle}">⇄</div>
+        <div class="caja-info">
+          <h4>🔄 Cambio de billetes · ${cuentaLbl}</h4>
+          <p>${fecha} ${hora} · ${cajaEsc(c.por)} · mismo total, cambian denominaciones</p>
+          ${detalle}
+        </div>
+      </div>
+      <div class="caja-right">
+        <div>
+          <div class="caja-monto" style="color:var(--gold)">${fmt(c.monto)}</div>
+          <div style="text-align:right;margin-top:4px"><span class="badge" style="${badgeStyle}">Cambio</span></div>
+        </div>
+      </div>
+    </div>`
 }
 
 async function updateCajaBadge() {
@@ -5516,6 +5679,8 @@ window.ejecutarCambioUSD = async () => {
   const tipoUsd = dir === 'usd_entra' ? 'ingreso' : 'egreso'
   const tipoBilletes = dir === 'usd_entra' ? 'egreso' : 'ingreso'  // opuesto: si entran USD, salen LPS
 
+  const grupoCambio = nuevoCambioGrupo()   // vincula la fila USD con su lado L.
+
   // 1. Registrar movimiento USD
   await sb.from('caja_usd').insert({
     tipo: tipoUsd,
@@ -5523,12 +5688,14 @@ window.ejecutarCambioUSD = async () => {
     tipo_cambio: Math.round(tc * 10000) / 10000,
     monto_lps: totalLps,
     descripcion: desc || `Cambio $ ${montoUsd.toFixed(2)}`,
+    cambio_grupo: grupoCambio,
     registrado_por: currentProfile.id
   })
 
   // 2. Registrar movimiento de billetes
   await sb.from('conteo_billetes').insert({
     partida_id: null,
+    cambio_grupo: grupoCambio,
     tipo: tipoBilletes,
     den_500: cambioUsdConteo[500] || 0, den_200: cambioUsdConteo[200] || 0, den_100: cambioUsdConteo[100] || 0,
     den_50: cambioUsdConteo[50] || 0, den_20: cambioUsdConteo[20] || 0, den_10: cambioUsdConteo[10] || 0,
@@ -5574,6 +5741,14 @@ window.ejecutarCambioUSD = async () => {
 // El saldo se calcula automáticamente en loadCajaExtras
 
 // ── CAMBIO DE DENOMINACIONES LPS ──
+
+// UUID para agrupar las filas de un mismo cambio (ver caja_cambios_01.sql)
+function nuevoCambioGrupo() {
+  try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID() } catch (e) {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+  })
+}
 
 let cambioDenomIn = {}
 let cambioDenomOut = {}
@@ -5701,10 +5876,12 @@ window.ejecutarCambioDenoms = async () => {
   const hasIn = DENOMINACIONES.some(d => cambioDenomIn[d] > 0)
   const hasOut = DENOMINACIONES.some(d => cambioDenomOut[d] > 0)
   let errIns = null
+  const grupoCambio = nuevoCambioGrupo()   // vincula ingreso + egreso del mismo cambio
 
   if (hasIn) {
     const { error: e } = await sb.from('conteo_billetes').insert({
       partida_id: null,
+      cambio_grupo: grupoCambio,
       cuenta_codigo: cambioDenomCuenta,
       tipo: 'ingreso',
       den_500: cambioDenomIn[500] || 0, den_200: cambioDenomIn[200] || 0, den_100: cambioDenomIn[100] || 0,
@@ -5721,6 +5898,7 @@ window.ejecutarCambioDenoms = async () => {
   if (!errIns && hasOut) {
     const { error: e } = await sb.from('conteo_billetes').insert({
       partida_id: null,
+      cambio_grupo: grupoCambio,
       cuenta_codigo: cambioDenomCuenta,
       tipo: 'egreso',
       den_500: cambioDenomOut[500] || 0, den_200: cambioDenomOut[200] || 0, den_100: cambioDenomOut[100] || 0,

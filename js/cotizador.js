@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260708-jppdf' } catch (e) {}
+  try { window.__cotBuild = '20260708-tablero' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -334,6 +334,10 @@
     </div>
     <div class="form-card" id="cot-ctx-card" style="display:none;border-color:rgba(240,165,0,.25)">
       <div class="form-card-title"><span>🩺 Contexto de la revisión</span> <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(no sale en el PDF)</span></div>
+      <div id="cot-ctx-tec" style="margin-bottom:8px;display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Técnico que revisó <span style="font-weight:400;text-transform:none;letter-spacing:0">— preguntale sobre el diagnóstico</span></div>
+        <div id="cot-ctx-tec-txt" style="font-size:14px;font-weight:600;color:var(--text,#e6edf3)"></div>
+      </div>
       <div id="cot-ctx-motivo" style="margin-bottom:8px;display:none">
         <div style="font-size:11px;font-weight:700;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Lo que se le reportó al técnico</div>
         <div id="cot-ctx-motivo-txt" style="font-size:13px;white-space:pre-wrap;color:var(--text,#e6edf3)"></div>
@@ -1672,10 +1676,12 @@
   // ══════════════════════════════════════════════════════════
   function renderContexto () {
     const card = $('cot-ctx-card'); if (!card) return
+    const tec = (PF.mecanico || '').trim()
     const mot = (PF.motivo || '').trim(); const diag = (PF.diagnostico || '').trim()
+    const tBox = $('cot-ctx-tec'); if (tBox) { tBox.style.display = tec ? 'block' : 'none'; const t = $('cot-ctx-tec-txt'); if (t) t.textContent = tec }
     const mBox = $('cot-ctx-motivo'); if (mBox) { mBox.style.display = mot ? 'block' : 'none'; const t = $('cot-ctx-motivo-txt'); if (t) t.textContent = mot }
     const dBox = $('cot-ctx-diag'); if (dBox) { dBox.style.display = diag ? 'block' : 'none'; const t = $('cot-ctx-diag-txt'); if (t) t.textContent = diag }
-    card.style.display = (mot || diag) ? 'block' : 'none'
+    card.style.display = (tec || mot || diag) ? 'block' : 'none'
   }
   function renderSolicitados () {
     const panel = $('cot-solic-panel'); const list = $('cot-solic-list')
@@ -1930,7 +1936,7 @@
         vendedor: data.vendedor || (window._currentProfile ? (window._currentProfile().nombre || '').toUpperCase() : ''), cliente: data.cliente || '', placa: data.placa || '', jefe_pista: data.jefe_pista || '',
         km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: data.anio_vehiculo || '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
-        motivo: data.motivo || '', diagnostico: data.diagnostico || '',
+        motivo: data.motivo || '', diagnostico: data.diagnostico || '', mecanico: data.mecanico || '',
         proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
         proc_solicitada: data.proc_solicitada || null,
         procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
@@ -1958,7 +1964,7 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', mecanico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
     renderContexto()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
@@ -2491,7 +2497,24 @@
       ]
       stats.innerHTML = st.map(s => `<div class="cot-stat"><div class="n">${s[0]}</div><div class="l">${s[1]}</div></div>`).join('')
       const rows = pend.data || []
-      list.innerHTML = rows.length ? rows.map(filaDash).join('')
+      const grupos = { cotizacion: [], autorizacion: [], compra: [] }
+      rows.forEach(p => { grupos[grupoDe(p)].push(p) })
+      const secDef = [
+        ['cotizacion', '📝 En cotización'],
+        ['autorizacion', '⏱ Esperando autorización'],
+        ['compra', '📦 Pedido de repuestos']
+      ]
+      const grupHTML = secDef.map(([key, titulo]) => {
+        const arr = grupos[key]
+        const cuerpo = arr.length ? arr.map(filaDash).join('')
+          : '<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ninguna —</div>'
+        return `<div style="margin-bottom:14px">
+          <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37)">
+            <span style="font-size:12px;font-weight:800;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px">${titulo}</span>
+            <span style="font-size:11px;color:var(--text3,#8b949e)">${arr.length}</span>
+          </div>${cuerpo}</div>`
+      }).join('')
+      list.innerHTML = rows.length ? grupHTML
         : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones activas</div>'
       startClock()
       loadPedidosRapidos()
@@ -2515,10 +2538,29 @@
     return { total, pedidos, llegados, estado, color }
   }
 
+  // Grupo de trabajo según la fase del proceso (para el tablero de Inicio).
+  function grupoDe (p) {
+    const f = _procFase(p).fase
+    if (f === 'cotizacion') return 'cotizacion'
+    if (f === 'autorizacion') return 'autorizacion'
+    if (f === 'compra') return 'compra'
+    if (p.estado === 'autorizada') return 'compra'
+    if (p.estado === 'pendiente') return 'autorizacion'
+    return 'cotizacion'
+  }
+  // Responsable de la actividad pendiente según la fase.
+  function responsableDe (p) {
+    const g = grupoDe(p)
+    if (g === 'autorizacion') return { rol: 'Autoriza', nombre: p.jefe_pista || '—' }
+    if (g === 'compra') return { rol: 'Pide repuestos', nombre: p.vendedor || '—' }
+    return { rol: 'Cotiza', nombre: p.vendedor || '—' }
+  }
+
   function filaDash (p) {
     const num = numeroDe(p.vendedor, p.correlativo)
     const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
     const esAut = p.estado === 'autorizada'
+    const resp = responsableDe(p)
     const pr = progresoPedidos(p.items)
     const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
     const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
@@ -2538,6 +2580,7 @@
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}${badgeNuevo}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b></div>
       </div>
       <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${accion}</div>
     </div>`
