@@ -283,12 +283,17 @@ function jpRenderOrdenes() {
       ? `<button class="jp-b green" onclick="jpAutorizar('${p.id}')" title="El cliente autorizó — pasar al cotizador para pedir repuestos">✓ Autorizado</button>` : ''
     const btnAdd = f.fase !== 'completado'
       ? `<button class="jp-b" onclick="jpAbrirAgregar('${p.id}')" title="Agregar más ítems a esta orden">➕ Ítems</button>` : ''
+    // PDF disponible una vez que el cotizador emitió la cotización (proc_inicio
+    // se setea al generar el PDF, que es lo que pasa la orden a autorización).
+    const btnPdf = p.proc_inicio
+      ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Abrir la cotización en PDF para enviarla al cliente">📄 PDF</button>` : ''
     return `<div class="jp-ordcard">
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nProd} ítem(s)</span></div>
         <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
       </div>
       ${reloj}
+      ${btnPdf}
       ${btnAdd}
       ${btnAut}
     </div>`
@@ -303,6 +308,16 @@ window.jpAutorizar = async (id) => {
     window.toast?.('✓ Autorizada — pasó al cotizador para pedir repuestos', 'success')
     jpCargar()
   } catch (e) { console.error('[jp autorizar]', e); window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+
+// ── Abrir el PDF de la cotización (mismo que ve el cliente) ──
+// Reutiliza el generador del cotizador (window.cotAbrirPdfProforma).
+window.jpPdf = (id) => {
+  if (typeof window.cotAbrirPdfProforma !== 'function') {
+    window.toast?.('El generador de PDF no cargó. Recargá con Ctrl+Shift+R e intentá de nuevo.', 'error')
+    return
+  }
+  window.cotAbrirPdfProforma(id, 'descargar')
 }
 
 // ── Agregar ítems a una orden ya enviada ──

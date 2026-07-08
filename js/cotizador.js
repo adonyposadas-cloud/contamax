@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260707-segord23' } catch (e) {}
+  try { window.__cotBuild = '20260708-jppdf' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -934,7 +934,25 @@
       const pr = e.target.closest('[data-prio]')
       if (pr) { PF.items[parseInt(pr.dataset.i, 10)].prioridad = pr.dataset.prio; renderItems() }
       const eye = e.target.closest('[data-eye]')
-      if (eye) { const el = document.querySelector(`[data-cost="${eye.dataset.eye}"]`); if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none' }
+      if (eye) {
+        const idx = parseInt(eye.dataset.eye, 10)
+        const el = document.querySelector(`[data-cost="${eye.dataset.eye}"]`)
+        if (el) {
+          const mostrar = el.style.display === 'none'
+          el.style.display = mostrar ? 'block' : 'none'
+          // Carga perezosa: ítems sin deOrden (manuales / recuperados) no traen
+          // sus proveedores precargados. Al abrir el ojo, se buscan on-demand.
+          if (mostrar && !el.innerHTML.trim()) {
+            const it = PF.items[idx]
+            if (it) {
+              el.innerHTML = '<div style="color:var(--text3,#8b949e);font-size:12px;padding:2px 0">Buscando proveedores…</div>'
+              cargarCosto(it.desc, idx).then(ent => {
+                if (!ent || !ent.length) el.innerHTML = '<div style="color:var(--text3,#8b949e);font-size:12px;padding:2px 0">Sin compras registradas para este ítem.</div>'
+              })
+            }
+          }
+        }
+      }
     })
 
     // ── Pestañas ──
@@ -1786,9 +1804,10 @@
 
   async function cargarCosto (desc, i) {
     const cont = document.querySelector(`[data-cost="${i}"]`)
-    if (!cont) return
+    if (!cont) return []
     const entradas = await fetchCosto(desc)
     cont.innerHTML = costoHTML(entradas, true)
+    return entradas
   }
 
   // ══════════════════════════════════════════════════════════
@@ -3278,7 +3297,7 @@
     doc.save(`OT_${numeroDe(p.vendedor, p.correlativo).replace(/[^a-z0-9]/gi, '_')}_${(p.placa || 'taller').replace(/[^a-z0-9]/gi, '_')}.pdf`)
   }
 
-  async function pdfDeProforma (p) {
+  async function pdfDeProforma (p, modo) {
     const items = Array.isArray(p.items) ? p.items : []
     if (!items.length) { toast('La cotización no tiene ítems', 'error'); return }
     await ensureJsPDF()
@@ -3413,6 +3432,27 @@
     doc.text(`Rango: ${cfg('rango_desde')} al ${cfg('rango_hasta')} | Fecha límite: ${fISO(cfg('fecha_limite'))}`, 14, fy)
 
     const nombre = `Proforma_${numeroDe(p.vendedor, p.correlativo).replace(/[^a-z0-9]/gi, '_')}_${(p.placa || 'proforma').replace(/[^a-z0-9]/gi, '_')}.pdf`
-    doc.save(nombre)
+    if (modo === 'abrir') {
+      try { window.open(doc.output('bloburl'), '_blank') } catch (e) { doc.save(nombre) }
+    } else {
+      doc.save(nombre)
+    }
+  }
+
+  // ── Expuesto para la pantalla del jefe de pista ──────────────
+  // Regenera y abre el MISMO PDF de cotización que ve el cliente,
+  // a partir del id de la orden (fila de cotizador_proformas).
+  // modo: 'descargar' (default) | 'abrir' (pestaña nueva).
+  window.cotAbrirPdfProforma = async function (id, modo) {
+    if (!id) { toast('Orden sin id', 'error'); return }
+    try {
+      const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
+      if (error) throw error
+      if (!data) { toast('No se encontró la cotización', 'error'); return }
+      if (!Array.isArray(data.items) || !data.items.length) { toast('Esta orden aún no tiene cotización', 'error'); return }
+      await pdfDeProforma(data, modo || 'descargar')
+    } catch (e) {
+      console.error('[cotAbrirPdfProforma]', e); toast('No se pudo generar el PDF: ' + (e.message || e), 'error')
+    }
   }
 })()
