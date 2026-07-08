@@ -16,6 +16,7 @@ let jpData = []
 let jpMarcas = []
 let jpModelos = []
 let jpDescripciones = []
+let jpTecnicos = []
 let jpAgId = null
 let jpAgItems = []
 
@@ -61,20 +62,16 @@ window.initJefePista = async () => {
   root.innerHTML = `
     <div class="jp-card">
       <div class="jp-h">🧰 Nueva solicitud de cotización</div>
-      <div class="jp-sub">Llená los datos del vehículo y agregá los repuestos/servicios que pide el mecánico (solo el nombre y la cantidad). Al enviar, el cotizador recibe la orden y arranca el tiempo de cotización.</div>
-      <div class="jp-row">
-        <div class="jp-fld" style="flex:0 0 150px"><label>N° Orden Taller *</label><input id="jp-orden" class="jp-inp" placeholder="Ej: 54700"></div>
-        <div class="jp-fld" style="flex:0 0 140px"><label>Placa</label><input id="jp-placa" class="jp-inp" placeholder="HBL3999"></div>
-        <div class="jp-fld"><label>Cliente</label><input id="jp-cliente" class="jp-inp" placeholder="Nombre del cliente"></div>
+      <div class="jp-sub">Colocá el N° de orden del taller y el técnico asignado. El técnico carga el detalle en Taller Alpha y el cotizador completa la cotización. Arranca el tiempo de cotización.</div>
+      <div class="jp-row" style="align-items:flex-end">
+        <div class="jp-fld" style="flex:0 0 180px"><label>N° Orden Taller *</label><input id="jp-orden" class="jp-inp" placeholder="Ej: 54700"></div>
+        <div class="jp-fld" style="position:relative"><label>Técnico *</label><input id="jp-tecnico" class="jp-inp" placeholder="Nombre del técnico" autocomplete="off" oninput="jpTecInput()" onkeydown="if(event.key==='Escape')jpTecHide()"><div id="jp-tec-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#0f1114;border:1px solid #2a2e37;border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
+        <button class="jp-b ok" id="jp-enviar-btn" onclick="jpEnviar()">📤 Enviar a cotizar</button>
       </div>
-      <div class="jp-row">
-        <div class="jp-fld"><label>Marca</label><input id="jp-marca" class="jp-inp" placeholder="TOYOTA" list="jp-marca-dl" autocomplete="off"><datalist id="jp-marca-dl"></datalist></div>
-        <div class="jp-fld"><label>Modelo</label><input id="jp-modelo" class="jp-inp" placeholder="COROLLA" list="jp-modelo-dl" autocomplete="off"><datalist id="jp-modelo-dl"></datalist></div>
-        <div class="jp-fld" style="flex:0 0 90px"><label>Año</label><input id="jp-anio" class="jp-inp" type="number" placeholder="2014"></div>
-        <div class="jp-fld" style="flex:0 0 110px"><label>KM</label><input id="jp-km" class="jp-inp" placeholder="Km"></div>
-      </div>
+      <div class="jp-fld" style="margin-top:10px"><label>Lo que se le reportó al técnico</label><textarea id="jp-motivo" class="jp-inp lc" rows="2" placeholder="Ej: El cliente reporta ruido al frenar y pérdida de líquido…" style="resize:vertical"></textarea></div>
+      <div class="jp-fld" style="margin-top:8px"><label>Diagnóstico del técnico (recomendaciones)</label><textarea id="jp-diagnostico" class="jp-inp lc" rows="2" placeholder="Ej: Se recomienda cambio de pastillas y discos delanteros; revisar retenedores…" style="resize:vertical"></textarea></div>
       <div style="border-top:1px solid #2a2e37;margin:10px 0;padding-top:10px">
-        <div class="jp-h" style="font-size:13px">Repuestos y servicios a cotizar</div>
+        <div class="jp-h" style="font-size:13px">Repuestos y servicios a cotizar <span style="font-weight:400;color:#8b8f98;font-size:11px">(opcional)</span></div>
         <div class="jp-row" style="align-items:flex-end">
           <div class="jp-fld" style="flex:2;position:relative"><label>Nombre</label><input id="jp-it-desc" class="jp-inp" placeholder="Ej: RETENEDOR DE FLECHA" autocomplete="off" oninput="jpDescInput()" onkeydown="if(event.key==='Enter'){jpDescHide();jpAddItem('p')}else if(event.key==='Escape')jpDescHide()"><div id="jp-desc-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:280px;overflow-y:auto;background:#0f1114;border:1px solid #2a2e37;border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
           <div class="jp-fld" style="flex:0 0 90px"><label>Cantidad</label><input id="jp-it-cant" class="jp-inp lc" type="number" value="1" min="1"></div>
@@ -83,7 +80,6 @@ window.initJefePista = async () => {
         </div>
         <div id="jp-items"></div>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="jp-b ok" id="jp-enviar-btn" onclick="jpEnviar()">📤 Enviar a cotizar</button></div>
     </div>
     <div class="jp-card">
       <div class="jp-h">📋 Mis órdenes en proceso</div>
@@ -110,9 +106,44 @@ window.initJefePista = async () => {
     </div>`
   jpRenderItems()
   await jpCargar()
+  jpLoadTecnicos()
   jpLoadCatalogo()
   jpStart()
 }
+
+async function jpLoadTecnicos() {
+  try {
+    const { data } = await jpSb().from('tecnicos_cat').select('nombre').order('usos', { ascending: false }).limit(500)
+    jpTecnicos = (data || []).map(t => t.nombre).filter(Boolean)
+    const inp = document.getElementById('jp-tecnico')
+    if (inp && !inp._jpBound) { inp._jpBound = true; inp.addEventListener('blur', () => setTimeout(jpTecHide, 150)) }
+    const drop = document.getElementById('jp-tec-drop')
+    if (drop && !drop._jpBound) {
+      drop._jpBound = true
+      drop.addEventListener('click', e => {
+        const add = e.target.closest('[data-tec-add]'); if (add) return jpTecAgregarNuevo(add.getAttribute('data-tec-add'))
+        const op = e.target.closest('[data-tec]'); if (op) jpTecPick(op.getAttribute('data-tec'))
+      })
+    }
+  } catch (e) { console.error('[jp tecnicos]', e) }
+}
+window.jpTecInput = () => {
+  const inp = document.getElementById('jp-tecnico'); const drop = document.getElementById('jp-tec-drop')
+  if (!inp || !drop) return
+  const q = (inp.value || '').trim().toUpperCase()
+  if (q.length < 2) { drop.style.display = 'none'; drop.innerHTML = ''; return }
+  const matches = jpTecnicos.filter(t => t.includes(q)).slice(0, 25)
+  let html = matches.map(t => `<div data-tec="${jpEsc(t)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(t)}</div>`).join('')
+  if (!jpTecnicos.includes(q)) html += `<div data-tec-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:#f0a500;font-weight:600" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}»</div>`
+  drop.innerHTML = html
+  drop.style.display = html ? 'block' : 'none'
+}
+window.jpTecPick = (t) => { const inp = document.getElementById('jp-tecnico'); if (inp) inp.value = t; jpTecHide() }
+window.jpTecAgregarNuevo = async (t) => {
+  const inp = document.getElementById('jp-tecnico'); if (inp) inp.value = t; jpTecHide()
+  try { await jpSb().rpc('tecnico_agregar', { p_nombre: t }); if (!jpTecnicos.includes(t)) jpTecnicos.unshift(t) } catch (e) {}
+}
+window.jpTecHide = () => { const drop = document.getElementById('jp-tec-drop'); if (drop) drop.style.display = 'none' }
 
 async function jpLoadCatalogo() {
   try {
@@ -199,27 +230,24 @@ function jpRenderItems() {
 window.jpEnviar = async () => {
   const v = id => (document.getElementById(id)?.value || '').trim()
   const orden = v('jp-orden').toUpperCase()
+  const tecnico = v('jp-tecnico').toUpperCase()
   if (!orden) { window.toast?.('El N° de Orden Taller es obligatorio', 'error'); return }
-  if (!jpItems.length) { window.toast?.('Agregá al menos un repuesto o servicio', 'error'); return }
+  if (!tecnico) { window.toast?.('El técnico es obligatorio', 'error'); return }
   const btn = document.getElementById('jp-enviar-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Enviando…' }
   try {
-    // evitar duplicar por orden
     const { data: dup } = await jpSb().from('cotizador_proformas').select('id,estado').eq('numero_orden', orden).limit(1)
     if (dup && dup.length) { window.toast?.(`La orden #${orden} ya está cargada (${dup[0].estado}).`, 'error'); if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar a cotizar' } return }
-    const anio = parseInt(v('jp-anio'), 10)
-    const payload = {
+    const { error } = await jpSb().from('cotizador_proformas').insert({
       estado: 'solicitada', proc_solicitada: new Date().toISOString(),
-      jefe_pista: jpNombre(), vendedor: '', cliente: v('jp-cliente'),
-      placa: v('jp-placa').toUpperCase(), marca: v('jp-marca').toUpperCase(), modelo: v('jp-modelo').toUpperCase(),
-      anio_vehiculo: isNaN(anio) ? '' : String(anio), kilometraje: v('jp-km'), numero_orden: orden,
-      solicitados: jpItems.map(it => ({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, agregado: false })), items: [],
-      subtotal: 0, isv: 0, total: 0
-    }
-    const { error } = await jpSb().from('cotizador_proformas').insert(payload)
+      jefe_pista: jpNombre(), mecanico: tecnico, vendedor: '', numero_orden: orden,
+      motivo: v('jp-motivo') || null, diagnostico: v('jp-diagnostico') || null,
+      solicitados: jpItems.map(it => ({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, agregado: false })), items: [], subtotal: 0, isv: 0, total: 0
+    })
     if (error) throw error
+    jpSb().rpc('tecnico_agregar', { p_nombre: tecnico }).then(() => { if (!jpTecnicos.includes(tecnico)) jpTecnicos.unshift(tecnico) }).catch(() => {})
     window.toast?.('📤 Enviado a cotizar. El cotizador ya la recibió.', 'success')
     jpItems = []; jpRenderItems()
-    ;['jp-orden', 'jp-placa', 'jp-cliente', 'jp-marca', 'jp-modelo', 'jp-anio', 'jp-km'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
+    ;['jp-orden', 'jp-tecnico', 'jp-motivo', 'jp-diagnostico'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
     jpCargar()
   } catch (e) { console.error('[jp enviar]', e); window.toast?.('Error al enviar: ' + (e.message || e), 'error') } finally { if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar a cotizar' } }
 }

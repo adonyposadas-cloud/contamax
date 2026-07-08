@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260707-copy19' } catch (e) {}
+  try { window.__cotBuild = '20260707-segord23' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -332,6 +332,17 @@
         <textarea id="cot-notas" class="cot-in" rows="2" placeholder="Ej: Repuestos con garantía de 3 meses. Mano de obra incluida."></textarea>
       </div>
     </div>
+    <div class="form-card" id="cot-ctx-card" style="display:none;border-color:rgba(240,165,0,.25)">
+      <div class="form-card-title"><span>🩺 Contexto de la revisión</span> <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(no sale en el PDF)</span></div>
+      <div id="cot-ctx-motivo" style="margin-bottom:8px;display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Lo que se le reportó al técnico</div>
+        <div id="cot-ctx-motivo-txt" style="font-size:13px;white-space:pre-wrap;color:var(--text,#e6edf3)"></div>
+      </div>
+      <div id="cot-ctx-diag" style="display:none">
+        <div style="font-size:11px;font-weight:700;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Diagnóstico del técnico (recomendaciones)</div>
+        <div id="cot-ctx-diag-txt" style="font-size:13px;white-space:pre-wrap;color:var(--text,#e6edf3)"></div>
+      </div>
+    </div>
     </div><!-- /cot-panel-nueva -->
 
     <!-- PANEL COTIZACIÓN (Historial) -->
@@ -360,7 +371,7 @@
             <button class="cot-chip" data-cat="sin_factura">Sin factura</button>
             <button class="cot-chip" data-cat="facturo_menos">Facturó menos</button>
           </div>
-          <input id="cot-seg-q" class="cot-in" placeholder="🔍 Cliente o placa…" style="flex:1;min-width:180px;text-transform:uppercase">
+          <input id="cot-seg-q" class="cot-in" placeholder="🔍 Cliente, placa, N° o orden…" style="flex:1;min-width:180px;text-transform:uppercase">
           <button class="btn btn-ghost" id="cot-seg-export" style="font-size:12px;padding:6px 12px">⬇ Exportar CSV</button>
         </div>
         <div id="cot-seg-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
@@ -1641,6 +1652,13 @@
   // ══════════════════════════════════════════════════════════
   //  TABLA DE ÍTEMS + TOTALES + HINT DE COSTO
   // ══════════════════════════════════════════════════════════
+  function renderContexto () {
+    const card = $('cot-ctx-card'); if (!card) return
+    const mot = (PF.motivo || '').trim(); const diag = (PF.diagnostico || '').trim()
+    const mBox = $('cot-ctx-motivo'); if (mBox) { mBox.style.display = mot ? 'block' : 'none'; const t = $('cot-ctx-motivo-txt'); if (t) t.textContent = mot }
+    const dBox = $('cot-ctx-diag'); if (dBox) { dBox.style.display = diag ? 'block' : 'none'; const t = $('cot-ctx-diag-txt'); if (t) t.textContent = diag }
+    card.style.display = (mot || diag) ? 'block' : 'none'
+  }
   function renderSolicitados () {
     const panel = $('cot-solic-panel'); const list = $('cot-solic-list')
     if (!panel || !list) return
@@ -1890,9 +1908,10 @@
       if (error) throw error
       PF = {
         id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente',
-        vendedor: data.vendedor || '', cliente: data.cliente || '', placa: data.placa || '', jefe_pista: data.jefe_pista || '',
+        vendedor: data.vendedor || (window._currentProfile ? (window._currentProfile().nombre || '').toUpperCase() : ''), cliente: data.cliente || '', placa: data.placa || '', jefe_pista: data.jefe_pista || '',
         km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: data.anio_vehiculo || '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
+        motivo: data.motivo || '', diagnostico: data.diagnostico || '',
         proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
         proc_solicitada: data.proc_solicitada || null,
         procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
@@ -1909,6 +1928,7 @@
       $('cot-recmsg').textContent = `📂 Recuperada N° ${numeroProforma()} — ${PF.placa} ${PF.marca} ${PF.modelo}`
       $('cot-recban').style.display = 'flex'
       setNumLabel(); updVehHint(); renderItems()
+      renderContexto()
       renderProcClock(); startClock()
       toast('Cotización recuperada', 'success')
     } catch (e) {
@@ -1919,8 +1939,9 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
+    renderContexto()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
@@ -2856,7 +2877,7 @@
     const q = ($('cot-seg-q').value || '').trim().toUpperCase()
     return SEG_DATA.filter(p => p.cat !== 'cerrada')
       .filter(p => !SEG_CAT || p.cat === SEG_CAT)
-      .filter(p => !q || String(p.cliente || '').toUpperCase().includes(q) || String(p.placa || '').toUpperCase().includes(q))
+      .filter(p => !q || String(p.cliente || '').toUpperCase().includes(q) || String(p.placa || '').toUpperCase().includes(q) || String(p.numero_orden || '').toUpperCase().includes(q) || String(p.correlativo || '').toUpperCase().includes(q) || String(numeroDe(p.vendedor, p.correlativo) || '').toUpperCase().includes(q))
   }
 
   function renderSeg () {
