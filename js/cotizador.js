@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260707-acum16' } catch (e) {}
+  try { window.__cotBuild = '20260707-copy19' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -302,6 +302,11 @@
           <button class="btn btn-ghost" id="cot-buscar-serv" style="font-size:12px;padding:6px 12px">🔧 Buscar servicio</button>
           <button class="btn btn-ghost" id="cot-manual" style="font-size:12px;padding:6px 12px">➕ Manual</button>
         </div>
+      </div>
+      <div id="cot-solic-panel" style="display:none;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.25);border-radius:8px;padding:10px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin-bottom:2px">📋 Solicitados por el jefe de pista</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e);margin-bottom:8px">Agregá cada uno a la cotización con ➕ y quedará marcado. Los que no correspondan, dejalos sin agregar.</div>
+        <div id="cot-solic-list"></div>
       </div>
       <div id="cot-items">
         <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text3,#8b949e);margin-bottom:6px;flex-wrap:wrap">
@@ -829,6 +834,7 @@
     $('cot-buscar-prod').addEventListener('click', () => abrirBusq('p'))
     $('cot-buscar-serv').addEventListener('click', () => abrirBusq('s'))
     $('cot-manual').addEventListener('click', abrirManual)
+    if ($('cot-solic-list')) $('cot-solic-list').addEventListener('click', e => { const b = e.target.closest('[data-solic-copy]'); if (b) copiarSolicitado(parseInt(b.getAttribute('data-solic-copy'), 10)) })
     $('cot-btn-pdf').addEventListener('click', generarPDF)
     $('cot-btn-ot').addEventListener('click', generarOrdenTrabajo)
     $('cot-modal-close').addEventListener('click', () => $('cot-modal').classList.remove('open'))
@@ -1635,11 +1641,39 @@
   // ══════════════════════════════════════════════════════════
   //  TABLA DE ÍTEMS + TOTALES + HINT DE COSTO
   // ══════════════════════════════════════════════════════════
+  function renderSolicitados () {
+    const panel = $('cot-solic-panel'); const list = $('cot-solic-list')
+    if (!panel || !list) return
+    const solic = Array.isArray(PF.solicitados) ? PF.solicitados : []
+    if (!solic.length) { panel.style.display = 'none'; return }
+    panel.style.display = 'block'
+    list.innerHTML = solic.map((s, i) => {
+      const done = !!s.agregado
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${done ? 'opacity:.55' : ''}">
+        <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
+        <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${s.nuevo ? ' <span style="color:#f0a500;font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
+        ${done ? '<span style="color:var(--green,#16a34a);font-size:12px;font-weight:700">✓</span>' : ''}
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-solic-copy="${i}" title="Copiar y buscarlo con Buscar producto">📋 Copiar</button>
+      </div>`
+    }).join('')
+  }
+  async function copiarSolicitado (i) {
+    const solic = Array.isArray(PF.solicitados) ? PF.solicitados : []
+    const s = solic[i]; if (!s) return
+    const txt = String(s.desc || '')
+    let ok = false
+    try { await navigator.clipboard.writeText(txt); ok = true } catch (e) {
+      try { const ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); document.body.removeChild(ta) } catch (e2) {}
+    }
+    if (!s.agregado) { s.agregado = true; renderSolicitados(); guardarProforma({ silencioso: true }) } else renderSolicitados()
+    toast(ok ? '📋 Copiado — pegalo en "Buscar producto"' : ('Copialo manual: ' + txt), ok ? 'success' : 'error')
+  }
+
   function renderItems () {
     const body = $('cot-items-body')
     if (!PF.items.length) {
       body.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Sin ítems. Buscá en órdenes o agregá manual.</div>'
-      recalcTotales(); return
+      recalcTotales(); renderSolicitados(); return
     }
     const prods = []; const servs = []
     PF.items.forEach((it, i) => { (it.tipo === 's' ? servs : prods).push({ it, i }) })
@@ -1672,6 +1706,7 @@
     body.innerHTML = html
     recalcTotales()
     PF.items.forEach((it, i) => { if (it.tipo === 'p' && it.deOrden) cargarCosto(it.desc, i) })   // manuales NO auto-asocian proveedor (se asigna al pedir)
+    renderSolicitados()
   }
 
   function calcTot () {
@@ -1804,7 +1839,7 @@
       cliente: PF.cliente || '', placa: (PF.placa || '').toUpperCase(),
       marca: PF.marca || '', modelo: PF.modelo || '', anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'), anio_vehiculo: PF.anioVeh || '', kilometraje: PF.km || '',
       numero_orden: orden,
-      items: PF.items, subtotal: t.subtotal, isv: t.isv, total: t.total,
+      items: PF.items, solicitados: PF.solicitados || [], subtotal: t.subtotal, isv: t.isv, total: t.total,
       descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
       ganancia_default: getGanDefault(), estado: PF.estado || 'pendiente'
     }
@@ -1861,6 +1896,7 @@
         proc_inicio: data.proc_inicio || null, proc_aprobada: data.proc_aprobada || null, proc_completada: data.proc_completada || null,
         proc_solicitada: data.proc_solicitada || null,
         procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
+        solicitados: Array.isArray(data.solicitados) ? data.solicitados : [],
         items: Array.isArray(data.items) ? data.items : []
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa; $('cot-jefe') && ($('cot-jefe').value = PF.jefe_pista || '')
@@ -1883,7 +1919,7 @@
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
     $('cot-desc').value = '0'
@@ -2403,7 +2439,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2444,8 +2480,8 @@
     const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
     const esAut = p.estado === 'autorizada'
     const pr = progresoPedidos(p.items)
-    const nuevos = (p.items || []).filter(it => it && it.nuevo).length
-    const badgeNuevo = nuevos > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">➕ ${nuevos} nuevo${nuevos > 1 ? 's' : ''}</span>` : ''
+    const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
+    const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
     const badge = (esAut && pr.total > 0)
       ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
       : ''

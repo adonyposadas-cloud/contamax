@@ -212,7 +212,7 @@ window.jpEnviar = async () => {
       jefe_pista: jpNombre(), vendedor: '', cliente: v('jp-cliente'),
       placa: v('jp-placa').toUpperCase(), marca: v('jp-marca').toUpperCase(), modelo: v('jp-modelo').toUpperCase(),
       anio_vehiculo: isNaN(anio) ? '' : String(anio), kilometraje: v('jp-km'), numero_orden: orden,
-      items: jpItems.map(it => ({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, precio: 0, isv: 15 })),
+      solicitados: jpItems.map(it => ({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, agregado: false })), items: [],
       subtotal: 0, isv: 0, total: 0
     }
     const { error } = await jpSb().from('cotizador_proformas').insert(payload)
@@ -228,7 +228,7 @@ async function jpCargar() {
   const cont = document.getElementById('jp-ordenes'); if (cont) cont.innerHTML = '<div class="jp-empty">Cargando…</div>'
   try {
     let q = jpSb().from('cotizador_proformas')
-      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,estado,jefe_pista,numero_orden,proc_solicitada,proc_inicio,proc_aprobada,proc_completada,items')
+      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,estado,jefe_pista,numero_orden,proc_solicitada,proc_inicio,proc_aprobada,proc_completada,solicitados')
       .in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(100)
     if (!jpEsSuper()) q = q.eq('jefe_pista', jpNombre())
     const { data, error } = await q
@@ -244,7 +244,7 @@ function jpRenderOrdenes() {
   cont.innerHTML = jpData.map(p => {
     const f = jpFase(p)
     const veh = [p.marca, p.modelo].filter(Boolean).join(' ') || 'Vehículo'
-    const nProd = (p.items || []).length
+    const nProd = (p.solicitados || []).length
     const corre = p.correlativo ? ('#' + (p.vendedor ? (p.vendedor.trim().slice(0, 2).toUpperCase() + '-') : '') + p.correlativo) : ('Orden ' + (p.numero_orden || ''))
     const running = f.desde ? true : false
     const ms = running ? (Date.now() - new Date(f.desde).getTime()) : 0
@@ -283,10 +283,10 @@ window.jpAbrirAgregar = (id) => {
   jpAgId = id; jpAgItems = []
   document.getElementById('jp-ag-title').textContent = `Agregar ítems — ${[p.marca, p.modelo].filter(Boolean).join(' ')} · ${p.placa || ''}`
   const ex = document.getElementById('jp-ag-existentes')
-  const items = Array.isArray(p.items) ? p.items : []
+  const items = Array.isArray(p.solicitados) ? p.solicitados : []
   ex.innerHTML = items.length
-    ? '<div class="jp-sub" style="margin-bottom:4px">Ya en la orden:</div>' + items.map(it => `<div style="font-size:12px;color:#8b8f98;padding:2px 0">• ${jpEsc(it.desc)} x${it.cantidad || 1}${it.nuevo ? ' <span style="color:#f0a500">(nuevo)</span>' : ''}</div>`).join('')
-    : '<div class="jp-sub">Esta orden aún no tiene ítems.</div>'
+    ? '<div class="jp-sub" style="margin-bottom:4px">Ya solicitado:</div>' + items.map(it => `<div style="font-size:12px;color:#8b8f98;padding:2px 0">• ${jpEsc(it.desc)} x${it.cantidad || 1}${it.agregado ? ' <span style="color:#16a34a">(agregado)</span>' : ''}${it.nuevo ? ' <span style="color:#f0a500">(nuevo)</span>' : ''}</div>`).join('')
+    : '<div class="jp-sub">Esta orden aún no tiene ítems solicitados.</div>'
   jpAgRender()
   const d = document.getElementById('jp-ag-desc'); if (d) d.value = ''
   const c = document.getElementById('jp-ag-cant'); if (c) c.value = '1'
@@ -312,11 +312,11 @@ window.jpAgGuardar = async () => {
   if (!jpAgId || !jpAgItems.length) { window.toast?.('Agregá al menos un ítem', 'error'); return }
   const btn = document.getElementById('jp-ag-guardar'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…' }
   try {
-    const { data, error } = await jpSb().from('cotizador_proformas').select('items,proc_inicio,estado').eq('id', jpAgId).single()
+    const { data, error } = await jpSb().from('cotizador_proformas').select('solicitados,proc_inicio,estado').eq('id', jpAgId).single()
     if (error) throw error
-    const items = Array.isArray(data.items) ? data.items.slice() : []
-    jpAgItems.forEach(it => items.push({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, precio: 0, isv: 15, nuevo: true }))
-    const { error: e2 } = await jpSb().from('cotizador_proformas').update({ items }).eq('id', jpAgId)
+    const solic = Array.isArray(data.solicitados) ? data.solicitados.slice() : []
+    jpAgItems.forEach(it => solic.push({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, agregado: false, nuevo: true }))
+    const { error: e2 } = await jpSb().from('cotizador_proformas').update({ solicitados: solic }).eq('id', jpAgId)
     if (e2) throw e2
     let msg = `✓ ${jpAgItems.length} ítem(s) agregado(s). El cotizador los verá como nuevos.`
     // Si ya pasó de cotización (está en autorización o compra) → volver a cotización y pausar tu tiempo
