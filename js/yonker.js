@@ -399,6 +399,7 @@ async function ykRenderReportes() {
   const esc = s => String(s).replace(/"/g, '&quot;')
   pane.innerHTML = `
     <div class="page-sub">Reportes en vivo. Modo <b>Ventas</b>: total por dimensión y mes. Modo <b>Margen</b>: venta vs costo por unidad (incluye el #126 al 70%).</div>
+    <div style="margin:0 0 12px"><button class="btn" style="background:var(--gold,#c8a24a);color:#1a1a1a;font-weight:700;padding:8px 16px;border:none;border-radius:8px;cursor:pointer" onclick="ykVendeRepuesto()">🔧 ¿De qué unidad conviene vender un repuesto?</button></div>
     <div class="yk-ctrl">
       <div class="fld"><label>Modo</label>
         <select id="yk-rep-modo" onchange="ykAplicarReporte()">
@@ -517,7 +518,7 @@ function ykDrillCell(filtros, sub, titulo, texto, modo) {
   ykDrillReg[id] = { filtros, sub, titulo, modo: modo || 'V' }
   return `<span class="yk-drill" onclick="ykDrillById('${id}')" title="Ver desglose">${texto} <span style="opacity:.45;font-size:10px">▸</span></span>`
 }
-window.ykDrillById = (id) => { const d = ykDrillReg[id]; if (!d) return; (d.modo === 'M' ? window.ykDrillM : window.ykDrill)(d.filtros, d.sub, d.titulo) }
+window.ykDrillById = (id) => { const d = ykDrillReg[id]; if (!d) return; (d.modo === 'M' ? window.ykDrillM : d.modo === 'L' ? window.ykVentaLineas : window.ykDrill)(d.filtros, d.sub, d.titulo) }
 
 // Drill inicial según la dimensión de la tabla principal
 function ykDimDrill(dim, raw) {
@@ -552,7 +553,11 @@ window.ykDrill = (filtros, sub, titulo) => {
 
   const body = rows.map(r => {
     let cell = r.k
-    if (puedeDrill) {
+    if (sub === 'anio') {
+      // El año es la hoja de agrupación: al tocarlo, mostramos las LÍNEAS de venta que lo componen.
+      const nf = filtros.concat([['anio_vehiculo', r.raw.anio_vehiculo]])
+      cell = ykDrillCell(nf, 'lineas', `${titulo} · ${r.k}`, r.k, 'L')
+    } else if (puedeDrill) {
       const nf = filtros.concat(sub === 'modelosolo' ? [['modelo', r.raw.modelo]] : [['marca', r.raw.marca], ['modelo', r.raw.modelo]])
       cell = ykDrillCell(nf, 'anio', `${titulo} · ${r.k}`, r.k)
     }
@@ -921,7 +926,132 @@ window.ykContenedorDetalle = (contenedor) => {
   ykUniOv = ov
 }
 
-// ── CONTAMAX · Yonker — Explorar (buscador de dos niveles, línea por línea) ──
+// ── CONTAMAX · Yonker — Nivel hoja: líneas de venta reales de un año ──
+//   Consulta yonker_ventas con los filtros del drill (marca/modelo/año/contenedor/mes)
+//   + el rango de fechas del reporte, y lista cada línea vendida (fecha, factura,
+//   vehículo, producto, venta). Sirve para ver EXACTAMENTE qué se vendió ese día.
+window.ykVentaLineas = async (filtros, sub, titulo) => {
+  const fD = document.getElementById('yk-rep-desde')?.value || ''
+  const fH = document.getElementById('yk-rep-hasta')?.value || ''
+  const cols = ['marca', 'modelo', 'anio_vehiculo', 'contenedor', 'anio_mes', 'anio']
+  const buildQ = () => {
+    let q = ykSb().from('yonker_ventas')
+      .select('fecha,consecutivo,vehiculo_codigo,producto,venta_hnl,contenedor,cliente')
+      .order('fecha').order('consecutivo')
+    ;(filtros || []).forEach(([campo, val]) => {
+      if (!cols.includes(campo)) return
+      if (val == null || val === '—') q = q.is(campo, null)
+      else q = q.eq(campo, val)
+    })
+    if (fD) q = q.gte('fecha', fD)
+    if (fH) q = q.lte('fecha', fH)
+    return q
+  }
+  let rows = []
+  try { rows = await ykFetchAll(buildQ) }
+  catch (e) { console.error('[yk lineas]', e); window.toast?.('No se pudieron cargar las líneas', 'error'); return }
+  const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;')
+  const totV = rows.reduce((s, r) => s + (+r.venta_hnl || 0), 0)
+  const rango = (fD || fH) ? ` · ${fD || '…'}${(fH && fH !== fD) ? ' a ' + fH : ''}` : ''
+  const body = rows.map(r => `<tr>
+      <td>${esc(r.fecha || '')}</td>
+      <td>${esc(r.consecutivo || '')}</td>
+      <td>${esc(r.vehiculo_codigo || '')}</td>
+      <td>${esc(r.producto || '')}</td>
+      <td class="yk-num">${ykFmt(r.venta_hnl)}</td>
+    </tr>`).join('')
+  ykOpenModal(`${titulo} · líneas vendidas${rango}`, `
+    <div style="font-size:11px;color:var(--text3,#888);margin:2px 0 8px">${rows.length} línea(s) — el detalle exacto de lo que se vendió.</div>
+    <div style="max-height:60vh;overflow:auto">
+    <table class="yk-tbl"><thead><tr><th>Fecha</th><th>Factura</th><th>Veh.</th><th>Producto</th><th class="yk-num">Venta (L.)</th></tr></thead>
+    <tbody>${body || '<tr><td colspan="5" style="text-align:center;color:#888">Sin líneas</td></tr>'}<tr class="tot"><td>TOTAL</td><td></td><td></td><td></td><td class="yk-num">${ykFmt(totV)}</td></tr></tbody></table></div>`, '780px')
+}
+
+// ── CONTAMAX · Yonker — "¿De qué unidad conviene vender un repuesto?" ──
+//   Filtra vw_yonker_margen_unidad por marca/modelo/año y muestra, por unidad,
+//   costo / venta acumulada / faltante / % recuperado / estado. Las recuperadas
+//   arriba: ya se pagaron solas → venderles un repuesto es casi todo ganancia.
+let ykVendeOv = null
+window.ykVendeCerrar = () => { if (ykVendeOv) { ykVendeOv.remove(); ykVendeOv = null } }
+window.ykVendeRepuesto = async () => {
+  if (!ykVMargen) {
+    window.toast?.('Cargando unidades…', 'info')
+    try { ykVMargen = await ykFetchAll(() => ykSb().from('vw_yonker_margen_unidad').select('*').order('vehiculo_codigo')) }
+    catch (e) { console.error('[yk vende]', e); window.toast?.('No se pudieron cargar las unidades', 'error'); return }
+  }
+  ykVendeCerrar()
+  const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;')
+  const marcas = [...new Set((ykVMargen || []).map(r => r.marca).filter(Boolean))].sort()
+  const ov = document.createElement('div')
+  ov.className = 'yk-ov'; ov.id = 'yk-vende-overlay'
+  ov.innerHTML = `<div class="yk-modal" style="width:860px;max-width:96vw">
+      <div class="yk-mhead"><b>🔧 ¿De qué unidad conviene vender el repuesto?</b><button onclick="ykVendeCerrar()">✕</button></div>
+      <div style="padding:12px 16px">
+        <div class="page-sub" style="margin-bottom:10px">Filtrá por marca / modelo / año y mirá de qué unidad ya <b>recuperaste el costo</b>. Las <span style="color:#4ade80">✓ recuperadas</span> ya se pagaron solas — venderles un repuesto es casi todo ganancia.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div class="fld"><label>Marca</label><select id="ykv-marca" onchange="ykVendeModelos();ykVendeRender()"><option value="">(todas)</option>${marcas.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}</select></div>
+          <div class="fld"><label>Modelo</label><select id="ykv-modelo" onchange="ykVendeRender()"><option value="">(todos)</option></select></div>
+          <div class="fld"><label>Año desde</label><input id="ykv-anio-d" type="number" inputmode="numeric" placeholder="—" oninput="ykVendeRender()" style="width:90px;padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px"></div>
+          <div class="fld"><label>Año hasta</label><input id="ykv-anio-h" type="number" inputmode="numeric" placeholder="—" oninput="ykVendeRender()" style="width:90px;padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px"></div>
+          <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="['ykv-marca','ykv-modelo','ykv-anio-d','ykv-anio-h'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});ykVendeModelos();ykVendeRender()" style="padding:6px 10px;font-size:12px">✕ Limpiar</button></div>
+        </div>
+        <div id="ykv-result"></div>
+      </div></div>`
+  ov.onclick = (e) => { if (e.target === ov) ykVendeCerrar() }
+  document.body.appendChild(ov)
+  ykVendeOv = ov
+  ykVendeRender()
+}
+window.ykVendeModelos = () => {
+  const marca = document.getElementById('ykv-marca')?.value || ''
+  const modelos = [...new Set((ykVMargen || []).filter(r => !marca || r.marca === marca).map(r => r.modelo).filter(Boolean))].sort()
+  const sel = document.getElementById('ykv-modelo'); if (!sel) return
+  const prev = sel.value
+  sel.innerHTML = '<option value="">(todos)</option>' + modelos.map(m => `<option value="${String(m).replace(/"/g, '&quot;')}">${m}</option>`).join('')
+  sel.value = modelos.includes(prev) ? prev : ''
+}
+window.ykVendeRender = () => {
+  const cont = document.getElementById('ykv-result'); if (!cont) return
+  const marca = document.getElementById('ykv-marca')?.value || ''
+  const modelo = document.getElementById('ykv-modelo')?.value || ''
+  const ad = parseInt(document.getElementById('ykv-anio-d')?.value, 10)
+  const ah = parseInt(document.getElementById('ykv-anio-h')?.value, 10)
+  const esc = s => String(s == null ? '' : s).replace(/</g, '&lt;')
+  let rows = (ykVMargen || []).filter(u => {
+    if (marca && u.marca !== marca) return false
+    if (modelo && u.modelo !== modelo) return false
+    const a = parseInt(u.anio_vehiculo, 10)
+    if (!isNaN(ad) && (isNaN(a) || a < ad)) return false
+    if (!isNaN(ah) && (isNaN(a) || a > ah)) return false
+    return true
+  })
+  // Más recuperado primero (las que ya se pagaron, arriba)
+  rows.sort((a, b) => (+b.pct_recuperado || 0) - (+a.pct_recuperado || 0))
+  if (!rows.length) { cont.innerHTML = '<div class="page-sub">No hay unidades con ese filtro.</div>'; return }
+  const body = rows.map(u => {
+    const costo = +u.costo_hnl || 0, venta = +u.venta || 0
+    const faltante = costo - venta
+    const pct = u.pct_recuperado != null ? (+u.pct_recuperado * 100) : (costo ? venta / costo * 100 : null)
+    const rec = pct != null && pct >= 100
+    return `<tr style="${rec ? 'background:rgba(74,222,128,.07)' : ''}">
+      <td>${esc(u.vehiculo_codigo)}</td>
+      <td>${esc((u.marca || '') + ' ' + (u.modelo || '') + ' ' + (u.anio_vehiculo || ''))}</td>
+      <td>${esc(u.contenedor || '')}</td>
+      <td class="yk-num">${ykFmt(costo)}</td>
+      <td class="yk-num">${ykFmt(venta)}</td>
+      <td class="yk-num" style="color:${faltante <= 0 ? '#4ade80' : '#e0a800'}">${faltante <= 0 ? '+' + ykFmt(-faltante) : ykFmt(faltante)}</td>
+      <td class="yk-num" style="color:${rec ? '#4ade80' : '#e0a800'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+      <td>${rec ? '<span style="color:#4ade80">✓ recuperado</span>' : '<span style="color:#e0a800">pendiente</span>'}</td>
+    </tr>`
+  }).join('')
+  const recuperadas = rows.filter(u => (+u.pct_recuperado || 0) >= 1).length
+  cont.innerHTML = `<div class="page-sub" style="margin-bottom:6px">${rows.length} unidad(es) · <b style="color:#4ade80">${recuperadas} ya recuperada(s)</b>. En <b>Faltante</b>, verde con <b>+</b> = lo que ya recuperaste de más.</div>
+    <div style="max-height:56vh;overflow:auto">
+    <table class="yk-tbl"><thead><tr><th>Veh.</th><th>Marca / Modelo / Año</th><th>Cont.</th><th class="yk-num">Costo</th><th class="yk-num">Venta</th><th class="yk-num">Faltante</th><th class="yk-num">% recup.</th><th>Estado</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`
+}
+
+
 let ykExpRows = []
 let _ykExpVehSel = null   // vehículo seleccionado para filtrar resultados en memoria
 let _ykExpMeta = null     // meta de la última búsqueda (total, truncado)
