@@ -130,7 +130,7 @@
 
     // COMPRAS: por periodo_fiscal asignado
     let qC = sb.from('libro_compras')
-      .select('id,fecha,numero_factura,proveedor,rtn_proveedor,subtotal,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id,tipo_compra')
+      .select('id,fecha,numero_factura,proveedor,rtn_proveedor,subtotal,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id,tipo_compra,partida_id,origen')
       .eq('periodo_fiscal', fPeriodo).order('fecha')
     if (fCentro) qC = qC.eq('centro_costo_id', fCentro)
 
@@ -277,6 +277,8 @@
     renderResumen()
     const cont = document.getElementById('fisc-contenido')
     if (!cont) return
+    // Preservar el scroll de las tablas para no "saltar arriba" al re-renderizar
+    const _scrollPrev = Array.from(cont.querySelectorAll('.table-wrap')).map(w => w.scrollTop)
     const editable = puedeEditar()
 
     // ── LIBRO DE VENTAS · una ventana por centro de costo (correlativos distintos) ──
@@ -400,9 +402,8 @@
         : enTope
           ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;opacity:.4;cursor:not-allowed" disabled title="Tope legal: el crédito solo puede acreditarse hasta ${etiquetaMes(limiteRow)} (plazo de ${MESES_LIMITE_CREDITO} meses, Art. 12 Ley del ISV)">⛔ tope</button>`
           : `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" title="Reclamar en ${etiquetaMes(destinoRow)}" onclick="window.fiscMoverMes('${c.id}')">→ ${destinoRow}</button>`
-      const btnEdit = puedeEditarDatos()
-        ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;margin-left:4px" title="Editar n° de factura y proveedor" onclick="window.fiscEditCompra('${c.id}')">✏️</button>`
-        : ''
+      const btnEdit = !puedeEditarDatos() ? ''
+        : `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;margin-left:4px" title="Editar proveedor y n° de factura (actualiza también el asiento)" onclick="window.fiscEditCompra('${c.id}')">✏️</button>`
       const rowStyle = !incl ? 'opacity:.5' : (sinProv ? 'background:rgba(245,158,11,.07)' : '')
       const provCell = sinProv
         ? '<span style="color:var(--amber);font-style:italic">— sin proveedor —</span>'
@@ -492,6 +493,9 @@
       <div class="form-actions" style="margin-top:4px">
         <button class="btn btn-ghost" onclick="window.fiscExportar()">📥 Exportar libros (Excel)</button>
       </div>`
+    // Restaurar el scroll de las tablas (quedás donde estabas tras editar)
+    const _wraps = cont.querySelectorAll('.table-wrap')
+    _scrollPrev.forEach((st, i) => { if (_wraps[i]) _wraps[i].scrollTop = st })
   }
 
   // ── Filtro "ver solo con alertas" ──
@@ -552,10 +556,23 @@
   }
 
   // ── Editar n° de factura / proveedor / RTN de una compra ──
-  window.fiscEditCompra = (id) => {
+  // Ir a corregir la PARTIDA que originó esta fila del libro. Al guardar el
+  // asiento, syncLibroCompras regenera el libro de compras y volvemos acá
+  // (ya actualizado). Así libro y contabilidad nunca se desalinean.
+  window.fiscEditarPartida = (partidaId) => {
+    if (!partidaId) { window.toast?.('Esta fila no viene de una partida — usá el editor de factura', 'error'); return }
+    if (typeof window.editarPartida !== 'function') { window.toast?.('No se pudo abrir la partida. Recargá la página.', 'error'); return }
+    window._origenPartida = { view: 'declaracion-isv', label: 'Declaración de ISV', init: null }
+    window.editarPartida(partidaId)
+  }
+
+  window.fiscEditCompra = async (id) => {
     if (!puedeEditarDatos()) return
     const c = fCompras.find(x => x.id === id)
     if (!c) return
+    const dePartida = !!c.partida_id
+    const roStyle = dePartida ? 'opacity:.55;cursor:not-allowed' : ''
+    const roAttr = dePartida ? 'readonly' : ''
     const prev = document.getElementById('fisc-edit-modal')
     if (prev) prev.remove()
     const wrap = document.createElement('div')
@@ -565,19 +582,26 @@
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;width:440px;max-width:92vw">
         <div style="font-weight:700;font-size:15px;margin-bottom:4px">Editar factura de compra</div>
         <div style="font-size:12px;color:var(--text3);margin-bottom:14px">${esc(c.fecha)}</div>
+        ${dePartida ? `<div style="font-size:12px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="color:var(--text3)">Asiento:</span>
+          <b id="fe-partida-num" style="color:var(--gold);font-family:var(--mono)">…</b>
+          <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px" title="Copiar el N° de partida para buscarla en otra ventana" onclick="window.fiscCopiarPartida()">📋 Copiar</button>
+        </div>` : ''}
         <div class="fld" style="margin-bottom:10px"><label>N° de factura</label><input type="text" id="fe-numfac" value="${esc(c.numero_factura)}"></div>
         <div class="fld" style="margin-bottom:10px"><label>Proveedor</label><input type="text" id="fe-prov" value="${esc(c.proveedor)}" style="text-transform:uppercase"></div>
         <div class="fld" style="margin-bottom:10px"><label>RTN del proveedor</label><input type="text" id="fe-rtn" value="${esc(c.rtn_proveedor)}"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px">
-          <div class="fld"><label>ISV</label><input type="text" inputmode="decimal" id="fe-isv" value="${(+c.isv || 0)}"></div>
-          <div class="fld"><label>Subtotal (base)</label><input type="text" inputmode="decimal" id="fe-subtotal" value="${(+c.subtotal || 0)}"></div>
-          <div class="fld"><label>Total</label><input type="text" inputmode="decimal" id="fe-total" value="${(+c.total || 0)}"></div>
+          <div class="fld"><label>ISV</label><input type="text" inputmode="decimal" id="fe-isv" value="${(+c.isv || 0)}" ${roAttr} style="${roStyle}"></div>
+          <div class="fld"><label>Subtotal (base)</label><input type="text" inputmode="decimal" id="fe-subtotal" value="${(+c.subtotal || 0)}" ${roAttr} style="${roStyle}"></div>
+          <div class="fld"><label>Total</label><input type="text" inputmode="decimal" id="fe-total" value="${(+c.total || 0)}" ${roAttr} style="${roStyle}"></div>
         </div>
-        <div style="font-size:12px;color:var(--text3);margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${dePartida
+          ? `<div style="font-size:12px;color:var(--text3);margin-bottom:16px;line-height:1.5">💡 El <b>proveedor</b> y el <b>N° de factura</b> se actualizan también en el asiento, así el cambio no se pierde al re-aprobar. Los <b>montos</b> vienen del asiento (para cambiarlos, editá la partida).</div>`
+          : `<div style="font-size:12px;color:var(--text3);margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           Calcular subtotal desde el ISV:
           <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="window.fiscCalcSub(0.15)">÷ 15%</button>
           <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="window.fiscCalcSub(0.18)">÷ 18%</button>
-        </div>
+        </div>`}
         <div style="display:flex;justify-content:flex-end;gap:10px">
           <button class="btn btn-ghost" onclick="window.fiscCerrarEdit()">Cancelar</button>
           <button class="btn btn-gold" onclick="window.fiscGuardarCompra('${c.id}')">Guardar</button>
@@ -586,6 +610,24 @@
     wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove() })
     document.body.appendChild(wrap)
     setTimeout(() => document.getElementById('fe-numfac')?.focus(), 50)
+    // Traer el N° de partida (para mostrarlo y poder buscarla en otra ventana)
+    if (dePartida) {
+      try {
+        const { data } = await getSb().from('partidas_contables').select('numero_partida').eq('id', c.partida_id).single()
+        const el = document.getElementById('fe-partida-num')
+        if (el) { el.textContent = '#' + (data?.numero_partida ?? '—'); el.dataset.num = data?.numero_partida ?? '' }
+      } catch (e) { const el = document.getElementById('fe-partida-num'); if (el) el.textContent = '—' }
+    }
+  }
+
+  window.fiscCopiarPartida = () => {
+    const el = document.getElementById('fe-partida-num')
+    const num = el?.dataset.num || (el?.textContent || '').replace('#', '').trim()
+    if (!num) return
+    navigator.clipboard?.writeText(num).then(
+      () => window.toast?.('N° de partida copiado: #' + num, 'success'),
+      () => window.toast?.('Copialo manual: #' + num, 'info')
+    )
   }
 
   window.fiscCerrarEdit = () => { document.getElementById('fisc-edit-modal')?.remove() }
@@ -605,18 +647,42 @@
     const numfac = (document.getElementById('fe-numfac')?.value || '').trim()
     const prov = (document.getElementById('fe-prov')?.value || '').trim().toUpperCase()
     const rtn = (document.getElementById('fe-rtn')?.value || '').trim()
-    const isv = Math.round(numN('fe-isv') * 100) / 100
-    const subtotal = Math.round(numN('fe-subtotal') * 100) / 100
-    const total = Math.round(numN('fe-total') * 100) / 100
+    const c = fCompras.find(x => x.id === id)
+    const dePartida = !!(c && c.partida_id)
+    // En filas de partida los montos vienen del asiento (no se editan acá).
+    const isv = dePartida ? (+c.isv || 0) : Math.round(numN('fe-isv') * 100) / 100
+    const subtotal = dePartida ? (+c.subtotal || 0) : Math.round(numN('fe-subtotal') * 100) / 100
+    const total = dePartida ? (+c.total || 0) : Math.round(numN('fe-total') * 100) / 100
+
     const { error } = await sb.from('libro_compras')
       .update({ numero_factura: numfac, numero_documento: numfac, proveedor: prov, rtn_proveedor: rtn, isv, subtotal, total })
       .eq('id', id)
     if (error) { window.toast?.('No se pudo guardar: ' + (error.message || ''), 'error'); return }
-    const c = fCompras.find(x => x.id === id)
+
+    // ── Write-back al asiento: el cambio queda también en la partida, así no se
+    //    pierde al re-aprobarla y libro/contabilidad quedan consistentes. ──
+    let aviso = ''
+    if (dePartida) {
+      try {
+        // N° de factura → número de documento de la partida (lo que el libro usa)
+        await sb.from('partidas_contables').update({ numero_documento: numfac }).eq('id', c.partida_id)
+        // Proveedor → descripción de la línea de ISV, en el formato "PROV #N°" que
+        // lee el sincronizador (parseLinea). Solo si la partida tiene UNA factura.
+        const { data: isvLins } = await sb.from('lineas_partida')
+          .select('id').eq('partida_id', c.partida_id).like('cuenta_codigo', '110402%')
+        const lins = isvLins || []
+        if (lins.length === 1) {
+          await sb.from('lineas_partida').update({ descripcion: numfac ? `${prov} #${numfac}` : prov }).eq('id', lins[0].id)
+        } else if (lins.length > 1) {
+          aviso = ' · nota: la partida tiene varias facturas; si el proveedor no persiste, ajustalo en el asiento'
+        }
+      } catch (e) { console.error('[fisc writeback partida]', e); aviso = ' · no se pudo actualizar el asiento' }
+    }
+
     if (c) { c.numero_factura = numfac; c.numero_documento = numfac; c.proveedor = prov; c.rtn_proveedor = rtn; c.isv = isv; c.subtotal = subtotal; c.total = total }
-    window.logActividad?.('editar_compra_fiscal', 'declaracion-isv', `Editó compra ${numfac} (prov: ${prov}, ISV ${isv}, base ${subtotal})`, id)
+    window.logActividad?.('editar_compra_fiscal', 'declaracion-isv', `Editó compra ${numfac} (prov: ${prov})`, id)
     window.fiscCerrarEdit()
-    window.toast?.('Factura actualizada', 'success')
+    window.toast?.('Factura actualizada' + aviso, aviso.includes('no se pudo') ? 'error' : 'success')
     render()
   }
 
@@ -650,8 +716,10 @@
       aoa.push(['TOTALES (solo incluidas)', '', '', '', '', '', round2(sSub), round2(sIsv), '', round2(sTot), nInc])
       return aoa
     }
-    const comprasCostoExp = fCompras.filter(c => c.tipo_compra === 'costo')
-    const comprasGastoExp = fCompras.filter(c => c.tipo_compra !== 'costo')
+    // Solo se exportan las compras marcadas (incluir_fiscal). Las que el
+    // contador destildó no se toman en cuenta ni aparecen en el Excel.
+    const comprasCostoExp = fCompras.filter(c => c.tipo_compra === 'costo' && c.incluir_fiscal)
+    const comprasGastoExp = fCompras.filter(c => c.tipo_compra !== 'costo' && c.incluir_fiscal)
     const comprasCostoAoA = hojaCompras('LIBRO DE COMPRAS · COSTOS', comprasCostoExp)
     const comprasGastoAoA = hojaCompras('LIBRO DE COMPRAS · GASTOS', comprasGastoExp)
 

@@ -4239,8 +4239,12 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
     for (const li of isvLines) {
       const isv = r2(li.monto)
       const { numfac, prov } = parseLinea(li.descripcion)
+      // El "Número de documento" de la partida manda como N° de factura cuando
+      // hay UNA sola factura (caso normal). Con varias facturas en una misma
+      // partida, cada línea usa el N° que trae en su descripción (#...).
+      const nfac = (isvLines.length === 1 && numDocumento) ? numDocumento : (numfac || numDocumento || '')
       baseRows.push({
-        numero_factura: numfac || numDocumento || '',
+        numero_factura: nfac,
         proveedor: prov || provGeneral || '',
         isv,
         subtotal: r2(isv / 0.15),
@@ -4263,14 +4267,19 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
   const { data: previas } = await sb.from('libro_compras')
     .select('numero_factura, incluir_fiscal, periodo_fiscal, rtn_proveedor')
     .eq('partida_id', partidaId)
+  const previasArr = previas || []
   const prevMap = {}
-  ;(previas || []).forEach(p => { prevMap[p.numero_factura] = p })
+  previasArr.forEach(p => { prevMap[p.numero_factura] = p })
 
   // Reemplazar las filas de esta partida (borra y reinserta)
   if (partidaId) await sb.from('libro_compras').delete().eq('partida_id', partidaId)
 
   const registros = baseRows.map(b => {
-    const prev = prevMap[b.numero_factura]
+    // Match por N° de factura; si no calza y hay 1↔1 (una sola factura en la
+    // partida), preservar igual por posición para no perder check/período/RTN
+    // cuando cambia el N° de factura (ej. al corregirlo en la partida).
+    let prev = prevMap[b.numero_factura]
+    if (!prev && baseRows.length === 1 && previasArr.length === 1) prev = previasArr[0]
     const reg = {
       centro_costo_id: b.centro_costo_id,
       fecha,

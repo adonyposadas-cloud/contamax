@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260708-tablero' } catch (e) {}
+  try { window.__cotBuild = '20260708-lock' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -1021,7 +1021,7 @@
     $('det-close').addEventListener('click', () => $('cot-modal-det').classList.remove('open'))
     $('det-editar').addEventListener('click', () => {
       $('cot-modal-det').classList.remove('open')
-      if (_detId) recuperarProforma(_detId).then(() => switchTab('nueva'))
+      if (_detId) recuperarProforma(_detId).then(ok => { if (ok !== false) switchTab('nueva') })
     })
   }
 
@@ -1927,7 +1927,66 @@
     } catch (e) { console.error('[cotizador sugerirPlaca]', e); list.style.display = 'none' }
   }
 
-  async function recuperarProforma (id) {
+  // ── Bloqueo suave de edición concurrente (cot_edit_lock_01.sql) ──
+  const LOCK_STALE_MS = 15 * 60 * 1000
+  let _lockedId = null
+  let _lockHb = null
+  function _profLock () {
+    const p = window._currentProfile ? (window._currentProfile() || {}) : {}
+    return { id: p.auth_user_id || null, nombre: (p.nombre || '').toUpperCase() }
+  }
+  function _lockFresco (row) {
+    if (!row || !row.editando_por_id || !row.editando_desde) return false
+    return (Date.now() - new Date(row.editando_desde).getTime()) < LOCK_STALE_MS
+  }
+  function _fmtHace (iso) { try { return fmtDur(difMin(iso)) } catch (e) { return '' } }
+  function _startLockHb (id) {
+    _stopLockHb()
+    _lockHb = setInterval(async () => {
+      const me = _profLock(); if (!me.id) return
+      try { await sb().from('cotizador_proformas').update({ editando_desde: new Date().toISOString() }).eq('id', id).eq('editando_por_id', me.id) } catch (e) {}
+    }, 5 * 60 * 1000)
+  }
+  function _stopLockHb () { if (_lockHb) { clearInterval(_lockHb); _lockHb = null } }
+  async function acquireLock (id) {
+    const me = _profLock()
+    if (!me.id) return { ok: true }   // sin identidad → no bloquear
+    const now = new Date().toISOString()
+    const stale = new Date(Date.now() - LOCK_STALE_MS).toISOString()
+    try {
+      const { data, error } = await sb().from('cotizador_proformas')
+        .update({ editando_por: me.nombre, editando_por_id: me.id, editando_desde: now })
+        .eq('id', id)
+        .or(`editando_por_id.is.null,editando_desde.lt.${stale},editando_por_id.eq.${me.id}`)
+        .select('id')
+      if (error) { console.warn('[cot lock] degradado:', error.message); return { ok: true } } // sin columnas → no bloquear
+      if (data && data.length) { _lockedId = id; _startLockHb(id); return { ok: true } }
+      const { data: row } = await sb().from('cotizador_proformas').select('editando_por, editando_desde').eq('id', id).maybeSingle()
+      return { ok: false, por: (row && row.editando_por) || 'otro usuario', desde: row && row.editando_desde }
+    } catch (e) { console.warn('[cot lock]', e); return { ok: true } }
+  }
+  async function releaseLock (id) {
+    if (!id) return
+    const me = _profLock(); _stopLockHb()
+    if (_lockedId === id) _lockedId = null
+    if (!me.id) return
+    try { await sb().from('cotizador_proformas').update({ editando_por: null, editando_por_id: null, editando_desde: null }).eq('id', id).eq('editando_por_id', me.id) } catch (e) {}
+  }
+
+  async function recuperarProforma (id, opts) {
+    opts = opts || {}
+    if (!opts.noLock) {
+      // Liberar el lock de la que estábamos editando (si abrimos otra distinta)
+      if (_lockedId && _lockedId !== id) await releaseLock(_lockedId)
+      // Tomar el lock de edición; si otro la tiene fresca, no abrir
+      const lk = await acquireLock(id)
+      if (!lk.ok) {
+        const hace = lk.desde ? _fmtHace(lk.desde) : ''
+        toast(`🔒 ${lk.por} está editando esta cotización${hace ? ' (hace ' + hace + ')' : ''}. Esperá a que termine.`, 'error')
+        try { loadDashboard() } catch (e) {}
+        return false
+      }
+    }
     try {
       const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
       if (error) throw error
@@ -1956,13 +2015,16 @@
       renderContexto()
       renderProcClock(); startClock()
       toast('Cotización recuperada', 'success')
+      return true
     } catch (e) {
       console.error('[cotizador recuperar]', e); toast('No se pudo recuperar', 'error')
+      return false
     }
   }
 
   function nuevaProforma () {
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
+    if (_lockedId) releaseLock(_lockedId)
     const prof = window._currentProfile ? window._currentProfile() : null
     PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', mecanico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
@@ -1980,6 +2042,7 @@
   // ══════════════════════════════════════════════════════════
   function switchTab (name) {
     TAB = name
+    if (name !== 'nueva' && _lockedId) releaseLock(_lockedId)
     document.querySelectorAll('#view-cotizador .cot-tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name))
     ;['inicio', 'nueva', 'cotizacion', 'seguimiento', 'proveedores', 'generaciones', 'estadisticas', 'config'].forEach(p => {
       const el = $('cot-panel-' + p); if (el) el.style.display = (p === name) ? '' : 'none'
@@ -2485,7 +2548,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2561,13 +2624,18 @@
     const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
     const esAut = p.estado === 'autorizada'
     const resp = responsableDe(p)
+    const _me = _profLock()
+    const lockOtro = !!(p.editando_por_id && p.editando_por_id !== _me.id && _lockFresco(p))
+    const lockBadge = lockOtro ? ` <span style="font-size:10px;font-weight:700;color:var(--amber,#f59e0b);border:1px solid var(--amber,#f59e0b);padding:1px 6px;border-radius:8px">🔒 ${esc(p.editando_por || 'en edición')}</span>` : ''
     const pr = progresoPedidos(p.items)
     const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
     const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
     const badge = (esAut && pr.total > 0)
       ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
       : ''
-    const editar = `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px">✏ Editar</button>`
+    const editar = lockOtro
+      ? `<span style="font-size:11px;color:var(--amber,#f59e0b);white-space:nowrap;padding:4px 6px" title="La está editando ${esc(p.editando_por || '')}">🔒 En edición</span>`
+      : `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px">✏ Editar</button>`
     let accion
     if (esAut) {
       const completo = pr.total === 0 || pr.llegados === pr.total
@@ -2575,10 +2643,10 @@
     } else {
       accion = editar + ` <button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
     }
-    const openAttr = esAut ? `data-ped="${p.id}"` : `data-dashopen="${p.id}"`
-    return `<div class="cot-hrow" ${openAttr} style="cursor:pointer">
+    const openAttr = esAut ? `data-ped="${p.id}"` : (lockOtro ? '' : `data-dashopen="${p.id}"`)
+    return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'}">
       <div style="min-width:0">
-        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}${badgeNuevo}</div>
+        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}${badgeNuevo}${lockBadge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b></div>
       </div>
@@ -2593,11 +2661,11 @@
     const ped = e.target.closest('[data-ped]')
     if (ped) return abrirPedidos(ped.dataset.ped)
     const op = e.target.closest('[data-dashopen]')
-    if (op) return recuperarProforma(op.dataset.dashopen).then(() => switchTab('nueva'))
+    if (op) return recuperarProforma(op.dataset.dashopen).then(ok => { if (ok !== false) switchTab('nueva') })
   }
 
   async function dashAccion (act, id) {
-    if (act === 'editar') { await recuperarProforma(id); switchTab('nueva'); return }
+    if (act === 'editar') { if (await recuperarProforma(id) !== false) switchTab('nueva'); return }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
       const { error } = await sb().rpc('cot_autorizar', { p_id: id, p_por: ((window._currentProfile() || {}).nombre || '') })
@@ -2637,6 +2705,17 @@
   async function ensureProvContacts () {
     if (PROV_CONT.length) return
     try { const { data } = await sb().from('proveedores_contacto').select('*'); PROV_CONT = (data || []).map(c => ({ nombre: c.nombre, nombre_norm: c.nombre_norm, telefono: c.telefono || '', contacto: c.contacto || '' })) } catch (e) { /* sin contactos */ }
+  }
+
+  function pedTotales () {
+    const items = Array.isArray(PEDPF && PEDPF.items) ? PEDPF.items : []
+    const d = Math.max(0, Math.min(100, Number(PEDPF && PEDPF.descuento) || 0))
+    const f = 1 - d / 100
+    let sub = 0, isv = 0
+    items.forEach(it => { const b = (Number(it.precio) || 0) * (Number(it.cantidad) || 0); sub += b; isv += b * f * (Number(it.isv) || 0) / 100 })
+    const descMonto = sub * d / 100
+    const r2 = v => Math.round(v * 100) / 100
+    return { sub: r2(sub), descMonto: r2(descMonto), isv: r2(isv), total: r2(sub - descMonto + isv), d }
   }
 
   function renderPedidos () {
@@ -2687,18 +2766,34 @@
         }
       }
       else estadoTxt = '<span style="font-size:11px;color:var(--text3,#8b949e)">Sin pedir</span>'
+      const base = (Number(it.precio) || 0) * (Number(it.cantidad) || 0)
+      const lineIsv = base * (Number(it.isv) || 0) / 100
+      const precioLn = `<div style="font-size:12px;color:var(--gold,#c8a24a);font-weight:600;margin-top:2px">Subtotal: L. ${fmt(base)}${it.isv ? ` <span style="color:var(--text3,#8b949e);font-weight:400">+ ISV L. ${fmt(lineIsv)}</span>` : ''}</div>`
       let botones = ''
       if (seg === 'llegado') botones = `<button class="ped-btn" data-pedact="revertir" data-i="${i}">↩ Revertir</button>`
       else if (seg === 'pedido') botones = `<button class="ped-btn ped-llego" data-pedact="llego" data-i="${i}">✓ Llegó</button> <button class="ped-btn" data-pedact="revertir" data-i="${i}">↩</button>`
       else botones = `<button class="ped-btn ped-pedir" data-pedact="pedir" data-i="${i}">Pedir</button> <button class="ped-btn ped-bodega" data-pedact="bodega" data-i="${i}">Bodega</button>`
       return `<div class="ped-row" style="${dimF(it)}">
-        <div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div><div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
+        <div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div>${precioLn}<div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
         <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">${botones} ${facBtn(it, i)}</div>
       </div>`
     }
     let html = ''
     if (prods.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:10px 0 2px">PRODUCTOS</div>` + prods.map(rowP).join('')
-    if (servs.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:14px 0 2px">SERVICIOS</div>` + servs.map(({ it, i }) => `<div class="ped-row" style="${dimF(it)}"><div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · Servicio</div></div><div style="flex-shrink:0">${facBtn(it, i)}</div></div>`).join('')
+    if (servs.length) html += `<div style="font-size:12px;font-weight:700;color:var(--gold,#c8a24a);margin:14px 0 2px">SERVICIOS</div>` + servs.map(({ it, i }) => {
+      const base = (Number(it.precio) || 0) * (Number(it.cantidad) || 0)
+      const lineIsv = base * (Number(it.isv) || 0) / 100
+      const precioLn = base > 0 ? `<div style="font-size:12px;color:var(--gold,#c8a24a);font-weight:600;margin-top:2px">Subtotal: L. ${fmt(base)}${it.isv ? ` <span style="color:var(--text3,#8b949e);font-weight:400">+ ISV L. ${fmt(lineIsv)}</span>` : ''}</div>` : ''
+      return `<div class="ped-row" style="${dimF(it)}"><div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · Servicio</div>${precioLn}</div><div style="flex-shrink:0">${facBtn(it, i)}</div></div>`
+    }).join('')
+    // Totales (para copiar precios correctos a Taller Alpha)
+    const T = pedTotales()
+    html += `<div style="border-top:1px solid var(--border,#2a2e37);margin-top:14px;padding-top:10px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:var(--text3,#8b949e)">Subtotal</span><span style="font-variant-numeric:tabular-nums">L. ${fmt(T.sub)}</span></div>
+      ${T.d > 0 ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:var(--text3,#8b949e)">Descuento ${T.d}%</span><span style="font-variant-numeric:tabular-nums">– L. ${fmt(T.descMonto)}</span></div>` : ''}
+      <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="color:var(--text3,#8b949e)">IVA</span><span style="font-variant-numeric:tabular-nums">L. ${fmt(T.isv)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:800;color:var(--gold,#c8a24a)"><span>Total</span><span style="font-variant-numeric:tabular-nums">L. ${fmt(T.total)}</span></div>
+    </div>`
     $('ped-body').innerHTML = html
     if (!_pedTimer) _pedTimer = setInterval(tickPedidos, 60000)   // refresca "hace Xh Ym" en vivo
     // Cargar historial de compras (proveedor · costo · fecha) de cada producto
@@ -3099,9 +3194,9 @@
   async function histClick (e) {
     const btn = e.target.closest('[data-act]'); if (!btn) return
     const id = btn.dataset.pf; const act = btn.dataset.act
-    if (act === 'editar') { await recuperarProforma(id); switchTab('nueva'); return }
+    if (act === 'editar') { if (await recuperarProforma(id) !== false) switchTab('nueva'); return }
     if (act === 'duplicar') {
-      await recuperarProforma(id)
+      await recuperarProforma(id, { noLock: true })
       PF.id = null; PF.correlativo = null; PF.estado = 'pendiente'
       $('cot-recban').style.display = 'none'; setNumLabel(); switchTab('nueva')
       toast('Copia lista — guardá para crear una nueva', 'success'); return
