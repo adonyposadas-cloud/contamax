@@ -68,6 +68,11 @@ window.initJefePista = async () => {
         <div class="jp-fld" style="position:relative"><label>Técnico *</label><input id="jp-tecnico" class="jp-inp" placeholder="Nombre del técnico" autocomplete="off" oninput="jpTecInput()" onkeydown="if(event.key==='Escape')jpTecHide()"><div id="jp-tec-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#0f1114;border:1px solid #2a2e37;border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
         <button class="jp-b ok" id="jp-enviar-btn" onclick="jpEnviar()">📤 Enviar a cotizar</button>
       </div>
+      <div class="jp-row" style="align-items:flex-end;margin-top:10px">
+        <div class="jp-fld"><label>Marca</label><input id="jp-marca" class="jp-inp" list="jp-marca-dl" placeholder="Ej: HONDA" autocomplete="off" style="text-transform:uppercase"><datalist id="jp-marca-dl"></datalist></div>
+        <div class="jp-fld"><label>Modelo</label><input id="jp-modelo" class="jp-inp" list="jp-modelo-dl" placeholder="Ej: CR-V" autocomplete="off" style="text-transform:uppercase"><datalist id="jp-modelo-dl"></datalist></div>
+        <div class="jp-fld" style="flex:0 0 110px"><label>Año</label><input id="jp-anio" class="jp-inp lc" type="number" inputmode="numeric" placeholder="Ej: 2016" min="1950" max="2100"></div>
+      </div>
       <div class="jp-fld" style="margin-top:10px"><label>Lo que se le reportó al técnico</label><textarea id="jp-motivo" class="jp-inp lc" rows="2" placeholder="Ej: El cliente reporta ruido al frenar y pérdida de líquido…" style="resize:vertical"></textarea></div>
       <div class="jp-fld" style="margin-top:8px"><label>Diagnóstico del técnico (recomendaciones)</label><textarea id="jp-diagnostico" class="jp-inp lc" rows="2" placeholder="Ej: Se recomienda cambio de pastillas y discos delanteros; revisar retenedores…" style="resize:vertical"></textarea></div>
       <div style="border-top:1px solid #2a2e37;margin:10px 0;padding-top:10px">
@@ -233,6 +238,7 @@ window.jpEnviar = async () => {
   const tecnico = v('jp-tecnico').toUpperCase()
   if (!orden) { window.toast?.('El N° de Orden Taller es obligatorio', 'error'); return }
   if (!tecnico) { window.toast?.('El técnico es obligatorio', 'error'); return }
+  const anioN = parseInt(v('jp-anio'), 10)
   const btn = document.getElementById('jp-enviar-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Enviando…' }
   try {
     const { data: dup } = await jpSb().from('cotizador_proformas').select('id,estado').eq('numero_orden', orden).limit(1)
@@ -240,6 +246,8 @@ window.jpEnviar = async () => {
     const { error } = await jpSb().from('cotizador_proformas').insert({
       estado: 'solicitada', proc_solicitada: new Date().toISOString(),
       jefe_pista: jpNombre(), mecanico: tecnico, vendedor: '', numero_orden: orden,
+      marca: v('jp-marca').toUpperCase() || null, modelo: v('jp-modelo').toUpperCase() || null,
+      anio_vehiculo: Number.isFinite(anioN) ? anioN : null,
       motivo: v('jp-motivo') || null, diagnostico: v('jp-diagnostico') || null,
       solicitados: jpItems.map(it => ({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, agregado: false })), items: [], subtotal: 0, isv: 0, total: 0
     })
@@ -247,7 +255,7 @@ window.jpEnviar = async () => {
     jpSb().rpc('tecnico_agregar', { p_nombre: tecnico }).then(() => { if (!jpTecnicos.includes(tecnico)) jpTecnicos.unshift(tecnico) }).catch(() => {})
     window.toast?.('📤 Enviado a cotizar. El cotizador ya la recibió.', 'success')
     jpItems = []; jpRenderItems()
-    ;['jp-orden', 'jp-tecnico', 'jp-motivo', 'jp-diagnostico'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
+    ;['jp-orden', 'jp-tecnico', 'jp-marca', 'jp-modelo', 'jp-anio', 'jp-motivo', 'jp-diagnostico'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
     jpCargar()
   } catch (e) { console.error('[jp enviar]', e); window.toast?.('Error al enviar: ' + (e.message || e), 'error') } finally { if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar a cotizar' } }
 }
@@ -269,35 +277,56 @@ async function jpCargar() {
 function jpRenderOrdenes() {
   const cont = document.getElementById('jp-ordenes'); if (!cont) return
   if (!jpData.length) { cont.innerHTML = '<div class="jp-empty">No tenés órdenes en proceso. Creá una solicitud arriba.</div>'; return }
-  cont.innerHTML = jpData.map(p => {
-    const f = jpFase(p)
-    const veh = [p.marca, p.modelo].filter(Boolean).join(' ') || 'Vehículo'
-    const nProd = (p.solicitados || []).length
-    const corre = p.correlativo ? ('#' + (p.vendedor ? (p.vendedor.trim().slice(0, 2).toUpperCase() + '-') : '') + p.correlativo) : ('Orden ' + (p.numero_orden || ''))
-    const running = f.desde ? true : false
-    const ms = running ? (Date.now() - new Date(f.desde).getTime()) : 0
-    const reloj = running
-      ? `<div class="jp-clock" data-jp-desde="${jpEsc(f.desde)}" data-jp-fase="${f.fase}" style="color:${jpColor(ms, f.fase)}">${jpCrono(ms)}</div>`
-      : `<div class="jp-clock" style="color:#16a34a">✓</div>`
-    const btnAut = f.fase === 'autorizacion'
-      ? `<button class="jp-b green" onclick="jpAutorizar('${p.id}')" title="El cliente autorizó — pasar al cotizador para pedir repuestos">✓ Autorizado</button>` : ''
-    const btnAdd = f.fase !== 'completado'
-      ? `<button class="jp-b" onclick="jpAbrirAgregar('${p.id}')" title="Agregar más ítems a esta orden">➕ Ítems</button>` : ''
-    // PDF disponible una vez que el cotizador emitió la cotización (proc_inicio
-    // se setea al generar el PDF, que es lo que pasa la orden a autorización).
-    const btnPdf = p.proc_inicio
-      ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Abrir la cotización en PDF para enviarla al cliente">📄 PDF</button>` : ''
-    return `<div class="jp-ordcard">
-      <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nProd} ítem(s)</span></div>
-        <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
-      </div>
-      ${reloj}
-      ${btnPdf}
-      ${btnAdd}
-      ${btnAut}
-    </div>`
-  }).join('')
+  // Grupos por fase del proceso (como en "Cotizaciones pendientes").
+  // Primero lo que necesita TU acción (autorización), luego el resto del flujo.
+  const GRUPOS = [
+    { fase: 'autorizacion', titulo: '⏳ Esperando tu autorización', color: '#f59e0b' },
+    { fase: 'cotizacion', titulo: '📝 Esperando cotización', color: '#8b5cf6' },
+    { fase: 'compra', titulo: '📦 En compra de repuestos', color: '#3b82f6' },
+    { fase: 'completado', titulo: '✅ Completadas', color: '#16a34a' }
+  ]
+  const byFase = {}
+  jpData.forEach(p => { const fx = jpFase(p).fase || 'otro'; (byFase[fx] = byFase[fx] || []).push(p) })
+  let html = ''
+  GRUPOS.forEach(g => {
+    const lista = byFase[g.fase] || []
+    html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span></div>`
+    html += lista.length ? lista.map(jpOrdenCard).join('') : '<div class="jp-empty" style="padding:4px 0;font-size:12px;color:#8b8f98">— ninguna —</div>'
+  })
+  // Cualquier fase no contemplada (por si acaso), al final
+  const otras = byFase['otro'] || []
+  if (otras.length) { html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#8b8f98;text-transform:uppercase">• Otras <span style="opacity:.55">${otras.length}</span></div>` + otras.map(jpOrdenCard).join('') }
+  cont.innerHTML = html
+}
+
+function jpOrdenCard(p) {
+  const f = jpFase(p)
+  const veh = [p.marca, p.modelo].filter(Boolean).join(' ') || 'Vehículo'
+  const nProd = (p.solicitados || []).length
+  const corre = p.correlativo ? ('#' + (p.vendedor ? (p.vendedor.trim().slice(0, 2).toUpperCase() + '-') : '') + p.correlativo) : ('Orden ' + (p.numero_orden || ''))
+  const running = f.desde ? true : false
+  const ms = running ? (Date.now() - new Date(f.desde).getTime()) : 0
+  const reloj = running
+    ? `<div class="jp-clock" data-jp-desde="${jpEsc(f.desde)}" data-jp-fase="${f.fase}" style="color:${jpColor(ms, f.fase)}">${jpCrono(ms)}</div>`
+    : `<div class="jp-clock" style="color:#16a34a">✓</div>`
+  const btnAut = f.fase === 'autorizacion'
+    ? `<button class="jp-b green" onclick="jpAutorizar('${p.id}')" title="El cliente autorizó — pasar al cotizador para pedir repuestos">✓ Autorizado</button>` : ''
+  const btnAdd = f.fase !== 'completado'
+    ? `<button class="jp-b" onclick="jpAbrirAgregar('${p.id}')" title="Agregar más ítems a esta orden">➕ Ítems</button>` : ''
+  // PDF disponible una vez que el cotizador emitió la cotización (proc_inicio
+  // se setea al generar el PDF, que es lo que pasa la orden a autorización).
+  const btnPdf = p.proc_inicio
+    ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Abrir la cotización en PDF para enviarla al cliente">📄 PDF</button>` : ''
+  return `<div class="jp-ordcard">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nProd} ítem(s)</span></div>
+      <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
+    </div>
+    ${reloj}
+    ${btnPdf}
+    ${btnAdd}
+    ${btnAut}
+  </div>`
 }
 
 window.jpAutorizar = async (id) => {

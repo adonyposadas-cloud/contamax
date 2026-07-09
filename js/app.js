@@ -4236,6 +4236,12 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
   // Una fila por línea de ISV; si no hay ISV pero es fiscal, una sola fila (exento)
   const baseRows = []
   if (isvLines.length) {
+    // Base REAL de la partida = débitos que no son ISV (costo/inventario/gasto).
+    // Si hay una sola factura, la usamos tal cual para que los centavos del libro
+    // cuadren exactos con el asiento (no reconstruir la base dividiendo el ISV).
+    const baseRealTot = r2(lineasValidas
+      .filter(l => l.tipo === 'debito' && !l.cuenta_codigo?.startsWith('110402'))
+      .reduce((s, l) => s + (+l.monto || 0), 0))
     for (const li of isvLines) {
       const isv = r2(li.monto)
       const { numfac, prov } = parseLinea(li.descripcion)
@@ -4243,12 +4249,15 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
       // hay UNA sola factura (caso normal). Con varias facturas en una misma
       // partida, cada línea usa el N° que trae en su descripción (#...).
       const nfac = (isvLines.length === 1 && numDocumento) ? numDocumento : (numfac || numDocumento || '')
+      // Base: real del asiento si hay una sola factura; si hay varias, se
+      // reparte por línea (no se puede asociar cada costo a su factura sin ambigüedad).
+      const subtotal = (isvLines.length === 1 && baseRealTot > 0) ? baseRealTot : r2(isv / 0.15)
       baseRows.push({
         numero_factura: nfac,
         proveedor: prov || provGeneral || '',
         isv,
-        subtotal: r2(isv / 0.15),
-        total: r2(isv / 0.15 + isv),
+        subtotal,
+        total: r2(subtotal + isv),
         productos: li.descripcion || descripcion,
         centro_costo_id: li.centro_costo_id || centroCostoId,
       })
@@ -8025,6 +8034,21 @@ window.generarPartidasTaxis = async () => {
 let allVehiculos = []
 let filteredVehiculos = []
 let editingVinId = null
+// ── Selección múltiple + asignación de ubicación/contenedor ──
+let vinSel = new Set()
+const VIN_UBIC_STD = ['Bodega USA', 'En tránsito marítimo', 'Trámites aduaneros', 'Grúa a TGU', 'Grúa a SPS', 'Llegado a plantel', 'Tránsito a puerto', 'Vendido']
+function vinUbicList() {
+  const s = new Set(VIN_UBIC_STD)
+  allVehiculos.forEach(v => { if (v.ubicacion) s.add(v.ubicacion) })
+  return [...s].sort()
+}
+// Si nv-ubicacion es un <select>, le agrega (sin borrar) las ubicaciones/contenedores que existan
+function vinFillUbicSelect() {
+  const el = document.getElementById('nv-ubicacion')
+  if (!el || el.tagName !== 'SELECT') return
+  const have = new Set(Array.from(el.options).map(o => o.value))
+  vinUbicList().forEach(u => { if (u && !have.has(u)) el.add(new Option(u, u)) })
+}
 
 async function loadVehiculos() {
   const tbody = document.getElementById('tbody-vehiculos')
@@ -8048,6 +8072,17 @@ async function loadVehiculos() {
     const props = [...new Set(allVehiculos.map(v => v.propietario))].sort()
     propSelect.innerHTML = '<option value="">Todos los propietarios</option>' +
       props.map(p => `<option value="${p}">${p}</option>`).join('')
+  }
+
+  // Filtro de ubicación: se llena con las ubicaciones/contenedores que existan en los datos
+  const ubSelect = document.getElementById('vin-filtro-ubicacion')
+  if (ubSelect && ubSelect.tagName === 'SELECT') {
+    const cur = ubSelect.value
+    const ubs = [...new Set(allVehiculos.map(v => v.ubicacion).filter(Boolean))].sort()
+    ubSelect.innerHTML = '<option value="">Todas las ubicaciones</option>' +
+      (allVehiculos.some(v => !v.ubicacion) ? '<option value="__NA__">Sin asignar</option>' : '') +
+      ubs.map(u => `<option value="${u}">${u}</option>`).join('')
+    ubSelect.value = cur
   }
 
   const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -8084,7 +8119,7 @@ async function loadVehiculos() {
       .sort((a, b) => b[1] - a[1])
       .map(([ub, count]) => {
         const color = chipColors[ub] || '#6b7280'
-        return `<span onclick="document.getElementById('vin-filtro-ubicacion').value='${ub === 'Sin asignar' ? '' : ub}';filtrarVehiculos()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:${color}22;border:1px solid ${color}44;color:${color};border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500">
+        return `<span onclick="document.getElementById('vin-filtro-ubicacion').value='${ub === 'Sin asignar' ? '__NA__' : ub}';filtrarVehiculos()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:${color}22;border:1px solid ${color}44;color:${color};border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500">
           <span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>
           ${ub} <strong>${count}</strong>
         </span>`
@@ -8102,7 +8137,8 @@ window.filtrarVehiculos = () => {
 
   filteredVehiculos = allVehiculos.filter(v => {
     if (propFilter && v.propietario !== propFilter) return false
-    if (ubicacionFilter && (v.ubicacion || '') !== ubicacionFilter) return false
+    if (ubicacionFilter === '__NA__') { if (v.ubicacion) return false }
+    else if (ubicacionFilter && (v.ubicacion || '') !== ubicacionFilter) return false
     if (term) {
       const searchable = `${v.vin} ${v.propietario} ${v.marca} ${v.modelo} ${v.anio} ${v.ubicacion || ''} ${v.notas || ''}`.toLowerCase()
       return searchable.includes(term)
@@ -8147,9 +8183,10 @@ function renderVehiculosTable() {
   tbody.innerHTML = filteredVehiculos.map(v => {
     const last4 = v.vin.slice(-4)
     const fecha = v.fecha_compra ? new Date(v.fecha_compra + 'T12:00:00').toLocaleDateString('es-HN') : '—'
+    const chk = esSuperAdmin ? `<input type="checkbox" ${vinSel.has(v.id) ? 'checked' : ''} onclick="event.stopPropagation();vinToggleSel('${v.id}',this.checked)" title="Seleccionar" style="margin-right:8px;vertical-align:middle;cursor:pointer;width:15px;height:15px">` : ''
     return `
     <tr style="cursor:pointer" onclick="verDetalleVin('${v.id}')">
-      <td style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold);letter-spacing:1px">${last4}</td>
+      <td style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold);letter-spacing:1px">${chk}${last4}</td>
       <td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${v.vin}</td>
       <td><span class="badge badge-blue">${v.propietario}</span></td>
       <td>${v.marca}</td>
@@ -8166,6 +8203,53 @@ function renderVehiculosTable() {
       </td>
     </tr>`
   }).join('')
+  vinUpdateToolbar()
+}
+
+// ── Barra de asignación de ubicación/contenedor a varios vehículos a la vez ──
+function vinEnsureToolbar() {
+  const tbody = document.getElementById('tbody-vehiculos'); if (!tbody) return
+  const table = tbody.closest('table'); if (!table || !table.parentNode) return
+  if (document.getElementById('vin-bulk-bar')) return
+  const bar = document.createElement('div')
+  bar.id = 'vin-bulk-bar'
+  bar.style.cssText = 'display:none;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:10px 14px;background:var(--bg2,#161b22);border:1px solid var(--gold,#c8a24a);border-radius:10px'
+  bar.innerHTML = `
+    <span style="font-weight:700;color:var(--gold,#c8a24a);white-space:nowrap">📦 <span id="vin-bulk-count">0</span> seleccionados</span>
+    <input id="vin-bulk-ubic" list="vin-bulk-dl" placeholder="Ubicación / contenedor (ej: Contenedor 24)" autocomplete="off"
+      style="flex:1;min-width:210px;padding:6px 10px;background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:6px;color:inherit;font-size:13px">
+    <datalist id="vin-bulk-dl"></datalist>
+    <button onclick="vinBulkAsignar()" style="background:var(--gold,#c8a24a);color:#1a1a1a;font-weight:700;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;white-space:nowrap">📍 Asignar a seleccionados</button>
+    <button onclick="vinBulkVendido()" style="background:none;border:1px solid var(--red,#f85149);color:var(--red,#f85149);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">🏷️ Marcar Vendido</button>
+    <button onclick="vinSelAllFiltered()" style="background:none;border:1px solid var(--border,#30363d);color:var(--text2,#adbac7);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap">Seleccionar todos (filtrados)</button>
+    <button onclick="vinClearSel()" style="background:none;border:1px solid var(--border,#30363d);color:var(--text3,#768390);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Limpiar</button>`
+  table.parentNode.insertBefore(bar, table)
+}
+function vinUpdateToolbar() {
+  vinEnsureToolbar()
+  const bar = document.getElementById('vin-bulk-bar'); if (!bar) return
+  const esSuper = currentProfile?.rol === 'super_admin'
+  bar.style.display = (esSuper && filteredVehiculos.length) ? 'flex' : 'none'
+  const cnt = document.getElementById('vin-bulk-count'); if (cnt) cnt.textContent = vinSel.size
+  const dl = document.getElementById('vin-bulk-dl'); if (dl) dl.innerHTML = vinUbicList().map(u => `<option value="${u}">`).join('')
+}
+window.vinToggleSel = (id, checked) => { if (checked) vinSel.add(id); else vinSel.delete(id); const c = document.getElementById('vin-bulk-count'); if (c) c.textContent = vinSel.size }
+window.vinSelAllFiltered = () => { filteredVehiculos.forEach(v => vinSel.add(v.id)); renderVehiculosTable() }
+window.vinBulkVendido = () => { const inp = document.getElementById('vin-bulk-ubic'); if (inp) inp.value = 'Vendido'; vinBulkAsignar() }
+window.vinClearSel = () => { vinSel.clear(); renderVehiculosTable() }
+window.vinBulkAsignar = async () => {
+  const inp = document.getElementById('vin-bulk-ubic')
+  const ubic = (inp?.value || '').trim()
+  if (!vinSel.size) { toast('No hay vehículos seleccionados', 'error'); return }
+  if (!ubic) { toast('Escribí la ubicación / contenedor a asignar', 'error'); if (inp) inp.focus(); return }
+  const ids = [...vinSel]
+  if (!confirm(`¿Asignar "${ubic}" a ${ids.length} vehículo(s)?`)) return
+  const { error } = await sb.from('vehiculos_vin').update({ ubicacion: ubic }).in('id', ids)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`📍 ${ids.length} vehículo(s) → ${ubic}`, 'success')
+  vinSel.clear()
+  if (inp) inp.value = ''
+  loadVehiculos()
 }
 
 window.openModalVin = () => {
@@ -8176,6 +8260,7 @@ window.openModalVin = () => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
   document.getElementById('nv-vin').disabled = false
+  vinFillUbicSelect()
   document.getElementById('modal-vin-error').classList.add('hidden')
   document.getElementById('modal-vin').classList.add('open')
 }
@@ -8195,6 +8280,9 @@ window.editarVehiculo = (id) => {
   document.getElementById('nv-costo').value = v.costo_copart || ''
   document.getElementById('nv-fecha').value = v.fecha_compra || ''
   document.getElementById('nv-notas').value = v.notas || ''
+  vinFillUbicSelect()
+  const _ubEl = document.getElementById('nv-ubicacion')
+  if (_ubEl && _ubEl.tagName === 'SELECT' && v.ubicacion && !Array.from(_ubEl.options).some(o => o.value === v.ubicacion)) _ubEl.add(new Option(v.ubicacion, v.ubicacion))
   document.getElementById('nv-ubicacion').value = v.ubicacion || ''
   document.getElementById('modal-vin-error').classList.add('hidden')
   document.getElementById('modal-vin').classList.add('open')
