@@ -2406,6 +2406,19 @@ window.editarPartida = async (id) => {
       aplica_fiscal: l.aplica_fiscal !== false,
       _fromDB: true // Marca que esta línea ya existía en la BD
     }
+    // Fallback: si la línea trae código pero no cuenta_id (p.ej. partidas de
+    // pago generadas por la conciliación de CxP), resolver el id desde el
+    // catálogo (con trim, por si el código trae espacios). Evita que el
+    // guardado la descarte por "cuenta inválida".
+    if (!lineaObj.cuenta_id && lineaObj.cuenta_codigo) {
+      const _cod = String(lineaObj.cuenta_codigo).trim()
+      const _cta = (window.catalogoCuentas || []).find(c => String(c.codigo).trim() === _cod)
+      if (_cta) {
+        lineaObj.cuenta_id = _cta.id
+        lineaObj.cuenta_codigo = _cta.codigo
+        if (!lineaObj.cuenta_nombre) lineaObj.cuenta_nombre = _cta.nombre
+      }
+    }
     // Si es cuenta de caja y hay conteo guardado, restaurar billetes
     if (esCuentaCaja(l.cuenta_codigo) && conteosExist?.length) {
       const tipoEsperado = l.tipo === 'debito' ? 'ingreso' : 'egreso'
@@ -10091,7 +10104,7 @@ window.consultarCxP = async () => {
 
   // Query lineas_partida for these accounts
   let query = sb.from('lineas_partida')
-    .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
+    .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, pagado_partida_num, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
     .in('cuenta_codigo', codigos)
     .eq('tipo', 'credito')
     .order('id', { ascending: true })
@@ -10149,7 +10162,7 @@ function renderCxPTabla() {
       <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
       <td style="max-width:300px">${l.descripcion || p.descripcion || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${fmt(l.monto)}</td>
-      <td>${l.pagado ? '<span class="badge badge-on">Pagado</span>' : '<span class="badge badge-amber">Pendiente</span>'}</td>
+      <td>${l.pagado ? `<span class="badge badge-on" title="${l.pagado_partida_num ? 'Pagado con la partida #' + l.pagado_partida_num : 'Pagado'}">Pagado${l.pagado_partida_num ? ' · #' + l.pagado_partida_num : ''}</span>` : '<span class="badge badge-amber">Pendiente</span>'}</td>
     </tr>`
   }).join('')
 
@@ -10578,7 +10591,7 @@ window.generarPagoCxP = async () => {
   // Group selected amounts by cuenta_codigo
   const porCuenta = {}
   cxpMovimientos.filter(l => cxpSeleccionados.has(l.id)).forEach(l => {
-    const k = l.cuenta_codigo
+    const k = (l.cuenta_codigo || '').trim()
     if (!porCuenta[k]) porCuenta[k] = { codigo: k, nombre: l.cuenta_nombre, total: 0, items: [] }
     porCuenta[k].total = Math.round((porCuenta[k].total + (parseFloat(l.monto) || 0)) * 100) / 100
     porCuenta[k].items.push(l)
@@ -10611,15 +10624,19 @@ window.generarPagoCxP = async () => {
   if (pErr) { toast('Error creando partida: ' + pErr.message, 'error'); return }
 
   // Insert debit lines (one per cuenta)
-  const lineas = Object.values(porCuenta).map(c => ({
-    partida_id: partida.id,
-    cuenta_codigo: c.codigo,
-    cuenta_nombre: c.nombre,
-    tipo: 'debito',
-    monto: c.total,
-    descripcion: `Pago ${c.items.length} cargos`,
-    aplica_fiscal: true
-  }))
+  const lineas = Object.values(porCuenta).map(c => {
+    const cta = (window.catalogoCuentas || []).find(x => String(x.codigo).trim() === c.codigo)
+    return {
+      partida_id: partida.id,
+      cuenta_id: cta?.id || null,
+      cuenta_codigo: c.codigo,
+      cuenta_nombre: cta?.nombre || c.nombre,
+      tipo: 'debito',
+      monto: c.total,
+      descripcion: `Pago ${c.items.length} cargos`,
+      aplica_fiscal: true
+    }
+  })
 
   // Add empty credit line placeholder
   lineas.push({
@@ -10635,8 +10652,8 @@ window.generarPagoCxP = async () => {
   const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
   if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
 
-  // Mark selected items as pagado
-  await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString() }).in('id', ids)
+  // Mark selected items as pagado + dejar registrada CON QUÉ partida se pagaron
+  await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString(), pagado_partida_num: nuevoNumero }).in('id', ids)
 
   toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala para agregar la forma de pago.`, 'success')
   cxpSeleccionados = new Set()
