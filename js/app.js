@@ -8568,15 +8568,8 @@ window.verDetalleVin = async (vinId) => {
 
   const fmtL = (val) => (val || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // 1. Buscar en facturas_taxis donde tipo_unidad='VIN' y registro coincide
-  const regNum = parseInt(last4)
-  const { data: facturas } = await sb.from('facturas_taxis')
-    .select('fecha, descripcion, monto, es_mano_obra')
-    .eq('tipo_unidad', 'VIN')
-    .eq('registro', regNum)
-    .order('fecha')
-
-  // 2. Buscar en lineas_partida donde la descripción menciona el VIN con prefijo
+  // Gastos del VIN: se toman de las líneas de partida (no de importaciones).
+  // 1. Líneas de partida cuya descripción menciona el VIN con prefijo
   // Only search with proper VIN prefix to avoid false positives (e.g. 1180 matching 11800)
   const lineaFilters = searchVariants.flatMap(s => [
     `descripcion.ilike.%VIN ${s}%`,
@@ -8624,26 +8617,16 @@ window.verDetalleVin = async (vinId) => {
     fecha: l.partida.fecha_partida,
     descripcion: l.descripcion || l.partida.descripcion,
     monto: parseFloat(l.monto) || 0,
+    es_mano_obra: /mano\s*de\s*obra|mano\s*obra/i.test(l.descripcion || l.partida.descripcion || ''),
     fuente: 'partida'
   }))
 
-  // 3. Combinar facturas importadas + gastos de partidas manuales (evitar duplicados)
-  const gastosFacturas = (facturas || []).map(f => ({
-    fecha: f.fecha,
-    descripcion: f.descripcion,
-    monto: parseFloat(f.monto) || 0,
-    es_mano_obra: f.es_mano_obra,
-    fuente: 'factura'
-  }))
-
-  // Deduplicar: si un gasto de partida tiene la misma fecha y monto similar a una factura, es duplicado
-  const todosGastos = [...gastosFacturas]
-  gastosPartidas.forEach(gp => {
-    const isDup = gastosFacturas.some(gf =>
-      gf.fecha === gp.fecha && Math.abs(gf.monto - gp.monto) < 0.02
-    )
-    if (!isDup) todosGastos.push(gp)
-  })
+  // 3. Solo líneas de partida. Las importaciones (facturas_taxis) ya quedan
+  // registradas como partida con la misma info; contar ambas duplicaba el total
+  // (la grúa y el corte aparecían en Importación y otra vez en Partida, con la
+  // partida en fecha distinta, por eso el dedup por fecha+monto no las cazaba).
+  // Igual que en Unidades Taxis: la fuente de verdad es la partida.
+  const todosGastos = [...gastosPartidas]
 
   // Ordenar por fecha
   todosGastos.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''))
