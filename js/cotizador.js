@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260708-lock' } catch (e) {}
+  try { window.__cotBuild = '20260710-herencia' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -28,7 +28,7 @@
   const PRIO_ORD = { crit: 0, rec: 1, prev: 2 }
 
   // ── Estado de la proforma en curso ──
-  let PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', jefe_pista: '', items: [] }
+  let PF = { id: null, correlativo: null, estado: 'pendiente', tipo_solicitud: 'solicitado', vendedor: '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', jefe_pista: '', items: [] }
   let modalTipo = 'p'        // 'p' productos | 's' servicios
   let searchResults = []     // resultados actuales del modal
   let ordenActual = null     // { ord, items } de la orden abierta en el paso 2
@@ -1863,14 +1863,16 @@
     const restore = () => { if (!opts.silencioso) { btn.disabled = false; btn.textContent = prev } }
     const prof = window._currentProfile ? window._currentProfile() : null
     const t = totales()
-    // Validar que la orden no esté ya usada en otra cotización
+    // Validar que la orden no esté ya usada en otra cotización DEL MISMO TIPO
+    // (se permite una 'solicitado' y una 'recomendado' por orden).
     try {
-      let chk = sb().from('cotizador_proformas').select('id,correlativo,vendedor').eq('numero_orden', orden)
+      let chk = sb().from('cotizador_proformas').select('id,correlativo,vendedor').eq('numero_orden', orden).eq('tipo_solicitud', PF.tipo_solicitud || 'solicitado')
       if (PF.id) chk = chk.neq('id', PF.id)
       const { data: dup, error: chkErr } = await chk.limit(1)
       if (chkErr) throw chkErr
       if (dup && dup.length) {
-        toast(`La orden #${orden} ya está en la cotización ${numeroDe(dup[0].vendedor, dup[0].correlativo)}`, 'error')
+        const tl = (PF.tipo_solicitud === 'recomendado') ? 'Recomendado' : 'Solicitado'
+        toast(`La orden #${orden} ya tiene una cotización ${tl} (${numeroDe(dup[0].vendedor, dup[0].correlativo)})`, 'error')
         restore(); return false
       }
     } catch (e) {
@@ -1881,7 +1883,7 @@
       vendedor: PF.vendedor || '', vendedor_id: prof ? prof.id : null,
       cliente: PF.cliente || '', placa: (PF.placa || '').toUpperCase(),
       marca: PF.marca || '', modelo: PF.modelo || '', anio: [PF.anioDesde, PF.anioHasta].filter(Boolean).join('-'), anio_vehiculo: PF.anioVeh || '', kilometraje: PF.km || '',
-      numero_orden: orden,
+      numero_orden: orden, tipo_solicitud: PF.tipo_solicitud || 'solicitado',
       items: PF.items, solicitados: PF.solicitados || [], subtotal: t.subtotal, isv: t.isv, total: t.total,
       descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
       ganancia_default: getGanDefault(), estado: PF.estado || 'pendiente'
@@ -1991,7 +1993,7 @@
       const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
       if (error) throw error
       PF = {
-        id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente',
+        id: data.id, correlativo: data.correlativo, estado: data.estado || 'pendiente', tipo_solicitud: data.tipo_solicitud || 'solicitado',
         vendedor: data.vendedor || (window._currentProfile ? (window._currentProfile().nombre || '').toUpperCase() : ''), cliente: data.cliente || '', placa: data.placa || '', jefe_pista: data.jefe_pista || '',
         km: data.kilometraje || '', numero_orden: data.numero_orden || '', marca: data.marca || '', modelo: data.modelo || '', anioVeh: data.anio_vehiculo || '', anioDesde: (String(data.anio || '').split('-')[0] || '').trim(), anioHasta: (String(data.anio || '').split('-')[1] || '').trim(),
         descuento: Number(data.descuento) || 0, notas: data.notas || '',
@@ -2001,6 +2003,19 @@
         procesos_previos: Array.isArray(data.procesos_previos) ? data.procesos_previos : [],
         solicitados: Array.isArray(data.solicitados) ? data.solicitados : [],
         items: Array.isArray(data.items) ? data.items : []
+      }
+      // La Recomendado hereda cliente/placa/km de su Solicitado hermana (misma orden) si vienen vacíos
+      if (PF.tipo_solicitud === 'recomendado' && PF.numero_orden && (!PF.cliente || !PF.placa || !PF.km)) {
+        try {
+          const { data: sibs } = await sb().from('cotizador_proformas')
+            .select('cliente, placa, kilometraje').eq('numero_orden', PF.numero_orden).eq('tipo_solicitud', 'solicitado').limit(1)
+          const sib = sibs && sibs[0]
+          if (sib) {
+            if (!PF.cliente && sib.cliente) PF.cliente = sib.cliente
+            if (!PF.placa && sib.placa) PF.placa = sib.placa
+            if (!PF.km && sib.kilometraje) PF.km = sib.kilometraje
+          }
+        } catch (e) { /* silencioso */ }
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa; $('cot-jefe') && ($('cot-jefe').value = PF.jefe_pista || '')
       $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo
@@ -2026,7 +2041,7 @@
     if (PF.items.length && !PF.id && !confirm('¿Descartar la cotización actual sin guardar?')) return
     if (_lockedId) releaseLock(_lockedId)
     const prof = window._currentProfile ? window._currentProfile() : null
-    PF = { id: null, correlativo: null, estado: 'pendiente', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', mecanico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
+    PF = { id: null, correlativo: null, estado: 'pendiente', tipo_solicitud: 'solicitado', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', mecanico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
     renderContexto()
     ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
@@ -2115,6 +2130,10 @@
       return
     }
     const ms = Date.now() - new Date(f.desde).getTime()
+    if (f.fase === 'compra' && progresoPedidos(PF.items).total === 0) {
+      el.innerHTML = `<span style="color:var(--text3,#8b949e);font-weight:700">📦 Sin repuestos que pedir</span> <span style="color:var(--text3,#8b949e)">· solo servicios</span>`
+      return
+    }
     const lbl = f.fase === 'autorizacion' ? '⏱ Esperando autorización' : '⏱ Compra y entrega'
     el.innerHTML = `<span style="color:${_colorFaseMs(ms, f.fase)};font-weight:700;font-variant-numeric:tabular-nums">${lbl}: ${_fmtCrono(ms)}</span>`
   }
@@ -2135,6 +2154,10 @@
     if (p.estado === 'finalizada' || p.estado === 'anulada') return ''   // proceso cerrado → sin reloj
     const f = _procFase(p)
     if (!f.fase || f.fase === 'sin_iniciar' || f.fase === 'completado') return ''
+    // Solo servicios (0 productos): no hay repuestos que pedir → el contador de Pedido no corre
+    if (f.fase === 'compra' && progresoPedidos(p.items).total === 0) {
+      return `<span style="font-size:11px;color:var(--text3,#8b949e)">📦 Sin repuestos que pedir</span>`
+    }
     const acumMs = f.fase === 'cotizacion' ? (p.proc_cotiz_ms || 0) : (f.fase === 'autorizacion' ? (p.proc_autor_ms || 0) : (p.proc_compra_ms || 0))
     const ms = acumMs + (Date.now() - new Date(f.desde).getTime())
     const lbl = f.fase === 'cotizacion' ? '📝 Cotización' : (f.fase === 'autorizacion' ? '⏱ Autoriz.' : '📦 Pedido')
@@ -2200,11 +2223,14 @@
     if (!PEDPF || !PEDPF.id) return
     if (PEDPF.proc_completada) { toast('El proceso ya estaba completado', 'success'); return }
     if (!confirm('¿Finalizar el proceso ahora? Se detiene el cronómetro de compra.')) return
-    const ts = new Date().toISOString()
+    // Solo servicios (0 productos): no hubo compra → tiempo de compra en 0 (completa = aprobada)
+    const solo = progresoPedidos(PEDPF.items).total === 0
+    const ts = (solo && PEDPF.proc_aprobada) ? PEDPF.proc_aprobada : new Date().toISOString()
+    const upd = solo ? { proc_completada: ts, proc_compra_ms: 0 } : { proc_completada: ts }
     try {
-      const { error } = await sb().from('cotizador_proformas').update({ proc_completada: ts }).eq('id', PEDPF.id).is('proc_completada', null)
+      const { error } = await sb().from('cotizador_proformas').update(upd).eq('id', PEDPF.id).is('proc_completada', null)
       if (error) throw error
-      PEDPF.proc_completada = ts; toast('🏁 Proceso finalizado', 'success'); renderPedidos()
+      PEDPF.proc_completada = ts; if (solo) PEDPF.proc_compra_ms = 0; toast('🏁 Proceso finalizado', 'success'); renderPedidos()
     } catch (e) { console.error('[proc fin manual]', e); toast('Error al finalizar', 'error') }
   }
 
@@ -2548,7 +2574,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,tipo_solicitud,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2627,6 +2653,8 @@
     const _me = _profLock()
     const lockOtro = !!(p.editando_por_id && p.editando_por_id !== _me.id && _lockFresco(p))
     const lockBadge = lockOtro ? ` <span style="font-size:10px;font-weight:700;color:var(--amber,#f59e0b);border:1px solid var(--amber,#f59e0b);padding:1px 6px;border-radius:8px">🔒 ${esc(p.editando_por || 'en edición')}</span>` : ''
+    const esRec = p.tipo_solicitud === 'recomendado'
+    const tipoBadge = ` <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
     const pr = progresoPedidos(p.items)
     const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
     const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
@@ -2646,7 +2674,7 @@
     const openAttr = esAut ? `data-ped="${p.id}"` : (lockOtro ? '' : `data-dashopen="${p.id}"`)
     return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'}">
       <div style="min-width:0">
-        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${badge}${badgeNuevo}${lockBadge}</div>
+        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${tipoBadge}${badge}${badgeNuevo}${lockBadge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b></div>
       </div>
@@ -2672,9 +2700,12 @@
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadDashboard()
     } else if (act === 'finalizar') {
+      let solo = false, aprobada = null
       try {
-        const { data } = await sb().from('cotizador_proformas').select('items').eq('id', id).single()
+        const { data } = await sb().from('cotizador_proformas').select('items, proc_aprobada').eq('id', id).single()
         const pr = progresoPedidos(data ? data.items : [])
+        aprobada = data ? data.proc_aprobada : null
+        solo = pr.total === 0
         if (pr.total > 0 && pr.llegados < pr.total) {
           toast(`No podés finalizar: faltan productos por llegar (${pr.llegados}/${pr.total})`, 'error'); return
         }
@@ -2682,7 +2713,9 @@
       if (!confirm('¿Finalizar? Se quita del Inicio pero queda en Cotización.')) return
       const { error } = await sb().from('cotizador_proformas').update({ estado: 'finalizada' }).eq('id', id)
       if (error) { toast('Error al finalizar', 'error'); return }
-      await sb().from('cotizador_proformas').update({ proc_completada: new Date().toISOString() }).eq('id', id).is('proc_completada', null)  // detiene el reloj si aún corría
+      // Solo servicios: no hubo compra → tiempo de compra 0 (completa = aprobada). Si no, ahora.
+      const upd = (solo && aprobada) ? { proc_completada: aprobada, proc_compra_ms: 0 } : { proc_completada: new Date().toISOString() }
+      await sb().from('cotizador_proformas').update(upd).eq('id', id).is('proc_completada', null)  // detiene el reloj si aún corría
       toast('Cotización finalizada', 'success'); loadDashboard()
     }
   }
