@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260710-herencia' } catch (e) {}
+  try { window.__cotBuild = '20260711-unificado' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -2198,7 +2198,29 @@
     } catch (e) { console.error('[nuevo ciclo]', e); toast('Error al iniciar el nuevo proceso: ' + (e.message || e), 'error') }
   }
   async function checkProcCompletada () {
-    if (!PEDPF || !PEDPF.id) return
+    if (!PEDPF) return
+    if (PEDPF._merged) {
+      const now = new Date().toISOString()
+      for (const sid of PEDPF._srcs) {
+        const meta = PEDPF._srcMeta[sid] || {}
+        const prods = PEDPF.items.filter(it => it._src === sid && it.tipo === 'p')
+        const pendientes = prods.filter(it => it.seguimiento === 'pedido' || !it.seguimiento)
+        const completo = prods.length > 0 && pendientes.length === 0
+        try {
+          if (completo && !meta.proc_completada) {
+            const { error } = await sb().from('cotizador_proformas').update({ proc_completada: now }).eq('id', sid).is('proc_completada', null)
+            if (!error) meta.proc_completada = now
+          } else if (!completo && meta.proc_completada) {
+            const upd = { proc_completada: null }
+            if (meta.estado === 'finalizada') upd.estado = 'autorizada'
+            const { error } = await sb().from('cotizador_proformas').update(upd).eq('id', sid)
+            if (!error) { meta.proc_completada = null; if (upd.estado) meta.estado = upd.estado }
+          }
+        } catch (e) { console.error('[proc reconciliar merged]', e) }
+      }
+      return
+    }
+    if (!PEDPF.id) return
     const prods = (PEDPF.items || []).filter(it => it.tipo === 'p')
     // Pendiente = ítem pedido a proveedor y aún NO llegó, o sin decidir.
     // Los de bodega y los ya llegados NO cuentan (no están en el proceso de compra).
@@ -2220,7 +2242,24 @@
     } catch (e) { console.error('[proc reconciliar]', e) }
   }
   async function finalizarProcesoManual () {
-    if (!PEDPF || !PEDPF.id) return
+    if (!PEDPF) return
+    if (PEDPF._merged) {
+      if (!confirm('¿Finalizar el proceso de ambas cotizaciones ahora? Se detiene el cronómetro de compra.')) return
+      for (const sid of PEDPF._srcs) {
+        const meta = PEDPF._srcMeta[sid] || {}
+        if (meta.proc_completada) continue
+        const its = PEDPF.items.filter(x => x._src === sid)
+        const solo = progresoPedidos(its).total === 0
+        const ts = (solo && meta.proc_aprobada) ? meta.proc_aprobada : new Date().toISOString()
+        const upd = solo ? { proc_completada: ts, proc_compra_ms: 0 } : { proc_completada: ts }
+        try {
+          const { error } = await sb().from('cotizador_proformas').update(upd).eq('id', sid).is('proc_completada', null)
+          if (!error) meta.proc_completada = ts
+        } catch (e) { console.error('[proc fin manual merged]', e) }
+      }
+      toast('🏁 Proceso finalizado', 'success'); renderPedidos(); return
+    }
+    if (!PEDPF.id) return
     if (PEDPF.proc_completada) { toast('El proceso ya estaba completado', 'success'); return }
     if (!confirm('¿Finalizar el proceso ahora? Se detiene el cronómetro de compra.')) return
     // Solo servicios (0 productos): no hubo compra → tiempo de compra en 0 (completa = aprobada)
@@ -2574,7 +2613,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,tipo_solicitud,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,tipo_solicitud,numero_orden,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2595,7 +2634,7 @@
       ]
       const grupHTML = secDef.map(([key, titulo]) => {
         const arr = grupos[key]
-        const cuerpo = arr.length ? arr.map(filaDash).join('')
+        const cuerpo = arr.length ? cuerpoSeccion(key, arr)
           : '<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ninguna —</div>'
         return `<div style="margin-bottom:14px">
           <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37)">
@@ -2650,6 +2689,9 @@
     const veh = [p.marca, p.modelo, p.anio].filter(Boolean).join(' ')
     const esAut = p.estado === 'autorizada'
     const resp = responsableDe(p)
+    // Borde izquierdo por fase (como las tarjetas de caja): rojo=cotización, amarillo=autorización, verde=pedido
+    const _g = grupoDe(p)
+    const borderCol = _g === 'cotizacion' ? 'var(--red,#f85149)' : _g === 'autorizacion' ? 'var(--amber,#f59e0b)' : 'var(--green,#16a34a)'
     const _me = _profLock()
     const lockOtro = !!(p.editando_por_id && p.editando_por_id !== _me.id && _lockFresco(p))
     const lockBadge = lockOtro ? ` <span style="font-size:10px;font-weight:700;color:var(--amber,#f59e0b);border:1px solid var(--amber,#f59e0b);padding:1px 6px;border-radius:8px">🔒 ${esc(p.editando_por || 'en edición')}</span>` : ''
@@ -2672,7 +2714,7 @@
       accion = editar + ` <button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
     }
     const openAttr = esAut ? `data-ped="${p.id}"` : (lockOtro ? '' : `data-dashopen="${p.id}"`)
-    return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'}">
+    return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'};border-left:4px solid ${borderCol}">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${tipoBadge}${badge}${badgeNuevo}${lockBadge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
@@ -2683,13 +2725,98 @@
   }
 
   async function dashClick (e) {
+    // Menú "Editar" de la tarjeta unificada
+    const menu = e.target.closest('[data-dashact="editmenu"]')
+    if (menu) { e.stopPropagation(); const m = $(menu.dataset.menu); if (m) m.style.display = (m.style.display === 'none' || !m.style.display) ? 'block' : 'none'; return }
+    // Finalizar ambas (unificada)
+    const finM = e.target.closest('[data-dashact="finalizar-multi"]')
+    if (finM) { e.stopPropagation(); if (!finM.disabled) return finalizarMulti(finM.dataset.ids); return }
     const act = e.target.closest('[data-dashact]')
     if (act) { e.stopPropagation(); return dashAccion(act.dataset.dashact, act.dataset.pf) }
     if (e.target.closest('[data-stop]')) return
+    // Pedido combinado (tarjeta unificada)
+    const combo = e.target.closest('[data-pedcombo]')
+    if (combo) return abrirPedidosCombinado(combo.dataset.pedcombo.split(','))
     const ped = e.target.closest('[data-ped]')
     if (ped) return abrirPedidos(ped.dataset.ped)
     const op = e.target.closest('[data-dashopen]')
     if (op) return recuperarProforma(op.dataset.dashopen).then(ok => { if (ok !== false) switchTab('nueva') })
+  }
+
+  // Cuerpo de una sección del tablero. En "Pedido de repuestos" une la
+  // solicitada + la recomendada de la misma orden en UNA sola tarjeta.
+  function cuerpoSeccion (key, arr) {
+    if (key !== 'compra') return arr.map(filaDash).join('')
+    const porOrden = {}
+    arr.forEach(p => { const o = (p.numero_orden || '').trim(); if (o) (porOrden[o] = porOrden[o] || []).push(p) })
+    const out = []; const vistos = new Set()
+    arr.forEach(p => {
+      const o = (p.numero_orden || '').trim()
+      if (!o) { out.push(filaDash(p)); return }        // sin orden → suelta
+      if (vistos.has(o)) return
+      vistos.add(o)
+      const grp = porOrden[o]
+      out.push(grp.length >= 2 ? filaDashUnificada(grp) : filaDash(grp[0]))
+    })
+    return out.join('')
+  }
+
+  // Tarjeta unificada (solicitada + recomendada de la misma orden, ya en pedido)
+  function filaDashUnificada (grp) {
+    const sol = grp.find(p => p.tipo_solicitud !== 'recomendado')
+    const rec = grp.find(p => p.tipo_solicitud === 'recomendado')
+    const base = sol || grp[0]
+    const num = numeroDe(base.vendedor, base.correlativo)
+    const veh = [base.marca, base.modelo, base.anio].filter(Boolean).join(' ')
+    const resp = responsableDe(base)
+    const allItems = grp.reduce((a, p) => a.concat(p.items || []), [])
+    const pr = progresoPedidos(allItems)
+    const totalMonto = grp.reduce((a, p) => a + (Number(p.total) || 0), 0)
+    const progBadge = (pr.total > 0)
+      ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
+      : ''
+    const tb = (rec_) => `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${rec_ ? '#f59e0b' : '#3b82f6'};color:${rec_ ? '#f59e0b' : '#3b82f6'}">${rec_ ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
+    const tipos = (sol ? tb(false) + ' ' : '') + (rec ? tb(true) : '')
+    const ids = grp.map(p => p.id)
+    const completo = pr.total === 0 || pr.llegados === pr.total
+    const menuId = 'edm-' + String(base.numero_orden || base.id).replace(/[^a-zA-Z0-9_-]/g, '')
+    const editarBtns = grp.map(p => {
+      const et = p.tipo_solicitud === 'recomendado' ? '💡 Recomendado' : '🔧 Solicitado'
+      return `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:6px 10px;width:100%;text-align:left">✏ ${et}</button>`
+    }).join('')
+    const accion =
+      `<div style="position:relative">
+         <button class="btn btn-ghost" data-dashact="editmenu" data-menu="${menuId}" style="font-size:11px;padding:4px 10px">✏ Editar ▾</button>
+         <div id="${menuId}" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;z-index:20;background:var(--bg2,#161b22);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:4px;min-width:150px;box-shadow:0 6px 20px rgba(0,0,0,.4)">${editarBtns}</div>
+       </div>
+       <button class="btn btn-ghost" data-dashact="finalizar-multi" data-ids="${ids.join(',')}" style="font-size:11px;padding:4px 10px;color:${completo ? 'var(--green,#16a34a)' : 'var(--text3,#8b949e)'}${completo ? '' : ';opacity:.45;cursor:not-allowed'}"${completo ? '' : ` disabled title="Faltan productos por llegar (${pr.llegados}/${pr.total})"`}>Finalizar</button>`
+    return `<div class="cot-hrow" data-pedcombo="${ids.join(',')}" style="cursor:pointer;border-left:4px solid var(--green,#16a34a)">
+      <div style="min-width:0">
+        <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(base.placa || 's/placa')} <span class="cot-estado autorizada">unificada</span> ${tipos}${progBadge}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(base.cliente || 's/n')} · L. ${fmt(totalMonto)}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b> · 📦 ${grp.length} cotizaciones</div>
+      </div>
+      <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start">${accion}</div>
+    </div>`
+  }
+
+  // Finaliza todas las cotizaciones de una orden unificada
+  async function finalizarMulti (idsCsv) {
+    const ids = String(idsCsv || '').split(',').filter(Boolean)
+    if (!ids.length) return
+    if (!confirm('¿Finalizar las cotizaciones unificadas de esta orden?\nSe quitan del Inicio pero quedan en Cotización.')) return
+    for (const id of ids) {
+      try {
+        const { data } = await sb().from('cotizador_proformas').select('items, proc_aprobada').eq('id', id).single()
+        const pr = progresoPedidos(data ? data.items : [])
+        if (pr.total > 0 && pr.llegados < pr.total) continue   // no finalizar incompletas
+        const solo = pr.total === 0
+        await sb().from('cotizador_proformas').update({ estado: 'finalizada' }).eq('id', id)
+        const upd = (solo && data && data.proc_aprobada) ? { proc_completada: data.proc_aprobada, proc_compra_ms: 0 } : { proc_completada: new Date().toISOString() }
+        await sb().from('cotizador_proformas').update(upd).eq('id', id).is('proc_completada', null)
+      } catch (e) { console.error('[finalizarMulti]', e) }
+    }
+    toast('Cotizaciones finalizadas', 'success'); loadDashboard()
   }
 
   async function dashAccion (act, id) {
@@ -2735,20 +2862,63 @@
     } catch (e) { console.error('[cotizador pedidos]', e); toast('No se pudo abrir', 'error') }
   }
 
+  // Pedido COMBINADO: junta los repuestos de la solicitada + la recomendada de
+  // la misma orden en un solo modal. Cada ítem lleva su proforma de origen (_src)
+  // para que el seguimiento/guardado vuelva a la proforma correcta.
+  async function abrirPedidosCombinado (ids) {
+    try {
+      const { data, error } = await sb().from('cotizador_proformas').select('*').in('id', ids)
+      if (error) throw error
+      if (!data || !data.length) return
+      data.sort((a, b) => (a.tipo_solicitud === 'recomendado' ? 1 : 0) - (b.tipo_solicitud === 'recomendado' ? 1 : 0))
+      const base = data[0]
+      PEDPF = { _merged: true, _srcs: data.map(d => d.id), _srcMeta: {}, id: base.id, vendedor: base.vendedor, correlativo: base.correlativo, marca: base.marca, modelo: base.modelo, placa: base.placa, items: [] }
+      data.forEach(d => {
+        PEDPF._srcMeta[d.id] = { descuento: Number(d.descuento) || 0, estado: d.estado, proc_aprobada: d.proc_aprobada, proc_completada: d.proc_completada, tipo: d.tipo_solicitud }
+        ;(d.items || []).forEach(it => PEDPF.items.push(Object.assign({}, it, { _src: d.id, _srcTipo: d.tipo_solicitud })))
+      })
+      $('ped-title').textContent = `${numeroDe(base.vendedor, base.correlativo)} — ${[base.marca, base.modelo].filter(Boolean).join(' ')} · ${base.placa || 's/placa'} · 🔗 combinado`
+      renderPedidos()
+      $('cot-modal-ped').classList.add('open')
+      cargarProveedores()
+      checkProcCompletada()
+      ensureProvContacts().then(() => renderPedidos())
+    } catch (e) { console.error('[cotizador pedidos combinado]', e); toast('No se pudo abrir', 'error') }
+  }
+
   async function ensureProvContacts () {
     if (PROV_CONT.length) return
     try { const { data } = await sb().from('proveedores_contacto').select('*'); PROV_CONT = (data || []).map(c => ({ nombre: c.nombre, nombre_norm: c.nombre_norm, telefono: c.telefono || '', contacto: c.contacto || '' })) } catch (e) { /* sin contactos */ }
   }
 
   function pedTotales () {
+    const r2 = v => Math.round(v * 100) / 100
+    if (PEDPF && PEDPF._merged) {
+      let sub = 0, descMonto = 0, isv = 0
+      for (const sid of PEDPF._srcs) {
+        const its = PEDPF.items.filter(x => x._src === sid)
+        const d = Math.max(0, Math.min(100, (PEDPF._srcMeta[sid] || {}).descuento || 0))
+        const f = 1 - d / 100
+        let s = 0, iv = 0
+        its.forEach(it => { const b = (Number(it.precio) || 0) * (Number(it.cantidad) || 0); s += b; iv += b * f * (Number(it.isv) || 0) / 100 })
+        sub += s; descMonto += s * d / 100; isv += iv
+      }
+      return { sub: r2(sub), descMonto: r2(descMonto), isv: r2(isv), total: r2(sub - descMonto + isv), d: 0 }
+    }
     const items = Array.isArray(PEDPF && PEDPF.items) ? PEDPF.items : []
     const d = Math.max(0, Math.min(100, Number(PEDPF && PEDPF.descuento) || 0))
     const f = 1 - d / 100
     let sub = 0, isv = 0
     items.forEach(it => { const b = (Number(it.precio) || 0) * (Number(it.cantidad) || 0); sub += b; isv += b * f * (Number(it.isv) || 0) / 100 })
     const descMonto = sub * d / 100
-    const r2 = v => Math.round(v * 100) / 100
     return { sub: r2(sub), descMonto: r2(descMonto), isv: r2(isv), total: r2(sub - descMonto + isv), d }
+  }
+
+  // Chip de origen (Solicitado/Recomendado) para el pedido combinado
+  function pedOrigenChip (it) {
+    if (!(PEDPF && PEDPF._merged && it && it._srcTipo)) return ''
+    const rec = it._srcTipo === 'recomendado'
+    return `<span style="font-size:9px;font-weight:800;padding:0 5px;border-radius:6px;border:1px solid ${rec ? '#f59e0b' : '#3b82f6'};color:${rec ? '#f59e0b' : '#3b82f6'};margin-right:5px">${rec ? 'REC' : 'SOL'}</span>`
   }
 
   function renderPedidos () {
@@ -2807,7 +2977,7 @@
       else if (seg === 'pedido') botones = `<button class="ped-btn ped-llego" data-pedact="llego" data-i="${i}">✓ Llegó</button> <button class="ped-btn" data-pedact="revertir" data-i="${i}">↩</button>`
       else botones = `<button class="ped-btn ped-pedir" data-pedact="pedir" data-i="${i}">Pedir</button> <button class="ped-btn ped-bodega" data-pedact="bodega" data-i="${i}">Bodega</button>`
       return `<div class="ped-row" style="${dimF(it)}">
-        <div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div>${precioLn}<div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
+        <div style="min-width:0"><div style="font-size:13px">${pedOrigenChip(it)}${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div>${precioLn}<div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
         <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">${botones} ${facBtn(it, i)}</div>
       </div>`
     }
@@ -2817,7 +2987,7 @@
       const base = (Number(it.precio) || 0) * (Number(it.cantidad) || 0)
       const lineIsv = base * (Number(it.isv) || 0) / 100
       const precioLn = base > 0 ? `<div style="font-size:12px;color:var(--gold,#c8a24a);font-weight:600;margin-top:2px">Subtotal: L. ${fmt(base)}${it.isv ? ` <span style="color:var(--text3,#8b949e);font-weight:400">+ ISV L. ${fmt(lineIsv)}</span>` : ''}</div>` : ''
-      return `<div class="ped-row" style="${dimF(it)}"><div style="min-width:0"><div style="font-size:13px">${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · Servicio</div>${precioLn}</div><div style="flex-shrink:0">${facBtn(it, i)}</div></div>`
+      return `<div class="ped-row" style="${dimF(it)}"><div style="min-width:0"><div style="font-size:13px">${pedOrigenChip(it)}${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · Servicio</div>${precioLn}</div><div style="flex-shrink:0">${facBtn(it, i)}</div></div>`
     }).join('')
     // Totales (para copiar precios correctos a Taller Alpha)
     const T = pedTotales()
@@ -2841,6 +3011,14 @@
   async function guardarPedidos () {
     if (!PEDPF) return
     try {
+      if (PEDPF._merged) {
+        for (const sid of PEDPF._srcs) {
+          const its = PEDPF.items.filter(x => x._src === sid).map(x => { const c = Object.assign({}, x); delete c._src; delete c._srcTipo; return c })
+          const { error } = await sb().from('cotizador_proformas').update({ items: its }).eq('id', sid)
+          if (error) throw error
+        }
+        return
+      }
       const { error } = await sb().from('cotizador_proformas').update({ items: PEDPF.items }).eq('id', PEDPF.id)
       if (error) throw error
     } catch (e) { console.error('[cotizador guardarPedidos]', e); toast('Error al guardar el pedido', 'error') }

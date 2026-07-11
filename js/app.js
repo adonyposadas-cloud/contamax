@@ -2228,6 +2228,13 @@ async function initPartidaNueva() {
   // TC: arrancar con el último usado (persistido en localStorage)
   if (typeof fetchTCBac === 'function') fetchTCBac()
   calcTotales()
+  // Prellenado externo (ej. partida de ajuste de arqueo): reemplaza las líneas
+  if (window._prefillPartida) {
+    const pf = window._prefillPartida; window._prefillPartida = null
+    if (Array.isArray(pf.lineas) && pf.lineas.length) { partidaLineas = pf.lineas; renderLineas() }
+    if (pf.descripcion) { const d = document.getElementById('pn-descripcion'); if (d) d.value = pf.descripcion }
+    calcTotales()
+  }
 }
 window.initPartidaNueva = initPartidaNueva
 
@@ -2527,6 +2534,12 @@ window.eliminarPartida = async () => {
     await limpiarDatosImportacion(editingPartidaId)
     toast('Partida anulada ✓', 'success')
   }
+  // Opción A: si la partida quedó ANULADA y era un pago CxP, liberar los cargos
+  // (pagado=false) y reabrir la selección programada. No-op si no es pago CxP.
+  try {
+    const { data: _pf } = await sb.from('partidas_contables').select('numero_partida, estado').eq('id', editingPartidaId).single()
+    if (_pf?.estado === 'anulada') await _sincronizarPagoCxP(_pf.numero_partida, false)
+  } catch (e) { console.error('[hook pago CxP anular]', e) }
   editingPartidaId = null
   if (_retornoPartida()) return
   showView('partidas', 'Partidas contables')
@@ -3244,6 +3257,15 @@ window.guardarPartida = async (estado) => {
   editingPartidaId = null
   logActividad(estadoFinal === 'aprobada' ? 'partida_aprobada' : 'partida_borrador', 'partidas', `${descripcion} · L. ${Math.round(debitos*100)/100}`, partidaId)
 
+  // Opción A: si esta partida es un pago CxP y quedó APROBADA, marcar los cargos como pagados
+  // y pasar la selección programada a "pagada". No-op si no es una partida de pago CxP.
+  if (estadoFinal === 'aprobada') {
+    try {
+      const { data: _pp } = await sb.from('partidas_contables').select('numero_partida').eq('id', partidaId).single()
+      if (_pp?.numero_partida) await _sincronizarPagoCxP(_pp.numero_partida, true)
+    } catch (e) { console.error('[hook pago CxP aprobar]', e) }
+  }
+
   // ── Insertar en LIBRO DE VENTAS (solo ventas fiscales) ──
   if (window._importVentasData) {
     const vd = window._importVentasData
@@ -3793,7 +3815,11 @@ function renderCajaList(fechaFiltro) {
   }
 
   // Los cambios son movimientos ya realizados → visibles en "Aprobadas" y "Todos"
-  let cambios = (filtroCajaActual === 'aprobada' || filtroCajaActual === 'todos') ? cajaCambios : []
+  // Los cambios son movimientos ya realizados → visibles en "Aprobadas" y "Todos".
+  // Excluir los de Caja Chica (110101*): esos van en la vista de su dueño.
+  let cambios = (filtroCajaActual === 'aprobada' || filtroCajaActual === 'todos')
+    ? cajaCambios.filter(c => !String(c.cuenta_codigo || '').startsWith('110101'))
+    : []
   if (fechaFiltro) cambios = cambios.filter(c => c.fecha_partida === fechaFiltro)
 
   if (!filtered.length && !cambios.length) {
@@ -4128,7 +4154,7 @@ async function loadAprobaciones() {
 
 window.aprobarPartidaPendiente = async (id) => {
   // Cargar partida para saber si es anulación o modificación
-  const { data: partida } = await sb.from('partidas_contables').select('estado').eq('id', id).single()
+  const { data: partida } = await sb.from('partidas_contables').select('estado, numero_partida').eq('id', id).single()
   if (!partida) { toast('Partida no encontrada', 'error'); return }
 
   if (partida.estado === 'pendiente_anulacion') {
@@ -4140,6 +4166,7 @@ window.aprobarPartidaPendiente = async (id) => {
     }).eq('id', id)
     if (error) { toast('Error: ' + error.message, 'error'); return }
     if (!error) await limpiarDatosImportacion(id)
+    await _sincronizarPagoCxP(partida.numero_partida, false)  // pago CxP anulado → liberar cargos
     toast('Partida anulada ✓', 'success')
   } else {
     if (!confirm('¿Aprobar esta partida modificada?')) return
@@ -4149,6 +4176,7 @@ window.aprobarPartidaPendiente = async (id) => {
       aprobada_at: new Date().toISOString(),
     }).eq('id', id)
     if (error) { toast('Error: ' + error.message, 'error'); return }
+    await _sincronizarPagoCxP(partida.numero_partida, true)   // pago CxP aprobado → marcar cargos
     toast('Partida aprobada ✓', 'success')
   }
   loadAprobaciones()
@@ -5497,12 +5525,14 @@ window.verArqueo = async () => {
   const tbody = document.getElementById('tbody-arqueo')
 
   let totIng = 0, totEgr = 0, totCaja = 0, totValor = 0
+  const enCajaMap = {}   // teórico por denominación, para el conteo físico
 
   tbody.innerHTML = denoms.map(d => {
     const ingresos = (conteos || []).filter(c => c.tipo === 'ingreso').reduce((s, c) => s + (c[`den_${d}`] || 0), 0)
     const egresos = (conteos || []).filter(c => c.tipo === 'egreso').reduce((s, c) => s + (c[`den_${d}`] || 0), 0)
     const enCaja = ingresos - egresos
     const valor = enCaja * d
+    enCajaMap[d] = enCaja
 
     totIng += ingresos
     totEgr += egresos
@@ -5551,6 +5581,212 @@ window.verArqueo = async () => {
   document.getElementById('arq-tot-valor').textContent = 'L. ' + totValor.toLocaleString('es-HN', { minimumFractionDigits: 2 })
 
   document.getElementById('modal-arqueo').classList.add('open')
+  renderArqueoFisico(enCajaMap)
+}
+
+// ── CONTEO FÍSICO DEL ARQUEO (billetes L.) ──
+// Panel que se inserta bajo la tabla del arqueo: por denominación muestra el
+// teórico (sistema), un input de conteo físico y la diferencia. Total en L.
+// y botón para generar la partida de ajuste (solo si hay diferencia).
+function renderArqueoFisico(enCajaMap, ctx) {
+  ctx = ctx || { tbodyId: 'tbody-arqueo', cajaCodigo: '110102-001', cajaNombre: 'Caja General', modalId: 'modal-arqueo' }
+  window._arqCtx = ctx
+  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]  // de mayor a menor para contar
+  const tabla = document.getElementById(ctx.tbodyId).closest('table')
+  let panel = document.getElementById('arqueo-fisico-panel')
+  if (!panel) {
+    panel = document.createElement('div')
+    panel.id = 'arqueo-fisico-panel'
+    panel.style.marginTop = '18px'
+  }
+  tabla.insertAdjacentElement('afterend', panel)  // (re)posicionar bajo la caja actual
+  // input de texto (sin spinners); navegación con ↑/↓/Enter entre denominaciones
+  const filas = denoms.map((d, i) => `
+    <tr>
+      <td style="padding:6px 10px;font-family:var(--mono);font-size:13px">L. ${d}</td>
+      <td style="padding:6px 10px;text-align:center;font-family:var(--mono);color:var(--text3)">${enCajaMap[d] || 0}</td>
+      <td style="padding:6px 10px;text-align:center">
+        <input id="fis-${d}" data-idx="${i}" data-denom="${d}" type="text" autocomplete="off" placeholder="0"
+          oninput="window._fisInput(this)" onblur="window._fisBlur(this)" onkeydown="window._navFis(event,this)"
+          style="width:90px;text-align:center;padding:5px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2,#1a1a1a);color:var(--text);font-family:var(--mono)">
+      </td>
+      <td id="dif-${d}" style="padding:6px 10px;text-align:center;font-family:var(--mono)"><span style="color:var(--text3)">—</span></td>
+    </tr>`).join('')
+  panel.innerHTML = `
+    <button type="button" id="arq-fis-toggle" onclick="window._toggleArqueoFisico()"
+      style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg2,#1a1a1a);color:var(--gold,#B4892F);font-weight:600;font-size:14px;cursor:pointer">
+      <span>🔢 Hacer arqueo físico · billetes L.</span>
+      <span id="arq-fis-caret" style="font-size:12px">▸</span>
+    </button>
+    <div id="arq-fis-body" style="display:none;margin-top:12px">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="color:var(--text3);text-align:left">
+          <th style="padding:6px 10px;font-weight:500">Billete</th>
+          <th style="padding:6px 10px;text-align:center;font-weight:500">Sistema</th>
+          <th style="padding:6px 10px;text-align:center;font-weight:500">Conteo físico</th>
+          <th style="padding:6px 10px;text-align:center;font-weight:500">Diferencia</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:10px 12px;background:var(--bg2,#1a1a1a);border-radius:8px">
+        <div>
+          <div style="font-size:12px;color:var(--text3)">Diferencia total</div>
+          <div id="arq-fis-diftot" style="font-family:var(--mono);font-size:18px;font-weight:600">L. 0.00</div>
+        </div>
+        <button id="arq-fis-btn" onclick="window.generarAjusteArqueo()" disabled
+          style="padding:10px 16px;border-radius:8px;border:none;background:var(--gold,#B4892F);color:#000;font-weight:600;opacity:.5">
+          Generar partida de ajuste
+        </button>
+      </div>
+      <div id="arq-fis-hint" style="margin-top:6px;font-size:12px;color:var(--text3)">Contá cada denominación. Podés sumar en la casilla (ej. 20+30+50). Movete con ↑ ↓ o Enter.</div>
+    </div>`
+  window._arqueoTeorico = enCajaMap
+  window._fisicoConteo = {}
+  window._recalcArqueoFisico()
+}
+
+// Mostrar/ocultar el conteo físico (desplegable)
+window._toggleArqueoFisico = () => {
+  const body = document.getElementById('arq-fis-body')
+  const caret = document.getElementById('arq-fis-caret')
+  if (!body) return
+  const abrir = body.style.display === 'none'
+  body.style.display = abrir ? '' : 'none'
+  if (caret) caret.textContent = abrir ? '▾' : '▸'
+  if (abrir) { const f = document.getElementById('fis-500'); if (f) { f.focus(); f.select?.() } }
+}
+
+// Calculadora por casilla (igual que los montos de la partida): permite 20+30+50
+window._fisInput = (inp) => {
+  const permitido = String(inp.value).replace(/[^0-9+\-*/(). ]/g, '')
+  if (permitido !== inp.value) inp.value = permitido
+  const d = inp.dataset.denom
+  if (!window._fisicoConteo) window._fisicoConteo = {}
+  const raw = permitido.trim()
+  if (raw === '') { delete window._fisicoConteo[d] }
+  else {
+    const n = (typeof evalExprSeguro === 'function') ? evalExprSeguro(raw) : parseFloat(raw)
+    if (!isNaN(n) && n >= 0) window._fisicoConteo[d] = Math.round(n)  // billetes = entero
+  }
+  window._recalcArqueoFisico()
+}
+
+// Al salir de la casilla, muestra el resultado ya calculado (como Excel)
+window._fisBlur = (inp) => {
+  const d = inp.dataset.denom
+  if (!window._fisicoConteo) window._fisicoConteo = {}
+  if (String(inp.value).trim() === '') { delete window._fisicoConteo[d]; window._recalcArqueoFisico(); return }
+  inp.value = String(window._fisicoConteo[d] || 0)
+  window._recalcArqueoFisico()
+}
+
+// Navegación con ↑ ↓ (y Enter = bajar) entre denominaciones
+window._navFis = (e, inp) => {
+  const idx = parseInt(inp.dataset.idx, 10)
+  let destino = null
+  if (e.key === 'ArrowDown' || e.key === 'Enter') destino = idx + 1
+  else if (e.key === 'ArrowUp') destino = idx - 1
+  else return
+  e.preventDefault()
+  window._fisBlur(inp)  // resuelve la suma de la casilla actual antes de moverse
+  const nxt = document.querySelector(`#arqueo-fisico-panel input[data-idx="${destino}"]`)
+  if (nxt) { nxt.focus(); nxt.select?.() }
+}
+
+window._recalcArqueoFisico = () => {
+  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const teo = window._arqueoTeorico || {}
+  const cont = window._fisicoConteo || {}
+  let difTotalL = 0, algoContado = false
+  const difDenom = {}
+  denoms.forEach(d => {
+    const cell = document.getElementById('dif-' + d)
+    if (!Object.prototype.hasOwnProperty.call(cont, d)) { difDenom[d] = null; if (cell) cell.innerHTML = '<span style="color:var(--text3)">—</span>'; return }
+    algoContado = true
+    const fis = cont[d] || 0
+    const dif = fis - (teo[d] || 0)
+    difDenom[d] = dif
+    difTotalL += dif * d
+    const color = dif === 0 ? 'var(--text3)' : (dif > 0 ? 'var(--green)' : 'var(--red)')
+    if (cell) cell.innerHTML = `<span style="color:${color}">${dif > 0 ? '+' : ''}${dif}</span>`
+  })
+  const difEl = document.getElementById('arq-fis-diftot')
+  if (difEl) {
+    difEl.style.color = difTotalL === 0 ? 'var(--text)' : (difTotalL > 0 ? 'var(--green)' : 'var(--red)')
+    difEl.textContent = (difTotalL > 0 ? '+' : '') + 'L. ' + difTotalL.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  }
+  const activo = algoContado && Math.abs(difTotalL) > 0.001
+  const btn = document.getElementById('arq-fis-btn')
+  if (btn) { btn.disabled = !activo; btn.style.opacity = activo ? '1' : '.5'; btn.style.cursor = activo ? 'pointer' : 'default' }
+  const hint = document.getElementById('arq-fis-hint')
+  if (hint) {
+    hint.textContent = !algoContado ? 'Ingresá el conteo físico de cada denominación.'
+      : (Math.abs(difTotalL) < 0.001 ? '✅ Cuadra: el físico coincide con el sistema.'
+      : (difTotalL > 0 ? 'Sobrante: hay más efectivo físico que en el sistema.' : 'Faltante: hay menos efectivo físico que en el sistema.'))
+  }
+  window._arqueoDifTotalL = difTotalL
+  window._arqueoDifDenom = difDenom
+}
+
+// Etapa B: arma la partida de ajuste con la contracuenta editable y corrige
+// el stock por denominación (débito 110102 por las que sobran + billetes
+// ingreso; crédito 110102 por las que faltan + billetes egreso; el neto va
+// contra la cuenta que el usuario elija).
+window.generarAjusteArqueo = () => {
+  const dif = window._arqueoDifDenom || {}
+  const difTotal = window._arqueoDifTotalL || 0
+  if (Math.abs(difTotal) < 0.001) { window.toast?.('No hay diferencia que ajustar', 'info'); return }
+
+  const ctx = window._arqCtx || { cajaCodigo: '110102-001', cajaNombre: 'Caja General', modalId: 'modal-arqueo' }
+  const CAJA = ctx.cajaCodigo
+  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1]
+  const inc = { _cheques: 0 }, dec = { _cheques: 0 }
+  let incVal = 0, decVal = 0
+  denoms.forEach(d => {
+    const x = dif[d]
+    if (x == null || x === 0) return
+    if (x > 0) { inc[d] = x; incVal += x * d }
+    else { dec[d] = -x; decVal += (-x) * d }
+  })
+
+  const uid = () => (window.crypto?.randomUUID ? crypto.randomUUID() : 'l' + Math.random().toString(36).slice(2))
+  const cta = (window.catalogoCuentas || []).find(c => String(c.codigo).trim() === CAJA)
+  const cajaId = cta ? cta.id : ''
+  const cajaNom = cta ? cta.nombre : ctx.cajaNombre
+
+  const lineas = []
+  // Denominaciones que SOBRAN → entra efectivo a caja (débito + billetes ingreso)
+  if (incVal > 0) lineas.push({
+    id: uid(), cuenta_id: cajaId, cuenta_codigo: CAJA, cuenta_nombre: cajaNom,
+    tipo: 'debito', monto: incVal, centro_costo_id: '',
+    descripcion: 'Ajuste de arqueo · sobrante de billetes', aplica_fiscal: false, billetes: { ...inc }
+  })
+  // Denominaciones que FALTAN → sale efectivo de caja (crédito + billetes egreso)
+  if (decVal > 0) lineas.push({
+    id: uid(), cuenta_id: cajaId, cuenta_codigo: CAJA, cuenta_nombre: cajaNom,
+    tipo: 'credito', monto: decVal, centro_costo_id: '',
+    descripcion: 'Ajuste de arqueo · faltante de billetes', aplica_fiscal: false, billetes: { ...dec }
+  })
+  // Contracuenta editable: el usuario elige faltante/sobrante y revisa
+  const contraTipo = difTotal > 0 ? 'credito' : 'debito'
+  lineas.push({
+    id: uid(), cuenta_id: '', cuenta_codigo: '', cuenta_nombre: '',
+    tipo: contraTipo, monto: Math.abs(difTotal), centro_costo_id: '',
+    descripcion: difTotal > 0 ? 'Sobrante de caja — elegí la cuenta' : 'Faltante de caja — elegí la cuenta',
+    aplica_fiscal: false
+  })
+
+  const fechaTxt = new Date().toLocaleDateString('es-HN')
+  const montoTxt = Math.abs(difTotal).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  window._prefillPartida = {
+    lineas,
+    descripcion: `AJUSTE DE ARQUEO ${String(ctx.cajaNombre).toUpperCase()} ${fechaTxt} · ${difTotal > 0 ? 'Sobrante' : 'Faltante'} L. ${montoTxt}`
+  }
+
+  document.getElementById(ctx.modalId)?.classList.remove('open')
+  if (typeof window.nuevaPartida === 'function') window.nuevaPartida()
+  else showView('partida-nueva', 'Partida de ajuste de arqueo')
+  window.toast?.('Revisá y elegí la contracuenta del ajuste antes de guardar.', 'info')
 }
 
 // ══════════════════════════════════════════════
@@ -9699,6 +9935,7 @@ window.loadCajaChica = async () => {
   document.getElementById('cc-stat-ingresos').textContent = 'L. ' + fmt(ingrF)
   document.getElementById('cc-stat-egresos').textContent = 'L. ' + fmt(egrF)
 
+  await loadCajaCambios()   // cambios de billetes (incluye los de caja chica; el render filtra 110101)
   allCCPartidas = filtered
   renderCajaChicaList()
 }
@@ -9722,10 +9959,15 @@ function renderCajaChicaList() {
       data = data.filter(l => l.partida.estado === filtroCCActual)
     }
   }
-  // Más reciente primero (igual que Caja General)
-  data = [...data].sort((a, b) => new Date(b.partida.created_at || 0) - new Date(a.partida.created_at || 0))
 
-  if (!data.length) {
+  // Cambios de billetes de Caja Chica (110101*): son movimientos ya hechos → visibles en "Aprobadas" y "Todos"
+  let cambios = (filtroCCActual === 'aprobada' || filtroCCActual === 'todos')
+    ? (cajaCambios || []).filter(c => String(c.cuenta_codigo || '').startsWith('110101'))
+    : []
+  const fechaFiltroCC = document.getElementById('cc-fecha')?.value || null
+  if (fechaFiltroCC) cambios = cambios.filter(c => c.fecha_partida === fechaFiltroCC)
+
+  if (!data.length && !cambios.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No hay movimientos</div></div>'
     return
   }
@@ -9734,42 +9976,52 @@ function renderCajaChicaList() {
   const esSuperAdmin = currentProfile?.rol === 'super_admin'
   const puedeAprobar = esAuxContable || esSuperAdmin
 
-  container.innerHTML = data.map(l => {
-    const p = l.partida
-    const monto = parseFloat(l.monto) || 0
-    const esIngreso = l.tipo === 'debito'
-    const iconClass = esIngreso ? 'ingreso' : 'egreso'
-    const icon = esIngreso ? '↓' : '↑'
-    const signo = esIngreso ? '+' : '-'
-    const estadoBadge = p.estado === 'aprobada' ? 'badge-green'
-      : p.estado === 'anulada' ? 'badge-red' : 'badge-amber'
-    const estadoLabel = p.estado === 'aprobada' ? 'Aprobada'
-      : p.estado === 'borrador' ? 'Borrador'
-      : p.estado === 'pendiente_caja' ? 'Pendiente'
-      : p.estado === 'anulada' ? 'Anulada' : p.estado
-    const fecha = p.created_at ? new Date(p.created_at).toLocaleDateString('es-HN') : (p.fecha_partida || '')
-    const hora = p.created_at ? new Date(p.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' }) : ''
+  // Intercalar partidas y cambios, más reciente primero (igual que Caja General)
+  const items = [
+    ...data.map(l => ({ ca: l.partida.created_at, t: 'p', obj: l })),
+    ...cambios.map(c => ({ ca: c.created_at, t: 'c', obj: c }))
+  ].sort((a, b) => new Date(b.ca || 0) - new Date(a.ca || 0))
 
-    const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
-      ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
+  container.innerHTML = items.map(it => it.t === 'c' ? cambioCardHTML(it.obj) : ccPartidaCardHTML(it.obj, puedeAprobar)).join('')
+}
 
-    // Detalle de billetes si existe
-    let billetesInfo = ''
-    if (l.billetes?.length) {
-      const denoms = [500,200,100,50,20,10,5,2,1]
-      const detalles = l.billetes.map(b => {
-        const partes = denoms.map(d => ({ d, q: b[`den_${d}`] || 0 })).filter(x => x.q > 0).map(x => `${x.q}×L.${x.d}`)
-        return partes.length ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes.join(' + ')}</span>` : ''
-      }).filter(Boolean)
-      if (detalles.length) billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
-    }
+// Tarjeta de un movimiento de partida en caja chica
+function ccPartidaCardHTML(l, puedeAprobar) {
+  const p = l.partida
+  const monto = parseFloat(l.monto) || 0
+  const esIngreso = l.tipo === 'debito'
+  const iconClass = esIngreso ? 'ingreso' : 'egreso'
+  const icon = esIngreso ? '↓' : '↑'
+  const signo = esIngreso ? '+' : '-'
+  const estadoBadge = p.estado === 'aprobada' ? 'badge-green'
+    : p.estado === 'anulada' ? 'badge-red' : 'badge-amber'
+  const estadoLabel = p.estado === 'aprobada' ? 'Aprobada'
+    : p.estado === 'borrador' ? 'Borrador'
+    : p.estado === 'pendiente_caja' ? 'Pendiente'
+    : p.estado === 'anulada' ? 'Anulada' : p.estado
+  const fecha = p.created_at ? new Date(p.created_at).toLocaleDateString('es-HN') : (p.fecha_partida || '')
+  const hora = p.created_at ? new Date(p.created_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' }) : ''
 
-    const actions = (p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ? `
-      <div class="caja-actions">
-        <button class="caja-btn aprobar" onclick="aprobarMovCajaChica('${p.id}')">✓ Aprobar</button>
-      </div>` : ''
+  const aprobadoInfo = p.estado === 'aprobada' && p.aprobador?.nombre
+    ? `<span style="font-size:11px;color:var(--text3)">Aprobada por ${p.aprobador.nombre}</span>` : ''
 
-    return `
+  // Detalle de billetes si existe
+  let billetesInfo = ''
+  if (l.billetes?.length) {
+    const denoms = [500,200,100,50,20,10,5,2,1]
+    const detalles = l.billetes.map(b => {
+      const partes = denoms.map(d => ({ d, q: b[`den_${d}`] || 0 })).filter(x => x.q > 0).map(x => `${x.q}×L.${x.d}`)
+      return partes.length ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes.join(' + ')}</span>` : ''
+    }).filter(Boolean)
+    if (detalles.length) billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
+  }
+
+  const actions = (p.estado === 'pendiente_caja' || p.estado === 'borrador') && puedeAprobar ? `
+    <div class="caja-actions">
+      <button class="caja-btn aprobar" onclick="aprobarMovCajaChica('${p.id}')">✓ Aprobar</button>
+    </div>` : ''
+
+  return `
     <div class="caja-card ${p.estado}">
       <div class="caja-left">
         <div class="caja-icon ${iconClass}">${icon}</div>
@@ -9789,7 +10041,6 @@ function renderCajaChicaList() {
         <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
       </div>
     </div>`
-  }).join('')
 }
 
 // Aprobar movimiento de caja chica
@@ -9909,6 +10160,7 @@ window.verArqueoCajaChica = async () => {
   
   // Mapeo denominación → campo en conteo_billetes
   const denField = { 500:'den_500', 200:'den_200', 100:'den_100', 50:'den_50', 20:'den_20', 10:'den_10', 5:'den_5', 2:'den_2', 1:'den_1' }
+  const enCajaMap = {}   // teórico por denominación, para el conteo físico
 
   tbody.innerHTML = denoms.map(d => {
     const field = denField[d]
@@ -9916,6 +10168,7 @@ window.verArqueoCajaChica = async () => {
     const egresos = validConteos.filter(c => c.tipo === 'egreso').reduce((s, c) => s + (c[field] || 0), 0)
     const enCaja = ingresos - egresos
     const valor = enCaja * d
+    enCajaMap[d] = enCaja
     totalIng += ingresos; totalEgr += egresos; totalCaja += enCaja; totalValor += valor
     const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     return `<tr>
@@ -9934,6 +10187,7 @@ window.verArqueoCajaChica = async () => {
   document.getElementById('arqcc-tot-valor').textContent = 'L. ' + fmt(totalValor)
   
   document.getElementById('modal-arqueo-cc').classList.add('open')
+  renderArqueoFisico(enCajaMap, { tbodyId: 'tbody-arqueo-cc', cajaCodigo: '110101-001', cajaNombre: 'Caja Chica', modalId: 'modal-arqueo-cc' })
 }
 
 // Cambio de denominaciones caja chica — reutiliza el modal de caja general
@@ -10652,14 +10906,48 @@ window.generarPagoCxP = async () => {
   const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
   if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
 
-  // Mark selected items as pagado + dejar registrada CON QUÉ partida se pagaron
-  await sb.from('lineas_partida').update({ pagado: true, pagado_at: new Date().toISOString(), pagado_partida_num: nuevoNumero }).in('id', ids)
+  // Opción A: NO marcar pagado todavía. Solo enlazar los cargos con la partida de pago.
+  // El pagado=true se pone cuando la partida de pago se APRUEBA (ver _sincronizarPagoCxP).
+  await sb.from('lineas_partida').update({ pagado_partida_num: nuevoNumero }).in('id', ids)
 
-  toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala para agregar la forma de pago.`, 'success')
+  // Enlazar la selección programada (si se generó desde una guardada) para que, al
+  // aprobar la partida, quede marcada "pagada" y salga de "programados (pendientes)".
+  if (cxpSeleccionActiva?.id) {
+    await getSb().from('cxp_selecciones').update({ pagado_partida_num: nuevoNumero }).eq('id', cxpSeleccionActiva.id)
+  }
+
+  toast(`Partida #${nuevoNumero} creada como borrador · L. ${fmt(suma)}. Editala, cargá la forma de pago y aprobala: ahí los cargos quedan pagados.`, 'success')
+  cxpSeleccionActiva = null
   cxpSeleccionados = new Set()
   cxpMontos = {}
   guardarCxPSeleccion()
   consultarCxP()
+}
+
+// ── Opción A: confirmar/revertir un pago CxP según el estado de su partida ──
+// Marca (o desmarca) los cargos saldados por la partida de pago #numero, y
+// sincroniza el estado de la selección programada enlazada. No-op si esa
+// partida no es de pago CxP (nadie la enlaza), así que es seguro llamarla
+// en cualquier aprobación/anulación.
+async function _sincronizarPagoCxP(numero, pagar) {
+  if (!numero) return
+  try {
+    if (pagar) {
+      await getSb().from('lineas_partida')
+        .update({ pagado: true, pagado_at: new Date().toISOString() })
+        .eq('pagado_partida_num', numero).eq('pagado', false)
+      await getSb().from('cxp_selecciones')
+        .update({ estado: 'pagado' })
+        .eq('pagado_partida_num', numero).eq('estado', 'pendiente')
+    } else {
+      await getSb().from('lineas_partida')
+        .update({ pagado: false, pagado_at: null })
+        .eq('pagado_partida_num', numero).eq('pagado', true)
+      await getSb().from('cxp_selecciones')
+        .update({ estado: 'pendiente' })
+        .eq('pagado_partida_num', numero).eq('estado', 'pagado')
+    }
+  } catch (e) { console.error('[_sincronizarPagoCxP]', e) }
 }
 
 window.openGuardarSelCxP = () => {
@@ -10725,11 +11013,13 @@ window.verSeleccionesCxP = async () => {
   const list = document.getElementById('selecciones-cxp-list')
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  if (!data?.length) {
-    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">No hay selecciones guardadas</div>'
+  // Solo las realmente pendientes: las pagadas aparecen en "Pagos realizados"
+  const pend = (data || []).filter(s => s.estado === 'pendiente')
+  if (!pend.length) {
+    list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">No hay pagos programados pendientes</div>'
   } else {
     const estadoBadge = { pendiente: 'badge-amber', pagado: 'badge-on', cancelado: 'badge-off' }
-    list.innerHTML = data.map(s => {
+    list.innerHTML = pend.map(s => {
       const fechaPago = new Date(s.fecha_pago + 'T12:00:00').toLocaleDateString('es-HN')
       const diasFaltan = Math.ceil((new Date(s.fecha_pago + 'T12:00:00') - new Date()) / (1000 * 60 * 60 * 24))
       const diasLabel = diasFaltan < 0 ? `<span style="color:var(--red)">${Math.abs(diasFaltan)}d vencido</span>` : diasFaltan === 0 ? '<span style="color:var(--red)">Hoy</span>' : `${diasFaltan}d`
