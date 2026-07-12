@@ -175,6 +175,13 @@ function setupUI() {
   if (YK_TAB_IDS.some(t => visibles.includes(t)) && !visibles.includes('nav-yonker')) {
     visibles = [...visibles, 'nav-yonker']
   }
+  // ── MÓDULOS RETIRADOS ──
+  // Ya no se usan. Se ocultan para TODOS (incluido super_admin) aunque estén marcados
+  // en permisos_modulos. El código del módulo sigue existiendo, solo no hay cómo llegar.
+  //   nav-importar-taxis → Importar entregas · Taxis (retirado 2026-07-12)
+  const NAV_RETIRADOS = ['nav-importar-taxis']
+  visibles = visibles.filter(id => !NAV_RETIRADOS.includes(id))
+
   window._navVisibles = visibles
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
@@ -587,7 +594,7 @@ const MODULOS_CATALOGO = [
   ]},
   { grupo: 'Importaciones', items: [
     ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'],
-    ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-importar-taxis', 'Entregas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis']
+    ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis']
   ]},
   { grupo: 'RRHH', items: [
     ['nav-empleados', 'Empleados'], ['nav-planilla', 'Planilla'], ['nav-prestamos-emp', 'Préstamos'],
@@ -3597,16 +3604,80 @@ window.filtroCaja = (btn, filtro) => {
 let cajaPartidas = []
 let cajaCambios = []
 
+// ── RANGO DE CARGA DE LAS CAJAS ────────────────────────────────────────────
+// Antes las dos cajas traían TODO el histórico de lineas_partida en cada carga,
+// solo para poder sumar el saldo. Eso es lento y, si algún día pasa las 1,000
+// filas, PostgREST TRUNCA EN SILENCIO y el saldo queda mal sin avisar. Ahora:
+//   · el saldo lo calcula Postgres (RPC caja_saldos) → exacto, una sola fila
+//   · la lista solo trae los últimos N días + TODAS las pendientes sin importar
+//     la fecha (si no, una pendiente vieja se vuelve invisible y nadie la aprueba)
+const CAJA_RANGOS = [[7, 'Últimos 7 días'], [30, 'Últimos 30 días'], [90, 'Últimos 90 días'], [0, 'Todo el histórico']]
+const CAJA_ESTADOS_PEND = ['pendiente_caja', 'borrador']
+const CAJA_GENERAL_CODIGOS = ['110102', '110102-001']
+let _cjRango = 7
+let _ccRango = 7
+
+function _rangoDesde(dias) {
+  if (!dias) return null
+  const d = new Date()
+  d.setDate(d.getDate() - dias)
+  return d.toISOString().slice(0, 10)
+}
+
+// Trae las líneas de una caja: las del rango + todas las pendientes (fuera de rango
+// incluidas), deduplicadas por id de línea.
+async function _lineasCajaRango(qBase, campoFecha, campoEstado, dias) {
+  const desde = _rangoDesde(dias)
+  if (!desde) return await qBase()
+  const r1 = await qBase().gte(campoFecha, desde)
+  if (r1.error) return r1
+  const r2 = await qBase().in(campoEstado, CAJA_ESTADOS_PEND)
+  if (r2.error) return r2
+  const vistos = new Set((r1.data || []).map(l => l.id))
+  return { data: [...(r1.data || []), ...(r2.data || []).filter(l => !vistos.has(l.id))], error: null }
+}
+
+// Saldos acumulados desde Postgres. Devuelve null si falla (NO inventamos un saldo:
+// un saldo de caja equivocado es peor que un guion).
+async function _cajaSaldos(prefijos) {
+  const { data, error } = await sb.rpc('caja_saldos', { p_prefijos: prefijos })
+  if (error) {
+    toast('No se pudo calcular el saldo: ' + error.message, 'error')
+    return null
+  }
+  return (Array.isArray(data) ? data[0] : data) || null
+}
+
+// Inserta el selector de rango al lado del filtro de fecha (no requiere tocar index.html)
+function _montarRangoCaja(inputId, selId, valor, onChange) {
+  const inp = document.getElementById(inputId)
+  if (!inp || document.getElementById(selId)) return
+  const sel = document.createElement('select')
+  sel.id = selId
+  sel.className = inp.className
+  sel.style.marginLeft = '8px'
+  sel.innerHTML = CAJA_RANGOS.map(([d, l]) => `<option value="${d}">${l}</option>`).join('')
+  sel.value = String(valor)
+  sel.onchange = () => onChange(parseInt(sel.value, 10))
+  inp.parentElement.insertBefore(sel, inp.nextSibling)
+}
+
+window.cambiarRangoCaja = (dias) => { _cjRango = dias; loadCaja() }
+window.cambiarRangoCajaChica = (dias) => { _ccRango = dias; loadCajaChica() }
+
 async function loadCaja() {
   const container = document.getElementById('lista-caja')
   container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>'
+  _montarRangoCaja('cj-fecha', 'cj-rango', _cjRango, window.cambiarRangoCaja)
 
   // Cargar partidas que afectan SOLO caja general (110102), NO caja chica (110101)
   // Primero obtener las líneas que tocan caja general
-  const CAJA_GENERAL_CODIGOS = ['110102', '110102-001']
-  const { data: lineasCaja, error: lcErr } = await sb.from('lineas_partida')
-    .select('partida_id, tipo, monto, cuenta_codigo, cuenta_nombre')
+  const qCaja = () => sb.from('lineas_partida')
+    .select('id, partida_id, tipo, monto, cuenta_codigo, cuenta_nombre, partidas_contables!inner(fecha_partida, estado)')
     .or(CAJA_GENERAL_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%`).join(','))
+
+  const { data: lineasCaja, error: lcErr } = await _lineasCajaRango(
+    qCaja, 'partidas_contables.fecha_partida', 'partidas_contables.estado', _cjRango)
 
   if (lcErr) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${lcErr.message}</div></div>`
@@ -3616,7 +3687,7 @@ async function loadCaja() {
   if (!lineasCaja?.length) {
     cajaPartidas = []
     await loadCajaCambios()
-    updateCajaStats()
+    await updateCajaStats()
     renderCajaList()
     loadCajaExtras()
     return
@@ -3662,7 +3733,7 @@ async function loadCaja() {
   }
 
   await loadCajaCambios()
-  updateCajaStats()
+  await updateCajaStats()
   renderCajaList()
   updateCajaBadge()
   loadCajaExtras()
@@ -3730,29 +3801,26 @@ async function loadCajaCambios() {
   } catch (e) { console.error('[caja cambios]', e); cajaCambios = [] }
 }
 
-function updateCajaStats() {
+async function updateCajaStats() {
   const fmt = (v) => 'L. ' + v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
-  const hoy = localDateStr()
 
-  // Saldo acumulado real (todas las aprobadas, sin filtro de fecha) — no cambia
-  const aprobadas = cajaPartidas.filter(p => p.estado === 'aprobada')
-  const totalIngresosAcum = aprobadas.filter(p => p.caja_tipo === 'ingreso').reduce((s, p) => s + p.caja_monto, 0)
-  const totalEgresosAcum = aprobadas.filter(p => p.caja_tipo === 'egreso').reduce((s, p) => s + p.caja_monto, 0)
-  const saldo = totalIngresosAcum - totalEgresosAcum
+  // Saldo acumulado real: lo calcula Postgres sobre TODAS las aprobadas del histórico.
+  // No se puede sumar desde cajaPartidas porque ahora esa lista solo trae el rango visible.
+  const s = await _cajaSaldos(CAJA_GENERAL_CODIGOS)
+  const el = document.getElementById('cj-saldo')
+  if (!s) {
+    el.textContent = '—'
+    el.style.color = 'var(--text3)'
+    filtrarCajaFecha()
+    return
+  }
+  const saldo = parseFloat(s.saldo) || 0
 
-  // Vienen = saldo con que abrió el día (todo lo aprobado con fecha anterior a hoy)
-  const antIng = aprobadas.filter(p => p.caja_tipo === 'ingreso' && p.fecha_partida < hoy).reduce((s, p) => s + p.caja_monto, 0)
-  const antEgr = aprobadas.filter(p => p.caja_tipo === 'egreso' && p.fecha_partida < hoy).reduce((s, p) => s + p.caja_monto, 0)
-  const vienen = antIng - antEgr
-  // Ingresos / egresos SOLO de hoy
-  const ingHoy = aprobadas.filter(p => p.caja_tipo === 'ingreso' && p.fecha_partida === hoy).reduce((s, p) => s + p.caja_monto, 0)
-  const egrHoy = aprobadas.filter(p => p.caja_tipo === 'egreso' && p.fecha_partida === hoy).reduce((s, p) => s + p.caja_monto, 0)
-
-  document.getElementById('cj-saldo').textContent = fmt(saldo)
-  document.getElementById('cj-saldo').style.color = saldo >= 0 ? 'var(--green)' : 'var(--red)'
-  const vEl = document.getElementById('cj-vienen'); if (vEl) vEl.textContent = fmt(vienen)
-  document.getElementById('cj-total-ingresos').textContent = fmt(ingHoy)
-  document.getElementById('cj-total-egresos').textContent = fmt(egrHoy)
+  el.textContent = fmt(saldo)
+  el.style.color = saldo >= 0 ? 'var(--green)' : 'var(--red)'
+  const vEl = document.getElementById('cj-vienen'); if (vEl) vEl.textContent = fmt(parseFloat(s.vienen) || 0)
+  document.getElementById('cj-total-ingresos').textContent = fmt(parseFloat(s.ingresos_hoy) || 0)
+  document.getElementById('cj-total-egresos').textContent = fmt(parseFloat(s.egresos_hoy) || 0)
 
   // Stats filtrados por fecha seleccionada
   filtrarCajaFecha()
@@ -9870,13 +9938,23 @@ let allCCPartidas = []
 
 window.loadCajaChica = async () => {
   const fechaFiltro = document.getElementById('cc-fecha')?.value || null
+  _montarRangoCaja('cc-fecha', 'cc-rango', _ccRango, window.cambiarRangoCajaChica)
+  const cont = document.getElementById('lista-caja-chica')
 
-  // Get all partidas that touch caja chica
-  const { data: lineas, error } = await sb.from('lineas_partida')
-    .select('*, partida:partidas_contables(id, numero_partida, descripcion, fecha_partida, estado, numero_documento, created_at, generador:usuarios!generada_por(nombre), aprobador:usuarios!aprobada_por(nombre))')
+  // Líneas del rango + todas las pendientes (aunque sean viejas)
+  const qCC = () => sb.from('lineas_partida')
+    .select('*, partida:partidas_contables!inner(id, numero_partida, descripcion, fecha_partida, estado, numero_documento, created_at, generador:usuarios!generada_por(nombre), aprobador:usuarios!aprobada_por(nombre))')
     .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
 
-  if (error) { toast('Error: ' + error.message, 'error'); return }
+  const { data: lineas, error } = await _lineasCajaRango(
+    qCC, 'partida.fecha_partida', 'partida.estado', _ccRango)
+
+  // El error se PINTA en pantalla; antes se iba en un toast y quedaba el spinner girando
+  if (error) {
+    if (cont) cont.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`
+    toast('Error: ' + error.message, 'error')
+    return
+  }
 
   const movs = (lineas || []).filter(l => l.partida)
 
@@ -9890,28 +9968,19 @@ window.loadCajaChica = async () => {
     }
   }
 
-  // Saldo total (solo aprobadas) + vienen (día anterior) + hoy
-  const hoyCC = localDateStr()
-  let saldoTotal = 0, ingresosTotal = 0, egresosTotal = 0, vienenCC = 0
-  movs.filter(l => l.partida.estado === 'aprobada').forEach(l => {
-    const m = parseFloat(l.monto) || 0
-    const f = l.partida.fecha_partida
-    if (l.tipo === 'debito') {
-      saldoTotal += m
-      if (f === hoyCC) ingresosTotal += m
-      if (f < hoyCC) vienenCC += m
-    } else {
-      saldoTotal -= m
-      if (f === hoyCC) egresosTotal += m
-      if (f < hoyCC) vienenCC -= m
-    }
-  })
-
+  // Saldo / vienen / hoy: los calcula Postgres sobre TODO el histórico aprobado.
+  // No se pueden sumar desde movs, que ahora solo trae el rango visible.
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  document.getElementById('cc-saldo').textContent = 'L. ' + fmt(saldoTotal)
-  const vccEl = document.getElementById('cc-vienen'); if (vccEl) vccEl.textContent = 'L. ' + fmt(vienenCC)
-  document.getElementById('cc-total-ingresos').textContent = 'L. ' + fmt(ingresosTotal)
-  document.getElementById('cc-total-egresos').textContent = 'L. ' + fmt(egresosTotal)
+  const s = await _cajaSaldos([CUENTA_CAJA_CHICA])
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val }
+  if (s) {
+    setTxt('cc-saldo', 'L. ' + fmt(parseFloat(s.saldo)))
+    setTxt('cc-vienen', 'L. ' + fmt(parseFloat(s.vienen)))
+    setTxt('cc-total-ingresos', 'L. ' + fmt(parseFloat(s.ingresos_hoy)))
+    setTxt('cc-total-egresos', 'L. ' + fmt(parseFloat(s.egresos_hoy)))
+  } else {
+    ;['cc-saldo', 'cc-vienen', 'cc-total-ingresos', 'cc-total-egresos'].forEach(id => setTxt(id, '—'))
+  }
 
   // Filter by date if set
   let filtered = movs
