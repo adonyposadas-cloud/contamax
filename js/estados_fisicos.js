@@ -67,13 +67,18 @@
           <div id="ef-info-ef" class="ef-info"></div>
         </div>
         <div class="form-card">
-          <div class="form-card-title">2 · Subir ventas y conciliar (productos vendidos)</div>
+          <div class="form-card-title">2 · Subir ventas (productos vendidos)</div>
           <input type="file" id="ef-file-ve" accept=".xlsx,.xls">
-          <button class="btn btn-gold" id="ef-conciliar" disabled>Conciliar →</button>
-          <div id="ef-info-ve" class="ef-info"></div>
+          <button class="btn btn-gold" id="ef-conciliar" disabled>Subir →</button>
+          <div id="ef-info-ve" class="ef-info">El RPA sube esto solo cada día. Usá esto únicamente para cargar un día viejo o si el RPA falló. Después dale a “Conciliar pendientes con datos guardados”.</div>
         </div>
       </div>
-      <div class="form-card" style="margin-bottom:14px">
+
+      <!-- Corte inicial: se usó en la primera carga. Se deja escondido por si hace falta. -->
+      <div style="margin-bottom:10px">
+        <button class="btn" id="ef-corte-toggle" style="font-size:12px;padding:4px 10px;color:var(--text3,#8b949e)">⚙ Corte inicial y cierres <span id="ef-corte-caret">▸</span></button>
+      </div>
+      <div class="form-card" id="ef-corte-card" style="margin-bottom:14px;display:none">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
           <span style="font-size:12px;color:var(--text3,#8b949e)">Corte — Estados físicos N° &lt;</span>
           <input type="number" id="ef-cerrar-num" class="ef-in" placeholder="1951" style="width:90px">
@@ -102,7 +107,7 @@
         <div id="ef-modal-yacon" style="margin-bottom:8px"></div>
         <div id="ef-modal-sug" style="margin-bottom:8px"></div>
         <div class="fld"><label>…o escribí el N° de estado físico</label>
-          <input id="ef-modal-num" class="ef-in" type="number" placeholder="ej. 2480" style="width:100%"></div>
+          <input id="ef-modal-num" class="ef-in" type="text" placeholder="N° (ej. 2480) o revisión (FTT03-14213-2026)" style="width:100%;text-transform:uppercase"></div>
         <div id="ef-modal-hint" style="font-size:12px;margin-top:8px;min-height:16px"></div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
           <button class="btn" id="ef-modal-cancel">Cancelar</button>
@@ -154,6 +159,14 @@
     $('ef-csv').addEventListener('change', e => { if (e.target.files[0]) sugerirCorte(e.target.files[0]) })
     const fc = $('ef-fecha-corte')
     if (fc) { fc.value = getFechaCorte(); fc.addEventListener('change', e => { try { localStorage.setItem(CORTE_KEY, e.target.value) } catch (x) {} }) }
+    // Corte inicial: escondido por defecto (ya se usó en la primera carga)
+    const ct = $('ef-corte-toggle')
+    if (ct) ct.addEventListener('click', () => {
+      const card = $('ef-corte-card'); const car = $('ef-corte-caret')
+      const abrir = card.style.display === 'none'
+      card.style.display = abrir ? '' : 'none'
+      if (car) car.textContent = abrir ? '▾' : '▸'
+    })
     $('ef-modal-cancel').addEventListener('click', () => $('ef-modal').classList.remove('open'))
     $('ef-modal-ok').addEventListener('click', aplicarManual)
     $('ef-modal-num').addEventListener('input', hintManual)
@@ -238,8 +251,34 @@
           if (error) throw error
           nuevos += (data ? data.length : 0)
         }
-        $('ef-info-ef').textContent = `✓ ${rows.length} leídos · ${nuevos} nuevos ingresados (fecha ${fsub}) · ${rows.length - nuevos} ya existían`
-        toast(`${nuevos} estados físicos nuevos`, 'success')
+
+        // ── Resincronizar correlativos ──
+        // El N° del IHTT NO es estable: si borran una revisión, todos los
+        // posteriores se corren (el 2509 de ayer es el 2508 de hoy). La identidad
+        // es la REVISIÓN. Como el upsert ignora los que ya existen, sus N° quedan
+        // congelados con el valor viejo → se duplican contra los nuevos.
+        // Acá se le pone a cada revisión el N° que trae el reporte de hoy.
+        let resync = 0
+        const conRev = rows.filter(r => r.revision && r.numero)
+        if (conRev.length) {
+          const revs = conRev.map(r => r.revision)
+          const actuales = []
+          for (let i = 0; i < revs.length; i += 300) {
+            const { data } = await sb().from('estados_fisicos').select('id,revision,numero').in('revision', revs.slice(i, i + 300))
+            if (data) actuales.push(...data)
+          }
+          const numDe = {}
+          conRev.forEach(r => { numDe[r.revision] = r.numero })
+          const cambiar = actuales.filter(a => numDe[a.revision] != null && a.numero !== numDe[a.revision])
+          for (const a of cambiar) {
+            const { error } = await sb().from('estados_fisicos').update({ numero: numDe[a.revision] }).eq('id', a.id)
+            if (!error) resync++
+          }
+        }
+
+        const msgResync = resync ? ` · ${resync} N° corregidos (el IHTT corrió los correlativos)` : ''
+        $('ef-info-ef').textContent = `✓ ${rows.length} leídos · ${nuevos} nuevos ingresados (fecha ${fsub}) · ${rows.length - nuevos} ya existían${msgResync}`
+        toast(`${nuevos} estados físicos nuevos${resync ? ` · ${resync} N° resincronizados` : ''}`, 'success')
         ULTIMA = null; await cargarEstado()
       } catch (e) { console.error('[EF subir]', e); $('ef-info-ef').textContent = 'Error: ' + (e.message || e); toast('Error al subir', 'error') }
       $('ef-subir').disabled = false
@@ -274,18 +313,18 @@
       if (!pvRows.length) { $('ef-info-ve').textContent = 'No se encontraron líneas en el reporte.'; $('ef-conciliar').disabled = false; return }
 
       try {
-        // 1) Guardar TODAS las líneas en el histórico (dedup por linea_hash)
+        // Guardar TODAS las líneas en el histórico (dedup por linea_hash).
+        // NO se concilia acá: para eso está "Conciliar pendientes con datos guardados".
         let guardados = 0
         for (let i = 0; i < pvRows.length; i += 500) {
           const { data: d, error } = await sb().from('productos_vendidos').upsert(pvRows.slice(i, i + 500), { onConflict: 'linea_hash', ignoreDuplicates: true }).select('id')
           if (error) throw error
           guardados += (d ? d.length : 0)
         }
-        // 2) Conciliar las líneas de estado físico contra los pendientes
-        const R = await conciliarLineas(lineas)
-        $('ef-info-ve').textContent = `✓ ${guardados} líneas nuevas guardadas · ${R.conciliados.length} conciliados · ${R.sinMatch.length} sin estado físico · ${R.sinPlaca.length} sin placa`
-        toast(`${R.conciliados.length} conciliados`, 'success')
-      } catch (e) { console.error('[EF conciliar]', e); $('ef-info-ve').textContent = 'Error: ' + (e.message || e); toast('Error al conciliar', 'error') }
+        const ef = pvRows.filter(r => r.es_estado_fisico).length
+        $('ef-info-ve').textContent = `✓ ${guardados} líneas nuevas guardadas (${pvRows.length - guardados} ya existían) · ${ef} de estado físico. Ahora dale a "Conciliar pendientes con datos guardados".`
+        toast(`${guardados} líneas guardadas`, 'success')
+      } catch (e) { console.error('[EF subir ventas]', e); $('ef-info-ve').textContent = 'Error: ' + (e.message || e); toast('Error al subir', 'error') }
       $('ef-conciliar').disabled = false
     })
   }
@@ -351,8 +390,8 @@
   async function conciliarGuardado () {
     const btn = $('ef-conc-guardado'); if (btn) { btn.disabled = true; btn.textContent = 'Conciliando…' }
     try {
-      const pv = await fetchAll(sb().from('productos_vendidos').select('fecha,no_factura,producto,total,precio_con_iva').eq('es_estado_fisico', true).order('fecha', { ascending: true }))
-      const lineas = pv.map(r => ({ fecha: r.fecha, factura: r.no_factura, producto: r.producto, placas: findPlates(String(r.producto).toUpperCase()), monto: r.total || r.precio_con_iva }))
+      const pv = await fetchAll(sb().from('productos_vendidos').select('id,fecha,no_factura,producto,total,precio_con_iva').eq('es_estado_fisico', true).eq('ef_ignorado', false).order('fecha', { ascending: true }))
+      const lineas = pv.map(r => ({ pv_id: r.id, fecha: r.fecha, factura: r.no_factura, producto: r.producto, placas: findPlates(String(r.producto).toUpperCase()), monto: r.total || r.precio_con_iva }))
       const R = await conciliarLineas(lineas)
       toast(`${R.conciliados.length} conciliados`, 'success')
     } catch (e) { console.error('[EF conc guardado]', e); toast('Error: ' + (e.message || e), 'error') }
@@ -505,12 +544,33 @@
         ULTIMA.conciliados.forEach(c => { if (String(c.factura) === String(factura)) { c.monto = r.prorat; c.placas_linea = r.totPlacas; c.monto_linea = r.montoTotal; c.compartida = r.totPlacas > 1 } })
         items.forEach(e => ULTIMA.conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: r.fecha, factura, monto: r.prorat, compartida: r.totPlacas > 1, placas_linea: r.totPlacas, monto_linea: r.montoTotal }))
       }
-      // sacar esa factura de "con placa que NO está entre los pendientes" (ya quedó conciliada a mano)
+      // sacar esa factura de "con placa que NO está entre los pendientes" y de
+      // "Facturados SIN placa" (ya quedó conciliada a mano → no hay nada que asignar)
       if (ULTIMA && Array.isArray(ULTIMA.sinMatch)) ULTIMA.sinMatch = ULTIMA.sinMatch.filter(l => String(l.factura) !== String(factura))
+      if (ULTIMA && Array.isArray(ULTIMA.sinPlaca)) ULTIMA.sinPlaca = ULTIMA.sinPlaca.filter(l => String(l.factura) !== String(factura))
       $('ef-pmodal').classList.remove('open')
       toast(`Conciliado · factura ${factura} ahora ${r.totPlacas} estados físicos · L. ${fmt(r.prorat)} c/u`, 'success')
       await cargarEstado(); renderResultado()
     } catch (e) { console.error('[EF conc placa]', e); toast('Error: ' + (e.message || e), 'error') }
+  }
+
+  // Descarta PERMANENTEMENTE una línea de "Facturados SIN placa" (ya resuelta a mano).
+  // Se marca en la base (ef_ignorado) porque la lista se recalcula en cada conciliación
+  // y el RPA reinyecta a diario: ocultarla solo en pantalla no alcanza.
+  async function descartarSinPlaca (l) {
+    if (!l) return
+    if (!confirm(`¿Descartar esta línea de "Facturados SIN placa"?\n\n${l.producto}\nFactura ${l.factura} · L. ${fmt(l.monto)}\n\nNo se va a volver a mostrar (usalo cuando ya la conciliaste por otro lado).`)) return
+    try {
+      const q = sb().from('productos_vendidos').update({ ef_ignorado: true })
+      // por id si lo tenemos (viene de "conciliar con datos guardados"); si no, por factura+producto
+      const { error } = l.pv_id
+        ? await q.eq('id', l.pv_id)
+        : await q.eq('no_factura', String(l.factura)).eq('producto', l.producto).eq('es_estado_fisico', true)
+      if (error) throw error
+      if (ULTIMA && Array.isArray(ULTIMA.sinPlaca)) ULTIMA.sinPlaca = ULTIMA.sinPlaca.filter(x => x !== l)
+      renderResultado()
+      toast('Descartada — no vuelve a aparecer', 'success')
+    } catch (e) { console.error('[EF descartar sin placa]', e); toast('Error: ' + (e.message || e), 'error') }
   }
 
   function exportarExcel () {
@@ -546,8 +606,12 @@
     const filtro = (target) => `<input class="ef-filter ef-in" data-target="${target}" placeholder="🔍 placa/N°/factura…" style="width:200px;text-transform:uppercase">`
     const gSinPlaca = R.sinPlaca.length ? `<div class="ef-grp" style="border-color:var(--red,#f85149)">
       <div class="ef-grp-t" style="color:var(--red,#f85149)">⚠ Facturados SIN placa (${R.sinPlaca.length}) — asignales el N° a mano ${filtro('ef-list-sinplaca')}</div>
-      <div id="ef-list-sinplaca" style="max-height:300px;overflow:auto">${R.sinPlaca.map((l, i) => `<div class="ef-row"><span>${esc(l.producto)} · <span style="color:var(--text3,#8b949e)">F${esc(l.factura)} · ${esc(l.fecha || '')}</span></span>
-        <span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><b style="color:var(--gold,#c8a24a)">L. ${fmt(l.monto)}</b><button class="btn" data-manual="${i}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`).join('')}</div>
+      <div id="ef-list-sinplaca" style="max-height:300px;overflow:auto">${R.sinPlaca.map((l, i) => {
+        // ¿su factura ya tiene estados físicos conciliados? (p.ej. se concilió desde Pendientes) → ya no hay nada que asignar
+        const ya = ALL.filter(e => e.facturado && String(e.factura_ref) === String(l.factura)).length
+        return `<div class="ef-row"${ya ? ' style="background:rgba(22,163,74,.07)"' : ''}><span>${ya ? '✓ ' : ''}${esc(l.producto)} · <span style="color:var(--text3,#8b949e)">F${esc(l.factura)} · ${esc(l.fecha || '')}</span>${ya ? ` <span style="font-size:11px;color:var(--green,#16a34a)">ya conciliada (${ya})</span>` : ''}</span>
+        <span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><b style="color:var(--gold,#c8a24a)">L. ${fmt(l.monto)}</b><button class="btn" data-spdesc="${i}" style="font-size:11px;padding:3px 10px;color:var(--text3,#8b949e)" title="Ya está resuelta: no volver a mostrarla">✕ Descartar</button><button class="btn" data-manual="${i}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`
+      }).join('')}</div>
     </div>` : ''
     const grupos = {}
     R.conciliados.forEach(c => { const k = `${c.factura}|${c.monto_linea}`; (grupos[k] = grupos[k] || []).push(c) })
@@ -566,6 +630,7 @@
       <div id="ef-list-nomatch" style="max-height:260px;overflow:auto">${R.sinMatch.map((l, i) => { const rev = fCorte && l.fecha && l.fecha >= fCorte; return `<div class="ef-row"${rev ? ' style="background:rgba(248,81,73,.06)"' : ''}><span>${rev ? '⚠ ' : ''}${esc(l.producto)} · <span class="ef-plate">${(l.placas || []).join(', ')}</span></span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0;color:var(--text3,#8b949e)">F${esc(l.factura)} · ${esc(l.fecha || '')} · <b style="color:var(--gold,#c8a24a)">L. ${fmt(l.monto)}</b><button class="btn" data-nomatch="${i}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>` }).join('')}</div></div>` : ''
     $('ef-result').innerHTML = gSinPlaca + huerfanasHTML() + pendientesHTML() + gNo + gConc
     $('ef-result').querySelectorAll('[data-manual]').forEach(b => b.addEventListener('click', () => abrirManual(R.sinPlaca[parseInt(b.dataset.manual, 10)])))
+    $('ef-result').querySelectorAll('[data-spdesc]').forEach(b => b.addEventListener('click', () => descartarSinPlaca(R.sinPlaca[parseInt(b.dataset.spdesc, 10)])))
     $('ef-result').querySelectorAll('[data-nomatch]').forEach(b => b.addEventListener('click', () => abrirManual(R.sinMatch[parseInt(b.dataset.nomatch, 10)])))
     bindPendBuscador(); wireFilters()
   }
@@ -579,7 +644,8 @@
       const label = (cats.includes('estado_fisico') && cats.includes('repotenciacion')) ? 'E.Físico + Repot.' : (cats.includes('repotenciacion') ? 'Repot.' : 'E.Físico')
       const nums = items.map(x => x.numero).filter(n => n).sort((a, b) => a - b)
       const tipo = (items.find(x => x.tipo) || {}).tipo || ''
-      return { placa, label, nums, tipo, propietario: items[0].propietario || '' }
+      const revs = items.map(x => x.revision).filter(Boolean)
+      return { placa, label, nums, tipo, revs, rev: revs[0] || '', propietario: items[0].propietario || '' }
     }).sort((a, b) => (a.nums[0] || 0) - (b.nums[0] || 0))
   }
   function pendientesHTML () {
@@ -590,14 +656,14 @@
       <div id="ef-pend-list" style="max-height:340px;overflow:auto">${filtr.map(filaPend).join('')}${grupos.length > 500 ? `<div style="font-size:12px;color:var(--text3,#8b949e);padding-top:6px">… y ${grupos.length - 500} más (usá el buscador)</div>` : ''}</div></div>`
   }
   function filaPend (g) {
-    return `<div class="ef-row"><span>${g.nums.length ? '#' + g.nums.join('/') + ' · ' : ''}<span class="ef-plate">${esc(g.placa)}</span> · ${esc(g.label)}${g.tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(g.tipo)}</span>` : ''}</span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><span style="color:var(--text3,#8b949e)">${esc(g.propietario)}</span><button class="btn" data-pconc="${esc(g.placa)}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`
+    return `<div class="ef-row"><span>${g.nums.length ? '#' + g.nums.join('/') + ' · ' : ''}<span class="ef-plate">${esc(g.placa)}</span> · ${esc(g.label)}${g.tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(g.tipo)}</span>` : ''}${g.rev ? ` · <span style="font-size:11px;color:var(--text3,#8b949e)">${esc(g.rev)}</span>` : ''}</span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><span style="color:var(--text3,#8b949e)">${esc(g.propietario)}</span><button class="btn" data-pconc="${esc(g.placa)}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`
   }
   function renderPendientes () { $('ef-result').innerHTML = huerfanasHTML() + pendientesHTML(); bindPendBuscador() }
   function bindPendBuscador () {
     const q = $('ef-pq'); if (!q) return
     q.addEventListener('input', () => {
       const t = q.value.trim().toUpperCase()
-      const f = pendAgrupados().filter(g => !t || (g.placa || '').includes(t) || g.nums.some(n => String(n).includes(t)) || (g.propietario || '').toUpperCase().includes(t) || (g.tipo || '').toUpperCase().includes(t)).slice(0, 500)
+      const f = pendAgrupados().filter(g => !t || (g.placa || '').includes(t) || g.nums.some(n => String(n).includes(t)) || (g.revs || []).some(r => String(r).toUpperCase().includes(t)) || (g.propietario || '').toUpperCase().includes(t) || (g.tipo || '').toUpperCase().includes(t)).slice(0, 500)
       $('ef-pend-list').innerHTML = f.map(filaPend).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin resultados</div>'
     })
   }
@@ -615,7 +681,7 @@
       sug = pendAgrupados().filter(g => g.placa.startsWith(letters) && g.placa.slice(3).startsWith(digits)).slice(0, 6)
     }
     $('ef-modal-sug').innerHTML = sug.length
-      ? `<div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:4px">Sugerencias (placa parece "${esc(partial)}"):</div>` + sug.map(g => `<button class="btn" data-sugn="${g.nums[0]}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:12px">#${g.nums.join('/')} · ${esc(g.placa)} · ${esc(g.label)} · ${esc(g.propietario)}</button>`).join('')
+      ? `<div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:4px">Sugerencias (placa parece "${esc(partial)}"):</div>` + sug.map(g => `<button class="btn" data-sugn="${esc(g.rev || g.nums[0] || '')}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:12px">#${g.nums.join('/')} · ${esc(g.placa)} · ${esc(g.label)} · ${esc(g.propietario)}${g.rev ? ` <span style="color:var(--text3,#8b949e)">· ${esc(g.rev)}</span>` : ''}</button>`).join('')
       : '<div style="font-size:12px;color:var(--text3,#8b949e)">Sin sugerencias por placa — buscá el N° en la lista de pendientes.</div>'
     $('ef-modal-num').value = ''; $('ef-modal-hint').textContent = ''
     // ¿la factura ya tiene estados físicos conciliados? -> ofrecer ocultar
@@ -635,18 +701,43 @@
     renderResultado()
     toast('Oculta de la lista', 'success')
   }
+  // Busca el estado físico pendiente por REVISIÓN (FTT03-…, identidad estable)
+  // o por N° correlativo. Devuelve {ef} | {ambiguo:[...]} | {}
+  function buscarPend (txt) {
+    const t = String(txt || '').trim().toUpperCase()
+    if (!t) return {}
+    if (/[A-Z]/.test(t)) {                                   // parece una revisión
+      const ef = PEND.find(e => String(e.revision || '').toUpperCase() === t)
+      return ef ? { ef } : {}
+    }
+    const n = parseInt(t, 10)
+    if (!n) return {}
+    const m = PEND.filter(e => e.numero === n)
+    if (!m.length) return {}
+    if (m.length > 1) return { ambiguo: m }                  // N° repetido (correlativo corrido)
+    return { ef: m[0] }
+  }
+
   function hintManual () {
-    const n = parseInt($('ef-modal-num').value, 10)
-    const ef = PEND.find(e => e.numero === n)
+    const r = buscarPend($('ef-modal-num').value)
     const h = $('ef-modal-hint')
-    if (!n) { h.textContent = ''; return }
-    if (!ef) { h.style.color = 'var(--red,#f85149)'; h.textContent = 'No hay un estado físico pendiente con ese número.'; return }
-    h.style.color = 'var(--green,#16a34a)'; h.textContent = `→ ${ef.placa_norm} · ${ef.propietario || ''} (${ef.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico'})`
+    if (!$('ef-modal-num').value.trim()) { h.textContent = ''; return }
+    if (r.ambiguo) {
+      h.style.color = 'var(--amber,#f59e0b)'
+      h.innerHTML = `⚠ Ese N° está repetido (el IHTT corrió los correlativos). Pegá la revisión exacta:<br>` +
+        r.ambiguo.map(e => `<b>${esc(e.revision || '—')}</b> → ${esc(e.placa_norm)} · ${esc(e.propietario || '')}`).join('<br>')
+      return
+    }
+    if (!r.ef) { h.style.color = 'var(--red,#f85149)'; h.textContent = 'No hay un estado físico pendiente con ese N° o revisión.'; return }
+    const ef = r.ef
+    h.style.color = 'var(--green,#16a34a)'
+    h.textContent = `→ ${ef.placa_norm} · ${ef.propietario || ''} (${ef.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico'})${ef.revision ? ' · ' + ef.revision : ''}`
   }
   async function aplicarManual () {
-    const n = parseInt($('ef-modal-num').value, 10)
-    const ef = PEND.find(e => e.numero === n)
-    if (!ef) { toast('Número no encontrado entre pendientes', 'error'); return }
+    const r = buscarPend($('ef-modal-num').value)
+    if (r.ambiguo) { toast('Ese N° está repetido — pegá la revisión (FTT03-…) para elegir bien', 'error'); return }
+    const ef = r.ef
+    if (!ef) { toast('N° o revisión no encontrados entre pendientes', 'error'); return }
     try {
       // marcar el estado físico elegido Y su repotenciación de la misma placa (misma factura)
       const items = PEND.filter(e => e.placa_norm === ef.placa_norm)
