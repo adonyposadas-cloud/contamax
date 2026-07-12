@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260711-unificado' } catch (e) {}
+  try { window.__cotBuild = '20260711-tel' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -254,6 +254,13 @@
       <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
         <div class="fld"><label>Vendedor</label><input id="cot-vend" class="cot-in" placeholder="Nombre del vendedor"></div>
         <div class="fld"><label>Cliente</label><input id="cot-cli" class="cot-in" placeholder="Nombre del cliente"></div>
+        <div class="fld"><label>Teléfono <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(para WhatsApp)</span></label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input id="cot-tel" class="cot-in" placeholder="Ej: 9704 5242" autocomplete="off" style="flex:1;min-width:0">
+            <a id="cot-tel-wa" class="btn" target="_blank" rel="noopener" title="Abrir WhatsApp" style="color:#25d366;padding:5px 8px;text-decoration:none;opacity:.4">💬</a>
+          </div>
+          <div id="cot-tel-hint" style="font-size:10px;color:var(--text3,#8b949e);margin-top:2px"></div>
+        </div>
         <div class="fld"><label>Jefe de pista <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(autoriza)</span></label><input id="cot-jefe" class="cot-in" placeholder="Responsable de autorizar" style="text-transform:uppercase"></div>
       </div>
       <div class="form-grid" style="margin-top:10px;grid-template-columns:1fr 1fr 1fr">
@@ -674,6 +681,7 @@
         <div id="det-body"></div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
           <button class="btn btn-ghost" id="det-editar">✏ Abrir cotización</button>
+          <button class="btn btn-gold" id="det-saldo" style="display:none">🧾 Cotizar lo NO facturado</button>
           <button class="btn btn-gold" id="det-close">Cerrar</button>
         </div>
       </div>
@@ -797,7 +805,11 @@
   function wire () {
     $('cot-vend').addEventListener('input', e => PF.vendedor = e.target.value.toUpperCase())
     if ($('cot-jefe')) $('cot-jefe').addEventListener('input', e => PF.jefe_pista = e.target.value.toUpperCase())
-    $('cot-cli').addEventListener('input', e => PF.cliente = e.target.value.toUpperCase())
+    $('cot-cli').addEventListener('input', e => { PF.cliente = e.target.value.toUpperCase(); buscarTelCliente() })
+    if ($('cot-tel')) {
+      $('cot-tel').addEventListener('input', pintarTelWA)
+      $('cot-tel').addEventListener('blur', guardarTelCliente)
+    }
     $('cot-km').addEventListener('input', e => PF.km = e.target.value)
     $('cot-orden').addEventListener('input', e => PF.numero_orden = e.target.value.trim())
     $('cot-desc').addEventListener('input', e => { PF.descuento = num(e.target.value); recalcTotales() })
@@ -826,7 +838,7 @@
     let debPl
     $('cot-placa').addEventListener('input', e => {
       PF.placa = e.target.value.toUpperCase()
-      clearTimeout(debPl); debPl = setTimeout(() => sugerirPlaca(PF.placa), 260)
+      clearTimeout(debPl); debPl = setTimeout(() => { sugerirPlaca(PF.placa); buscarTelCliente() }, 260)
     })
     $('cot-placa').addEventListener('blur', () => setTimeout(() => { $('cot-placa-ac').style.display = 'none' }, 180))
     $('cot-placa-ac').addEventListener('mousedown', e => {
@@ -1023,6 +1035,7 @@
       $('cot-modal-det').classList.remove('open')
       if (_detId) recuperarProforma(_detId).then(ok => { if (ok !== false) switchTab('nueva') })
     })
+    $('det-saldo').addEventListener('click', cotizarSaldo)
   }
 
   function rangoTxt () { const d = PF.anioDesde || ''; const h = PF.anioHasta || ''; return (d || h) ? (d && h ? `${d}–${h}` : (d ? `${d}→` : `→${h}`)) : '' }
@@ -1888,6 +1901,8 @@
       descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
       ganancia_default: getGanDefault(), estado: PF.estado || 'pendiente'
     }
+    // Cotización de saldo: enlazar con la original (solo al crearla)
+    if (!PF.id && PF.saldo_de_id) payload.saldo_de_id = PF.saldo_de_id
     try {
       if (PF.id) {
         const { error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)
@@ -2018,6 +2033,7 @@
         } catch (e) { /* silencioso */ }
       }
       $('cot-vend').value = PF.vendedor; $('cot-cli').value = PF.cliente; $('cot-placa').value = PF.placa; $('cot-jefe') && ($('cot-jefe').value = PF.jefe_pista || '')
+      if ($('cot-tel')) { $('cot-tel').value = ''; _telBuscado = ''; buscarTelCliente() }
       $('cot-km').value = PF.km; $('cot-ma').value = PF.marca; $('cot-mo').value = PF.modelo
       $('cot-anio-veh').value = PF.anioVeh || ''; $('cot-anio-desde').value = PF.anioDesde; $('cot-anio-hasta').value = PF.anioHasta
       if (PF.anioVeh) { try { onAnioVeh() } catch (e) {} }   // año del vehículo → auto-detecta la generación
@@ -2044,7 +2060,10 @@
     PF = { id: null, correlativo: null, estado: 'pendiente', tipo_solicitud: 'solicitado', vendedor: prof ? (prof.nombre || '').toUpperCase() : '', cliente: '', placa: '', km: '', numero_orden: '', marca: '', modelo: '', anioVeh: '', anioDesde: '', anioHasta: '', traccion: '', combustible: '', motor: '', grupo: '', descuento: 0, notas: '', motivo: '', diagnostico: '', mecanico: '', proc_inicio: null, proc_aprobada: null, proc_completada: null, procesos_previos: [], jefe_pista: '', solicitados: [], items: [] }
     if ($('cot-proc-clock')) renderProcClock()
     renderContexto()
-    ;['cot-cli', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
+    ;['cot-cli', 'cot-tel', 'cot-placa', 'cot-km', 'cot-orden', 'cot-ma', 'cot-mo', 'cot-anio-veh', 'cot-anio-desde', 'cot-anio-hasta', 'cot-notas'].forEach(id => { const el = $(id); if (el) el.value = '' })
+    _telBuscado = ''
+    if ($('cot-tel-hint')) $('cot-tel-hint').textContent = ''
+    pintarTelWA()
     $('cot-desc').value = '0'
     $('cot-vend').value = PF.vendedor
     if ($('cot-jefe')) $('cot-jefe').value = PF.jefe_pista || ''
@@ -2436,6 +2455,75 @@
   const normTel = (t) => { let n = String(t || '').replace(/\D/g, ''); if (n && n.length <= 8) n = '504' + n; return n }
   const waHref = (tel, msg) => 'https://wa.me/' + normTel(tel) + '?text=' + encodeURIComponent(msg)
   const telHref = (tel) => 'tel:+' + normTel(tel)
+
+  // ── Teléfono del cliente en el formulario (clave: nombre + placa) ──
+  // Se captura al cotizar, que es cuando el cliente está enfrente. Después
+  // sirve para reclamarle lo que quedó sin facturar sin tener que buscarlo.
+  let _telBuscado = ''    // "NOMBRE|PLACA" ya consultado (evita repetir el query)
+
+  function pintarTelWA () {
+    const el = $('cot-tel'); if (!el) return
+    const tel = (el.value || '').trim()
+    const wa = $('cot-tel-wa')
+    if (!wa) return
+    if (tel) {
+      const veh = [PF.marca, PF.modelo].filter(Boolean).join(' ')
+      wa.href = waHref(tel, `Buenas, ${PF.cliente || ''}. Le escribo de Tecnimax sobre su ${veh || 'vehículo'}${PF.placa ? ' (' + PF.placa + ')' : ''}.`)
+      wa.style.opacity = '1'
+    } else { wa.removeAttribute('href'); wa.style.opacity = '.4' }
+  }
+
+  // Si ya conocemos a este cliente (mismo nombre + placa), traer su teléfono.
+  async function buscarTelCliente () {
+    const el = $('cot-tel'); if (!el) return
+    const nom = (PF.cliente || '').trim(), pla = (PF.placa || '').trim()
+    const hint = $('cot-tel-hint')
+    if (!nom || !pla) return
+    const k = provNorm(nom) + '|' + provNorm(pla)
+    if (k === _telBuscado) return
+    _telBuscado = k
+    try {
+      const { data } = await sb().from('clientes_contacto')
+        .select('telefono,placa,placa_norm').eq('cliente_norm', provNorm(nom))
+      const filas = data || []
+      const exacta = filas.find(r => (r.placa_norm || '') === provNorm(pla))
+      if (exacta && exacta.telefono) {
+        if (!el.value.trim()) el.value = exacta.telefono
+        if (hint) { hint.style.color = 'var(--green,#16a34a)'; hint.textContent = '✓ Cliente conocido' }
+      } else {
+        // Mismo nombre, OTRA placa: puede ser la misma persona con otro auto… o un
+        // homónimo. Se ofrece, NO se autocompleta.
+        const otros = filas.filter(r => r.telefono)
+        if (hint) {
+          if (otros.length) {
+            hint.style.color = 'var(--amber,#f59e0b)'
+            hint.innerHTML = `⚠ Mismo nombre en otra placa: ${otros.map(o => `<a href="#" data-teluse="${esc(o.telefono)}" style="color:var(--amber,#f59e0b)">${esc(o.telefono)} (${esc(o.placa || 's/placa')})</a>`).join(' · ')} — verificá que sea el mismo cliente`
+            hint.querySelectorAll('[data-teluse]').forEach(a => a.addEventListener('click', ev => {
+              ev.preventDefault(); el.value = a.dataset.teluse; pintarTelWA(); guardarTelCliente()
+            }))
+          } else hint.textContent = ''
+        }
+      }
+      pintarTelWA()
+    } catch (e) { /* si la tabla aún no existe, seguimos sin teléfono */ }
+  }
+
+  async function guardarTelCliente () {
+    const el = $('cot-tel'); if (!el) return
+    const tel = (el.value || '').trim()
+    const nom = (PF.cliente || '').trim(), pla = (PF.placa || '').trim()
+    if (!tel || !nom) return
+    if (!pla) { const h = $('cot-tel-hint'); if (h) { h.style.color = 'var(--amber,#f59e0b)'; h.textContent = '⚠ Poné la placa para guardar el teléfono (evita cruzar clientes con el mismo nombre)' } return }
+    try {
+      const { error } = await sb().from('clientes_contacto').upsert({
+        cliente_norm: provNorm(nom), cliente: nom,
+        placa_norm: provNorm(pla), placa: pla,
+        telefono: tel, updated_at: new Date().toISOString()
+      }, { onConflict: 'cliente_norm,placa_norm' })
+      if (error) throw error
+      const h = $('cot-tel-hint'); if (h) { h.style.color = 'var(--green,#16a34a)'; h.textContent = '✓ Teléfono guardado' }
+    } catch (e) { console.error('[cot tel]', e) }
+  }
 
   async function fetchProveedoresCompras () {
     const set = new Set(); let from = 0; const step = 1000
@@ -3210,24 +3298,38 @@
   }
 
   // ── SEGUIMIENTO COMERCIAL ──
+  // SEG_SALDO[id_original] = cotización nueva que se llevó el saldo
+  let SEG_SALDO = {}
+
   function clasificar (p, ord, snap) {
     const cotizado = (snap && snap.total_presentado != null) ? Number(snap.total_presentado) : (Number(p.total) || 0)
+    const hijo = SEG_SALDO[p.id]
     if (!p.numero_orden) return { cat: 'sin_orden', cotizado, facturado: 0, pendiente: cotizado, factura: '' }
     if (!ord || !ord.numero_factura) return { cat: 'sin_factura', cotizado, facturado: 0, pendiente: cotizado, factura: '' }
     const facturado = Number(ord.total) || 0
-    if (facturado < cotizado - 0.5) return { cat: 'facturo_menos', cotizado, facturado, pendiente: Math.max(0, cotizado - facturado), factura: ord.numero_factura }
+    if (facturado < cotizado - 0.5) {
+      // Si el saldo ya se trasladó a una cotización nueva, esta deja de reclamar factura:
+      // la responsabilidad de facturar pasó a la nueva (con su propia orden).
+      if (hijo) return { cat: 'saldo_trasladado', cotizado, facturado, pendiente: 0, factura: ord.numero_factura, saldoEn: hijo }
+      return { cat: 'facturo_menos', cotizado, facturado, pendiente: Math.max(0, cotizado - facturado), factura: ord.numero_factura }
+    }
     return { cat: 'cerrada', cotizado, facturado, pendiente: 0, factura: ord.numero_factura }
   }
-  const CAT_LBL = { sin_orden: 'Sin orden', sin_factura: 'Sin factura', facturo_menos: 'Facturó menos', cerrada: 'Cerrada' }
+  const CAT_LBL = { sin_orden: 'Sin orden', sin_factura: 'Sin factura', facturo_menos: 'Facturó menos', cerrada: 'Cerrada', saldo_trasladado: 'Saldo trasladado' }
 
   async function loadSeguimiento () {
     const list = $('cot-seg-list')
     list.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
     try {
       const { data, error } = await sb().from('cotizador_proformas')
-        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,proc_inicio,proc_aprobada,proc_completada')
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,saldo_de_id,proc_inicio,proc_aprobada,proc_completada')
         .order('created_at', { ascending: false }).limit(400)
       if (error) throw error
+      // Mapa: original → cotización nueva que se llevó su saldo
+      SEG_SALDO = {}
+      ;(data || []).forEach(p => {
+        if (p.saldo_de_id) SEG_SALDO[p.saldo_de_id] = { id: p.id, num: numeroDe(p.vendedor, p.correlativo) }
+      })
       const ordMap = await mapaOrdenes(data || [])
       const snapMap = await mapaPresentaciones(data || [])
       SEG_DATA = (data || []).map(p => {
@@ -3243,7 +3345,7 @@
 
   function segFiltradas () {
     const q = ($('cot-seg-q').value || '').trim().toUpperCase()
-    return SEG_DATA.filter(p => p.cat !== 'cerrada')
+    return SEG_DATA.filter(p => p.cat !== 'cerrada' && p.cat !== 'saldo_trasladado')
       .filter(p => !SEG_CAT || p.cat === SEG_CAT)
       .filter(p => !q || String(p.cliente || '').toUpperCase().includes(q) || String(p.placa || '').toUpperCase().includes(q) || String(p.numero_orden || '').toUpperCase().includes(q) || String(p.correlativo || '').toUpperCase().includes(q) || String(numeroDe(p.vendedor, p.correlativo) || '').toUpperCase().includes(q))
   }
@@ -3251,7 +3353,7 @@
   function renderSeg () {
     const list = $('cot-seg-list')
     // Stats sobre TODO el set cargado
-    const noCerradas = SEG_DATA.filter(p => p.cat !== 'cerrada')
+    const noCerradas = SEG_DATA.filter(p => p.cat !== 'cerrada' && p.cat !== 'saldo_trasladado')
     const pendienteTot = noCerradas.reduce((a, p) => a + (p.pendiente || 0), 0)
     const st = [
       [noCerradas.length, 'Sin cerrar'],
@@ -3283,9 +3385,76 @@
   }
 
   let _detId = null
+  let _detSaldo = null
+  let _detOverride = null
+  let _detTel = ""
+  let _detOtros = []    // mismo nombre, otra placa (posible homónimo)
+
+  // Crea una cotización NUEVA con solo los ítems que NO se facturaron.
+  // La original queda intacta: ya generó factura, no se reescribe hacia atrás.
+  function cotizarSaldo () {
+    if (!_detSaldo || !_detSaldo.items.length) { toast('No hay ítems pendientes', 'error'); return }
+    const { prof, items, factNum } = _detSaldo
+    const nOrig = numeroDe(prof.vendedor, prof.correlativo)
+    if (!confirm(`¿Cotizar los ${items.length} ítem(s) que no se facturaron?\n\n` +
+      `• Se abre una cotización NUEVA (se crea al generar el PDF).\n` +
+      `• ${nOrig} queda intacta (ya facturada${factNum ? ' en #' + factNum : ''}) y pasa a "Saldo trasladado": deja de reclamar factura.\n` +
+      `• Ponele el N° de orden NUEVO: este trabajo se factura aparte.`)) return
+
+    if (_lockedId) releaseLock(_lockedId)
+    const p = window._currentProfile ? window._currentProfile() : null
+    PF = {
+      id: null, correlativo: null, estado: 'pendiente', tipo_solicitud: 'solicitado',
+      vendedor: p ? (p.nombre || '').toUpperCase() : '',
+      // Vínculo con la original: al guardar, la original pasa a "Saldo trasladado"
+      // y deja de reclamar factura. La responsabilidad queda en esta.
+      saldo_de_id: prof.id,
+      // Hereda el contexto del vehículo/cliente de la original
+      cliente: prof.cliente || '', placa: prof.placa || '', km: prof.kilometraje || '',
+      // La orden va VACÍA a propósito: este trabajo se factura en una orden nueva.
+      // Si copiáramos la orden vieja, Seguimiento la compararía contra la factura
+      // ya emitida (que no trae estos ítems) y la marcaría "facturó menos" de nuevo.
+      numero_orden: '',
+      marca: prof.marca || '', modelo: prof.modelo || '', anioVeh: prof.anio_vehiculo || '',
+      anioDesde: (String(prof.anio || '').split('-')[0] || '').trim(),
+      anioHasta: (String(prof.anio || '').split('-')[1] || '').trim(),
+      traccion: prof.traccion || '', combustible: prof.combustible || '', motor: prof.motor || '', grupo: prof.grupo || '',
+      descuento: Number(prof.descuento) || 0,
+      notas: `Saldo de ${nOrig}${factNum ? ' · ya facturado en #' + factNum : ''}${prof.notas ? '\n' + prof.notas : ''}`,
+      motivo: prof.motivo || '', diagnostico: prof.diagnostico || '', mecanico: prof.mecanico || '',
+      jefe_pista: prof.jefe_pista || '',
+      proc_inicio: null, proc_aprobada: null, proc_completada: null, proc_solicitada: null,
+      procesos_previos: [], solicitados: [],
+      // Solo los ítems pendientes, sin arrastrar el seguimiento de pedidos de la original
+      items: items.map(it => {
+        const c = Object.assign({}, it)
+        delete c.seguimiento; delete c.facturado; delete c.proveedor
+        delete c._src; delete c._srcTipo
+        return c
+      })
+    }
+
+    $('cot-modal-det').classList.remove('open')
+    switchTab('nueva')
+    if ($('cot-proc-clock')) renderProcClock()
+    renderContexto()
+    const set = (id, v) => { const el = $(id); if (el) el.value = v || '' }
+    set('cot-cli', PF.cliente); set('cot-placa', PF.placa); set('cot-km', PF.km)
+    if ($('cot-tel')) { $('cot-tel').value = ''; _telBuscado = ''; buscarTelCliente() }
+    set('cot-orden', PF.numero_orden); set('cot-ma', PF.marca); set('cot-mo', PF.modelo)
+    set('cot-anio-veh', PF.anioVeh); set('cot-anio-desde', PF.anioDesde); set('cot-anio-hasta', PF.anioHasta)
+    set('cot-notas', PF.notas)
+    set('cot-desc', String(PF.descuento || 0))
+    set('cot-vend', PF.vendedor)
+    if ($('cot-jefe')) $('cot-jefe').value = PF.jefe_pista || ''
+    if ($('cot-recban')) $('cot-recban').style.display = 'none'
+    setNumLabel(); updVehHint(); updDetalleResumen(); renderItems()
+    toast(`${items.length} ítem(s) pendientes de ${nOrig}. Poné el N° de orden nuevo y generá el PDF: ahí se crea y ${nOrig} queda saldada.`, 'success')
+  }
   async function verDetalleSeguimiento (id) {
     _detId = id
     const p = SEG_DATA.find(x => x.id === id); if (!p) return
+    _detOverride = {}   // limpiar correcciones manuales al abrir otra cotización
     $('det-title').textContent = numeroDe(p.vendedor, p.correlativo) + ' · Cotizado vs Facturado'
     $('det-sub').textContent = `${p.cliente || 's/n'} · ${p.placa || 's/placa'} · ${CAT_LBL[p.cat]}`
     $('det-body').innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
@@ -3305,24 +3474,141 @@
           fact = its || []
         }
       }
+      // Teléfono del cliente. Clave = NOMBRE + PLACA: hay clientes distintos con el
+      // mismo nombre, y con la placa no se cruzan los teléfonos entre personas.
+      _detTel = ''
+      _detOtros = []
+      const nomCli = (prof.cliente || '').trim()
+      const plaCli = (prof.placa || '').trim()
+      if (nomCli) {
+        try {
+          const { data: cc } = await sb().from('clientes_contacto')
+            .select('telefono,placa,placa_norm').eq('cliente_norm', provNorm(nomCli))
+          const filas = cc || []
+          const exacta = filas.find(r => (r.placa_norm || '') === provNorm(plaCli))
+          _detTel = (exacta && exacta.telefono) ? exacta.telefono : ''
+          // Mismo nombre, OTRA placa: se ofrece para copiar, pero NO se usa solo
+          // (puede ser un homónimo, no la misma persona).
+          if (!_detTel) _detOtros = filas.filter(r => r.telefono && (r.placa_norm || '') !== provNorm(plaCli))
+        } catch (e) { /* si la tabla aún no existe, seguimos sin teléfono */ }
+      }
       renderDetalleSeg(prof, cot, fact, factNum, baseTotal, snap)
     } catch (e) { console.error('[cotizador detalle seg]', e); $('det-body').innerHTML = '<div style="color:var(--red,#f85149);text-align:center;padding:20px">Error al cargar</div>' }
   }
 
+  // ── Comparador cotizado ↔ facturado ──
+  // El nombre en la factura casi nunca es idéntico al cotizado: hay typos
+  // (COOLANT→COOLANG), palabras insertadas (POWER STEERING AUTOGUARD QUARTO)
+  // y abreviaturas. Un includes() simple falla y marca como "no facturado"
+  // cosas que SÍ se cobraron → riesgo de cobrarle dos veces al cliente.
+  const _normDesc = (s) => String(s || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')      // sin tildes
+    .replace(/[^A-Z0-9\s]/g, ' ')                          // sin puntuación
+    .replace(/\s+/g, ' ').trim()
+
+  const _STOP = new Set(['DE', 'DEL', 'LA', 'EL', 'Y', 'CON', 'PARA', 'A'])
+  const _tokens = (s) => _normDesc(s).split(' ').filter(t => t && !_STOP.has(t))
+
+  // Distancia de edición (para typos: COOLANT vs COOLANG)
+  function _lev (a, b) {
+    if (a === b) return 0
+    const m = a.length, n = b.length
+    if (!m || !n) return Math.max(m, n)
+    let prev = Array.from({ length: n + 1 }, (_, j) => j)
+    for (let i = 1; i <= m; i++) {
+      const cur = [i]
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      }
+      prev = cur
+    }
+    return prev[n]
+  }
+  // ¿Dos palabras son "la misma" salvo un typo?
+  const _tokEq = (x, y) => x === y || (Math.min(x.length, y.length) >= 4 && _lev(x, y) <= (Math.max(x.length, y.length) >= 8 ? 2 : 1))
+
+  // Puntaje 0..1: cuántos tokens del cotizado aparecen en el facturado
+  function _score (a, b) {
+    const ta = _tokens(a), tb = _tokens(b)
+    if (!ta.length || !tb.length) return 0
+    let hit = 0
+    const usados = new Set()
+    ta.forEach(x => {
+      for (let j = 0; j < tb.length; j++) {
+        if (usados.has(j)) continue
+        if (_tokEq(x, tb[j])) { usados.add(j); hit++; return }
+      }
+    })
+    // Proporción sobre el lado corto: tolera palabras EXTRA en la factura
+    // (POWER STEERING AUTOGUARD QUARTO ⊃ POWER STERING QUARTO)
+    return hit / Math.min(ta.length, tb.length)
+  }
+
+  // Empareja cada ítem cotizado con a lo sumo una línea de la factura (1-a-1, mejor puntaje).
+  function emparejar (cot, fact) {
+    const UMBRAL = 0.6
+    const pares = []
+    cot.forEach((it, i) => fact.forEach((f, j) => {
+      const s = _score(it.desc, f.descripcion)
+      if (s >= UMBRAL) pares.push({ i, j, s })
+    }))
+    pares.sort((a, b) => b.s - a.s)
+    const porCot = {}, usadaFact = new Set()
+    pares.forEach(p => {
+      if (porCot[p.i] !== undefined || usadaFact.has(p.j)) return
+      porCot[p.i] = p; usadaFact.add(p.j)
+    })
+    return cot.map((it, i) => {
+      const p = porCot[i]
+      if (!p) return { it, match: null, exacto: false, score: 0 }
+      const f = fact[p.j]
+      return { it, match: f, exacto: _normDesc(it.desc) === _normDesc(f.descripcion), score: p.s,
+        qCot: Number(it.cantidad) || 0, qFact: Number(f.cantidad) || 0 }
+    })
+  }
+
   function renderDetalleSeg (prof, cot, fact, factNum, baseTotal, snap) {
-    const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
-    const factSet = fact.map(f => norm(f.descripcion))
-    const estaFacturado = (desc) => { const d = norm(desc); return factSet.some(f => f === d || f.includes(d) || d.includes(f)) }
     const totCot = (baseTotal != null) ? baseTotal : (Number(prof.total) || cot.reduce((a, it) => a + it.precio * it.cantidad * (1 + (it.isv || 0) / 100), 0))
     const baseLbl = snap ? 'PRESENTADO AL CLIENTE' : 'COTIZADO'
     const snapNota = snap ? `<div style="font-size:11px;color:var(--text3,#8b949e);margin-bottom:6px">Presentado ${num(snap.veces) || 1} vez(es)${snap.ultima_presentacion ? ' · última ' + fFecha(snap.ultima_presentacion) : ''}</div>` : ''
     const totFact = fact.reduce((a, f) => a + (Number(f.monto_total) || 0), 0)
-    const noFactCount = cot.filter(it => !estaFacturado(it.desc)).length
-    const cotRows = cot.map(it => {
-      const ok = estaFacturado(it.desc)
-      return `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);${ok ? '' : 'background:rgba(248,81,73,.06)'}">
-        <div style="font-size:12px;min-width:0">${esc(String(it.desc).toUpperCase())}${ok ? '' : ' <span class="ped-badge" style="background:rgba(248,81,73,.15);color:var(--red,#f85149)">no facturado</span>'}</div>
-        <div style="font-size:12px;white-space:nowrap;color:var(--text3,#8b949e)">${fmt(it.cantidad)} × L.${fmt(it.precio)}</div></div>`
+    const pares = emparejar(cot, fact)
+    // Excluidos a mano por el usuario (cuando el comparador se equivoca)
+    _detOverride = _detOverride || {}
+    const esNoFact = (idx) => {
+      const o = _detOverride[idx]
+      if (o === 'si') return false          // forzado: sí se facturó
+      if (o === 'no') return true           // forzado: no se facturó
+      return !pares[idx].match
+    }
+    const noFacturados = cot.filter((it, i) => esNoFact(i))
+    const noFactCount = noFacturados.length
+    _detSaldo = { prof, items: noFacturados, factNum }
+    const yaTrasladado = SEG_SALDO[prof.id]
+    const btnSaldo = $('det-saldo')
+    if (btnSaldo) btnSaldo.style.display = (noFactCount && !yaTrasladado) ? '' : 'none'
+
+    const cotRows = pares.map((pr, i) => {
+      const it = pr.it
+      const noF = esNoFact(i)
+      const forz = _detOverride[i] ? ' <span style="font-size:10px;color:var(--gold,#c8a24a)">(manual)</span>' : ''
+      let badge = ''
+      if (noF) {
+        badge = ' <span class="ped-badge" style="background:rgba(248,81,73,.15);color:var(--red,#f85149)">no facturado</span>'
+      } else if (pr.match && !pr.exacto) {
+        badge = ` <span class="ped-badge" style="background:rgba(245,158,11,.15);color:var(--amber,#f59e0b)" title="Se facturó como: ${esc(pr.match.descripcion)}">≈ ${esc(String(pr.match.descripcion).toUpperCase())}</span>`
+      }
+      // Cantidad facturada menor a la cotizada (ej. 4 abrazaderas cotizadas, 2 facturadas)
+      let qBadge = ''
+      if (pr.match && pr.qFact && pr.qCot && pr.qFact < pr.qCot - 0.001) {
+        qBadge = ` <span class="ped-badge" style="background:rgba(245,158,11,.15);color:var(--amber,#f59e0b)">facturó ${fmt(pr.qFact)} de ${fmt(pr.qCot)}</span>`
+      }
+      return `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);${noF ? 'background:rgba(248,81,73,.06)' : ''}">
+        <div style="font-size:12px;min-width:0">${esc(String(it.desc).toUpperCase())}${badge}${qBadge}${forz}</div>
+        <div style="font-size:12px;white-space:nowrap;color:var(--text3,#8b949e);display:flex;gap:6px;align-items:center">
+          <span>${fmt(it.cantidad)} × L.${fmt(it.precio)}</span>
+          <button class="btn btn-ghost" data-detog="${i}" title="${noF ? 'Marcar como YA facturado' : 'Marcar como NO facturado'}" style="padding:1px 6px;font-size:10px">${noF ? '✓' : '✗'}</button>
+        </div></div>`
     }).join('')
     const factRows = fact.length ? fact.map(f => `<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#2a3340)">
         <div style="font-size:12px;min-width:0">${esc(String(f.descripcion).toUpperCase())}</div>
@@ -3342,9 +3628,108 @@
         </div>
       </div>
       <div style="margin-top:14px;padding:10px 14px;border-radius:8px;background:var(--bg3,#1c2333);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <span style="color:var(--red,#f85149);font-weight:700">${noFactCount} ítem(s) cotizados no aparecen en la factura</span>
-        <span style="font-weight:700">Pendiente: L. ${fmt(pend)}</span>
-      </div>`
+        ${yaTrasladado
+          ? `<span style="color:var(--green,#16a34a);font-weight:700">✓ Saldo trasladado a ${esc(yaTrasladado.num)} — esta ya no reclama factura</span><span style="font-weight:700">Pendiente acá: L. 0.00</span>`
+          : `<span style="color:${noFactCount ? 'var(--red,#f85149)' : 'var(--green,#16a34a)'};font-weight:700">${noFactCount ? noFactCount + ' ítem(s) cotizados no aparecen en la factura' : '✓ Todos los ítems aparecen en la factura'}</span><span style="font-weight:700">Dif. en L.: ${fmt(pend)}</span>`}
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--text3,#8b949e)">
+        ≈ = se facturó con otro nombre (typo o descripción distinta). La diferencia en L. incluye cambios de precio y descuentos, así que no equivale a lo no facturado. Si el emparejamiento se equivoca, corregilo con ✓ / ✗.
+      </div>
+      ${(noFactCount && !yaTrasladado) ? `
+      <div style="margin-top:12px;padding:10px 14px;border-radius:8px;border:1px solid var(--border,#2a3340)">
+        <div style="font-weight:700;color:var(--gold,#c8a24a);margin-bottom:8px">💬 Cerrar la venta con ${esc(prof.cliente || 'el cliente')}${prof.placa ? ` <span style="font-weight:400;color:var(--text3,#8b949e)">· ${esc(prof.placa)}</span>` : ''}</div>
+        ${_detOtros.length ? `<div style="margin-bottom:8px;font-size:11px;color:var(--amber,#f59e0b)">
+          ⚠ Hay ${_detOtros.length} teléfono(s) guardado(s) con este mismo nombre pero en otra placa. Puede ser la misma persona con otro vehículo… o un homónimo. Verificá antes de usar:<br>
+          ${_detOtros.map(o => `<button class="btn" data-detcopia="${esc(o.telefono)}" style="font-size:11px;padding:2px 8px;margin-top:4px">Usar ${esc(o.telefono)} (${esc(o.placa || 's/placa')})</button>`).join(' ')}
+        </div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="det-tel" class="cot-in" placeholder="Teléfono (ej. 9704 5242)" value="${esc(_detTel || '')}" style="width:170px">
+          <select id="det-desc" class="cot-in" style="width:130px">
+            ${[0, 5, 10, 15, 20].map(d => `<option value="${d}">${d ? d + '% descuento' : 'Sin descuento'}</option>`).join('')}
+          </select>
+          <span id="det-oferta" style="font-size:12px;color:var(--text3,#8b949e)"></span>
+          <span style="flex:1"></span>
+          <a id="det-wa" class="btn" target="_blank" rel="noopener" style="color:#25d366;font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>
+          <a id="det-call" class="btn" style="font-size:12px;padding:5px 10px;text-decoration:none">📞 Llamar</a>
+        </div>
+        <div id="det-msg-prev" style="margin-top:8px;font-size:11px;color:var(--text3,#8b949e);white-space:pre-wrap;border-left:2px solid var(--border,#2a3340);padding-left:8px"></div>
+      </div>` : ''}`
+    // Toggle manual: el comparador no es infalible; el usuario manda.
+    $('det-body').querySelectorAll('[data-detog]').forEach(b => b.addEventListener('click', () => {
+      const i = parseInt(b.dataset.detog, 10)
+      const actualNoF = esNoFact(i)
+      _detOverride[i] = actualNoF ? 'si' : 'no'   // invertir
+      renderDetalleSeg(prof, cot, fact, factNum, baseTotal, snap)
+    }))
+
+    // ── Cerrar la venta: recordarle al cliente lo que quedó pendiente ──
+    if (noFactCount && !yaTrasladado && $('det-tel')) {
+      // Faltantes reales: ítems no facturados + los que se facturaron de menos
+      const faltantes = []
+      pares.forEach((pr, i) => {
+        const it = pr.it
+        if (esNoFact(i)) { faltantes.push({ desc: it.desc, cant: Number(it.cantidad) || 1, precio: Number(it.precio) || 0, isv: Number(it.isv) || 0 }); return }
+        if (pr.match && pr.qFact && pr.qCot && pr.qFact < pr.qCot - 0.001) {
+          faltantes.push({ desc: it.desc, cant: pr.qCot - pr.qFact, precio: Number(it.precio) || 0, isv: Number(it.isv) || 0, parcial: true })
+        }
+      })
+      const dpf = Math.max(0, Math.min(100, Number(prof.descuento) || 0))
+      const totalFalt = faltantes.reduce((a, f) => a + f.precio * f.cant * (1 - dpf / 100) * (1 + f.isv / 100), 0)
+
+      const armar = () => {
+        const pct = Number($('det-desc').value) || 0
+        const conDesc = totalFalt * (1 - pct / 100)
+        $('det-oferta').textContent = pct
+          ? `L. ${fmt(totalFalt)} → L. ${fmt(conDesc)}`
+          : `Pendiente: L. ${fmt(totalFalt)}`
+        const lista = faltantes.map(f => `• ${String(f.desc).toUpperCase()}${f.cant > 1 || f.parcial ? ` (${fmt(f.cant)})` : ''}`).join('\n')
+        const veh = [prof.marca, prof.modelo].filter(Boolean).join(' ')
+        const msg = `Buenas, ${prof.cliente || ''}. Le escribo de Tecnimax.\n\n` +
+          `De su ${veh || 'vehículo'}${prof.placa ? ' (' + prof.placa + ')' : ''} quedó pendiente:\n${lista}\n\n` +
+          (pct
+            ? `Se lo podemos dejar listo con un ${pct}% de descuento: L. ${fmt(conDesc)} (antes L. ${fmt(totalFalt)}).`
+            : `Se lo podemos dejar listo por L. ${fmt(totalFalt)}.`) +
+          `\n\n¿Le agendamos una cita?`
+        $('det-msg-prev').textContent = msg
+        const tel = ($('det-tel').value || '').trim()
+        const wa = $('det-wa'), call = $('det-call')
+        if (tel) {
+          wa.href = waHref(tel, msg); wa.style.opacity = '1'; wa.removeAttribute('aria-disabled')
+          call.href = telHref(tel); call.style.opacity = '1'
+        } else {
+          wa.removeAttribute('href'); wa.style.opacity = '.4'
+          call.removeAttribute('href'); call.style.opacity = '.4'
+        }
+      }
+      armar()
+      $('det-desc').addEventListener('change', armar)
+      $('det-tel').addEventListener('input', armar)
+      // Guardar el teléfono (clave: nombre + placa, para no cruzar homónimos)
+      $('det-tel').addEventListener('blur', async () => {
+        const tel = ($('det-tel').value || '').trim()
+        const nom = (prof.cliente || '').trim()
+        const pla = (prof.placa || '').trim()
+        if (!nom || tel === (_detTel || '')) return
+        try {
+          const { error } = await sb().from('clientes_contacto').upsert({
+            cliente_norm: provNorm(nom), cliente: nom,
+            placa_norm: provNorm(pla), placa: pla,
+            telefono: tel, updated_at: new Date().toISOString()
+          }, { onConflict: 'cliente_norm,placa_norm' })
+          if (error) throw error
+          _detTel = tel
+          toast(`Teléfono guardado para ${nom}${pla ? ' · ' + pla : ''}`, 'success')
+        } catch (e) { console.error('[cliente contacto]', e); toast('No se pudo guardar el teléfono', 'error') }
+      })
+
+      // Mismo nombre en otro vehículo: ofrecerlo, pero que lo confirme el usuario
+      // (puede ser un homónimo, no la misma persona).
+      $('det-body').querySelectorAll('[data-detcopia]').forEach(b => b.addEventListener('click', () => {
+        $('det-tel').value = b.dataset.detcopia
+        armar()
+        $('det-tel').dispatchEvent(new Event('blur'))
+      }))
+    }
   }
 
   function exportSeguimiento () {
