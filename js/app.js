@@ -3609,27 +3609,23 @@ let cajaCambios = []
 // solo para poder sumar el saldo. Eso es lento y, si algún día pasa las 1,000
 // filas, PostgREST TRUNCA EN SILENCIO y el saldo queda mal sin avisar. Ahora:
 //   · el saldo lo calcula Postgres (RPC caja_saldos) → exacto, una sola fila
-//   · la lista solo trae los últimos N días + TODAS las pendientes sin importar
-//     la fecha (si no, una pendiente vieja se vuelve invisible y nadie la aprueba)
-const CAJA_RANGOS = [[7, 'Últimos 7 días'], [30, 'Últimos 30 días'], [90, 'Últimos 90 días'], [0, 'Todo el histórico']]
+//   · la lista solo trae el rango Desde/Hasta (por defecto los últimos 7 días)
+//     + TODAS las pendientes sin importar la fecha (si no, una pendiente vieja
+//     se vuelve invisible y nadie la aprueba)
 const CAJA_ESTADOS_PEND = ['pendiente_caja', 'borrador']
 const CAJA_GENERAL_CODIGOS = ['110102', '110102-001']
-let _cjRango = 7
-let _ccRango = 7
 
-function _rangoDesde(dias) {
-  if (!dias) return null
-  const d = new Date()
-  d.setDate(d.getDate() - dias)
-  return d.toISOString().slice(0, 10)
-}
+function _hoyISO() { return localDateStr() }
+function _haceDiasISO(d) { const f = new Date(); f.setDate(f.getDate() - d); return f.toISOString().slice(0, 10) }
+
+// Rango por defecto: últimos 7 días
+let _cjDesde = _haceDiasISO(7), _cjHasta = _hoyISO()
+let _ccDesde = _haceDiasISO(7), _ccHasta = _hoyISO()
 
 // Trae las líneas de una caja: las del rango + todas las pendientes (fuera de rango
 // incluidas), deduplicadas por id de línea.
-async function _lineasCajaRango(qBase, campoFecha, campoEstado, dias) {
-  const desde = _rangoDesde(dias)
-  if (!desde) return await qBase()
-  const r1 = await qBase().gte(campoFecha, desde)
+async function _lineasCajaRango(qBase, campoFecha, campoEstado, desde, hasta) {
+  const r1 = await qBase().gte(campoFecha, desde).lte(campoFecha, hasta)
   if (r1.error) return r1
   const r2 = await qBase().in(campoEstado, CAJA_ESTADOS_PEND)
   if (r2.error) return r2
@@ -3648,27 +3644,61 @@ async function _cajaSaldos(prefijos) {
   return (Array.isArray(data) ? data[0] : data) || null
 }
 
-// Inserta el selector de rango al lado del filtro de fecha (no requiere tocar index.html)
-function _montarRangoCaja(inputId, selId, valor, onChange) {
+// Inserta el filtro Desde / Hasta / Consultar al lado del filtro de fecha existente.
+// No requiere tocar index.html.
+function _montarRangoCaja(inputId, pref, desde, hasta, onConsultar) {
   const inp = document.getElementById(inputId)
-  if (!inp || document.getElementById(selId)) return
-  const sel = document.createElement('select')
-  sel.id = selId
-  sel.className = inp.className
-  sel.style.marginLeft = '8px'
-  sel.innerHTML = CAJA_RANGOS.map(([d, l]) => `<option value="${d}">${l}</option>`).join('')
-  sel.value = String(valor)
-  sel.onchange = () => onChange(parseInt(sel.value, 10))
-  inp.parentElement.insertBefore(sel, inp.nextSibling)
+  if (!inp) return
+  const cont = document.getElementById(pref + '-rango')
+  if (cont) { // ya montado: solo refrescar los valores
+    cont.querySelector(`#${pref}-desde`).value = desde
+    cont.querySelector(`#${pref}-hasta`).value = hasta
+    return
+  }
+  const box = document.createElement('span')
+  box.id = pref + '-rango'
+  box.style.cssText = 'display:inline-flex;align-items:flex-end;gap:10px'
+  box.innerHTML = `
+    <label style="display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:10px;letter-spacing:.08em;color:var(--text3)">DESDE</span>
+      <input type="date" id="${pref}-desde" class="${inp.className}" value="${desde}">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:10px;letter-spacing:.08em;color:var(--text3)">HASTA</span>
+      <input type="date" id="${pref}-hasta" class="${inp.className}" value="${hasta}">
+    </label>
+    <button class="btn btn-gold" id="${pref}-consultar">Consultar →</button>`
+  const fila = inp.parentElement
+  fila.appendChild(box)
+
+  // El viejo "Filtrar por fecha" + "Todas las fechas" quedaron redundantes con el rango.
+  // Se ocultan (no se borran: filtrarCajaFecha() sigue leyendo el input, que ahora está
+  // vacío = sin filtro). Guarda: solo si esa fila NO contiene las tarjetas de stats,
+  // para no tumbar media pantalla si el contenedor fuera más grande de lo esperado.
+  if (!fila.querySelector(`#${pref}-pendientes`)) {
+    ;[...fila.childNodes].forEach(n => {
+      if (n === box) return
+      if (n.nodeType === 3) n.textContent = ''            // "Filtrar por fecha:"
+      else if (n.nodeType === 1) n.style.display = 'none' // input, botón "Todas", resumen
+    })
+  }
+  inp.value = ''
+  box.querySelector(`#${pref}-consultar`).onclick = () => {
+    const d = document.getElementById(`${pref}-desde`).value
+    const h = document.getElementById(`${pref}-hasta`).value
+    if (!d || !h) { toast('Indicá desde y hasta', 'error'); return }
+    if (d > h) { toast('"Desde" no puede ser posterior a "Hasta"', 'error'); return }
+    onConsultar(d, h)
+  }
 }
 
-window.cambiarRangoCaja = (dias) => { _cjRango = dias; loadCaja() }
-window.cambiarRangoCajaChica = (dias) => { _ccRango = dias; loadCajaChica() }
+window.consultarRangoCaja = (d, h) => { _cjDesde = d; _cjHasta = h; loadCaja() }
+window.consultarRangoCajaChica = (d, h) => { _ccDesde = d; _ccHasta = h; loadCajaChica() }
 
 async function loadCaja() {
   const container = document.getElementById('lista-caja')
   container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)"><div class="spinner"></div></div>'
-  _montarRangoCaja('cj-fecha', 'cj-rango', _cjRango, window.cambiarRangoCaja)
+  _montarRangoCaja('cj-fecha', 'cj', _cjDesde, _cjHasta, window.consultarRangoCaja)
 
   // Cargar partidas que afectan SOLO caja general (110102), NO caja chica (110101)
   // Primero obtener las líneas que tocan caja general
@@ -3677,7 +3707,7 @@ async function loadCaja() {
     .or(CAJA_GENERAL_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%`).join(','))
 
   const { data: lineasCaja, error: lcErr } = await _lineasCajaRango(
-    qCaja, 'partidas_contables.fecha_partida', 'partidas_contables.estado', _cjRango)
+    qCaja, 'partidas_contables.fecha_partida', 'partidas_contables.estado', _cjDesde, _cjHasta)
 
   if (lcErr) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${lcErr.message}</div></div>`
@@ -9938,7 +9968,7 @@ let allCCPartidas = []
 
 window.loadCajaChica = async () => {
   const fechaFiltro = document.getElementById('cc-fecha')?.value || null
-  _montarRangoCaja('cc-fecha', 'cc-rango', _ccRango, window.cambiarRangoCajaChica)
+  _montarRangoCaja('cc-fecha', 'cc', _ccDesde, _ccHasta, window.consultarRangoCajaChica)
   const cont = document.getElementById('lista-caja-chica')
 
   // Líneas del rango + todas las pendientes (aunque sean viejas)
@@ -9947,7 +9977,7 @@ window.loadCajaChica = async () => {
     .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
 
   const { data: lineas, error } = await _lineasCajaRango(
-    qCC, 'partida.fecha_partida', 'partida.estado', _ccRango)
+    qCC, 'partida.fecha_partida', 'partida.estado', _ccDesde, _ccHasta)
 
   // El error se PINTA en pantalla; antes se iba en un toast y quedaba el spinner girando
   if (error) {
