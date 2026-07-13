@@ -2406,6 +2406,23 @@ window.editarPartida = async (id) => {
     .select('*')
     .eq('partida_id', id)
 
+  // conteo_billetes no guarda linea_id. Si una partida tiene VARIAS líneas de caja,
+  // hay que emparejar cada conteo con SU línea por tipo + cuenta + monto, y consumir
+  // el match para no reutilizarlo. Antes se hacía .find(c => c.tipo === tipoEsperado),
+  // que devolvía siempre el PRIMERO del mismo tipo: las 4 líneas quedaban con las
+  // denominaciones de la primera y, al guardar, se sobreescribían las reales.
+  const conteosPool = [...(conteosExist || [])]
+  const tomarConteo = (l) => {
+    const tipoEsperado = l.tipo === 'debito' ? 'ingreso' : 'egreso'
+    const m = parseFloat(l.monto) || 0
+    let i = conteosPool.findIndex(c => c.tipo === tipoEsperado
+      && c.cuenta_codigo === l.cuenta_codigo
+      && Math.abs((parseFloat(c.total_monto) || 0) - m) < 0.01)
+    if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && c.cuenta_codigo === l.cuenta_codigo)
+    if (i < 0) return null
+    return conteosPool.splice(i, 1)[0]
+  }
+
   for (const l of lineas) {
     lineaCounter++
     const lineaObj = {
@@ -2434,9 +2451,8 @@ window.editarPartida = async (id) => {
       }
     }
     // Si es cuenta de caja y hay conteo guardado, restaurar billetes
-    if (esCuentaCaja(l.cuenta_codigo) && conteosExist?.length) {
-      const tipoEsperado = l.tipo === 'debito' ? 'ingreso' : 'egreso'
-      const conteo = conteosExist.find(c => c.tipo === tipoEsperado)
+    if (esCuentaCaja(l.cuenta_codigo) && conteosPool.length) {
+      const conteo = tomarConteo(l)
       if (conteo) {
         lineaObj.billetes = {
           500: conteo.den_500 || 0,
@@ -2961,6 +2977,28 @@ window.guardarPartida = async (estado) => {
   const creditos = Math.round(lineasValidas.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0) * 100) / 100
   if (estado === 'aprobada' && debitos !== creditos) {
     toast(`La partida no cuadra: Débitos L.${debitos.toFixed(2)} ≠ Créditos L.${creditos.toFixed(2)}`, 'error'); return
+  }
+
+  // ── CANDADO DEL CONTEO DE BILLETES ──
+  // Los billetes de una línea de caja TIENEN que sumar el monto de esa línea.
+  // Si no, el arqueo miente en silencio y aparece un faltante o sobrante fantasma
+  // (fue exactamente lo que pasó con las partidas #940 y #2048). Se frena el guardado
+  // ANTES de escribir nada en la base.
+  const _descuadres = lineasValidas
+    .filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
+    .map(l => {
+      const suma = DENOMINACIONES.reduce((s, d) => s + (l.billetes[d] || 0) * d, 0) + (parseFloat(l.billetes._cheques) || 0)
+      return { l, suma, dif: Math.round(((parseFloat(l.monto) || 0) - suma) * 100) / 100 }
+    })
+    .filter(x => Math.abs(x.dif) > 0.01)
+
+  if (_descuadres.length) {
+    const fmtL = v => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+    const det = _descuadres.map(x =>
+      `· ${x.l.cuenta_codigo} · ${x.l.descripcion || 'sin descripción'}\n  monto ${fmtL(parseFloat(x.l.monto))} — los billetes suman ${fmtL(x.suma)}`
+    ).join('\n')
+    alert(`El conteo de billetes no cuadra con el monto de la línea:\n\n${det}\n\nVolvé a contar los billetes con el botón 💵 antes de guardar.\nSi se guarda así, el arqueo te va a marcar un faltante o sobrante que no existe.`)
+    return
   }
 
   // ── VALIDACIÓN DE UNIDADES (VIN, TAXI, VIP) EN DESCRIPCIÓN ──
@@ -3703,7 +3741,7 @@ async function loadCaja() {
   // Cargar partidas que afectan SOLO caja general (110102), NO caja chica (110101)
   // Primero obtener las líneas que tocan caja general
   const qCaja = () => sb.from('lineas_partida')
-    .select('id, partida_id, tipo, monto, cuenta_codigo, cuenta_nombre, partidas_contables!inner(fecha_partida, estado)')
+    .select('id, partida_id, tipo, monto, cuenta_codigo, cuenta_nombre, descripcion, partidas_contables!inner(fecha_partida, estado)')
     .or(CAJA_GENERAL_CODIGOS.map(c => `cuenta_codigo.eq.${c},cuenta_codigo.like.${c}-%`).join(','))
 
   const { data: lineasCaja, error: lcErr } = await _lineasCajaRango(
@@ -3759,6 +3797,18 @@ async function loadCaja() {
   if (conteos?.length) {
     for (const p of cajaPartidas) {
       p.billetes = conteos.filter(c => c.partida_id === p.id)
+      // conteo_billetes NO guarda linea_id, así que emparejamos cada conteo con su
+      // línea por tipo + monto + cuenta, consumiendo el match para no reutilizarlo.
+      // Sin esto, una partida con varias líneas de caja imprime todos los conteos
+      // en fila sin decir cuál es de cuál.
+      const pool = [...p.billetes]
+      for (const l of (p.caja_lineas || [])) {
+        const tipo = l.tipo === 'debito' ? 'ingreso' : 'egreso'
+        const i = pool.findIndex(c => c.tipo === tipo
+          && c.cuenta_codigo === l.cuenta_codigo
+          && Math.abs((parseFloat(c.total_monto) || 0) - (parseFloat(l.monto) || 0)) < 0.01)
+        if (i >= 0) { l.billetes = pool[i]; pool.splice(i, 1) }
+      }
     }
   }
 
@@ -3977,7 +4027,24 @@ function partidaCardHTML(p) {
 
   // Detalle de billetes si existe
   let billetesInfo = ''
-  if (p.billetes?.length) {
+  const lns = p.caja_lineas || []
+
+  if (lns.length > 1) {
+    // Varias líneas de caja en una misma partida: la tarjeta mostraba solo el NETO
+    // y no se podía auditar. Ahora se desglosa movimiento por movimiento, cada uno
+    // con su descripción y su propio conteo de billetes.
+    const filas = lns.map(l => {
+      const ing = l.tipo === 'debito'
+      const m = parseFloat(l.monto) || 0
+      const bs = denomStrFromRow(l.billetes)
+      const txt = cajaEsc(l.descripcion || l.cuenta_nombre || '—')
+      return `<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0">
+          <span style="color:var(--text2)">${txt}${bs ? ` <span style="color:var(--text3)">· 💵 ${bs}</span>` : ''}</span>
+          <span style="color:${ing ? 'var(--green)' : 'var(--red)'};white-space:nowrap">${ing ? '+' : '-'} L. ${m.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</span>
+        </div>`
+    }).join('')
+    billetesInfo = `<div style="margin-top:6px;font-size:11px;border-left:2px solid var(--border);padding-left:8px">${filas}</div>`
+  } else if (p.billetes?.length) {
     const detalles = p.billetes.map(b => {
       const partes = denomStrFromRow(b)
       return partes ? `<span style="color:${b.tipo === 'ingreso' ? 'var(--green)' : 'var(--red)'}">${partes}</span>` : ''
@@ -3986,6 +4053,10 @@ function partidaCardHTML(p) {
       billetesInfo = `<p style="margin-top:4px;font-size:11px">💵 ${detalles.join(' | ')}</p>`
     }
   }
+
+  // Aviso de que el monto grande es un NETO, no un solo movimiento
+  const netoInfo = lns.length > 1
+    ? `<div style="text-align:right;font-size:10px;color:var(--text3);margin-top:2px">neto de ${lns.length} movimientos</div>` : ''
 
   return `
     <div class="caja-card ${p.estado}">
@@ -4001,6 +4072,7 @@ function partidaCardHTML(p) {
       <div class="caja-right">
         <div>
           <div class="caja-monto ${montoClass}">${signo} L. ${p.caja_monto.toLocaleString('es-HN', { minimumFractionDigits: 2 })}</div>
+          ${netoInfo}
           <div style="text-align:right;margin-top:4px"><span class="badge ${estadoBadge}">${estadoLabel}</span></div>
         </div>
         ${actions}
