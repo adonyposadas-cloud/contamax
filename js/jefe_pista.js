@@ -127,8 +127,13 @@ window.initJefePista = async () => {
 
 async function jpLoadTecnicos() {
   try {
-    const { data } = await jpSb().from('tecnicos_cat').select('nombre').order('usos', { ascending: false }).limit(500)
-    jpTecnicos = (data || []).map(t => t.nombre).filter(Boolean)
+    const { data } = await jpSb().from('tecnicos_cat').select('id,nombre').order('usos', { ascending: false }).limit(500)
+    // Se guardan id + nombre. El id es lo que se persiste (enlace duro); el nombre es
+    // solo lo que se escribe. Antes se guardaba el texto y el mecánico filtraba por él:
+    // un espacio de más y no veía su orden.
+    jpTecnicos = (data || []).filter(t => t.nombre)
+    window._jpTecMap = {}
+    jpTecnicos.forEach(t => { window._jpTecMap[t.nombre.trim().toUpperCase()] = t.id })
     const inp = document.getElementById('jp-tecnico')
     if (inp && !inp._jpBound) { inp._jpBound = true; inp.addEventListener('blur', () => setTimeout(jpTecHide, 150)) }
     const drop = document.getElementById('jp-tec-drop')
@@ -146,8 +151,8 @@ window.jpTecInput = () => {
   if (!inp || !drop) return
   const q = (inp.value || '').trim().toUpperCase()
   if (q.length < 2) { drop.style.display = 'none'; drop.innerHTML = ''; return }
-  const matches = jpTecnicos.filter(t => t.includes(q)).slice(0, 25)
-  let html = matches.map(t => `<div data-tec="${jpEsc(t)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(t)}</div>`).join('')
+  const matches = jpTecnicos.filter(t => t.nombre.toUpperCase().includes(q.toUpperCase())).slice(0, 25)
+  let html = matches.map(t => `<div data-tec="${jpEsc(t.nombre)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(t.nombre)}</div>`).join('')
   if (!jpTecnicos.includes(q)) html += `<div data-tec-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:#f0a500;font-weight:600" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}»</div>`
   drop.innerHTML = html
   drop.style.display = html ? 'block' : 'none'
@@ -296,9 +301,12 @@ window.jpEnviar = async () => {
     // Solo se bloquea si ya existe una del MISMO tipo para esa orden.
     const { data: dup } = await jpSb().from('cotizador_proformas').select('id,estado').eq('numero_orden', orden).eq('tipo_solicitud', jpTipo).limit(1)
     if (dup && dup.length) { window.toast?.(`La orden #${orden} ya tiene una cotización ${tipoLbl} (${dup[0].estado}).`, 'error'); if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar a cotizar' } return }
+    // El nombre escrito se resuelve a un id real. Si no matchea un técnico del catálogo,
+    // tecnico_id queda null y la orden cae en "SIN ASIGNAR" — visible, no perdida.
+    const tecnicoId = window._jpTecMap?.[(tecnico || '').trim().toUpperCase()] || null
     const { error } = await jpSb().from('cotizador_proformas').insert({
       estado: 'solicitada', proc_solicitada: new Date().toISOString(), tipo_solicitud: jpTipo,
-      jefe_pista: jpNombre(), mecanico: tecnico, vendedor: '', numero_orden: orden,
+      jefe_pista: jpNombre(), mecanico: tecnico, tecnico_id: tecnicoId, vendedor: '', numero_orden: orden,
       marca: v('jp-marca').toUpperCase() || null, modelo: v('jp-modelo').toUpperCase() || null,
       anio_vehiculo: Number.isFinite(anioN) ? anioN : null,
       cliente: (jpPrefill && jpPrefill.cliente) || null,
@@ -323,7 +331,7 @@ async function jpCargar() {
   const cont = document.getElementById('jp-ordenes'); if (cont) cont.innerHTML = '<div class="jp-empty">Cargando…</div>'
   try {
     let q = jpSb().from('cotizador_proformas')
-      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio_vehiculo,estado,jefe_pista,numero_orden,tipo_solicitud,proc_solicitada,proc_inicio,proc_cotizada,proc_aprobada,proc_completada,solicitados,items')
+      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio_vehiculo,estado,jefe_pista,numero_orden,tipo_solicitud,mecanico,tecnico_id,proc_solicitada,proc_inicio,proc_cotizada,proc_aprobada,proc_completada,solicitados,items')
       .in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(100)
     if (!jpEsSuper()) q = q.eq('jefe_pista', jpNombre())
     const { data, error } = await q
@@ -347,6 +355,18 @@ function jpRenderOrdenes() {
   const byFase = {}
   jpData.forEach(p => { const fx = jpFase(p).fase || 'otro'; (byFase[fx] = byFase[fx] || []).push(p) })
   let html = ''
+
+  // ── SIN ASIGNAR ──
+  // Una orden 'solicitado' sin técnico es una que el mecánico NO ve (filtra por
+  // tecnico_id). Si no se muestra acá, se queda sin inspeccionar en silencio: una fuga
+  // invisible. Va arriba de todo porque necesita acción del jefe de pista AHORA.
+  const sinAsignar = jpData.filter(p => p.tipo_solicitud === 'solicitado' && !p.tecnico_id)
+  if (sinAsignar.length) {
+    html += `<div style="margin:0 0 6px;font-size:12px;font-weight:700;color:#f85149;text-transform:uppercase;letter-spacing:.03em">
+      🚩 Sin técnico asignado <span style="opacity:.55;margin-left:2px">${sinAsignar.length}</span></div>
+      <div style="font-size:11px;color:#8b8f98;margin-bottom:6px">Nadie las ve en el checklist hasta que les asignes técnico.</div>`
+    html += sinAsignar.map(jpCardAsignar).join('')
+  }
   GRUPOS.forEach(g => {
     const lista = byFase[g.fase] || []
     html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span></div>`
@@ -356,6 +376,54 @@ function jpRenderOrdenes() {
   const otras = byFase['otro'] || []
   if (otras.length) { html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#8b8f98;text-transform:uppercase">• Otras <span style="opacity:.55">${otras.length}</span></div>` + otras.map(jpOrdenCard).join('') }
   cont.innerHTML = html
+}
+
+// Tarjeta de una orden sin técnico: un desplegable para asignárselo.
+function jpCardAsignar(p) {
+  const veh = [p.marca, p.modelo].filter(Boolean).join(' ') || 'Vehículo'
+  const corre = p.correlativo ? ('#' + (p.vendedor ? (p.vendedor.trim().slice(0, 2).toUpperCase() + '-') : '') + p.correlativo) : ('Orden ' + (p.numero_orden || ''))
+  const opts = (jpTecnicos || []).map(t => `<option value="${jpEsc(t.id)}">${jpEsc(t.nombre)}</option>`).join('')
+  return `<div class="jp-card" style="border-left:3px solid #f85149">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:700">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')}</div>
+        <div style="font-size:11px;color:#8b8f98">${jpEsc(corre)} · orden ${jpEsc(p.numero_orden || '')}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="asig-${p.id}" class="jp-inp" style="min-width:180px">
+          <option value="">— Elegí técnico —</option>${opts}
+        </select>
+        <button class="jp-b ok" onclick="jpAsignarTecnico('${p.id}')">Asignar</button>
+      </div>
+    </div>
+  </div>`
+}
+
+// Asignar (o reasignar) el técnico de una orden.
+// CANDADO: no se puede reasignar una orden con inspección ABIERTA. Si Yorbin llenó 15
+// de 21 puntos y se la pasan a Alex, Alex cobraría los hallazgos de Yorbin. El jefe de
+// pista tiene que cancelar esa inspección explícitamente primero — y eso deja rastro.
+window.jpAsignarTecnico = async function (proformaId) {
+  const sel = document.getElementById('asig-' + proformaId)
+  const tecId = sel?.value
+  if (!tecId) { window.toast?.('Elegí un técnico', 'error'); return }
+  const nombre = (jpTecnicos.find(t => t.id === tecId) || {}).nombre || ''
+
+  const p = (jpData || []).find(x => x.id === proformaId)
+
+  // ¿Hay una inspección abierta para esta orden?
+  const { data: insp } = await jpSb().from('checklist_inspecciones')
+    .select('id,estado,mecanico_id').eq('numero_orden', p.numero_orden).eq('estado', 'en_proceso').limit(1)
+  if (insp && insp.length) {
+    window.toast?.('No se puede reasignar: hay una inspección en proceso. Cancelala primero para no transferir el trabajo de un técnico a otro.', 'error')
+    return
+  }
+
+  const { error } = await jpSb().from('cotizador_proformas')
+    .update({ tecnico_id: tecId, mecanico: nombre }).eq('id', proformaId)
+  if (error) { window.toast?.(error.message, 'error'); return }
+  window.toast?.(`Asignada a ${nombre}`, 'success')
+  jpCargar()
 }
 
 function jpOrdenCard(p) {

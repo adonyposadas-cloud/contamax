@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714e'
+  window.__mecBuild = '20260714f'
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -142,11 +142,27 @@
     // un carro ya entregado no se inspecciona.
     const EN_PROCESO = ['solicitada', 'pendiente', 'autorizada']
 
+    // El mecánico ve SOLO sus órdenes. El filtro es por tecnico_id (UUID, enlace duro),
+    // NO por el nombre en texto: un espacio o una tilde no pueden decidir quién ve —
+    // y cobra — una orden. Si viera todas, elegiría los carros con más para encontrar
+    // (selección por rentabilidad) y podría inspeccionar la orden de otro y llevarse
+    // su comisión. La asignación la hace el jefe de pista; acá solo se respeta.
+    let qSol = sb().from('cotizador_proformas')
+      .select('id,numero_orden,cliente,placa,marca,modelo,anio_vehiculo,kilometraje,mecanico,tecnico_id,created_at')
+      .eq('tipo_solicitud', 'solicitado').in('estado', EN_PROCESO)
+    // super_admin/admin ven todo (para probar y supervisar). El mecánico, solo lo suyo.
+    if (!['super_admin', 'admin'].includes(yo.rol)) {
+      if (!yo.tecnico_id) {
+        // Sin técnico asignado no hay nada que mostrar — y la base ya no deja crear un
+        // mecánico así, pero si un usuario viejo quedó sin enlazar, se avisa en vez de
+        // mostrarle órdenes que no son suyas.
+        root.innerHTML = '<div class="mec-card">⚠️ Tu usuario no tiene un técnico asignado. Avisale al jefe de pista o a gerencia — sin eso, tu comisión no se acredita.</div>'
+        return
+      }
+      qSol = qSol.eq('tecnico_id', yo.tecnico_id)
+    }
     const [rSol, rRec] = await Promise.all([
-      sb().from('cotizador_proformas')
-        .select('id,numero_orden,cliente,placa,marca,modelo,anio_vehiculo,kilometraje,mecanico,created_at')
-        .eq('tipo_solicitud', 'solicitado').in('estado', EN_PROCESO)
-        .order('created_at', { ascending: false }).limit(120),
+      qSol.order('created_at', { ascending: false }).limit(120),
       // Qué órdenes YA tienen checklist. Se pregunta a checklist_inspecciones, NO a las
       // proformas: ahora la proforma solo existe si hubo hallazgos, así que un carro
       // sano no dejaría rastro y volvería a aparecer como "por inspeccionar".

@@ -2850,7 +2850,7 @@
       </div>
       <div class="fld">
         <label>Rol</label>
-        <select id="nu-rol" onchange="aplicarPlantillaRol('nu-permisos', this.value)">
+        <select id="nu-rol" onchange="aplicarPlantillaRol('nu-permisos', this.value); toggleCampoTecnico('nu-rol','nu-tecnico-wrap','nu-tecnico')">
           <option value="super_admin">Super Admin</option>
           <option value="admin">Admin (poder total, módulos limitados)</option>
           <option value="contador">Contador</option>
@@ -2861,6 +2861,15 @@
           <option value="jefe_pista">Jefe de Pista</option>
           <option value="mecanico">Mecánico (checklist)</option>
         </select>
+      </div>
+      <!-- Solo aparece si el rol es 'mecanico'. Sin tecnico_id, su comisión no se
+           acredita a nadie: el checklist funciona y la plata queda sin dueño. -->
+      <div class="fld" id="nu-tecnico-wrap" style="display:none">
+        <label>Técnico asignado <span style="color:#f85149">*</span></label>
+        <select id="nu-tecnico"><option value="">— Elegí el técnico —</option></select>
+        <div style="font-size:11px;color:#8b949e;margin-top:3px">
+          A quién se le acredita la comisión de los hallazgos que cierre.
+        </div>
       </div>
       <div class="fld col-full">
         <label>Centro de costo asignado</label>
@@ -2896,7 +2905,7 @@
       </div>
       <div class="fld">
         <label>Rol</label>
-        <select id="eu-rol" onchange="aplicarPlantillaRol('eu-permisos', this.value)">
+        <select id="eu-rol" onchange="aplicarPlantillaRol('eu-permisos', this.value); toggleCampoTecnico('eu-rol','eu-tecnico-wrap','eu-tecnico')">
           <option value="super_admin">Super Admin</option>
           <option value="admin">Admin (poder total, módulos limitados)</option>
           <option value="contador">Contador</option>
@@ -2907,6 +2916,14 @@
           <option value="jefe_pista">Jefe de Pista</option>
           <option value="mecanico">Mecánico (checklist)</option>
         </select>
+      </div>
+      <!-- Solo si el rol es 'mecanico'. Sin tecnico_id la comisión no tiene dueño. -->
+      <div class="fld" id="eu-tecnico-wrap" style="display:none">
+        <label>Técnico asignado <span style="color:#f85149">*</span></label>
+        <select id="eu-tecnico"><option value="">— Elegí el técnico —</option></select>
+        <div style="font-size:11px;color:#8b949e;margin-top:3px">
+          A quién se le acredita la comisión de los hallazgos que cierre.
+        </div>
       </div>
       <div class="fld">
         <label>Centro de costo</label>
@@ -3555,8 +3572,8 @@
 <script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
 <script defer src="js/cotizador.js?v=20260714-chk3"></script>
-<script defer src="js/jefe_pista.js?v=20260714g"></script>
-<script defer src="js/mecanico.js?v=20260714e"></script>
+<script defer src="js/jefe_pista.js?v=20260714h"></script>
+<script defer src="js/mecanico.js?v=20260714f"></script>
 <script defer src="js/precios.js?v=20260714d"></script>
 <script defer src="js/estados_fisicos.js?v=20260704s"></script>
 

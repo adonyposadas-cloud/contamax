@@ -655,6 +655,37 @@ const MODULOS_CATALOGO = [
   ]}
 ]
 
+// ── TÉCNICOS ──
+// Un usuario con rol 'mecanico' DEBE tener tecnico_id: sin él, el checklist funciona,
+// los hallazgos se guardan, y la COMISIÓN NO SE ACREDITA A NADIE. Falla en silencio y
+// solo se descubre el día de pago. La base ya lo impide (usuarios_mecanico_necesita_tecnico),
+// pero un error de constraint no le explica nada a quien crea el usuario: por eso el
+// campo existe acá, visible, y solo cuando hace falta.
+let _TECNICOS = []
+
+async function cargarTecnicos () {
+  if (_TECNICOS.length) return _TECNICOS
+  const { data } = await sb.from('tecnicos_cat').select('id,nombre').order('nombre')
+  _TECNICOS = data || []
+  return _TECNICOS
+}
+
+// Muestra u oculta el campo "Técnico asignado" según el rol elegido.
+window.toggleCampoTecnico = async function (rolSelId, wrapId, selId, valorActual) {
+  const rol = document.getElementById(rolSelId)?.value
+  const wrap = document.getElementById(wrapId)
+  const sel = document.getElementById(selId)
+  if (!wrap || !sel) return
+  const esMec = (rol === 'mecanico')
+  wrap.style.display = esMec ? '' : 'none'
+  if (!esMec) { sel.value = ''; return }
+
+  const tec = await cargarTecnicos()
+  sel.innerHTML = '<option value="">— Elegí el técnico —</option>' +
+    tec.map(t => `<option value="${t.id}" ${t.id === valorActual ? 'selected' : ''}>${t.nombre}</option>`).join('')
+  if (valorActual) sel.value = valorActual
+}
+
 // Renderiza el panel de checkboxes en el contenedor dado, con los ids marcados
 function renderPanelPermisos(containerId, marcados) {
   const cont = document.getElementById(containerId)
@@ -702,6 +733,8 @@ window.editarUsuario = (id) => {
   document.getElementById('eu-nombre').value = u.nombre
   document.getElementById('eu-rol').value = u.rol
   document.getElementById('eu-pass').value = ''
+  // El técnico asignado. Si el usuario no es mecánico, el campo queda oculto.
+  toggleCampoTecnico('eu-rol', 'eu-tecnico-wrap', 'eu-tecnico', u.tecnico_id)
   document.getElementById('modal-edit-error').classList.add('hidden')
   // Populate centro costo select
   const sel = document.getElementById('eu-empresa')
@@ -734,7 +767,16 @@ window.guardarEdicionUsuario = async () => {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
   // Update profile in usuarios table
-  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id, permisos_modulos, solo_sus_partidas }).eq('id', editingUserId)
+  const tecnico_id_ed = (rol === 'mecanico')
+    ? (document.getElementById('eu-tecnico')?.value || null)
+    : null
+  if (rol === 'mecanico' && !tecnico_id_ed) {
+    btn.disabled = false; btn.textContent = 'Guardar cambios'
+    showError(err, 'Un mecánico necesita un técnico asignado. Sin eso su comisión no se acredita a nadie.')
+    return
+  }
+
+  const { error: updErr } = await sb.from('usuarios').update({ nombre, rol, centro_costo_id, permisos_modulos, solo_sus_partidas, tecnico_id: tecnico_id_ed }).eq('id', editingUserId)
   if (updErr) {
     btn.disabled = false; btn.textContent = 'Guardar cambios'
     showError(err, updErr.message); return
@@ -805,13 +847,32 @@ window.crearUsuario = async () => {
     })
   }
   // 4. Insertar perfil en tabla usuarios (ya como super_admin)
+  const tecnico_id = (rol === 'mecanico')
+    ? (document.getElementById('nu-tecnico')?.value || null)
+    : null
+  // Se valida ACÁ además de en la base: la constraint tira un error críptico
+  // ("violates check constraint"), y quien crea el usuario merece saber qué falta.
+  if (rol === 'mecanico' && !tecnico_id) {
+    btn.disabled = false; btn.textContent = 'Crear usuario'
+    showError(err, 'Un mecánico necesita un técnico asignado. Sin eso su comisión no se acredita a nadie.')
+    return
+  }
+
   const { error: profileErr } = await sb.from('usuarios').insert({
     auth_user_id: signData.user.id, nombre, email, rol, centro_costo_id, activo: true,
-    permisos_modulos, solo_sus_partidas
+    permisos_modulos, solo_sus_partidas, tecnico_id
   })
   if (profileErr) {
+    // ⚠️ El auth user YA EXISTE (signUp corrió antes). Si el perfil falla y no lo
+    // borramos, queda huérfano: el email queda tomado y el segundo intento tira
+    // "User already registered" — un usuario que no puede crearse ni existir.
+    // Nos pasó con Alex Estrada el 14/07/2026.
+    // No hay borrado de auth desde el cliente (requiere service_role), así que al
+    // menos se avisa con la instrucción exacta en vez de dejar el misterio.
     btn.disabled = false; btn.textContent = 'Crear usuario'
-    showError(err, profileErr.message); return
+    showError(err, profileErr.message +
+      ' — ⚠️ El usuario quedó a medias en Auth. Antes de reintentar, borralo desde Supabase → Authentication → Users, o el email va a figurar como ya registrado.')
+    return
   }
   btn.disabled = false; btn.textContent = 'Crear usuario'
   closeModal('modal-usuario')
