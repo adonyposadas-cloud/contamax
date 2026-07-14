@@ -40,6 +40,73 @@ function _normProp(s) {
     .replace(/['´`]/g, '').replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 function _r2(x) { return Math.round((parseFloat(x) || 0) * 100) / 100 }
+
+// Arma una línea con el monto SIEMPRE positivo, volteando el lado si el importe es
+// negativo. Un débito de -922.25 no es contabilidad: es un crédito de 922.25.
+// Guardar montos negativos en lineas_partida envenena todo lo que sume
+// (debito ? +monto : -monto): mayor, balance, estado de resultados.
+// Devuelve null si el monto es cero (no se emite la línea).
+function _lineaFirmada(cuenta, monto, ladoNatural, centroId, descripcion) {
+  const m = _r2(monto)
+  if (Math.abs(m) < 0.005) return null
+  const invertir = m < 0
+  const tipo = invertir
+    ? (ladoNatural === 'debito' ? 'credito' : 'debito')
+    : ladoNatural
+  return {
+    cuenta_id: cuenta.id, cuenta_codigo: cuenta.codigo, cuenta_nombre: cuenta.nombre,
+    tipo, monto: Math.abs(m), centro_costo_id: centroId || null,
+    descripcion, aplica_fiscal: false
+  }
+}
+
+const _sumaDebe = (ls) => _r2(ls.filter(l => l.tipo === 'debito').reduce((s, l) => s + l.monto, 0))
+const _sumaHaber = (ls) => _r2(ls.filter(l => l.tipo === 'credito').reduce((s, l) => s + l.monto, 0))
+
+// Líneas de gasto del CC Taxis que no se pudieron asignar a una unidad. Se muestran
+// SIEMPRE: si se ocultaran, el pool pagaría cosas en silencio y nadie se enteraría.
+let _cierreSinUnidad = []
+
+window.verLineasSinUnidad = function () {
+  const lista = _cierreSinUnidad || []
+  let ov = document.getElementById('modal-sin-unidad')
+  if (!ov) {
+    ov = document.createElement('div')
+    ov.id = 'modal-sin-unidad'
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10001;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:40px 16px'
+    ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove() })
+    document.body.appendChild(ov)
+  }
+  const tot = _r2(lista.reduce((s, x) => s + x.monto, 0))
+  const filas = lista.length
+    ? lista.map(x => `<tr style="border-bottom:1px solid var(--border,#333)">
+        <td style="padding:6px 8px;color:var(--text3,#999);white-space:nowrap">${x.fecha}</td>
+        <td style="padding:6px 8px;font-family:var(--mono);color:var(--text3,#999)">${x.cuenta}</td>
+        <td style="padding:6px 8px">${(x.descripcion || '—')}</td>
+        <td style="padding:6px 8px;text-align:right;font-family:var(--mono)">${_fmtL(x.monto)}</td></tr>`).join('')
+    : '<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3,#999)">Todas las líneas de gasto se asignaron a una unidad 🎉</td></tr>'
+  ov.innerHTML = `
+    <div style="background:var(--bg2,#1a1a1a);border-radius:12px;max-width:760px;width:100%;padding:20px;color:var(--text,#eee)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:16px;font-weight:700">Gastos que paga el POOL (${lista.length})</div>
+        <button onclick="document.getElementById('modal-sin-unidad').remove()" style="background:none;border:none;color:var(--text3,#999);font-size:22px;cursor:pointer">×</button>
+      </div>
+      <div style="font-size:12px;color:var(--text3,#999);margin:6px 0 12px">
+        Líneas de gasto del CC Taxis cuya descripción no nombra una unidad conocida.
+        No se le retienen a ningún socio: <b>las paga el pool</b>. Si alguna debería ir a un socio,
+        corregí la descripción de la línea (ej. "VIP_8366 …") y volvé a calcular.
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="border-bottom:1px solid var(--border,#444);text-align:left;color:var(--text3,#999)">
+          <th style="padding:6px 8px">Fecha</th><th style="padding:6px 8px">Cuenta</th>
+          <th style="padding:6px 8px">Descripción</th><th style="padding:6px 8px;text-align:right">Monto</th></tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:1px solid var(--border,#444)">
+          <td colspan="3" style="padding:8px">TOTAL</td>
+          <td style="padding:8px;text-align:right;font-family:var(--mono)">${_fmtL(tot)}</td></tr></tfoot>
+      </table>
+    </div>`
+}
 function _fmtL(n) { return (n || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 // Paginado: PostgREST corta en ~1000 filas; traemos todo en lotes con orden estable.
@@ -86,6 +153,19 @@ window.initCierreMensual = async function () {
   }
 }
 
+// ── EXTRACCIÓN DEL REGISTRO DESDE LA DESCRIPCIÓN DE LA LÍNEA ──
+// lineas_partida NO tiene columna de unidad, así que hay que deducirla del texto.
+// EXIGIMOS una palabra de unidad antes del número: T_, VIP_, VIP, TAXI. Un \d{4}
+// suelto es peligroso: en "APPLE.COM/BILL 866-712-7753" agarraría 7753 y le cobraría
+// el Apple al dueño de esa unidad.
+// FLOTA/FLOTE NO dispara: esas unidades son del pool, las paga el pool.
+const _RE_UNIDAD = /\b(?:T|VIP|TAXI|TAXIS)\s*[_\-#]?\s*(\d{3,4})\b/i
+
+function _registroDeTexto(txt) {
+  const m = _RE_UNIDAD.exec(String(txt || ''))
+  return m ? _normReg(m[1]) : null
+}
+
 window.consultarCierreMensual = async function () {
   const sb = window._sb
   const desde = document.getElementById('cierre-desde').value
@@ -100,15 +180,23 @@ window.consultarCierreMensual = async function () {
   const uPorReg = {}
   for (const u of (unidades || [])) { const k = _normReg(u.registro); if (k && !uPorReg[k]) uPorReg[k] = u }
 
-  let entregas, facturas, recibos
+  let entregas, lineasGasto, recibos
   try {
     entregas = await _fetchAllPag(() => sb.from('entregas_taxis')
       .select('unidad, monto, fecha_deposito')
       .gte('fecha_deposito', desde).lte('fecha_deposito', hasta).order('id'))
-    facturas = await _fetchAllPag(() => sb.from('facturas_taxis')
-      .select('registro, monto, fecha')
-      .gte('fecha', desde).lte('fecha', hasta).order('id'))
-    // GPS y seguro salen del recibo mensual de cada unidad (gps + numero_alquiler)
+    // FUENTE DE LAS FACTURAS: EL MAYOR, no la tabla facturas_taxis.
+    // Lo que se le retiene al socio tiene que ser exactamente lo que el pool paga.
+    // Con facturas_taxis eran dos fuentes distintas y divergían (7,580 en junio):
+    // no todo entra por el importador, y lo que se carga a mano nunca se retenía.
+    // Se toma cualquier gasto (5xxxx/6xxxx) del CC Taxis cuya descripción nombre
+    // una unidad. Todo lo demás se queda en el pool.
+    const ccT = await _fetchAllPag(() => sb.from('centros_costo').select('id, nombre'))
+    const ccTaxis = (ccT || []).find(c => /tax/i.test(c.nombre || ''))
+    if (!ccTaxis) { window.toast?.('No encontré el centro "Taxis"', 'error'); return }
+    lineasGasto = await _fetchAllPag(() => sb.from('lineas_partida')
+      .select('id, cuenta_codigo, tipo, monto, descripcion, partidas_contables!inner(fecha_partida, estado)')
+      .eq('centro_costo_id', ccTaxis.id).order('id'))
     recibos = await _fetchAllPag(() => sb.from('recibos_prestamos')
       .select('registro, gps, numero_alquiler, fecha')
       .gte('fecha', desde).lte('fecha', hasta).order('id'))
@@ -117,7 +205,23 @@ window.consultarCierreMensual = async function () {
   const ingresoPorReg = {}
   for (const e of entregas) { const k = _normReg(e.unidad); ingresoPorReg[k] = (ingresoPorReg[k] || 0) + (parseFloat(e.monto) || 0) }
   const facturaPorReg = {}
-  for (const f of facturas) { const k = _normReg(f.registro); facturaPorReg[k] = (facturaPorReg[k] || 0) + (parseFloat(f.monto) || 0) }
+  _cierreSinUnidad = []   // líneas de gasto que no nombran unidad → las paga el pool
+  for (const l of (lineasGasto || [])) {
+    const p = _partidaDeLinea(l)
+    if (!p || p.estado !== 'aprobada') continue
+    if (p.fecha_partida < desde || p.fecha_partida > hasta) continue
+    if (!_esGasto(l.cuenta_codigo)) continue
+    const monto = _r2((l.tipo === 'debito' ? 1 : -1) * (parseFloat(l.monto) || 0))
+    if (Math.abs(monto) < 0.005) continue
+    const k = _registroDeTexto(l.descripcion)
+    // Solo se le retiene al socio si el registro existe de verdad en unidades_taxis.
+    // Si no se puede identificar, la línea NO se inventa un dueño: la paga el pool.
+    if (!k || !uPorReg[k]) {
+      _cierreSinUnidad.push({ cuenta: l.cuenta_codigo, monto, descripcion: l.descripcion, fecha: p.fecha_partida })
+      continue
+    }
+    facturaPorReg[k] = _r2((facturaPorReg[k] || 0) + monto)
+  }
   const gpsSegPorReg = {}
   for (const r of recibos) {
     const k = _normReg(r.registro)
@@ -173,6 +277,12 @@ window.consultarCierreMensual = async function () {
       <div class="stat-card"><div class="stat-num" style="color:var(--gold);font-size:16px">L. ${_fmtL(T.admin)}</div><div class="stat-label">Administración</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:16px">L. ${_fmtL(T.neto)}</div><div class="stat-label">Neto a socios</div></div>
     </div>
+    ${_cierreSinUnidad.length ? `<div style="background:rgba(212,160,23,.12);border:1px solid var(--gold,#d4a017);border-radius:8px;padding:10px;margin:12px 0;font-size:12px;cursor:pointer" onclick="window.verLineasSinUnidad()">
+      ⚠️ <b>${_cierreSinUnidad.length} línea(s) de gasto por L. ${_fmtL(_r2(_cierreSinUnidad.reduce((s, x) => s + x.monto, 0)))}</b> no nombran ninguna unidad conocida —
+      no se le retienen a ningún socio y <b>las paga el pool</b>. Clic para verlas.
+    </div>` : ''}
+    <div style="display:none">
+    </div>
     <div class="table-wrap" style="max-height:460px;overflow-y:auto">
       <table>
         <thead><tr>
@@ -221,44 +331,62 @@ window.generarPartidaCierre = async function () {
     const map = _SOCIO_CUENTA[_normProp(g.prop)]
     if (!map) { logs.push(`⏭️ ${g.prop}: sin cuenta asignada — omitido`); continue }
     if (!mapC[map.codigo]) { logs.push(`⚠️ ${g.prop}: cuenta ${map.codigo} no existe en el catálogo — omitido`); continue }
-    if (g.neto <= 0 || g.debito <= 0) { logs.push(`⏭️ ${g.prop}: neto/débito ≤ 0 (${_fmtL(g.neto)}) — omitido, revisar`); continue }
+    // Antes: `if (g.neto <= 0 || g.debito <= 0) continue` — a los socios con neto
+    // negativo (sus facturas superaron su ingreso) NO se les generaba partida, y sus
+    // facturas se quedaban dentro del pool: el pool terminaba pagándoles la reparación.
+    // Ahora sí se genera: el socio no cobra, DEBE. La línea se voltea a débito.
+    if (Math.abs(g.debito) < 0.005 && Math.abs(g.neto) < 0.005 && g.admin <= 0) {
+      logs.push(`⏭️ ${g.prop}: todo en cero — omitido`); continue
+    }
     if (map.centroAdony && !ccAdony) { logs.push(`⚠️ ${g.prop}: no encontré el centro "Adony Posadas" — omitido`); continue }
 
+    const cRenta = mapC[_CUENTA_RENTA], cAdmin = mapC[_CUENTA_ADMIN], cSocio = mapC[map.codigo]
+    const desc = `[CIERRE-TAXI] ${g.prop} · ${periodo}`
+
     let regenerado = false
+    // El duplicado se busca por la descripción COMPLETA (con el período), no solo por
+    // el nombre + fecha. Si no, un cierre de mayo mal fechado al 30/6 bloquea junio.
+    // Y solo bloquean las APROBADAS: antes `p.estado !== 'borrador'` contaba también
+    // las ANULADAS, y una partida anulada trancaba la regeneración (caso AUTOLOTE).
     const { data: existe } = await sb.from('partidas_contables').select('id, estado, numero_partida')
-      .ilike('descripcion', `%[CIERRE-TAXI] ${g.prop}%`).eq('fecha_partida', hasta)
-    if (existe?.length) {
-      const aprobadas = existe.filter(p => p.estado !== 'borrador')
-      if (aprobadas.length) { logs.push(`⏭️ ${g.prop}: ya existe partida APROBADA (#${aprobadas[0].numero_partida}) para ${hasta} — no se toca`); continue }
-      // Solo hay borrador(es): se eliminan para regenerar con datos actuales
-      const ids = existe.map(p => p.id)
+      .eq('descripcion', desc)
+    const vivas = (existe || []).filter(p => p.estado !== 'anulada')
+    if (vivas.length) {
+      const aprobadas = vivas.filter(p => p.estado === 'aprobada')
+      if (aprobadas.length) { logs.push(`⏭️ ${g.prop}: ya existe partida APROBADA (#${aprobadas[0].numero_partida}) para ${periodo} — no se toca`); continue }
+      // Solo hay borrador(es) del MISMO período: se eliminan para regenerar con datos actuales
+      const ids = vivas.map(p => p.id)
       await sb.from('lineas_partida').delete().in('partida_id', ids)
       const { error: delErr } = await sb.from('partidas_contables').delete().in('id', ids)
       if (delErr) { logs.push(`⚠️ ${g.prop}: no se pudo borrar el borrador anterior — ${delErr.message}`); continue }
       regenerado = true
     }
 
-    const cRenta = mapC[_CUENTA_RENTA], cAdmin = mapC[_CUENTA_ADMIN], cSocio = mapC[map.codigo]
-    const desc = `[CIERRE-TAXI] ${g.prop} · ${periodo}`
     const lineas = [
-      { cuenta_id: cRenta.id, cuenta_codigo: cRenta.codigo, cuenta_nombre: cRenta.nombre, tipo: 'debito', monto: g.debito, centro_costo_id: ccTaxis.id, descripcion: desc, aplica_fiscal: false },
-      { cuenta_id: cSocio.id, cuenta_codigo: cSocio.codigo, cuenta_nombre: cSocio.nombre, tipo: 'credito', monto: g.neto, centro_costo_id: map.centroAdony ? ccAdony.id : null, descripcion: `NETO ${g.prop} · ${periodo}`, aplica_fiscal: false }
-    ]
-    if (g.admin > 0) lineas.push({ cuenta_id: cAdmin.id, cuenta_codigo: cAdmin.codigo, cuenta_nombre: cAdmin.nombre, tipo: 'credito', monto: g.admin, centro_costo_id: ccTaxis.id, descripcion: `ADMINISTRACION TAXIS ${g.prop} · ${periodo}`, aplica_fiscal: false })
+      _lineaFirmada(cRenta, g.debito, 'debito', ccTaxis.id, desc),
+      _lineaFirmada(cSocio, g.neto, 'credito', map.centroAdony ? ccAdony.id : null, `${g.neto < 0 ? 'SALDO A COBRAR' : 'NETO'} ${g.prop} · ${periodo}`),
+      _lineaFirmada(cAdmin, g.admin, 'credito', ccTaxis.id, `ADMINISTRACION TAXIS ${g.prop} · ${periodo}`)
+    ].filter(Boolean)
+
+    const debe = _sumaDebe(lineas), haber = _sumaHaber(lineas)
+    if (Math.abs(debe - haber) > 0.01) {
+      logs.push(`❌ ${g.prop}: la partida no cuadra (debe ${_fmtL(debe)} ≠ haber ${_fmtL(haber)}) — omitido`); continue
+    }
 
     let numero
     try { numero = await window.siguienteNumeroPartida() } catch (e) { logs.push(`⚠️ ${g.prop}: no se pudo obtener número`); continue }
 
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
       centro_costo_id: null, fecha_partida: hasta, numero_partida: numero,
-      descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: g.debito, generada_por: quienId
+      descripcion: desc, tipo_origen: 'otro', estado: 'borrador', total: debe, generada_por: quienId
     }).select('id').single()
     if (pErr) { logs.push(`❌ ${g.prop}: error partida — ${pErr.message}`); continue }
 
     const { error: lErr } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id })))
     if (lErr) { await sb.from('partidas_contables').delete().eq('id', partida.id); logs.push(`❌ ${g.prop}: error líneas — ${lErr.message}`); continue }
     creadas++
-    logs.push(`${regenerado ? '♻️' : '✓'} ${g.prop}: partida #${numero} · neto L. ${_fmtL(g.neto)} · admin L. ${_fmtL(g.admin)}${regenerado ? ' (regenerada)' : ''}`)
+    const etiq = g.neto < 0 ? `DEBE L. ${_fmtL(-g.neto)}` : `neto L. ${_fmtL(g.neto)}`
+    logs.push(`${regenerado ? '♻️' : '✓'} ${g.prop}: partida #${numero} · ${etiq} · admin L. ${_fmtL(g.admin)}${regenerado ? ' (regenerada)' : ''}`)
   }
 
   if (btn) { btn.disabled = false; btn.textContent = 'Generar partida de cierre →' }
@@ -384,7 +512,10 @@ async function _loadDatosPool(sb, desde, hasta, ccTaxisId) {
     .eq('centro_costo_id', ccTaxisId).eq('centralizado', false).order('id'))
   const glLines = (lineas || [])
     .filter(l => _esIngreso(l.cuenta_codigo) || _esGasto(l.cuenta_codigo))
-    .filter(l => { const p = _partidaDeLinea(l); return p && p.fecha_partida <= hasta && p.estado !== 'anulada' })
+    // Solo APROBADAS. Antes era `estado !== 'anulada'`, que dejaba entrar borradores y
+    // pendientes: el pool sumaba plata que el estado de resultados no ve, y los números
+    // nunca podían coincidir.
+    .filter(l => { const p = _partidaDeLinea(l); return p && p.fecha_partida <= hasta && p.estado === 'aprobada' })
   return { poolUnits, ingresoRegs, glLines }
 }
 
@@ -623,19 +754,33 @@ window.generarPartidaCentralizacion = async function () {
   const faltan = codigos.filter(c => !mapC[c])
   if (faltan.length) { window.toast?.('Faltan cuentas en el catálogo: ' + faltan.join(', '), 'error'); reset(); return }
   const desc = `[CENTRALIZACION] Pool · ${periodo}`
-  const lineas = []
   const cRenta = mapC[_CUENTA_RENTA]
-  lineas.push({ cuenta_id: cRenta.id, cuenta_codigo: cRenta.codigo, cuenta_nombre: cRenta.nombre, tipo: 'debito', monto: D.debito, centro_costo_id: ccTaxis.id, descripcion: desc, aplica_fiscal: false })
+  const cFondo = mapC[_CUENTA_FONDO]
+
+  // Con neto positivo: débito a la renta. Con neto NEGATIVO (el CC perdió), _lineaFirmada
+  // lo voltea a CRÉDITO. Antes se insertaba `tipo:'debito', monto:-166155.13` — un débito
+  // negativo, que cuadra en pantalla pero envenena el mayor.
+  const lineas = [
+    _lineaFirmada(cRenta, D.debito, 'debito', ccTaxis.id, desc)
+  ].filter(Boolean)
+
   for (const s of D.socios) {
     if (s.cuota <= 0) continue
     const r = _resolverCuentaSocio(s), c = mapC[r.codigo]
-    lineas.push({ cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'credito', monto: s.cuota, centro_costo_id: r.centroAdony ? (ccAdony && ccAdony.id) : null, descripcion: `CUOTA ${s.nombre} · ${periodo}`, aplica_fiscal: false })
+    const l = _lineaFirmada(c, s.cuota, 'credito', r.centroAdony ? (ccAdony && ccAdony.id) : null, `CUOTA ${s.nombre} · ${periodo}`)
+    if (l) lineas.push(l)
   }
-  // Residual al fondo: crédito si sobra; débito (el fondo cubre) si las cuotas superan el neto
-  const cFondo = mapC[_CUENTA_FONDO]
-  if (D.residual > 0.005) lineas.push({ cuenta_id: cFondo.id, cuenta_codigo: cFondo.codigo, cuenta_nombre: cFondo.nombre, tipo: 'credito', monto: D.residual, centro_costo_id: ccTaxis.id, descripcion: `REINVERSION POOL · ${periodo}`, aplica_fiscal: false })
-  else if (D.residual < -0.005) lineas.push({ cuenta_id: cFondo.id, cuenta_codigo: cFondo.codigo, cuenta_nombre: cFondo.nombre, tipo: 'debito', monto: _r2(-D.residual), centro_costo_id: ccTaxis.id, descripcion: `DEFICIT CUBIERTO POR FONDO · ${periodo}`, aplica_fiscal: false })
-  const totalDebe = _r2(D.debito + (D.residual < -0.005 ? -D.residual : 0))
+
+  // Residual al fondo: crédito si sobra (reinversión); débito si las cuotas superan el
+  // neto (el fondo cubre el déficit). _lineaFirmada resuelve el lado por el signo.
+  const lFondo = _lineaFirmada(cFondo, D.residual, 'credito', ccTaxis.id,
+    D.residual < 0 ? `DEFICIT CUBIERTO POR FONDO · ${periodo}` : `REINVERSION POOL · ${periodo}`)
+  if (lFondo) lineas.push(lFondo)
+
+  const totalDebe = _sumaDebe(lineas), totalHaber = _sumaHaber(lineas)
+  if (Math.abs(totalDebe - totalHaber) > 0.01) {
+    window.toast?.(`La partida no cuadra: debe ${_fmtL(totalDebe)} ≠ haber ${_fmtL(totalHaber)}`, 'error'); reset(); return
+  }
   let numero
   try { numero = await window.siguienteNumeroPartida() } catch (e) { window.toast?.('No se pudo obtener número de partida', 'error'); reset(); return }
   const quienId = window._currentProfile?.()?.id || null
