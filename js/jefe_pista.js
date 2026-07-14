@@ -97,6 +97,7 @@ window.initJefePista = async () => {
     <div class="jp-card">
       <div class="jp-h">📋 Mis órdenes en proceso</div>
       <div class="jp-sub">Acá ves en qué fase está cada orden y cuánto lleva. Si algo se atrasa, ya sabés a quién exigirle. Podés agregar ítems a una orden ya enviada.</div>
+      <div id="jp-switch"></div>
       <div id="jp-ordenes"><div class="jp-empty">Cargando…</div></div>
     </div>
     <div id="jp-ag-ov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:12px">
@@ -318,10 +319,11 @@ window.jpEnviar = async () => {
 }
 
 async function jpCargar() {
+  jpRenderSwitch()
   const cont = document.getElementById('jp-ordenes'); if (cont) cont.innerHTML = '<div class="jp-empty">Cargando…</div>'
   try {
     let q = jpSb().from('cotizador_proformas')
-      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,estado,jefe_pista,numero_orden,tipo_solicitud,proc_solicitada,proc_inicio,proc_aprobada,proc_completada,solicitados')
+      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio_vehiculo,estado,jefe_pista,numero_orden,tipo_solicitud,proc_solicitada,proc_inicio,proc_aprobada,proc_completada,solicitados,items')
       .in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(100)
     if (!jpEsSuper()) q = q.eq('jefe_pista', jpNombre())
     const { data, error } = await q
@@ -375,6 +377,14 @@ function jpOrdenCard(p) {
   const btnPdf = p.proc_inicio
     ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Abrir la cotización en PDF para enviarla al cliente">📄 PDF</button>` : ''
   const esRec = p.tipo_solicitud === 'recomendado'
+  // El guion de venta. Solo aparece en la 'recomendado' del checklist y solo cuando el
+  // vendedor ya le puso precio a los hallazgos: sin precio no hay nada que ofrecer.
+  // El que se entera de que el cliente dijo que no es el jefe de pista: él hizo la llamada.
+  // NO es una anulación — la proforma sigue viva y entra en la lista de recontacto.
+  const btnNV = (f.fase !== 'completado' && p.estado !== 'no_vendida')
+    ? `<button class="jp-b" style="border-color:#f85149;color:#f85149" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
+  const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
+    ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Armar el mensaje de WhatsApp con fotos, mediciones y precios">📲 Enviar hallazgos</button>` : ''
   const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
   // Borde izquierdo por fase (mismos colores del cotizador): rojo=cotización, amarillo=autorización, verde=pedido/completado
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
@@ -384,6 +394,8 @@ function jpOrdenCard(p) {
       <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
     </div>
     ${reloj}
+    ${btnWA}
+    ${btnNV}
     ${btnPdf}
     ${btnAdd}
     ${btnAut}
@@ -411,8 +423,25 @@ window.jpPdf = (id) => {
 }
 
 // ── Agregar ítems a una orden ya enviada ──
-window.jpAbrirAgregar = (id) => {
+window.jpAbrirAgregar = async (id) => {
   const p = jpData.find(x => x.id === id); if (!p) return
+
+  // El bloqueo REAL lo hace el trigger en la base. Esto solo adelanta el mensaje: hacer
+  // que escriba 5 ítems para después rebotarlo sería una crueldad innecesaria.
+  try {
+    const { data: est } = await jpSb().rpc('checklist_estado_orden', { p_proforma_id: id })
+    if (est && !est.ok) {
+      const pr = (window._currentProfile ? window._currentProfile() : null) || {}
+      const esSuper = (pr._rolReal || pr.rol) === 'super_admin'
+      if (!esSuper) { window.toast?.('🔒 ' + est.motivo, 'error'); return }
+      const motivo = prompt(`🔒 ${est.motivo}\n\nSolo un super_admin puede saltarlo. Escribí el motivo (queda registrado):`)
+      if (!motivo || !motivo.trim()) { window.toast?.('Cancelado', 'error'); return }
+      const { error } = await jpSb().rpc('checklist_saltar', { p_proforma_id: id, p_motivo: motivo.trim() })
+      if (error) { window.toast?.(error.message, 'error'); return }
+      window.toast?.('Excepción registrada', 'success')
+    }
+  } catch (e) { /* si el RPC no existe todavía, el trigger igual protege */ }
+
   jpAgId = id; jpAgItems = []
   document.getElementById('jp-ag-title').textContent = `Agregar ítems — ${[p.marca, p.modelo].filter(Boolean).join(' ')} · ${p.placa || ''}`
   const ex = document.getElementById('jp-ag-existentes')
@@ -473,4 +502,261 @@ function jpStart() {
       el.textContent = jpCrono(ms); el.style.color = jpColor(ms, el.getAttribute('data-jp-fase'))
     })
   }, 1000)
+}
+/* ============================================================================
+ * 📲 ENVIAR HALLAZGOS AL CLIENTE
+ *
+ * No es un botón de "mandar fotos": es el GUION DE VENTA del proceso, armado solo.
+ * La diferencia entre "el técnico dice que sus frenos están malos" y una foto del
+ * disco DE SU CARRO, con el milímetro medido y el precio al lado.
+ *
+ * Fuentes (todas por ID, cero matching por texto):
+ *   · precios y cantidades → items[] de la proforma (lo que el cliente va a pagar)
+ *   · severidad y medición → checklist_hallazgos, vía item.hallazgo_id
+ *   · fotos                → URL firmada de 7 días (el bucket es privado)
+ *   · umbrales             → checklist_config
+ * ========================================================================== */
+window.jpEnviarHallazgos = async function (proformaId) {
+  const sb = jpSb()
+  try {
+    window.toast?.('Armando el mensaje…')
+    const { data: pf, error: e0 } = await sb.from('cotizador_proformas')
+      .select('id,cliente,placa,marca,modelo,anio_vehiculo,items,numero_orden,descuento').eq('id', proformaId).single()
+    if (e0) throw e0
+
+    const items = (pf.items || []).filter(it => it.hallazgo_linea_id)
+    if (!items.length) { window.toast?.('Esta proforma no tiene hallazgos cotizados', 'error'); return }
+
+    const { data: insp } = await sb.from('checklist_inspecciones')
+      .select('id,foto_desmontaje_del,foto_desmontaje_tra').eq('proforma_id', proformaId).single()
+
+    const hIds = [...new Set(items.map(it => it.hallazgo_id).filter(Boolean))]
+    const [rH, rP, rC] = await Promise.all([
+      sb.from('checklist_hallazgos').select('id,punto_id,severidad,medicion,foto_url,medicion_estimada').in('id', hIds),
+      sb.from('checklist_puntos').select('id,nombre,unidad_medicion,rueda_requerida,medicion_siempre'),
+      sb.from('checklist_config').select('*').eq('id', 1).single()
+    ])
+    const H = {}; for (const h of (rH.data || [])) H[h.id] = h
+    const P = {}; for (const p of (rP.data || [])) P[p.id] = p
+    const CFG = rC.data || {}
+
+    const firmar = async (path) => {
+      if (!path) return ''
+      const { data } = await sb.storage.from('checklist-fotos').createSignedUrl(path, 7 * 24 * 3600)
+      return data?.signedUrl || ''
+    }
+
+    // Umbral que aplica a cada punto, para poder decir "(mínimo 3mm)"
+    const umbral = (pt) => {
+      if (!pt) return null
+      if (pt.rueda_requerida) return CFG.mm_fric_rojo          // frenos
+      if (pt.nombre && /labrado/i.test(pt.nombre)) return CFG.mm_llanta_rojo
+      return null
+    }
+
+    // Agrupar por HALLAZGO (no por ítem): el cliente entiende "fricciones delanteras",
+    // no "FRICCION DELANTERA" + "INSTALACION DE FRICCION DE DISCO DELANTERAS" por separado.
+    const grupos = {}
+    for (const it of items) {
+      const g = grupos[it.hallazgo_id] || (grupos[it.hallazgo_id] = {
+        hallazgo: H[it.hallazgo_id], punto: P[it.punto_id], severidad: it.severidad, lineas: [], total: 0
+      })
+      const isv = 1 + (Number(it.isv) || 0) / 100
+      const sub = (Number(it.precio) || 0) * (Number(it.cantidad) || 0) * isv
+      g.lineas.push(it.desc)
+      g.total += sub
+    }
+
+    const fmt = v => Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const veh = [pf.marca, pf.modelo, pf.anio_vehiculo].filter(Boolean).join(' ')
+    const nombre = (pf.cliente || '').trim()
+
+    let msg = `${nombre ? nombre + ' — s' : 'S'}u ${veh || 'vehículo'}${pf.placa ? ' ' + pf.placa : ''}\n`
+    msg += `Revisión completa de su carro (orden #${pf.numero_orden || '—'}):\n`
+
+    let total = 0
+    for (const sev of ['rojo', 'amarillo']) {
+      const gs = Object.values(grupos).filter(g => g.severidad === sev)
+      if (!gs.length) continue
+      msg += `\n${sev === 'rojo' ? '🔴 URGENTE' : '🟡 RECOMENDADO'}\n`
+      for (const g of gs) {
+        const pt = g.punto
+        const h = g.hallazgo
+        msg += `\n▪️ ${pt ? pt.nombre : (g.lineas[0] || '')}`
+        // La medición SOLO si es real. Un valor estimado no se le muestra al cliente
+        // como si fuera medido: es lo mismo que no pagarle comisión por él.
+        if (h && h.medicion != null && !h.medicion_estimada) {
+          const u = umbral(pt)
+          msg += ` — ${h.medicion}${pt?.unidad_medicion || ''}${u ? ` (mínimo ${u}${pt.unidad_medicion || ''})` : ''}`
+        }
+        msg += '\n'
+        const link = await firmar(h && h.foto_url)
+        if (link) msg += `📷 ${link}\n`
+        msg += `${g.lineas.join(' + ')}: L. ${fmt(g.total)}\n`
+        total += g.total
+      }
+    }
+
+    // Foto del freno desmontado: es la que sostiene todo el argumento de frenos
+    const fd = await firmar(insp?.foto_desmontaje_del)
+    const ft = await firmar(insp?.foto_desmontaje_tra)
+    if (fd || ft) {
+      msg += `\nDesmontamos las ruedas para medir sus frenos de verdad:\n`
+      if (fd) msg += `📷 Delantera: ${fd}\n`
+      if (ft) msg += `📷 Trasera: ${ft}\n`
+    }
+
+    msg += `\nTOTAL: L. ${fmt(total)}\n`
+    msg += `\nSu carro está en el elevador. Si autoriza, se lo entregamos hoy.`
+    msg += `\n(Los links de las fotos vencen en 7 días.)`
+
+    jpModalWA(msg)
+  } catch (e) {
+    console.error('[jpEnviarHallazgos]', e)
+    window.toast?.('Error: ' + (e.message || e), 'error')
+  }
+}
+
+function jpModalWA (msg) {
+  let ov = document.getElementById('jp-wa-modal')
+  if (ov) ov.remove()
+  ov = document.createElement('div')
+  ov.id = 'jp-wa-modal'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+  ov.innerHTML = `
+    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:560px;width:100%;padding:18px;color:#e6edf3">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <b style="font-size:15px">📲 Mensaje para el cliente</b>
+        <button onclick="document.getElementById('jp-wa-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
+      </div>
+      <textarea id="jp-wa-txt" style="width:100%;height:300px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:11px;font-size:13px;font-family:inherit;line-height:1.5">${jpEsc(msg)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="jp-b" style="flex:1;padding:11px" onclick="jpCopiarWA()">📋 Copiar</button>
+        <button class="jp-b green" style="flex:1;padding:11px" onclick="jpAbrirWA()">💬 Abrir WhatsApp</button>
+      </div>
+      <div style="font-size:11px;color:#8b8f98;margin-top:8px">Podés editarlo antes de enviarlo. Los links de las fotos vencen en 7 días.</div>
+    </div>`
+  document.body.appendChild(ov)
+}
+
+window.jpCopiarWA = async function () {
+  const t = document.getElementById('jp-wa-txt'); if (!t) return
+  try { await navigator.clipboard.writeText(t.value); window.toast?.('Copiado', 'success') }
+  catch (e) { t.select(); document.execCommand('copy'); window.toast?.('Copiado', 'success') }
+}
+
+window.jpAbrirWA = function () {
+  const t = document.getElementById('jp-wa-txt'); if (!t) return
+  window.open('https://wa.me/?text=' + encodeURIComponent(t.value), '_blank')
+}
+
+
+/* ============================================================================
+ * INTERRUPTOR DEL CHECKLIST OBLIGATORIO
+ *
+ * Va acá, en la pantalla del jefe de pista, y no enterrado en una configuración:
+ * si el día 1 de la línea base el taller se traba con 25 carros adentro, hay que
+ * poder apagarlo EN SEGUNDOS, parado justo donde se ve el problema.
+ * Solo lo ve gerencia. El bloqueo real lo hace un trigger en la base — apagar esto
+ * NO es apagar una validación de pantalla, es cambiar la regla del negocio.
+ * ========================================================================== */
+window.jpCfgChecklist = null
+
+async function jpRenderSwitch () {
+  const box = document.getElementById('jp-switch'); if (!box) return
+  const prof = (window._currentProfile ? window._currentProfile() : null) || {}
+  const rol = prof._rolReal || prof.rol || ''
+  if (!['super_admin', 'admin', 'gerencia'].includes(rol)) { box.innerHTML = ''; return }
+  try {
+    const { data } = await jpSb().from('checklist_config').select('checklist_obligatorio').eq('id', 1).single()
+    jpCfgChecklist = data
+    const on = !!data?.checklist_obligatorio
+    box.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;margin-bottom:12px;border-radius:10px;
+                  background:${on ? 'rgba(22,163,74,.10)' : 'rgba(240,165,0,.10)'};
+                  border:1px solid ${on ? '#16a34a' : '#f0a500'}">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:${on ? '#16a34a' : '#f0a500'}">
+            ${on ? '🔒 Checklist OBLIGATORIO' : '🔓 Checklist opcional (piloto)'}
+          </div>
+          <div style="font-size:11px;color:#8b8f98;margin-top:1px">
+            ${on
+              ? 'No se pueden agregar ítems a una orden sin checklist cerrado. Si el taller se traba, apagalo acá.'
+              : 'Se pueden agregar ítems sin checklist. Prendelo el día 1 de la línea base.'}
+          </div>
+        </div>
+        <button class="jp-b ${on ? '' : 'green'}" style="white-space:nowrap"
+                onclick="jpToggleChecklist(${on ? 'false' : 'true'})">
+          ${on ? '🔓 Apagar' : '🔒 Prender'}
+        </button>
+      </div>`
+  } catch (e) { box.innerHTML = '' }
+}
+
+window.jpToggleChecklist = async function (prender) {
+  const msg = prender
+    ? '¿Prender el checklist obligatorio?\n\nA partir de ahora NO se van a poder agregar ítems a una orden sin checklist cerrado. Asegurate de que los 13 técnicos estén enrolados.'
+    : '¿Apagar el checklist obligatorio?\n\nSe van a poder agregar ítems sin checklist. Usalo solo si el taller está trabado.'
+  if (!confirm(msg)) return
+  const { error } = await jpSb().from('checklist_config').update({ checklist_obligatorio: prender }).eq('id', 1)
+  if (error) { window.toast?.('No se pudo cambiar: ' + error.message, 'error'); return }
+  window.toast?.(prender ? '🔒 Checklist obligatorio PRENDIDO' : '🔓 Checklist obligatorio APAGADO', 'success')
+  jpRenderSwitch()
+}
+
+
+/* ============================================================================
+ * ❌ NO SE VENDIÓ
+ *
+ * NO es una anulación. La proforma no se borra ni se cancela: EL RECHAZO ES UN DATO.
+ * De ahí sale la lista de recontacto a 15 y 30 días — la venta más barata que hay:
+ * ya diagnosticamos, ya cotizamos, ya tenemos las fotos. Solo falta la llamada.
+ * ========================================================================== */
+window.jpNoVendida = async function (id) {
+  const p = jpData.find(x => x.id === id)
+  const { data: motivos, error } = await jpSb().from('motivos_no_venta')
+    .select('codigo,nombre').order('orden')
+  if (error) { window.toast?.('No se pudieron cargar los motivos: ' + error.message, 'error'); return }
+
+  let ov = document.getElementById('jp-nv-modal'); if (ov) ov.remove()
+  ov = document.createElement('div')
+  ov.id = 'jp-nv-modal'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+  ov.innerHTML = `
+    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:440px;width:100%;padding:18px;color:#e6edf3">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <b style="font-size:15px">❌ El cliente no compró</b>
+        <button onclick="document.getElementById('jp-nv-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
+      </div>
+      <div style="font-size:12px;color:#8b8f98;margin-bottom:12px">
+        ${p ? jpEsc([p.marca, p.modelo].filter(Boolean).join(' ') + ' · ' + (p.placa || '')) : ''}
+        <br>No se anula nada: queda para volver a llamarlo a los 15 y 30 días.
+      </div>
+      <div style="display:grid;gap:6px" id="jp-nv-lista">
+        ${(motivos || []).map(m => `
+          <label style="display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #2a2e37;border-radius:8px;cursor:pointer;font-size:13px">
+            <input type="radio" name="jp-nv-m" value="${jpEsc(m.codigo)}"> ${jpEsc(m.nombre)}
+          </label>`).join('')}
+      </div>
+      <input id="jp-nv-nota" class="jp-inp" style="margin-top:9px" placeholder="Detalle (obligatorio si elegís «Otro»)">
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="jp-b" style="flex:1;padding:11px" onclick="document.getElementById('jp-nv-modal').remove()">Cancelar</button>
+        <button class="jp-b" style="flex:1;padding:11px;border-color:#f85149;color:#f85149" onclick="jpNoVendidaOk('${id}')">Registrar</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+}
+
+window.jpNoVendidaOk = async function (id) {
+  const sel = document.querySelector('input[name="jp-nv-m"]:checked')
+  if (!sel) { window.toast?.('Elegí el motivo', 'error'); return }
+  const nota = (document.getElementById('jp-nv-nota')?.value || '').trim()
+  const { error } = await jpSb().rpc('proforma_no_vendida',
+    { p_id: id, p_motivo: sel.value, p_nota: nota || null })
+  if (error) { window.toast?.(error.message, 'error'); return }
+  document.getElementById('jp-nv-modal')?.remove()
+  window.toast?.('Registrado — entra en la lista de recontacto', 'success')
+  jpCargar()
 }

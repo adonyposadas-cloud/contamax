@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260711-tel' } catch (e) {}
+  try { window.__cotBuild = '20260714-chk3' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -861,7 +861,10 @@
     $('cot-buscar-prod').addEventListener('click', () => abrirBusq('p'))
     $('cot-buscar-serv').addEventListener('click', () => abrirBusq('s'))
     $('cot-manual').addEventListener('click', abrirManual)
-    if ($('cot-solic-list')) $('cot-solic-list').addEventListener('click', e => { const b = e.target.closest('[data-solic-copy]'); if (b) copiarSolicitado(parseInt(b.getAttribute('data-solic-copy'), 10)) })
+    if ($('cot-solic-list')) $('cot-solic-list').addEventListener('click', e => {
+      const b = e.target.closest('[data-solic-copy]'); if (b) { copiarSolicitado(parseInt(b.getAttribute('data-solic-copy'), 10)); return }
+      const a = e.target.closest('[data-solic-add]');  if (a) { agregarSolicitado(parseInt(a.getAttribute('data-solic-add'), 10)) }
+    })
     $('cot-btn-pdf').addEventListener('click', generarPDF)
     $('cot-btn-ot').addEventListener('click', generarOrdenTrabajo)
     $('cot-modal-close').addEventListener('click', () => $('cot-modal').classList.remove('open'))
@@ -941,8 +944,27 @@
       recalcTotales()
     })
     $('cot-items-body').addEventListener('click', e => {
+      // "No ubico esta pieza": sin este flag, proc_cotizada nunca se sella para una pieza
+      // inconseguible y el SLA del cotizador queda abierto para siempre.
+      const np = e.target.closest('[data-nopieza]')
+      if (np) {
+        const i = parseInt(np.getAttribute('data-nopieza'), 10)
+        PF.items[i].pieza_no_ubicada = np.checked
+        renderItems(); guardarProforma({ silencioso: true })
+        return
+      }
       const del = e.target.closest('[data-del]')
-      if (del) { PF.items.splice(parseInt(del.dataset.del, 10), 1); renderItems(); return }
+      if (del) {
+        const idx = parseInt(del.dataset.del, 10)
+        const it = PF.items[idx]
+        // Si el ítem venía del checklist, se destilda su solicitado para que se pueda
+        // volver a agregar. Sin esto, un borrado accidental mata la comisión del mecánico.
+        if (it && it.hallazgo_linea_id && Array.isArray(PF.solicitados)) {
+          const s = PF.solicitados.find(x => x.hallazgo_linea_id === it.hallazgo_linea_id)
+          if (s) s.agregado = false
+        }
+        PF.items.splice(idx, 1); renderItems(); return
+      }
       const ed = e.target.closest('[data-edit]')
       if (ed) { editarManual(parseInt(ed.dataset.edit, 10)); return }
       const fx = e.target.closest('[data-fixdesc]')
@@ -1611,7 +1633,12 @@
       costo: tipo === 'p' ? num($('cm-costo').value) : 0,
       ganancia: tipo === 'p' ? num($('cm-gan').value) : 0
     }
-    // Al editar preservamos deOrden/ajuste/prioridad y demás campos del ítem original
+    // Al editar preservamos deOrden/ajuste/prioridad y demás campos del ítem original.
+    // ⚠️ CRÍTICO: este Object.assign es lo que hace que la ATRIBUCIÓN sobreviva.
+    // Si el vendedor cambia el producto (el catálogo dice "FRICCION DELANTERA" pero esta
+    // Explorer necesita un número de parte específico), el ítem conserva hallazgo_linea_id
+    // y el mecánico no pierde su comisión por una decisión del vendedor.
+    // NO reemplazar por un objeto nuevo: mataría la comisión en silencio.
     const item = editando ? Object.assign({}, orig, patch) : Object.assign({ deOrden: '', ajuste: '' }, patch)
     // ¿Corregir también en toda la base? (super_admin · ítem de historial · descripción cambiada)
     const quiereFix = $('cm-fixbase') && $('cm-fixbase').checked && ES_SUPER && orig && orig.deOrden
@@ -1696,6 +1723,11 @@
     const dBox = $('cot-ctx-diag'); if (dBox) { dBox.style.display = diag ? 'block' : 'none'; const t = $('cot-ctx-diag-txt'); if (t) t.textContent = diag }
     card.style.display = (tec || mot || diag) ? 'block' : 'none'
   }
+  // Un solicitado que viene del checklist trae hallazgo_linea_id: se puede agregar
+  // directo, con su precio de lista y su atribución. Los que escribe a mano el jefe de
+  // pista no lo traen y siguen con el flujo de siempre (📋 Copiar → Buscar producto).
+  const esDeChecklist = (s) => !!(s && s.origen === 'checklist' && s.hallazgo_linea_id)
+
   function renderSolicitados () {
     const panel = $('cot-solic-panel'); const list = $('cot-solic-list')
     if (!panel || !list) return
@@ -1704,14 +1736,67 @@
     panel.style.display = 'block'
     list.innerHTML = solic.map((s, i) => {
       const done = !!s.agregado
+      const chk = esDeChecklist(s)
+      const pb = num(s.precio_base_snapshot)
+      const sevTag = chk && s.severidad === 'rojo' ? '🔴' : (chk && s.severidad === 'amarillo' ? '🟡' : '')
+      const precioTxt = chk
+        ? (pb > 0
+            ? ` <span style="color:var(--gold,#c8a24a);font-size:11px">L. ${fmt(pb)}</span>`
+            : ' <span style="color:#f0a500;font-size:10px;font-weight:700" title="Este ítem no tiene precio de lista">SIN PRECIO</span>')
+        : ''
+      const boton = done
+        ? ''
+        : (chk
+            ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;color:var(--green,#16a34a);border-color:var(--green,#16a34a)" data-solic-add="${i}" title="Agregar a la cotización con su precio de lista">＋ Agregar</button>`
+            : `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-solic-copy="${i}" title="Copiar y buscarlo con Buscar producto">📋 Copiar</button>`)
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${done ? 'opacity:.55' : ''}">
         <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
-        <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${s.nuevo ? ' <span style="color:#f0a500;font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
+        <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${sevTag} ${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${precioTxt}${s.nuevo ? ' <span style="color:#f0a500;font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
         ${done ? '<span style="color:var(--green,#16a34a);font-size:12px;font-weight:700">✓</span>' : ''}
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-solic-copy="${i}" title="Copiar y buscarlo con Buscar producto">📋 Copiar</button>
+        ${boton}
       </div>`
     }).join('')
   }
+
+  // Agrega un solicitado del checklist como ítem, con la ATRIBUCIÓN pegada.
+  // El precio de lista es un DEFAULT, no una camisa de fuerza: el vendedor puede
+  // cambiarlo, negociarlo o descontarlo. La comisión del técnico se paga contra
+  // precio_base_snapshot del hallazgo, no contra lo que se termine facturando.
+  function agregarSolicitado (i) {
+    const solic = Array.isArray(PF.solicitados) ? PF.solicitados : []
+    const s = solic[i]
+    if (!s || !esDeChecklist(s)) return
+    if (s.agregado) { toast('Ese ítem ya está en la cotización', 'error'); return }
+    const pb = num(s.precio_base_snapshot)
+    PF.items.push({
+      tipo: s.tipo,
+      desc: String(s.desc || '').toUpperCase(),
+      codigo: '',
+      cantidad: num(s.cantidad) || 1,
+      precio: pb || 0,
+      isv: 15,
+      costo: 0, ganancia: 0,
+      deOrden: '', ajuste: '',
+      prioridad: s.severidad === 'rojo' ? 'crit' : 'rec',
+      // ── ATRIBUCIÓN ── El vínculo es el hallazgo, NO el SKU ni la descripción.
+      // Sobrevive a que el vendedor cambie el producto, el precio o la cantidad.
+      origen: 'checklist',
+      hallazgo_id: s.hallazgo_id,
+      hallazgo_linea_id: s.hallazgo_linea_id,
+      punto_id: s.punto_id,
+      severidad: s.severidad,
+      mecanico_id: s.mecanico_id,
+      servicio_cat_id: s.servicio_cat_id || null,
+      producto_cat_id: s.producto_cat_id || null
+    })
+    s.agregado = true
+    renderItems()
+    guardarProforma({ silencioso: true })
+    toast(pb > 0
+      ? `Agregado a L. ${fmt(pb)} — podés cambiarle el precio`
+      : 'Agregado sin precio de lista — ponele el precio', pb > 0 ? 'success' : 'error')
+  }
+
   async function copiarSolicitado (i) {
     const solic = Array.isArray(PF.solicitados) ? PF.solicitados : []
     const s = solic[i]; if (!s) return
@@ -1739,7 +1824,7 @@
       const p = getPrioridad(it)
       return `<div class="cot-row">
         <div>
-          <div style="font-size:13px">${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}${esc(String(it.desc).toUpperCase())} <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
+          <div style="font-size:13px">${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}${esc(String(it.desc).toUpperCase())} <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
@@ -2701,7 +2786,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,tipo_solicitud,numero_orden,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,anio_vehiculo,mecanico,total,estado,tipo_solicitud,numero_orden,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2767,10 +2852,15 @@
   // Responsable de la actividad pendiente según la fase.
   function responsableDe (p) {
     const g = grupoDe(p)
-    if (g === 'autorizacion') return { rol: 'Autoriza', nombre: p.jefe_pista || '—' }
-    if (g === 'compra') return { rol: 'Pide repuestos', nombre: p.vendedor || '—' }
-    return { rol: 'Cotiza', nombre: p.vendedor || '—' }
+    // El técnico va SIEMPRE que se conozca: es quien tiene el carro en el elevador y a
+    // quien hay que entregarle el repuesto. En fase de compra es la información crítica.
+    const tec = (p.mecanico || '').trim()
+    if (g === 'autorizacion') return { rol: 'Autoriza', nombre: p.jefe_pista || '—', tecnico: tec }
+    if (g === 'compra') return { rol: 'Pide repuestos', nombre: p.vendedor || '—', tecnico: tec }
+    return { rol: 'Cotiza', nombre: p.vendedor || '—', tecnico: tec }
   }
+  const tecnicoTag = (resp) => resp && resp.tecnico
+    ? ` · <span style="color:var(--text3,#8b949e)">🔧 Técnico: <b style="color:var(--text,#e6edf3)">${esc(resp.tecnico)}</b></span>` : ''
 
   function filaDash (p) {
     const num = numeroDe(p.vendedor, p.correlativo)
@@ -2806,7 +2896,7 @@
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${tipoBadge}${badge}${badgeNuevo}${lockBadge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
-        <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b></div>
+        <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b>${tecnicoTag(resp)}</div>
       </div>
       <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${accion}</div>
     </div>`
@@ -2882,7 +2972,7 @@
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(base.placa || 's/placa')} <span class="cot-estado autorizada">unificada</span> ${tipos}${progBadge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(base.cliente || 's/n')} · L. ${fmt(totalMonto)}</div>
-        <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b> · 📦 ${grp.length} cotizaciones</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b>${tecnicoTag(resp)} · 📦 ${grp.length} cotizaciones</div>
       </div>
       <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start">${accion}</div>
     </div>`
@@ -2941,7 +3031,7 @@
       const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
       if (error) throw error
       PEDPF = data
-      $('ped-title').textContent = `${numeroDe(data.vendedor, data.correlativo)} — ${[data.marca, data.modelo].filter(Boolean).join(' ')} · ${data.placa || 's/placa'}`
+      $('ped-title').textContent = `${numeroDe(data.vendedor, data.correlativo)} — ${[data.marca, data.modelo, data.anio_vehiculo || data.anio].filter(Boolean).join(' ')} · ${data.placa || 's/placa'}`
       renderPedidos()
       $('cot-modal-ped').classList.add('open')
       cargarProveedores()
