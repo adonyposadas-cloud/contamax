@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714d'
+  window.__mecBuild = '20260714e'
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -147,15 +147,16 @@
         .select('id,numero_orden,cliente,placa,marca,modelo,anio_vehiculo,kilometraje,mecanico,created_at')
         .eq('tipo_solicitud', 'solicitado').in('estado', EN_PROCESO)
         .order('created_at', { ascending: false }).limit(120),
-      // Las 'recomendado' se traen SIN filtro de estado: la que crea el mecánico nace
-      // en 'borrador', que no está en EN_PROCESO. Si se filtrara, una orden con
-      // inspección abierta volvería a aparecer en "Por inspeccionar".
-      sb().from('cotizador_proformas').select('numero_orden').eq('tipo_solicitud', 'recomendado')
+      // Qué órdenes YA tienen checklist. Se pregunta a checklist_inspecciones, NO a las
+      // proformas: ahora la proforma solo existe si hubo hallazgos, así que un carro
+      // sano no dejaría rastro y volvería a aparecer como "por inspeccionar".
+      // La inspección es la fuente de verdad de "este carro ya se revisó".
+      sb().from('checklist_inspecciones').select('numero_orden,estado,mecanico_id')
     ])
     if (rSol.error) { root.innerHTML = `<div class="mec-card">⚠️ ${esc(rSol.error.message)}</div>`; return }
 
-    const conRec = new Set((rRec.data || []).map(p => p.numero_orden))
-    const pend = (rSol.data || []).filter(p => !conRec.has(p.numero_orden))
+    const conChecklist = new Set((rRec.data || []).map(i => i.numero_orden))
+    const pend = (rSol.data || []).filter(p => !conChecklist.has(p.numero_orden))
 
     // Mis inspecciones sin cerrar (para retomarlas)
     const { data: abiertas } = await sb().from('checklist_inspecciones')
@@ -201,40 +202,23 @@
         .eq('id', proformaSolicitadoId).single()
       if (e0) throw e0
 
-      // Se crea una proforma 'recomendado' NUEVA. NO se toca la 'solicitado':
-      // checklist_cerrar() le pisaría los ítems que pidió el cliente.
-      // La constraint única (numero_orden, tipo_solicitud) garantiza el ORIGEN ÚNICO.
-      const { data: pf, error: e1 } = await sb().from('cotizador_proformas').insert({
-        tipo_solicitud: 'recomendado',
-        estado: 'borrador',
-        proc_asignada: new Date().toISOString(),   // arranca el cronómetro de inspección
-        numero_orden: hermana.numero_orden,
-        cliente: hermana.cliente, placa: hermana.placa,
-        marca: hermana.marca, modelo: hermana.modelo, anio_vehiculo: hermana.anio_vehiculo,
-        kilometraje: hermana.kilometraje,
-        mecanico: hermana.mecanico, jefe_pista: hermana.jefe_pista,
-        vendedor: '', items: [], solicitados: [], subtotal: 0, isv: 0, total: 0
-      }).select('id').single()
-      if (e1) {
-        if (String(e1.code) === '23505') { toast('Esa orden ya tiene un checklist', 'error'); await renderOrdenes(); return }
-        throw e1
-      }
-
-      const yo = await cargarYo()
+      // ⚠️ NO se crea ninguna proforma acá.
+      //
+      // Antes sí, y era un bug de NÓMINA: un carro sano o una inspección abandonada
+      // dejaban una 'recomendado' vacía, y v_bonos_cotizador las contaba como FUERA
+      // DE SLA. El cotizador perdía su bono por proformas que nunca tuvieron un ítem.
+      //
+      // La proforma nace en checklist_cerrar(), y SOLO si hubo hallazgos 🟡/🔴.
+      // La inspección no la necesita: le alcanza con numero_orden.
       const { data: insp, error: e2 } = await sb().from('checklist_inspecciones').insert({
-        proforma_id: pf.id,
+        proforma_id: null,                        // se llena al CERRAR, y solo si hay hallazgos
         numero_orden: hermana.numero_orden,
         placa: hermana.placa,
         kilometraje: kmInt(hermana.kilometraje),
         mecanico_id: yo.id            // ← LA ATRIBUCIÓN. usuarios.id, no auth.uid().
       }).select('*').single()
-      if (e2) {
-        // Si la inspección no se pudo crear, la proforma huérfana se BORRA. Sin esto,
-        // cada clic fallido deja una 'recomendado' vacía que bloquea la orden para
-        // siempre (la constraint única no deja crear otra).
-        await sb().from('cotizador_proformas').delete().eq('id', pf.id)
-        throw e2
-      }
+      // Ya no hay proforma huérfana que limpiar: si el insert falla, no se creó nada.
+      if (e2) throw e2
 
       INSP = insp; HALL = {}
       renderChecklist()

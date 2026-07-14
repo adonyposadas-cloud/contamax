@@ -259,7 +259,7 @@ window.jpCheckOrden = async () => {
   if (!orden) return
   try {
     const { data } = await jpSb().from('cotizador_proformas')
-      .select('tipo_solicitud, marca, modelo, anio_vehiculo, mecanico, cliente, placa, kilometraje').eq('numero_orden', orden)
+      .select('tipo_solicitud, marca, modelo, anio_vehiculo, mecanico, cliente, placa, kilometraje,proc_cotizada').eq('numero_orden', orden)
     if (!data || !data.length) return
     const tieneSol = data.some(d => (d.tipo_solicitud || 'solicitado') === 'solicitado')
     const tieneRec = data.some(d => d.tipo_solicitud === 'recomendado')
@@ -323,7 +323,7 @@ async function jpCargar() {
   const cont = document.getElementById('jp-ordenes'); if (cont) cont.innerHTML = '<div class="jp-empty">Cargando…</div>'
   try {
     let q = jpSb().from('cotizador_proformas')
-      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio_vehiculo,estado,jefe_pista,numero_orden,tipo_solicitud,proc_solicitada,proc_inicio,proc_aprobada,proc_completada,solicitados,items')
+      .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio_vehiculo,estado,jefe_pista,numero_orden,tipo_solicitud,proc_solicitada,proc_inicio,proc_cotizada,proc_aprobada,proc_completada,solicitados,items')
       .in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(100)
     if (!jpEsSuper()) q = q.eq('jefe_pista', jpNombre())
     const { data, error } = await q
@@ -361,7 +361,13 @@ function jpRenderOrdenes() {
 function jpOrdenCard(p) {
   const f = jpFase(p)
   const veh = [p.marca, p.modelo].filter(Boolean).join(' ') || 'Vehículo'
-  const nProd = (p.solicitados || []).length
+  // El contador decía "0 ítem(s)" en una proforma con 3 ítems por L.19,189: contaba
+  // SOLICITADOS (lo que se pidió cotizar) e ignoraba ITEMS (lo que el vendedor cotizó).
+  // Son dos cosas distintas y las dos importan:
+  //   solicitados → lo que hay que cotizar   ·   items → lo ya cotizado
+  const nSol = (p.solicitados || []).length
+  const nIt  = Array.isArray(p.items) ? p.items.length : 0
+  const nProd = nSol || nIt
   const corre = p.correlativo ? ('#' + (p.vendedor ? (p.vendedor.trim().slice(0, 2).toUpperCase() + '-') : '') + p.correlativo) : ('Orden ' + (p.numero_orden || ''))
   const running = f.desde ? true : false
   const ms = running ? (Date.now() - new Date(f.desde).getTime()) : 0
@@ -381,7 +387,14 @@ function jpOrdenCard(p) {
   // vendedor ya le puso precio a los hallazgos: sin precio no hay nada que ofrecer.
   // El que se entera de que el cliente dijo que no es el jefe de pista: él hizo la llamada.
   // NO es una anulación — la proforma sigue viva y entra en la lista de recontacto.
-  const btnNV = (f.fase !== 'completado' && p.estado !== 'no_vendida')
+  //
+  // SOLO aparece donde hay algo que el cliente PUDO rechazar:
+  //   · 'recomendado'  → el checklist encontró trabajo que el cliente NO pidió.
+  //                      Un 'solicitado' no se "no-vende": el cliente vino a hacerlo.
+  //   · proc_cotizada  → ya tiene precio. Sin precio no hubo nada que ofrecer,
+  //                      y un rechazo antes de cotizar no significa nada.
+  //   · no autorizada  → si ya dijo que sí, no hay rechazo que registrar.
+  const btnNV = (esRec && p.proc_cotizada && !['autorizada', 'no_vendida', 'finalizada', 'anulada'].includes(p.estado))
     ? `<button class="jp-b" style="border-color:#f85149;color:#f85149" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
     ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Armar el mensaje de WhatsApp con fotos, mediciones y precios">📲 Enviar hallazgos</button>` : ''
@@ -390,7 +403,7 @@ function jpOrdenCard(p) {
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
   return `<div class="jp-ordcard" style="border-left:4px solid ${bCol}">
     <div style="flex:1;min-width:0">
-      <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nProd} ítem(s)</span>${tipoBadge}</div>
+      <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nSol && nIt ? `${nSol} por cotizar · ${nIt} cotizado(s)` : (nIt && !nSol ? `${nIt} cotizado(s)` : `${nProd} ítem(s)`)}</span>${tipoBadge}</div>
       <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
     </div>
     ${reloj}
