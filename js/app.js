@@ -1,10 +1,8 @@
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
-// esm.sh empezó a devolver 502 Bad Gateway y la app NO ARRANCABA: sin supabase-js no hay
-// cliente, y sin cliente no hay nada. Toda la app colgada de un CDN gratuito sin SLA.
-//
-// jsDelivr es más estable, pero el problema de fondo sigue: una dependencia externa que
-// se cae tumba el sistema entero. Lo correcto es servir estos dos archivos desde js/,
-// igual que jspdf. Mientras tanto, al menos no es el mismo CDN el único punto de falla.
+// esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
+// sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
+// PENDIENTE DE FONDO: servir estos dos archivos desde js/, como jspdf. Un CDN caído no
+// puede tumbar la operación.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 import * as XLSX from 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm'
 window.XLSX = XLSX
@@ -144,17 +142,33 @@ function setupUI() {
   const initials = p.nombre.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
   document.getElementById('top-avatar').textContent = initials
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
-  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal' }
+  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', mecanico:'Mecánico' }
   document.getElementById('top-role').textContent = roleLabels[p._rolReal || p.rol] || p._rolReal || p.rol
 
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
-    contador_fiscal: ['nav-declaracion-isv']
+    contador_fiscal: ['nav-declaracion-isv'],
+    // El mecánico ve SOLO su checklist. Nada de contabilidad, nada de precios,
+    // nada de otras órdenes. La RLS lo respalda del lado del servidor.
+    // El mecánico SOLO ve su checklist. NO ve Precios a propósito: si viera el catálogo,
+    // vería cuánta comisión paga cada hallazgo ANTES de inspeccionar, y la inspección se
+    // convertiría en una lista de compras. Su pantalla le muestra el estimado DESPUÉS de
+    // marcar el hallazgo — ese es el orden correcto.
+    mecanico:    ['nav-mecanico'],
+
+    // El jefe de pista abre la orden, envía los hallazgos y registra el "no se vendió".
+    // Ve Precios en SOLO LECTURA (puedeEditar() de precios.js solo deja a gerencia):
+    // necesita responderle al cliente, no cambiar la base de la comisión.
+    jefe_pista:  ['nav-jefe-pista', 'nav-cotizador', 'nav-precios'],
+
+    // El cotizador busca las piezas y pone los precios. Ve Jefe de Pista para entender
+    // en qué fase está cada orden y a quién le corre el reloj.
+    cotizador:   ['nav-cotizador', 'nav-jefe-pista', 'nav-precios']
   }
   // Rol "admin": plantilla = TODO (navs + pestañas), para que al elegirlo se premarque
   // todo y puedas destildar lo que no querés que vea.
@@ -193,7 +207,7 @@ function setupUI() {
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
   // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos']
+  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios']
   window._todosNav = todosNav
   todosNav.forEach(id => {
     const el = document.getElementById(id)
@@ -223,7 +237,7 @@ function setupUI() {
 
   // Ocultar sección Cotizador si no tiene el módulo
   const sectionCotizador = document.getElementById('section-cotizador')
-  if (sectionCotizador) sectionCotizador.classList.toggle('hidden', !visibles.includes('nav-cotizador') && !visibles.includes('nav-jefe-pista'))
+  if (sectionCotizador) sectionCotizador.classList.toggle('hidden', !visibles.includes('nav-cotizador') && !visibles.includes('nav-jefe-pista') && !visibles.includes('nav-mecanico'))
 
   // Sección Gestión de flota
   const flotaItems = ['nav-vehiculos', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis']
@@ -492,8 +506,8 @@ window.eliminarTipoOrigen = async (id, nombre) => {
 }
 
 // ── USUARIOS ──
-const USR_ROLE_BADGE = { super_admin:'badge-gold', admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber', contador_fiscal:'badge-blue', caja:'badge-amber' }
-const USR_ROLE_LABEL = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', caja:'Caja' }
+const USR_ROLE_BADGE = { super_admin:'badge-gold', admin:'badge-gold', contador:'badge-blue', aux_contable:'badge-green', compras:'badge-amber', contador_fiscal:'badge-blue', caja:'badge-amber', mecanico:'badge-green' }
+const USR_ROLE_LABEL = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', caja:'Caja', mecanico:'Mecánico' }
 
 async function loadUsuarios() {
   const tbody = document.getElementById('tbody-usuarios')
@@ -635,6 +649,8 @@ const MODULOS_CATALOGO = [
   { grupo: 'Cotizador', items: [
     ['nav-jefe-pista', '🧰 Jefe de Pista'],
     ['nav-cotizador', 'Cotizador (Proformas)'],
+    ['nav-mecanico', '🔧 Checklist de inspección (mecánico)'],
+    ['nav-precios', '💰 Precios y códigos de comisión'],
     ['nav-estados-fisicos', 'Conciliación de Estados Físicos']
   ]}
 ]
