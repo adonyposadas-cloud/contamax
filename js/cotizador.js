@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260714-chk5' } catch (e) {}
+  try { window.__cotBuild = '20260714-chk6' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -1809,19 +1809,22 @@
     if (!s || !esDeChecklist(s)) return
     if (s.agregado) { toast('Ese ítem ya está en la cotización', 'error'); return }
 
-    // Un PRODUCTO del checklist es genérico ("AMORTIGUADOR TRASERO") y su precio depende
-    // del modelo — el genérico "nunca sirve". En vez de meterlo y que lo borres, abrimos
-    // el buscador filtrado por el carro, con el término ya puesto. Lo que elijas hereda
-    // la atribución del hallazgo. Los SERVICIOS (mano de obra) sí son fijos: van directo.
-    if (s.tipo === 'p') {
-      abrirBusq('p', String(s.desc || ''), {
-        hallazgo_id: s.hallazgo_id, hallazgo_linea_id: s.hallazgo_linea_id,
-        punto_id: s.punto_id, severidad: s.severidad, mecanico_id: s.mecanico_id,
-        tipo: s.tipo, servicio_cat_id: s.servicio_cat_id || null, producto_cat_id: s.producto_cat_id || null
-      })
-      return
-    }
+    // TODO ítem del checklist (producto Y mano de obra) se agrega vía buscador, no directo.
+    // Motivos:
+    //   · el producto genérico ("AMORTIGUADOR TRASERO") nunca sirve: el precio depende del modelo.
+    //   · la mano de obra: si el vendedor la borra y busca otra a mano, PIERDE el vínculo del
+    //     hallazgo, y con él la comisión del técnico. Pasarla por el buscador con herencia la blinda.
+    // Lo que se elija HEREDA la atribución (hallazgo_linea_id, mecanico_id) por ID —
+    // sobrevive a que cambie el SKU, el precio o la cantidad.
+    abrirBusq(s.tipo, String(s.desc || ''), {
+      hallazgo_id: s.hallazgo_id, hallazgo_linea_id: s.hallazgo_linea_id,
+      punto_id: s.punto_id, severidad: s.severidad, mecanico_id: s.mecanico_id,
+      tipo: s.tipo, servicio_cat_id: s.servicio_cat_id || null, producto_cat_id: s.producto_cat_id || null
+    })
+    return
 
+    // (Inalcanzable: TODO solicitado del checklist ahora pasa por el buscador. Se deja
+    //  el push directo por compatibilidad, pero el return de arriba lo hace inaccesible.)
     const pb = num(s.precio_base_snapshot)
     PF.items.push({
       tipo: s.tipo,

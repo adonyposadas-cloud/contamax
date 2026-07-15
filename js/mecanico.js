@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714j'
+  window.__mecBuild = '20260714n'
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -75,13 +75,17 @@
   // checklist_inspecciones.mecanico_id → usuarios.id (NO auth.uid()).
   // La tabla `usuarios` se llavea con auth por la columna auth_user_id.
   async function cargarYo () {
-    if (YO) return YO
     const { data: { user } } = await sb().auth.getUser()
     if (!user) throw new Error('Sesión no iniciada')
+    // Devolver el caché SOLO si es el mismo usuario logueado. Si se cambió de sesión en
+    // la misma pestaña (David → Alex sin recargar), YO seguía siendo David y Alex veía
+    // los trabajos de David como propios. Verificar el auth_user_id lo evita.
+    if (YO && YO._auth_user_id === user.id) return YO
     const { data, error } = await sb().from('usuarios')
       .select('id, nombre, rol, tecnico_id').eq('auth_user_id', user.id).single()
     if (error || !data) throw new Error('Tu usuario no está registrado en el sistema')
     YO = data
+    YO._auth_user_id = user.id   // marcar de quién es este caché
     return YO
   }
 
@@ -217,6 +221,7 @@
   // Muestra los trabajos de las órdenes donde el técnico está habilitado.
   async function renderTrabajosAsignados (yo) {
     const cont = $('mec-trabajos'); if (!cont || !yo?.tecnico_id) return
+    cont.innerHTML = ''   // limpiar antes de recomponer, para que un refresco no deje residuo viejo
 
     // Órdenes donde estoy habilitado (rol ejecuta, sin trabajo aún)
     const { data: hab } = await sb().from('orden_tecnicos')
@@ -226,9 +231,17 @@
 
     // Los trabajos (líneas de hallazgo) de esas órdenes, vía proforma → inspección → hallazgos
     const { data: profs } = await sb().from('cotizador_proformas')
-      .select('id,numero_orden').in('numero_orden', ordenes).eq('tipo_solicitud', 'recomendado')
+      .select('id,numero_orden,marca,modelo,anio_vehiculo,placa').in('numero_orden', ordenes).eq('tipo_solicitud', 'recomendado')
     const profIds = (profs || []).map(p => p.id)
     const ordByProf = {}; for (const p of (profs || [])) ordByProf[p.id] = p.numero_orden
+    // Datos del carro por orden, para que el técnico sepa cuál es
+    const vehByOrden = {}
+    for (const p of (profs || [])) {
+      vehByOrden[p.numero_orden] = {
+        veh: [p.marca, p.modelo, p.anio_vehiculo].filter(Boolean).join(' '),
+        placa: p.placa || ''
+      }
+    }
     if (!profIds.length) return
 
     const { data: insps } = await sb().from('checklist_inspecciones').select('id,proforma_id').in('proforma_id', profIds)
@@ -256,26 +269,38 @@
       ;(porOrden[ord] = porOrden[ord] || []).push(l)
     }
 
-    let h = '<div class="mec-sis" style="margin-top:22px">Mis trabajos asignados</div>'
+    let h = ''
     for (const ord of Object.keys(porOrden)) {
-      h += `<div style="font-size:12px;color:var(--text3,#8b949e);margin:8px 0 4px">Orden #${esc(ord)}</div>`
-      for (const l of porOrden[ord]) {
+      // Cada técnico ve SOLO lo suyo (✓ lo hice) y lo LIBRE (puede tomarlo). Un trabajo
+      // que tomó OTRO no se muestra: mostrarlo con "✓ Lo hice" confundía (Alex veía como
+      // hecho lo que hizo David). Se filtra acá.
+      const visibles = porOrden[ord].filter(l => {
         const quien = tomadoPor[l.id]
-        const mio = quien === yo.tecnico_id
-        const libre = !quien
+        return !quien || quien === yo.tecnico_id     // libre, o mío
+      })
+      if (!visibles.length) continue                 // nada mío ni libre en esta orden
+
+      const v = vehByOrden[ord] || {}
+      const linea2 = [v.veh, v.placa].filter(Boolean).join(' · ')
+      h += `<div class="mec-sis" style="margin-top:22px">Mis trabajos asignados</div>`
+      h += `<div style="font-size:13px;color:var(--text2,#c9d1d9);margin:8px 0 2px"><b>Orden #${esc(ord)}</b></div>`
+      if (linea2) h += `<div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:6px">${esc(linea2)}</div>`
+
+      for (const l of visibles) {
+        const mio = tomadoPor[l.id] === yo.tecnico_id
         const tag = l.tipo === 's' ? 'MO' : 'Pieza'
-        h += `<div class="mec-card" style="display:flex;align-items:center;gap:10px;${!libre && !mio ? 'opacity:.4' : ''}">
+        h += `<div class="mec-card" style="display:flex;align-items:center;gap:10px">
           <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(139,92,246,.15);color:#8b5cf6">${tag}</span>
           <span style="flex:1;font-size:13px">${esc(l.descripcion || '')}</span>
           ${mio
             ? '<span style="color:var(--green,#16a34a);font-weight:700">✓ Lo hice</span>'
-            : libre
-              ? `<button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="mecTomarTrabajo('${l.id}')">Yo lo hice</button>`
-              : '<span style="font-size:11px;color:var(--text3,#8b949e)">tomado por otro</span>'}
+            : `<button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="mecTomarTrabajo('${l.id}')">Yo lo hice</button>`}
         </div>`
       }
     }
-    cont.innerHTML = h
+    // Si tomé todo lo que había, la sección queda con solo mis ✓ — pero si no hay NADA
+    // visible (ni mío ni libre), no dejar el hueco mudo.
+    cont.innerHTML = h || ''
   }
 
   // El técnico toma un trabajo (confirma que lo hizo).
@@ -283,7 +308,10 @@
     const { data, error } = await sb().rpc('orden_trabajo_tomar', { p_hallazgo_linea_id: hallazgoLineaId })
     if (error) { toast(error.message, 'error'); return }
     toast(data.mensaje || 'Trabajo tomado', 'success')
-    await renderOrdenes()
+    // Solo refresca la sección de trabajos, no toda la pantalla: antes renderOrdenes()
+    // recargaba todo y parpadeaba a vacío, y parecía que el toma no había pasado.
+    const yo = await cargarYo()
+    await renderTrabajosAsignados(yo)
   }
 
   // ── 2. Iniciar: crea la proforma 'recomendado' + la inspección ─────────────
@@ -655,39 +683,44 @@
     const root = $('mec-root')
     root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3,#8b949e)">Cargando…</div>'
     const yo = await cargarYo()
+    if (!yo.tecnico_id) { root.innerHTML = '<div class="mec-card">Tu usuario no tiene técnico asignado.</div>'; return }
+    // La vista nueva (20/80) usa tecnico_id. El técnico cobra por lo que ENCUENTRA (20%)
+    // y por lo que EJECUTA (80%): las dos partes aparecen bajo su tecnico_id.
     const { data, error } = await sb().from('v_checklist_comision')
-      .select('*').eq('mecanico_id', yo.id).order('cerrada_at', { ascending: false }).limit(200)
+      .select('*').eq('tecnico_id', yo.tecnico_id).limit(300)
     if (error) { root.innerHTML = `<div class="mec-card">⚠️ ${esc(error.message)}</div>`; return }
 
     const rows = data || []
-    const pagada = rows.filter(r => r.devengada)
-    const total = pagada.reduce((s, r) => s + num(r.comision), 0)
-    const pend = rows.filter(r => !r.devengada)
     const fmtL = v => 'L. ' + num(v).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+    const total = rows.reduce((sm, r) => sm + num(r.comision), 0)
+    const totalEnc = rows.filter(r => r.rol_comision === 'encuentra').reduce((sm, r) => sm + num(r.comision), 0)
+    const totalEje = rows.filter(r => r.rol_comision === 'ejecuta').reduce((sm, r) => sm + num(r.comision), 0)
+
+    const fila = (r) => `
+      <div class="mec-card" style="padding:11px">
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <div style="min-width:0">
+            <div style="font-size:13px">${SEV[r.severidad]?.icon || ''} ${esc(r.descripcion)}</div>
+            <div style="font-size:11px;color:var(--text3,#8b949e)">
+              ${esc(r.punto || '')} · orden #${esc(r.numero_orden || '')} ·
+              <span style="color:${r.rol_comision === 'encuentra' ? '#8b5cf6' : '#16a34a'}">${r.rol_comision === 'encuentra' ? 'lo encontré (20%)' : 'lo ejecuté (80%)'}</span>
+            </div>
+          </div>
+          <b style="color:var(--green,#16a34a);white-space:nowrap">${fmtL(r.comision)}</b>
+        </div>
+      </div>`
 
     root.innerHTML = `
       <div class="mec-card" style="text-align:center">
         <div style="font-size:12px;color:var(--text3,#8b949e);letter-spacing:.08em">MI COMISIÓN</div>
         <div style="font-size:34px;font-weight:800;color:var(--green,#16a34a);margin:6px 0">${fmtL(total)}</div>
-        <div style="font-size:12px;color:var(--text3,#8b949e)">${pagada.length} ítem(s) vendidos · ${pend.length} esperando que el cliente autorice</div>
+        <div style="font-size:12px;color:var(--text3,#8b949e)">
+          Encontré ${fmtL(totalEnc)} · Ejecuté ${fmtL(totalEje)}
+        </div>
       </div>
-      <div class="mec-sis">Vendidos</div>
-      ${pagada.length ? pagada.map(r => `
-        <div class="mec-card" style="padding:11px">
-          <div style="display:flex;justify-content:space-between;gap:8px">
-            <div style="min-width:0">
-              <div style="font-size:13px">${SEV[r.severidad]?.icon || ''} ${esc(r.descripcion)}</div>
-              <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(r.punto)} · ${num(r.cantidad_vendida)} × ${fmtL(r.precio_base_snapshot)} de lista</div>
-            </div>
-            <b style="color:var(--green,#16a34a);white-space:nowrap">${fmtL(r.comision)}</b>
-          </div>
-        </div>`).join('')
-        : '<div class="mec-card" style="text-align:center;color:var(--text3,#8b949e)">Todavía nada vendido</div>'}
-      ${pend.length ? `<div class="mec-sis">Esperando autorización del cliente</div>` + pend.map(r => `
-        <div class="mec-card" style="padding:11px;opacity:.65">
-          <div style="font-size:13px">${SEV[r.severidad]?.icon || ''} ${esc(r.descripcion)}</div>
-          <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(r.punto)} · no paga hasta que el cliente autorice</div>
-        </div>`).join('') : ''}
+      ${rows.length
+        ? '<div class="mec-sis">Detalle</div>' + rows.map(fila).join('')
+        : '<div class="mec-card" style="text-align:center;color:var(--text3,#8b949e)">Todavía no hay comisión. Se paga cuando la orden se finaliza.</div>'}
       <div style="margin-top:18px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="initMecanico()">← Volver</button></div>`
   }
 })();
