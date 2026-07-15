@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714n'
+  window.__mecBuild = '20260714o'
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -231,7 +231,10 @@
 
     // Los trabajos (líneas de hallazgo) de esas órdenes, vía proforma → inspección → hallazgos
     const { data: profs } = await sb().from('cotizador_proformas')
-      .select('id,numero_orden,marca,modelo,anio_vehiculo,placa').in('numero_orden', ordenes).eq('tipo_solicitud', 'recomendado')
+      .select('id,numero_orden,marca,modelo,anio_vehiculo,placa,estado').in('numero_orden', ordenes).eq('tipo_solicitud', 'recomendado')
+      // Una orden FINALIZADA ya se cerró y la comisión ya corrió: no debe seguir
+      // apareciendo como trabajo por tomar. Se ocultan finalizada/anulada.
+      .not('estado', 'in', '(finalizada,anulada)')
     const profIds = (profs || []).map(p => p.id)
     const ordByProf = {}; for (const p of (profs || [])) ordByProf[p.id] = p.numero_orden
     // Datos del carro por orden, para que el técnico sepa cuál es

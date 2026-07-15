@@ -668,48 +668,53 @@ window.jpEnviarHallazgos = async function (proformaId) {
     const veh = [pf.marca, pf.modelo, pf.anio_vehiculo].filter(Boolean).join(' ')
     const nombre = (pf.cliente || '').trim()
 
-    let msg = `${nombre ? nombre + ' — s' : 'S'}u ${veh || 'vehículo'}${pf.placa ? ' ' + pf.placa : ''}\n`
-    msg += `Revisión completa de su carro (orden #${pf.numero_orden || '—'}):\n`
+    window.toast?.('Generando el PDF con fotos…')
 
+    // Preparar cada grupo con su miniatura + textos, para el PDF
     let total = 0
-    for (const sev of ['rojo', 'amarillo']) {
-      const gs = Object.values(grupos).filter(g => g.severidad === sev)
-      if (!gs.length) continue
-      msg += `\n${sev === 'rojo' ? '🔴 URGENTE' : '🟡 RECOMENDADO'}\n`
-      for (const g of gs) {
-        const pt = g.punto
-        const h = g.hallazgo
-        msg += `\n▪️ ${pt ? pt.nombre : (g.lineas[0] || '')}`
-        // La medición SOLO si es real. Un valor estimado no se le muestra al cliente
-        // como si fuera medido: es lo mismo que no pagarle comisión por él.
-        if (h && h.medicion != null && !h.medicion_estimada) {
-          const u = umbral(pt)
-          msg += ` — ${h.medicion}${pt?.unidad_medicion || ''}${u ? ` (mínimo ${u}${pt.unidad_medicion || ''})` : ''}`
-        }
-        // La nota del técnico: el matiz que ayuda a vender ("la trasera derecha
-        // está peor", "le falta la llave de cruz"). Va tal cual la escribió.
-        if (h && h.nota && String(h.nota).trim()) {
-          msg += `📝 ${String(h.nota).trim()}\n`
-        }
-        const link = await firmar(h && h.foto_url)
-        if (link) msg += `📷 ${link}\n`
-        msg += `${g.lineas.join(' + ')}: L. ${fmt(g.total)}\n`
-        total += g.total
+    const gruposPDF = []
+    for (const g of Object.values(grupos)) {
+      const h = g.hallazgo, pt = g.punto
+      let medicionTexto = ''
+      if (h && h.medicion != null && !h.medicion_estimada) {
+        const u = umbral(pt)
+        medicionTexto = `Medición: ${h.medicion}${pt?.unidad_medicion || ''}${u ? ` (mínimo ${u}${pt.unidad_medicion || ''})` : ''}`
       }
+      const fotoUrl = await firmar(h && h.foto_url)
+      const mini = fotoUrl ? await jpImgAMiniatura(fotoUrl) : null
+      gruposPDF.push({
+        severidad: g.severidad, punto: pt, lineas: g.lineas, total: g.total,
+        medicionTexto, nota: (h && h.nota && String(h.nota).trim()) || '', miniatura: mini
+      })
+      total += g.total
     }
 
-    // Foto del freno desmontado: es la que sostiene todo el argumento de frenos
-    const fd = await firmar(insp?.foto_desmontaje_del)
-    const ft = await firmar(insp?.foto_desmontaje_tra)
-    if (fd || ft) {
-      msg += `\nDesmontamos las ruedas para medir sus frenos de verdad:\n`
-      if (fd) msg += `📷 Delantera: ${fd}\n`
-      if (ft) msg += `📷 Trasera: ${ft}\n`
+    // Miniaturas de desmontaje
+    const fdUrl = await firmar(insp?.foto_desmontaje_del)
+    const ftUrl = await firmar(insp?.foto_desmontaje_tra)
+    const desmontaje = {
+      del: fdUrl ? await jpImgAMiniatura(fdUrl, 320) : null,
+      tra: ftUrl ? await jpImgAMiniatura(ftUrl, 320) : null
     }
 
-    msg += `\nTOTAL: L. ${fmt(total)}\n`
-    msg += `\nSu carro está en el elevador. Si autoriza, se lo entregamos hoy.`
-    msg += `\n(Los links de las fotos vencen en 7 días.)`
+    // Construir y subir el PDF
+    const blob = await jpConstruirPDF({
+      nombre, veh, placa: pf.placa, numero_orden: pf.numero_orden,
+      grupos: gruposPDF, desmontaje, total
+    })
+    const nombreArch = `orden-${pf.numero_orden || pf.id}-${Date.now()}.pdf`
+    const { error: eUp } = await sb.storage.from('cotizaciones-pdf').upload(nombreArch, blob, {
+      contentType: 'application/pdf', upsert: true
+    })
+    if (eUp) { window.toast?.('No se pudo subir el PDF: ' + eUp.message, 'error'); return }
+    const { data: pub } = sb.storage.from('cotizaciones-pdf').getPublicUrl(nombreArch)
+    const linkPDF = pub?.publicUrl || ''
+
+    // Mensaje CORTO para WhatsApp: solo el link al PDF
+    let msg = `${nombre ? nombre + ', a' : 'A'}quí está la revisión de su ${veh || 'vehículo'}${pf.placa ? ' ' + pf.placa : ''} (orden #${pf.numero_orden || '—'}).\n\n`
+    msg += `Vea el detalle con fotos y precios aquí:\n${linkPDF}\n\n`
+    msg += `TOTAL: L. ${fmt(total)}\n`
+    msg += `Su carro está en el taller. Si autoriza, se lo entregamos hoy.`
 
     jpModalWA(msg)
   } catch (e) {
@@ -736,7 +741,7 @@ function jpModalWA (msg) {
         <button class="jp-b" style="flex:1;padding:11px" onclick="jpCopiarWA()">📋 Copiar</button>
         <button class="jp-b green" style="flex:1;padding:11px" onclick="jpAbrirWA()">💬 Abrir WhatsApp</button>
       </div>
-      <div style="font-size:11px;color:#8b8f98;margin-top:8px">Podés editarlo antes de enviarlo. Los links de las fotos vencen en 7 días.</div>
+      <div style="font-size:11px;color:#8b8f98;margin-top:8px">Podés editarlo antes de enviarlo. El PDF queda guardado y el link no vence.</div>
     </div>`
   document.body.appendChild(ov)
 }
@@ -877,10 +882,19 @@ window.jpAbrirTecnicos = async function (numeroOrden) {
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
 
     let trabajos = []
+    let tecnicoQueRevisó = null
     if (pf) {
       const { data: insp } = await sb.from('checklist_inspecciones')
-        .select('id').eq('proforma_id', pf.id).maybeSingle()
+        .select('id,mecanico_id').eq('proforma_id', pf.id).maybeSingle()
       if (insp) {
+        // El que REVISÓ (encontró) es el mecanico_id de la inspección. Es un usuarios.id;
+        // su tecnico_id es lo que se habilita. Se pone por default: casi siempre también
+        // ejecuta algo, y si no aparece solo, hay que agregarlo a mano cada vez (y olvidarlo
+        // significa que NO puede tomar los trabajos que sí hizo).
+        if (insp.mecanico_id) {
+          const { data: u } = await sb.from('usuarios').select('tecnico_id').eq('id', insp.mecanico_id).maybeSingle()
+          tecnicoQueRevisó = u?.tecnico_id || null
+        }
         const { data: halls } = await sb.from('checklist_hallazgos').select('id').eq('inspeccion_id', insp.id)
         const hIds = (halls || []).map(h => h.id)
         if (hIds.length) {
@@ -892,7 +906,19 @@ window.jpAbrirTecnicos = async function (numeroOrden) {
     }
 
     // Estado actual: técnicos habilitados y trabajos tomados
-    const { data: ot } = await sb.from('orden_tecnicos').select('*').eq('numero_orden', numeroOrden)
+    let { data: ot } = await sb.from('orden_tecnicos').select('*').eq('numero_orden', numeroOrden)
+
+    // Auto-habilitar al que revisó — SOLO la primera vez (cuando no hay nadie habilitado
+    // aún). Así aparece por default sin que lo agreguen, pero si el jefe de pista ya
+    // trabajó esta orden y lo quitó a propósito, no reaparece: se respeta su decisión.
+    const habCount = (ot || []).filter(x => x.hallazgo_linea_id === null && x.rol === 'ejecuta').length
+    if (tecnicoQueRevisó && habCount === 0) {
+      const { error: eHab } = await sb.rpc('orden_tecnico_habilitar', { p_numero_orden: numeroOrden, p_tecnico_id: tecnicoQueRevisó })
+      if (!eHab) {
+        const { data: ot2 } = await sb.from('orden_tecnicos').select('*').eq('numero_orden', numeroOrden)
+        ot = ot2 || ot
+      }
+    }
     const habilitados = (ot || []).filter(x => x.hallazgo_linea_id === null && x.rol === 'ejecuta')
     const tomados = {}; for (const x of (ot || [])) if (x.hallazgo_linea_id) tomados[x.hallazgo_linea_id] = x
 
@@ -1008,4 +1034,145 @@ window.jpReasignar = async function (hallazgoLineaId, numeroOrden) {
   if (error) { window.toast?.(error.message, 'error'); return }
   window.toast?.(nuevo ? 'Reasignado' : 'Liberado', 'success')
   jpAbrirTecnicos(numeroOrden)
+}
+
+// ============================================================================
+// PDF de cotización para el cliente (Fase: presentación profesional)
+// Genera un PDF con miniaturas de fotos + detalle, lo sube a Storage, y devuelve
+// el link público. El mensaje de WhatsApp queda corto: solo el link.
+// ============================================================================
+
+// Descarga una imagen (URL firmada) y la devuelve como dataURL base64, redimensionada
+// a miniatura. jsPDF necesita base64, no puede embeber por URL.
+async function jpImgAMiniatura (url, maxW = 220) {
+  if (!url) return null
+  try {
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    const bmp = await createImageBitmap(blob)
+    const escala = Math.min(1, maxW / bmp.width)
+    const w = Math.round(bmp.width * escala), h = Math.round(bmp.height * escala)
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = h
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h)
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.7), w, h }
+  } catch (e) { console.warn('miniatura falló', e); return null }
+}
+
+// Construye el PDF con jsPDF y lo devuelve como Blob.
+async function jpConstruirPDF (datos) {
+  const { jsPDF } = window.jspdf || {}
+  if (!jsPDF) throw new Error('jsPDF no está cargado')
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  const W = 210, M = 15
+  let y = M
+
+  const fmt = v => 'L. ' + Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // — Encabezado —
+  doc.setFillColor(20, 22, 28); doc.rect(0, 0, W, 30, 'F')
+  doc.setTextColor(200, 162, 74); doc.setFont('helvetica', 'bold'); doc.setFontSize(18)
+  doc.text('TECNIMAX', M, 14)
+  doc.setTextColor(230, 237, 243); doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+  doc.text('Revisión de su vehículo', M, 21)
+  doc.setFontSize(9); doc.setTextColor(139, 148, 158)
+  doc.text('Orden #' + (datos.numero_orden || '—'), W - M, 14, { align: 'right' })
+  doc.text(new Date().toLocaleDateString('es-HN'), W - M, 20, { align: 'right' })
+  y = 38
+
+  // — Datos del vehículo —
+  doc.setTextColor(20, 22, 28); doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+  doc.text(datos.nombre || 'Cliente', M, y); y += 6
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(80, 80, 80)
+  doc.text([datos.veh, datos.placa].filter(Boolean).join('  ·  '), M, y); y += 8
+  doc.setDrawColor(220, 220, 220); doc.line(M, y, W - M, y); y += 6
+
+  // — Grupos por severidad —
+  const nuevaPaginaSiHaceFalta = (alto) => {
+    if (y + alto > 280) { doc.addPage(); y = M }
+  }
+
+  for (const sev of ['rojo', 'amarillo']) {
+    const gs = datos.grupos.filter(g => g.severidad === sev)
+    if (!gs.length) continue
+    nuevaPaginaSiHaceFalta(14)
+    // Título de sección
+    if (sev === 'rojo') { doc.setTextColor(200, 30, 30); doc.text('■ URGENTE', M, y) }
+    else { doc.setTextColor(200, 150, 0); doc.text('■ RECOMENDADO', M, y) }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+    y += 7
+
+    for (const g of gs) {
+      nuevaPaginaSiHaceFalta(30)
+      const yInicio = y
+      const tieneFoto = !!g.miniatura
+      const textoX = tieneFoto ? M + 42 : M
+      const textoW = tieneFoto ? (W - M - 42 - M) : (W - 2 * M)
+
+      // Miniatura a la izquierda
+      if (tieneFoto) {
+        const mw = 38, mh = Math.min(30, mw * g.miniatura.h / g.miniatura.w)
+        try { doc.addImage(g.miniatura.dataUrl, 'JPEG', M, y, mw, mh) } catch (e) {}
+      }
+
+      // Nombre del punto
+      doc.setTextColor(20, 22, 28); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
+      let ty = y + 4
+      const titulo = g.punto ? g.punto.nombre : (g.lineas[0] || '')
+      doc.text(titulo, textoX, ty); ty += 5
+
+      // Medición (si es real)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90)
+      if (g.medicionTexto) { doc.text(g.medicionTexto, textoX, ty); ty += 4.5 }
+      // Nota del técnico
+      if (g.nota) {
+        const notaLineas = doc.splitTextToSize('« ' + g.nota + ' »', textoW)
+        doc.text(notaLineas, textoX, ty); ty += notaLineas.length * 4
+      }
+      // Detalle de líneas + precio
+      doc.setTextColor(20, 22, 28); doc.setFontSize(9.5)
+      const detLineas = doc.splitTextToSize(g.lineas.join(' + '), textoW - 32)
+      doc.text(detLineas, textoX, ty)
+      doc.setFont('helvetica', 'bold')
+      doc.text(fmt(g.total), W - M, ty, { align: 'right' })
+      ty += detLineas.length * 4.5
+
+      y = Math.max(ty, yInicio + (tieneFoto ? 32 : 0)) + 5
+      doc.setDrawColor(235, 235, 235); doc.line(M, y - 2, W - M, y - 2)
+    }
+    y += 3
+  }
+
+  // — Fotos de desmontaje (si hay) —
+  if (datos.desmontaje?.del || datos.desmontaje?.tra) {
+    nuevaPaginaSiHaceFalta(50)
+    doc.setTextColor(20, 22, 28); doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+    doc.text('Desmontamos las ruedas para medir sus frenos:', M, y); y += 6
+    let fx = M
+    for (const [lbl, mini] of [['Delantera', datos.desmontaje.del], ['Trasera', datos.desmontaje.tra]]) {
+      if (mini) {
+        const mw = 55, mh = Math.min(42, mw * mini.h / mini.w)
+        try { doc.addImage(mini.dataUrl, 'JPEG', fx, y, mw, mh) } catch (e) {}
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(90, 90, 90)
+        doc.text(lbl, fx, y + mh + 4)
+        fx += mw + 10
+      }
+    }
+    y += 50
+  }
+
+  // — Total —
+  nuevaPaginaSiHaceFalta(20)
+  doc.setFillColor(20, 22, 28); doc.rect(M, y, W - 2 * M, 14, 'F')
+  doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+  doc.text('TOTAL', M + 5, y + 9)
+  doc.setTextColor(200, 162, 74); doc.setFontSize(14)
+  doc.text(fmt(datos.total), W - M - 5, y + 9, { align: 'right' })
+  y += 20
+
+  // — Pie —
+  doc.setTextColor(90, 90, 90); doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+  doc.text('Su carro está en el taller. Si autoriza, se lo entregamos hoy.', M, y)
+
+  return doc.output('blob')
 }

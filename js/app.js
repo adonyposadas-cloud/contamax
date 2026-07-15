@@ -148,7 +148,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
@@ -168,7 +168,10 @@ function setupUI() {
 
     // El cotizador busca las piezas y pone los precios. Ve Jefe de Pista para entender
     // en qué fase está cada orden y a quién le corre el reloj.
-    cotizador:   ['nav-cotizador', 'nav-jefe-pista', 'nav-precios']
+    cotizador:   ['nav-cotizador', 'nav-jefe-pista', 'nav-precios'],
+
+    // Gerencia ve el dashboard de comisiones y Precios (edita la base de la comisión).
+    gerencia:    ['nav-comisiones-dash', 'nav-precios']
   }
   // Rol "admin": plantilla = TODO (navs + pestañas), para que al elegirlo se premarque
   // todo y puedas destildar lo que no querés que vea.
@@ -177,7 +180,13 @@ function setupUI() {
   // super_admin SIEMPRE ve todo (no se puede limitar). El rol "admin" tiene su mismo poder
   // pero su navegación se restringe a sus casillas (_adminRestringido).
   let visibles
-  if (p._adminRestringido) {
+  // Un super_admin REAL ve SIEMPRE la plantilla completa — nunca depende de
+  // permisos_modulos guardados. Antes, un super_admin con _adminRestringido caía en la
+  // primera rama y usaba su lista guardada, que quedaba vieja: cada nav nuevo (checklist,
+  // comisiones…) no aparecía hasta agregarlo a mano. Verificar el rol real primero lo evita.
+  if ((p._rolReal || p.rol) === 'super_admin') {
+    visibles = permisos.super_admin
+  } else if (p._adminRestringido) {
     visibles = (Array.isArray(p.permisos_modulos) && p.permisos_modulos.length) ? p.permisos_modulos : permisos.admin
   } else if (p.rol === 'super_admin') {
     visibles = permisos.super_admin
@@ -206,8 +215,11 @@ function setupUI() {
   window._navVisibles = visibles
   window._soloSusPartidas = !!p.solo_sus_partidas && p.rol !== 'super_admin'
 
-  // Ocultar todo primero
-  const todosNav = ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones', 'nav-actividad', 'nav-declaracion-isv', 'nav-proveedores', 'nav-verif-compras', 'nav-rangos-ventas', 'nav-yonker', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios']
+  // Ocultar todo primero. La lista de navs se DESCUBRE del DOM (todos los .nav-item con
+  // id que empieza en 'nav-'), no se mantiene a mano: antes era una lista fija que había
+  // que actualizar por cada módulo nuevo, y si se olvidaba, el nav quedaba en _navVisibles
+  // pero nunca se le quitaba el 'hidden' (le pasó a checklist-config y comisiones-dash).
+  const todosNav = Array.from(document.querySelectorAll('.nav-item[id^="nav-"]')).map(el => el.id)
   window._todosNav = todosNav
   todosNav.forEach(id => {
     const el = document.getElementById(id)
