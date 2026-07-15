@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714f'
+  window.__mecBuild = '20260714h'
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -213,6 +213,7 @@
     const root = $('mec-root')
     root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3,#8b949e)">Abriendo inspección…</div>'
     try {
+      const yo = await cargarYo()   // 'yo' vivía solo en renderOrdenes; sin esto, "Inspeccionar" reventaba
       const { data: hermana, error: e0 } = await sb().from('cotizador_proformas')
         .select('numero_orden,cliente,placa,marca,modelo,anio_vehiculo,kilometraje,mecanico,jefe_pista')
         .eq('id', proformaSolicitadoId).single()
@@ -363,8 +364,18 @@
   }
 
   function puntoWrap (p, sev, extra) {
+    // Muestra el umbral en el título: "🟡 <5mm · 🔴 <3mm". Convierte una opinión
+    // ("desgastado") en una medición con referencia. Los valores salen de la base
+    // (checklist_15), no del código: cambiar el mínimo no requiere tocar esto.
+    const umbralHint = (p) => {
+      if (p.umbral_amarillo == null && p.umbral_rojo == null) return ''
+      const u = esc(p.unidad_medicion || 'mm')
+      const a = p.umbral_amarillo != null ? `🟡 <${p.umbral_amarillo}${u}` : ''
+      const r = p.umbral_rojo     != null ? `🔴 <${p.umbral_rojo}${u}` : ''
+      return ` <span style="font-size:11px;color:var(--text3,#8b949e);font-weight:400">· ${[a, r].filter(Boolean).join(' · ')}</span>`
+    }
     return `<div class="mec-pt ${sev ? 'done' : ''}">
-      <div class="mec-pt-nom">${esc(p.nombre)}${p.pide_medicion ? ` <span style="font-size:11px;color:var(--text3,#8b949e)">(${esc(p.unidad_medicion)})</span>` : ''}</div>
+      <div class="mec-pt-nom">${esc(p.nombre)}${p.pide_medicion ? ` <span style="font-size:11px;color:var(--text3,#8b949e)">(${esc(p.unidad_medicion)})</span>` : ''}${umbralHint(p)}</div>
       <div class="mec-sevs">
         ${['verde', 'amarillo', 'rojo'].map(s => `
           <button class="mec-sev ${sev === s ? 'on' : ''}" onclick="mecSev(${p.id},'${s}')"
