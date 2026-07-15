@@ -153,14 +153,18 @@ window.jpTecInput = () => {
   if (q.length < 2) { drop.style.display = 'none'; drop.innerHTML = ''; return }
   const matches = jpTecnicos.filter(t => t.nombre.toUpperCase().includes(q.toUpperCase())).slice(0, 25)
   let html = matches.map(t => `<div data-tec="${jpEsc(t.nombre)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(t.nombre)}</div>`).join('')
-  if (!jpTecnicos.includes(q)) html += `<div data-tec-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:#f0a500;font-weight:600" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}»</div>`
+  // El técnico se ELIGE de la lista, no se crea al vuelo. Crear técnicos desde acá
+  // ensuciaba el catálogo con nombres cortos y duplicados ("DAG", "CAR") — y ahora que
+  // la comisión depende de tecnico_id, un duplicado paga al técnico equivocado.
+  if (!matches.length) html = `<div style="padding:9px 10px;font-size:12px;color:#8b8f98">Sin coincidencias. Los técnicos se crean en la pantalla de técnicos, no acá.</div>`
   drop.innerHTML = html
   drop.style.display = html ? 'block' : 'none'
 }
 window.jpTecPick = (t) => { const inp = document.getElementById('jp-tecnico'); if (inp) inp.value = t; jpTecHide() }
 window.jpTecAgregarNuevo = async (t) => {
-  const inp = document.getElementById('jp-tecnico'); if (inp) inp.value = t; jpTecHide()
-  try { await jpSb().rpc('tecnico_agregar', { p_nombre: t }); if (!jpTecnicos.includes(t)) jpTecnicos.unshift(t) } catch (e) {}
+  // Desactivado: los técnicos ya no se crean desde el autocomplete (ensuciaba el catálogo).
+  window.toast?.('Ese técnico no existe. Pedile a gerencia que lo dé de alta en el catálogo.', 'error')
+  jpTecHide()
 }
 window.jpTecHide = () => { const drop = document.getElementById('jp-tec-drop'); if (drop) drop.style.display = 'none' }
 
@@ -294,6 +298,12 @@ window.jpEnviar = async () => {
   const tecnico = v('jp-tecnico').toUpperCase()
   if (!orden) { window.toast?.('El N° de Orden Taller es obligatorio', 'error'); return }
   if (!tecnico) { window.toast?.('El técnico es obligatorio', 'error'); return }
+  // El técnico tiene que existir en el catálogo. Antes se creaba al vuelo cualquier texto
+  // ("DAG"), lo que ensuciaba la tabla y, con la comisión, pagaba al técnico equivocado.
+  if (!window._jpTecMap?.[tecnico.trim()]) {
+    window.toast?.(`«${tecnico}» no está en el catálogo de técnicos. Elegilo de la lista, o pedí que lo den de alta.`, 'error')
+    return
+  }
   const anioN = parseInt(v('jp-anio'), 10)
   const btn = document.getElementById('jp-enviar-btn'); if (btn) { btn.disabled = true; btn.textContent = 'Enviando…' }
   const tipoLbl = jpTipo === 'recomendado' ? 'Recomendado' : 'Solicitado'
@@ -316,7 +326,7 @@ window.jpEnviar = async () => {
       solicitados: jpItems.map(it => ({ tipo: it.tipo, desc: it.desc, cantidad: it.cantidad, agregado: false })), items: [], subtotal: 0, isv: 0, total: 0
     })
     if (error) throw error
-    jpSb().rpc('tecnico_agregar', { p_nombre: tecnico }).then(() => { if (!jpTecnicos.includes(tecnico)) jpTecnicos.unshift(tecnico) }).catch(() => {})
+    // (Ya no se crea el técnico al vuelo: se eligió de la lista o la validación lo bloqueó.)
     window.toast?.(`📤 Enviado a cotizar (${tipoLbl}). El cotizador ya la recibió.`, 'success')
     jpItems = []; jpRenderItems(); jpPrefill = null
     ;['jp-orden', 'jp-tecnico', 'jp-marca', 'jp-modelo', 'jp-anio', 'jp-motivo', 'jp-diagnostico'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
@@ -466,6 +476,11 @@ function jpOrdenCard(p) {
     ? `<button class="jp-b" style="border-color:#f85149;color:#f85149" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
     ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Armar el mensaje de WhatsApp con fotos, mediciones y precios">📲 Enviar hallazgos</button>` : ''
+  // Habilitar técnicos en la orden (Fase 2). Aparece cuando ya hay trabajo autorizado:
+  // sin trabajo que ejecutar, no hay a quién asignar. La comisión de ejecución (80%)
+  // sale de acá.
+  const btnTec = (esRec && p.proc_aprobada)
+    ? `<button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden">👷 Técnicos</button>` : ''
   const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
   // Borde izquierdo por fase (mismos colores del cotizador): rojo=cotización, amarillo=autorización, verde=pedido/completado
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
@@ -475,6 +490,7 @@ function jpOrdenCard(p) {
       <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
     </div>
     ${reloj}
+    ${btnTec}
     ${btnWA}
     ${btnNV}
     ${btnPdf}
@@ -613,7 +629,7 @@ window.jpEnviarHallazgos = async function (proformaId) {
 
     const hIds = [...new Set(items.map(it => it.hallazgo_id).filter(Boolean))]
     const [rH, rP, rC] = await Promise.all([
-      sb.from('checklist_hallazgos').select('id,punto_id,severidad,medicion,foto_url,medicion_estimada').in('id', hIds),
+      sb.from('checklist_hallazgos').select('id,punto_id,severidad,medicion,foto_url,medicion_estimada,nota').in('id', hIds),
       sb.from('checklist_puntos').select('id,nombre,unidad_medicion,rueda_requerida,medicion_siempre'),
       sb.from('checklist_config').select('*').eq('id', 1).single()
     ])
@@ -670,7 +686,11 @@ window.jpEnviarHallazgos = async function (proformaId) {
           const u = umbral(pt)
           msg += ` — ${h.medicion}${pt?.unidad_medicion || ''}${u ? ` (mínimo ${u}${pt.unidad_medicion || ''})` : ''}`
         }
-        msg += '\n'
+        // La nota del técnico: el matiz que ayuda a vender ("la trasera derecha
+        // está peor", "le falta la llave de cruz"). Va tal cual la escribió.
+        if (h && h.nota && String(h.nota).trim()) {
+          msg += `📝 ${String(h.nota).trim()}\n`
+        }
         const link = await firmar(h && h.foto_url)
         if (link) msg += `📷 ${link}\n`
         msg += `${g.lineas.join(' + ')}: L. ${fmt(g.total)}\n`
@@ -840,4 +860,152 @@ window.jpNoVendidaOk = async function (id) {
   document.getElementById('jp-nv-modal')?.remove()
   window.toast?.('Registrado — entra en la lista de recontacto', 'success')
   jpCargar()
+}
+/* ============================================================================
+ * 👷 TÉCNICOS DE LA ORDEN — Fase 2, Etapa B
+ *
+ * El jefe de pista habilita los técnicos que trabajan la orden (Modelo B-acotado).
+ * No reparte trabajo por trabajo: pone la lista, y cada técnico entra y toma lo que
+ * hizo. Acá el jefe de pista ve quién tomó qué y puede corregir (el caso Alex→Josué).
+ * ========================================================================== */
+window.jpAbrirTecnicos = async function (numeroOrden) {
+  const sb = jpSb()
+  try {
+    // Trabajos de la orden (líneas de hallazgo) + quién los tomó
+    const { data: pf } = await sb.from('cotizador_proformas')
+      .select('id').eq('numero_orden', numeroOrden).eq('tipo_solicitud', 'recomendado')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+
+    let trabajos = []
+    if (pf) {
+      const { data: insp } = await sb.from('checklist_inspecciones')
+        .select('id').eq('proforma_id', pf.id).maybeSingle()
+      if (insp) {
+        const { data: halls } = await sb.from('checklist_hallazgos').select('id').eq('inspeccion_id', insp.id)
+        const hIds = (halls || []).map(h => h.id)
+        if (hIds.length) {
+          const { data: lineas } = await sb.from('checklist_hallazgo_lineas')
+            .select('id,descripcion,tipo,hallazgo_id').in('hallazgo_id', hIds)
+          trabajos = lineas || []
+        }
+      }
+    }
+
+    // Estado actual: técnicos habilitados y trabajos tomados
+    const { data: ot } = await sb.from('orden_tecnicos').select('*').eq('numero_orden', numeroOrden)
+    const habilitados = (ot || []).filter(x => x.hallazgo_linea_id === null && x.rol === 'ejecuta')
+    const tomados = {}; for (const x of (ot || [])) if (x.hallazgo_linea_id) tomados[x.hallazgo_linea_id] = x
+
+    jpModalTecnicos(numeroOrden, trabajos, habilitados, tomados)
+  } catch (e) {
+    console.error('[jpAbrirTecnicos]', e)
+    window.toast?.('Error: ' + (e.message || e), 'error')
+  }
+}
+
+function jpNombreTec (id) {
+  const t = (jpTecnicos || []).find(x => x.id === id)
+  return t ? t.nombre : '(técnico)'
+}
+
+function jpModalTecnicos (numeroOrden, trabajos, habilitados, tomados) {
+  let ov = document.getElementById('jp-tec-modal')
+  if (ov) ov.remove()
+  ov = document.createElement('div')
+  ov.id = 'jp-tec-modal'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+
+  const idsHab = new Set(habilitados.map(h => h.tecnico_id))
+  const opcionesTec = (jpTecnicos || []).filter(t => !idsHab.has(t.id))
+    .map(t => `<option value="${jpEsc(t.id)}">${jpEsc(t.nombre)}</option>`).join('')
+
+  const chipsHab = habilitados.length
+    ? habilitados.map(h => `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(139,92,246,.15);color:#8b5cf6;border-radius:14px;padding:3px 10px;font-size:12px;margin:2px">
+        ${jpEsc(jpNombreTec(h.tecnico_id))}
+        <button onclick="jpQuitarTecnico('${jpEsc(numeroOrden)}','${jpEsc(h.tecnico_id)}')" title="Quitar de la orden" style="background:none;border:0;color:#8b5cf6;cursor:pointer;font-size:14px;padding:0;line-height:1">×</button>
+      </span>`).join('')
+    : '<span style="color:#8b8f98;font-size:12px">Ningún técnico habilitado todavía.</span>'
+
+  const filasTrabajo = trabajos.length
+    ? trabajos.map(t => {
+        const tom = tomados[t.id]
+        const tag = t.tipo === 's' ? 'SERV' : 'PROD'
+        const tagCol = t.tipo === 's' ? '#8b5cf6' : '#3b82f6'
+        const estado = tom
+          ? `<span style="color:#16a34a;font-weight:600">✓ ${jpEsc(jpNombreTec(tom.tecnico_id))}</span>
+             <button onclick="jpReasignar('${jpEsc(t.id)}','${jpEsc(numeroOrden)}')" style="background:none;border:1px solid #2a2e37;color:#8b8f98;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:6px">cambiar</button>`
+          : '<span style="color:#8b8f98;font-size:12px">sin tomar</span>'
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1c1f26">
+          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:${tagCol}22;color:${tagCol}">${tag}</span>
+          <span style="flex:1;font-size:13px">${jpEsc(t.descripcion || '')}</span>
+          ${estado}
+        </div>`
+      }).join('')
+    : '<div style="color:#8b8f98;font-size:12px;padding:8px 0">Esta orden no tiene trabajos del checklist.</div>'
+
+  ov.innerHTML = `
+    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:600px;width:100%;padding:18px;color:#e6edf3;max-height:85vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="font-size:15px">👷 Técnicos · Orden ${jpEsc(numeroOrden)}</b>
+        <button onclick="document.getElementById('jp-tec-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
+      </div>
+      <div style="font-size:11px;color:#8b8f98;margin-bottom:14px">Habilitá los técnicos que trabajan esta orden. Cada uno entra y se asigna los trabajos que hizo. Vos podés corregir con «cambiar».</div>
+
+      <div style="font-weight:700;font-size:12px;color:#8b5cf6;text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Técnicos habilitados</div>
+      <div style="margin-bottom:8px">${chipsHab}</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <select id="jp-tec-add-sel" class="jp-inp" style="flex:1">
+          <option value="">— Agregar técnico a la orden —</option>${opcionesTec}
+        </select>
+        <button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpHabilitarTecnico('${jpEsc(numeroOrden)}')">＋ Habilitar</button>
+      </div>
+
+      <div style="font-weight:700;font-size:12px;color:#8b8f98;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Trabajos de la orden</div>
+      <div>${filasTrabajo}</div>
+    </div>`
+  document.body.appendChild(ov)
+}
+
+window.jpHabilitarTecnico = async function (numeroOrden) {
+  const sel = document.getElementById('jp-tec-add-sel')
+  const id = sel?.value
+  if (!id) { window.toast?.('Elegí un técnico', 'error'); return }
+  const { data, error } = await jpSb().rpc('orden_tecnico_habilitar', { p_numero_orden: numeroOrden, p_tecnico_id: id })
+  if (error) { window.toast?.(error.message, 'error'); return }
+  window.toast?.(`${data.tecnico} habilitado`, 'success')
+  jpAbrirTecnicos(numeroOrden)   // recargar el modal
+}
+
+window.jpQuitarTecnico = async function (numeroOrden, tecnicoId) {
+  // Quitar un técnico habilitado. Si tiene trabajos tomados, la base los suelta por CASCADE
+  // del registro de habilitación NO — hay que soltar sus trabajos primero. Se avisa.
+  if (!confirm('¿Quitar este técnico de la orden?\n\nSi ya tomó trabajos, esos trabajos quedan sin ejecutor y hay que reasignarlos.')) return
+  const sb = jpSb()
+  // Soltar sus trabajos tomados en esta orden
+  await sb.from('orden_tecnicos').delete().eq('numero_orden', numeroOrden).eq('tecnico_id', tecnicoId)
+  window.toast?.('Técnico quitado', 'success')
+  jpAbrirTecnicos(numeroOrden)
+}
+
+window.jpReasignar = async function (hallazgoLineaId, numeroOrden) {
+  // Reasignar un trabajo a otro técnico habilitado (el caso Alex→Josué).
+  const { data: ot } = await jpSb().from('orden_tecnicos').select('tecnico_id')
+    .eq('numero_orden', numeroOrden).is('hallazgo_linea_id', null).eq('rol', 'ejecuta')
+  const habilitados = (ot || []).map(x => x.tecnico_id)
+  if (!habilitados.length) { window.toast?.('No hay técnicos habilitados en esta orden', 'error'); return }
+
+  const opciones = habilitados.map((id, i) => `${i + 1}. ${jpNombreTec(id)}`).join('\n')
+  const elec = prompt(`¿Quién ejecutó este trabajo?\n\n${opciones}\n\n(escribí el número, o 0 para liberar)`)
+  if (elec === null) return
+  const n = parseInt(elec, 10)
+  const nuevo = n === 0 ? null : habilitados[n - 1]
+  if (n !== 0 && !nuevo) { window.toast?.('Opción inválida', 'error'); return }
+
+  const { error } = await jpSb().rpc('orden_trabajo_reasignar', {
+    p_hallazgo_linea_id: hallazgoLineaId, p_nuevo_tecnico: nuevo
+  })
+  if (error) { window.toast?.(error.message, 'error'); return }
+  window.toast?.(nuevo ? 'Reasignado' : 'Liberado', 'success')
+  jpAbrirTecnicos(numeroOrden)
 }

@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714h'
+  window.__mecBuild = '20260714j'
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -204,8 +204,86 @@
       </div>`).join('')
       : '<div class="mec-card" style="text-align:center;color:var(--text3,#8b949e)">No hay órdenes pendientes 🎉</div>'
 
+    // ── Mis trabajos asignados (Fase 2, Etapa C) ──
+    // El jefe de pista me habilitó en ciertas órdenes. Acá veo los trabajos de esas
+    // órdenes y tomo los que hice. Un trabajo que ya tomó otro no aparece.
+    html += '<div id="mec-trabajos"></div>'
+
     html += `<div style="margin-top:22px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="mecComision()">💰 Mi comisión</button></div>`
     root.innerHTML = html
+    renderTrabajosAsignados(yo)   // async, rellena #mec-trabajos cuando carga
+  }
+
+  // Muestra los trabajos de las órdenes donde el técnico está habilitado.
+  async function renderTrabajosAsignados (yo) {
+    const cont = $('mec-trabajos'); if (!cont || !yo?.tecnico_id) return
+
+    // Órdenes donde estoy habilitado (rol ejecuta, sin trabajo aún)
+    const { data: hab } = await sb().from('orden_tecnicos')
+      .select('numero_orden').eq('tecnico_id', yo.tecnico_id).is('hallazgo_linea_id', null).eq('rol', 'ejecuta')
+    const ordenes = [...new Set((hab || []).map(x => x.numero_orden))]
+    if (!ordenes.length) return   // no estoy habilitado en ninguna: no muestro nada
+
+    // Los trabajos (líneas de hallazgo) de esas órdenes, vía proforma → inspección → hallazgos
+    const { data: profs } = await sb().from('cotizador_proformas')
+      .select('id,numero_orden').in('numero_orden', ordenes).eq('tipo_solicitud', 'recomendado')
+    const profIds = (profs || []).map(p => p.id)
+    const ordByProf = {}; for (const p of (profs || [])) ordByProf[p.id] = p.numero_orden
+    if (!profIds.length) return
+
+    const { data: insps } = await sb().from('checklist_inspecciones').select('id,proforma_id').in('proforma_id', profIds)
+    const ordByInsp = {}; for (const i of (insps || [])) ordByInsp[i.id] = ordByProf[i.proforma_id]
+    const inspIds = (insps || []).map(i => i.id)
+    if (!inspIds.length) return
+
+    const { data: halls } = await sb().from('checklist_hallazgos').select('id,inspeccion_id').in('inspeccion_id', inspIds)
+    const ordByHall = {}; for (const h of (halls || [])) ordByHall[h.id] = ordByInsp[h.inspeccion_id]
+    const hallIds = (halls || []).map(h => h.id)
+    if (!hallIds.length) return
+
+    const { data: lineas } = await sb().from('checklist_hallazgo_lineas')
+      .select('id,descripcion,tipo,hallazgo_id').in('hallazgo_id', hallIds)
+
+    // Quién tomó qué (de toda la orden)
+    const { data: tomados } = await sb().from('orden_tecnicos')
+      .select('hallazgo_linea_id,tecnico_id').in('numero_orden', ordenes).not('hallazgo_linea_id', 'is', null)
+    const tomadoPor = {}; for (const t of (tomados || [])) tomadoPor[t.hallazgo_linea_id] = t.tecnico_id
+
+    // Agrupar por orden
+    const porOrden = {}
+    for (const l of (lineas || [])) {
+      const ord = ordByHall[l.hallazgo_id]
+      ;(porOrden[ord] = porOrden[ord] || []).push(l)
+    }
+
+    let h = '<div class="mec-sis" style="margin-top:22px">Mis trabajos asignados</div>'
+    for (const ord of Object.keys(porOrden)) {
+      h += `<div style="font-size:12px;color:var(--text3,#8b949e);margin:8px 0 4px">Orden #${esc(ord)}</div>`
+      for (const l of porOrden[ord]) {
+        const quien = tomadoPor[l.id]
+        const mio = quien === yo.tecnico_id
+        const libre = !quien
+        const tag = l.tipo === 's' ? 'MO' : 'Pieza'
+        h += `<div class="mec-card" style="display:flex;align-items:center;gap:10px;${!libre && !mio ? 'opacity:.4' : ''}">
+          <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(139,92,246,.15);color:#8b5cf6">${tag}</span>
+          <span style="flex:1;font-size:13px">${esc(l.descripcion || '')}</span>
+          ${mio
+            ? '<span style="color:var(--green,#16a34a);font-weight:700">✓ Lo hice</span>'
+            : libre
+              ? `<button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;color:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="mecTomarTrabajo('${l.id}')">Yo lo hice</button>`
+              : '<span style="font-size:11px;color:var(--text3,#8b949e)">tomado por otro</span>'}
+        </div>`
+      }
+    }
+    cont.innerHTML = h
+  }
+
+  // El técnico toma un trabajo (confirma que lo hizo).
+  window.mecTomarTrabajo = async function (hallazgoLineaId) {
+    const { data, error } = await sb().rpc('orden_trabajo_tomar', { p_hallazgo_linea_id: hallazgoLineaId })
+    if (error) { toast(error.message, 'error'); return }
+    toast(data.mensaje || 'Trabajo tomado', 'success')
+    await renderOrdenes()
   }
 
   // ── 2. Iniciar: crea la proforma 'recomendado' + la inspección ─────────────
@@ -384,8 +462,26 @@
           </button>`).join('')}
       </div>
       ${extra}
+      ${sev && sev !== 'verde' ? `
+        <div style="margin-top:8px">
+          <textarea id="nota-${p.id}" rows="2" placeholder="${notaPlaceholder(p)}"
+            onblur="mecNota(${p.id}, this.value)"
+            style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a3340);
+                   border-radius:8px;color:var(--text,#e6edf3);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box"
+          >${esc(HALL[p.id]?.nota || '')}</textarea>
+        </div>` : ''}
     </div>`
   }
+
+  // El texto libre. En un punto normal es opcional (un matiz que ayuda a vender:
+  // "la trasera derecha está peor que la izquierda"). En un punto INFORMATIVO es
+  // donde el técnico dice QUÉ falta ("le falta la llave de cruz y el maneral"),
+  // y ahí es obligatorio: sin eso, el cotizador no sabe qué ofrecer.
+  const esInformativo = (p) => p.sistema === 'INFORMATIVO' || p.tipo_punto === 'informativo'
+  const notaPlaceholder = (p) => esInformativo(p)
+    ? '¿Qué le falta o qué encontraste? (obligatorio)'
+    : 'Detalle para el cliente (opcional): ubicación, gravedad, observación…'
+
 
   // La excepción. El motivo lo exige la BASE (constraint chk_estimada_con_motivo),
   // no esta pantalla: acá solo se muestra el campo.
@@ -412,6 +508,17 @@
     if (error) { toast(error.message, 'error'); return }
     HALL[puntoId] = data
     toast('Excepción registrada — este punto no paga comisión')
+  }
+
+  // Guarda la nota del punto. Se dispara al salir del campo (onblur), no en cada tecla.
+  window.mecNota = async function (puntoId, texto) {
+    const h = HALL[puntoId]; if (!h || !h.id) return
+    const t = String(texto || '').trim() || null
+    if (t === (h.nota || null)) return              // sin cambios, no pega a la base
+    const { data, error } = await sb().from('checklist_hallazgos')
+      .update({ nota: t }).eq('id', h.id).select('*').single()
+    if (error) { toast('No se guardó la nota: ' + error.message, 'error'); return }
+    HALL[puntoId] = data
   }
 
   // ── Interacción: cada tap guarda. Si el celular se cierra, no se pierde nada.
@@ -514,6 +621,14 @@
     if (sinMed.length) { toast(`Falta medir: ${sinMed.map(p => p.nombre).join(', ')}`, 'error'); return }
     const sinMotivo = PUNTOS.filter(p => HALL[p.id]?.medicion_estimada && !String(HALL[p.id]?.motivo_estimada || '').trim())
     if (sinMotivo.length) { toast(`Escribí por qué no se pudo desmontar: ${sinMotivo.map(p => p.nombre).join(', ')}`, 'error'); return }
+
+    // Punto informativo marcado con falta (🟡/🔴) pero sin nota: el cotizador no sabría
+    // qué ofrecer. Solo acá se avisa; la validación dura vive en checklist_cerrar().
+    const infoSinNota = PUNTOS.filter(p =>
+      (p.sistema === 'INFORMATIVO' || p.tipo_punto === 'informativo') &&
+      ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad) &&
+      !String(HALL[p.id]?.nota || '').trim())
+    if (infoSinNota.length) { toast(`Escribí qué falta en: ${infoSinNota.map(p => p.nombre).join(', ')}`, 'error'); return }
 
     // Foto del freno desmontado, salvo que TODOS los puntos de esa rueda sean excepción
     const necesita = (r) => PUNTOS.some(p => p.rueda_requerida === r && !HALL[p.id]?.medicion_estimada)

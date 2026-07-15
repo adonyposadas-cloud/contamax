@@ -290,6 +290,9 @@
           <div class="nav-item hidden" id="nav-precios" onclick="showView('precios','Lista de precios · Catálogo'); initPrecios()">
             <span class="nav-ico">🏷️</span><span>Precios</span>
           </div>
+          <div class="nav-item hidden" id="nav-checklist-config" onclick="showView('checklist-config','Configurar Checklist'); initChecklistConfig()">
+            <span>🛠️ Configurar Checklist</span>
+          </div>
           <div class="nav-item hidden" id="nav-cotizador" onclick="showView('cotizador','Cotizador · Proformas')">
             <span class="nav-dot"></span>Proformas
           </div>
@@ -308,6 +311,7 @@
       <!-- CHECKLIST MECÁNICO (contenido inyectado por js/mecanico.js) -->
       <div class="view" id="view-mecanico"></div>
       <div class="view" id="view-precios"></div>
+      <div class="view" id="view-checklist-config"></div>
 
       <!-- ESTADOS FÍSICOS (contenido inyectado por js/estados_fisicos.js) -->
       <div class="view" id="view-estados-fisicos"></div>
@@ -3549,7 +3553,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260707f"></script>
+<script type="module" src="js/app.js?v=20260715c"></script>
 <script type="module" src="js/reportes.js?v=20260706a"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3571,10 +3575,11 @@
 <script defer src="js/revision_taxis.js?v=20260705e"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
-<script defer src="js/cotizador.js?v=20260714-chk3"></script>
-<script defer src="js/jefe_pista.js?v=20260714h"></script>
-<script defer src="js/mecanico.js?v=20260714h"></script>
+<script defer src="js/cotizador.js?v=20260714-chk5"></script>
+<script defer src="js/jefe_pista.js?v=20260714k"></script>
+<script defer src="js/mecanico.js?v=20260714j"></script>
 <script defer src="js/precios.js?v=20260714d"></script>
+<script defer src="js/checklist_config.js?v=20260714a"></script>
 <script defer src="js/estados_fisicos.js?v=20260704s"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->

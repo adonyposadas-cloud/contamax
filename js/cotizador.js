@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260714-chk3' } catch (e) {}
+  try { window.__cotBuild = '20260714-chk5' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -1428,14 +1428,22 @@
   // ══════════════════════════════════════════════════════════
   //  BÚSQUEDA en histórico de órdenes
   // ══════════════════════════════════════════════════════════
-  function abrirBusq (tipo) {
+  // _ctxChecklist: si viene, lo que se elija del buscador HEREDA la atribución del
+  // hallazgo (hallazgo_linea_id, mecanico_id…). Así el técnico cobra por el producto
+  // REAL del carro (AMORTIGUADOR CRV), no por el genérico que sugirió el checklist.
+  let _ctxChecklist = null
+  function abrirBusq (tipo, termInicial, ctxChecklist) {
     modalTipo = tipo
-    guardarGeneracionSiFalta()   // si el año no cae en ninguna generación, guarda el rango puesto
+    _ctxChecklist = ctxChecklist || null
+    guardarGeneracionSiFalta()
     $('cot-modal-title').textContent = tipo === 'p' ? 'Buscar producto en órdenes' : 'Buscar servicio en órdenes'
     const veh = [PF.marca, PF.modelo, rangoTxt()].filter(Boolean).join(' ')
     $('cot-modal-hint').textContent = veh ? `Filtrando para: ${veh}` : 'Sin filtro de vehículo — se busca en todo el histórico'
-    $('cot-q').value = ''
-    $('cot-res').innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Escribí para buscar...</div>'
+    const t = termInicial || ''
+    $('cot-q').value = t
+    if (t) { buscar(t) } else {
+      $('cot-res').innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:24px">Escribí para buscar...</div>'
+    }
     $('cot-modal').classList.add('open')
     setTimeout(() => $('cot-q').focus(), 120)
   }
@@ -1532,14 +1540,37 @@
       if (!it) return
       let precio = it.precio
       if (adj) precio = Math.round(precio * (1 + adj.pct / 100) * 100) / 100
-      PF.items.push({
+      const nuevo = {
         tipo: it.tipo, desc: String(it.desc).toUpperCase(), cantidad: it.cantidad || 1, precio, isv: 15,
         deOrden: ordenActual.ord.numero_orden || '', ajuste: adj ? `+${adj.pct}% (${adj.meses} meses)` : ''
-      })
+      }
+      // Si este buscador se abrió desde un hallazgo del checklist, el producto real que
+      // elijo HEREDA la atribución. Así el técnico cobra por el AMORTIGUADOR CRV que se
+      // vende, no por el genérico. El vínculo sigue siendo el hallazgo_linea_id (por ID).
+      if (_ctxChecklist) {
+        Object.assign(nuevo, {
+          origen: 'checklist',
+          prioridad: _ctxChecklist.severidad === 'rojo' ? 'crit' : 'rec',
+          hallazgo_id: _ctxChecklist.hallazgo_id,
+          hallazgo_linea_id: _ctxChecklist.hallazgo_linea_id,
+          punto_id: _ctxChecklist.punto_id,
+          severidad: _ctxChecklist.severidad,
+          mecanico_id: _ctxChecklist.mecanico_id,
+          servicio_cat_id: _ctxChecklist.servicio_cat_id || null,
+          producto_cat_id: _ctxChecklist.producto_cat_id || null
+        })
+      }
+      PF.items.push(nuevo)
       count++
     })
     $('cot-modal-ord').classList.remove('open')
-    if (count) { renderItems(); toast(`${count} ítem(s) agregado(s)`, 'success') }
+    // Si vino de un hallazgo, marcar ese solicitado como agregado (para que no se cotice dos veces)
+    if (count && _ctxChecklist && Array.isArray(PF.solicitados)) {
+      const sol = PF.solicitados.find(x => x.hallazgo_linea_id === _ctxChecklist.hallazgo_linea_id && x.tipo === _ctxChecklist.tipo)
+      if (sol) { sol.agregado = true; renderSolicitados() }
+    }
+    _ctxChecklist = null
+    if (count) { renderItems(); guardarProforma({ silencioso: true }); toast(`${count} ítem(s) agregado(s)`, 'success') }
     else toast('No marcaste ningún ítem', 'error')
   }
 
@@ -1749,11 +1780,21 @@
         : (chk
             ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;color:var(--green,#16a34a);border-color:var(--green,#16a34a)" data-solic-add="${i}" title="Agregar a la cotización con su precio de lista">＋ Agregar</button>`
             : `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-solic-copy="${i}" title="Copiar y buscarlo con Buscar producto">📋 Copiar</button>`)
-      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;${done ? 'opacity:.55' : ''}">
-        <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
-        <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${sevTag} ${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${precioTxt}${s.nuevo ? ' <span style="color:#f0a500;font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
-        ${done ? '<span style="color:var(--green,#16a34a);font-size:12px;font-weight:700">✓</span>' : ''}
-        ${boton}
+      // La nota del técnico: lo que escribió al inspeccionar. En un punto informativo
+      // es QUÉ falta ("le falta la llave de cruz"); en uno normal, un matiz que ayuda
+      // a vender ("la trasera derecha está peor"). El cotizador la necesita para saber
+      // qué ofrecer.
+      const notaTxt = (chk && s.nota && String(s.nota).trim())
+        ? `<div style="font-size:11px;color:#f0a500;padding:2px 0 4px 30px;font-style:italic">📝 ${esc(String(s.nota).trim())}</div>`
+        : ''
+      return `<div style="padding:5px 0;${done ? 'opacity:.55' : ''}">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
+          <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${sevTag} ${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${precioTxt}${s.nuevo ? ' <span style="color:#f0a500;font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
+          ${done ? '<span style="color:var(--green,#16a34a);font-size:12px;font-weight:700">✓</span>' : ''}
+          ${boton}
+        </div>
+        ${notaTxt}
       </div>`
     }).join('')
   }
@@ -1767,6 +1808,20 @@
     const s = solic[i]
     if (!s || !esDeChecklist(s)) return
     if (s.agregado) { toast('Ese ítem ya está en la cotización', 'error'); return }
+
+    // Un PRODUCTO del checklist es genérico ("AMORTIGUADOR TRASERO") y su precio depende
+    // del modelo — el genérico "nunca sirve". En vez de meterlo y que lo borres, abrimos
+    // el buscador filtrado por el carro, con el término ya puesto. Lo que elijas hereda
+    // la atribución del hallazgo. Los SERVICIOS (mano de obra) sí son fijos: van directo.
+    if (s.tipo === 'p') {
+      abrirBusq('p', String(s.desc || ''), {
+        hallazgo_id: s.hallazgo_id, hallazgo_linea_id: s.hallazgo_linea_id,
+        punto_id: s.punto_id, severidad: s.severidad, mecanico_id: s.mecanico_id,
+        tipo: s.tipo, servicio_cat_id: s.servicio_cat_id || null, producto_cat_id: s.producto_cat_id || null
+      })
+      return
+    }
+
     const pb = num(s.precio_base_snapshot)
     PF.items.push({
       tipo: s.tipo,

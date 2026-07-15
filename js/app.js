@@ -148,7 +148,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
@@ -684,6 +684,39 @@ window.toggleCampoTecnico = async function (rolSelId, wrapId, selId, valorActual
   sel.innerHTML = '<option value="">— Elegí el técnico —</option>' +
     tec.map(t => `<option value="${t.id}" ${t.id === valorActual ? 'selected' : ''}>${t.nombre}</option>`).join('')
   if (valorActual) sel.value = valorActual
+
+  // Botón "+ Nuevo" al lado del select: crear un técnico que no existe todavía, sin
+  // salir del modal. Va por tecnico_crear() (controlado), no por el viejo alta al vuelo.
+  if (!document.getElementById(selId + '-nuevo')) {
+    const btn = document.createElement('button')
+    btn.id = selId + '-nuevo'
+    btn.type = 'button'
+    btn.textContent = '+ Nuevo'
+    btn.style.cssText = 'margin-left:6px;padding:6px 10px;font-size:12px;background:none;border:1px solid var(--gold,#c8a24a);color:var(--gold,#c8a24a);border-radius:6px;cursor:pointer;white-space:nowrap'
+    btn.onclick = () => crearTecnicoNuevo(selId)
+    sel.parentNode.insertBefore(btn, sel.nextSibling)
+    // que el select y el botón queden en línea
+    if (sel.parentNode.style) sel.parentNode.style.display = 'flex', sel.parentNode.style.alignItems = 'center'
+    sel.style.flex = '1'
+  }
+}
+
+// Crear un técnico nuevo desde el modal de usuarios y dejarlo seleccionado.
+window.crearTecnicoNuevo = async function (selId) {
+  const nombre = prompt('Nombre completo del técnico nuevo:\n(nombre y apellido — ej. "MARIO RODRIGUEZ")')
+  if (!nombre || !nombre.trim()) return
+  const { data, error } = await sb.rpc('tecnico_crear', { p_nombre: nombre })
+  if (error) { window.toast?.(error.message, 'error'); return }
+  // Refrescar la lista y seleccionar el nuevo
+  _TECNICOS = []                      // invalidar cache
+  await cargarTecnicos()
+  const sel = document.getElementById(selId)
+  if (sel) {
+    sel.innerHTML = '<option value="">— Elegí el técnico —</option>' +
+      _TECNICOS.map(t => `<option value="${t.id}" ${t.id === data.id ? 'selected' : ''}>${t.nombre}</option>`).join('')
+    sel.value = data.id
+  }
+  window.toast?.(`Técnico «${data.nombre}» creado`, 'success')
 }
 
 // Renderiza el panel de checkboxes en el contenedor dado, con los ids marcados
