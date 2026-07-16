@@ -753,8 +753,10 @@ window.jpEnviarHallazgos = async function (proformaId) {
       grupos: gruposPDF, desmontaje, total
     })
     const nombreArch = `orden-${pf.numero_orden || pf.id}-${Date.now()}.pdf`
+    // Sin upsert: el nombre ya es único (Date.now), así que siempre es INSERT. El upsert
+    // forzaba un UPDATE que la policy del bucket rechazaba (le falta with_check).
     const { error: eUp } = await sb.storage.from('cotizaciones-pdf').upload(nombreArch, blob, {
-      contentType: 'application/pdf', upsert: true
+      contentType: 'application/pdf'
     })
     if (eUp) { window.toast?.('No se pudo subir el PDF: ' + eUp.message, 'error'); return }
     const { data: pub } = sb.storage.from('cotizaciones-pdf').getPublicUrl(nombreArch)
@@ -1109,8 +1111,23 @@ async function jpImgAMiniatura (url, maxW = 220) {
   } catch (e) { console.warn('miniatura falló', e); return null }
 }
 
+// Carga jsPDF del CDN si no está (el archivo local js/jspdf.min.js da 404).
+// Mismo método que usa el cotizador, que sí funciona.
+function jpLoadScript (src) {
+  return new Promise((resolve, reject) => {
+    const sc = document.createElement('script'); sc.src = src
+    sc.onload = resolve; sc.onerror = () => reject(new Error('No se pudo cargar ' + src))
+    document.head.appendChild(sc)
+  })
+}
+async function jpEnsureJsPDF () {
+  if (window.jspdf && window.jspdf.jsPDF) return
+  await jpLoadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+}
+
 // Construye el PDF con jsPDF y lo devuelve como Blob.
 async function jpConstruirPDF (datos) {
+  await jpEnsureJsPDF()
   const { jsPDF } = window.jspdf || {}
   if (!jsPDF) throw new Error('jsPDF no está cargado')
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
