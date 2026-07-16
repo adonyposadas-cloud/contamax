@@ -122,15 +122,17 @@ window.__preciosBuild = '20260714d'
         <input id="pr-q" class="pr-in" style="width:260px;text-align:left" placeholder="Buscar…" value="${esc(FILTRO)}">
         <span style="font-size:12px;color:#8b949e">${rows.length} de ${CAT.length}</span>
         ${!editable ? '<span style="font-size:12px;color:#f0a500">👁 Solo lectura</span>' : ''}
-        <button class="btn btn-ghost" style="margin-left:auto" onclick="initPrecios()">↻ Recargar</button>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          ${editable ? '<button class="btn btn-ghost" style="border-color:#16a34a;color:#16a34a" onclick="prNuevoItem()">+ Nuevo ítem</button>' : ''}
+          <button class="btn btn-ghost" onclick="initPrecios()">↻ Recargar</button>
+        </div>
       </div>
+      <div id="pr-nuevo-form"></div>
 
       <div id="pr-scroll" style="max-height:62vh;overflow:auto;border:1px solid #21262d;border-radius:10px">
         <table class="pr-t">
           <thead><tr>
             <th>Ítem</th><th>Tipo</th>
-            <th style="text-align:right">Precio de lista</th>
-            <th style="text-align:right" title="Mediana de lo realmente facturado en el histórico">Mediana histórica</th>
             <th style="text-align:center" title="10=2% rápido · 20=3% destreza · 30=4% diagnóstico. El recomendado paga 1 punto más.">Código</th>
             <th style="text-align:center" title="Solicitado → Recomendado (el checklist paga 1 punto más)">%</th>
             <th style="text-align:center" title="A cuántos puntos del checklist que pagan comisión afecta este precio">Comisiones</th>
@@ -171,29 +173,17 @@ window.__preciosBuild = '20260714d'
     const sinPrecio = r.precio_base == null
     const sinCod = r.tipo === 'servicio' && !r.comision_codigo
     const pctBase = r.comision_codigo ? (TASAS[r.comision_codigo] ?? null) : null
-    // Si la mediana difiere mucho del precio de lista, vale la pena que salte a la vista.
-    const desvio = (r.precio_base && r.mediana_historica)
-      ? Math.abs(r.precio_base - r.mediana_historica) / r.mediana_historica : 0
-    const colorMed = desvio > 0.25 ? '#f0a500' : '#8b949e'
 
     return `<tr>
       <td>
-        <div style="font-weight:600;color:${sinPrecio && paga ? '#f85149' : '#e6edf3'}">${esc(r.nombre)}</div>
+        <div style="font-weight:600;color:${sinPrecio && paga ? '#f85149' : '#e6edf3'}">${esc(r.nombre)}
+          ${editable ? `<button onclick="prRenombrar('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', this)" data-nombre="${esc(r.nombre)}" title="Corregir el nombre" style="background:none;border:0;color:#6e7681;cursor:pointer;font-size:11px;padding:0 4px">✏</button>
+          <button onclick="prPrecio('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', ${r.precio_base ?? 'null'})" title="Editar precio base" style="background:none;border:0;color:#6e7681;cursor:pointer;font-size:11px;padding:0 4px">💲</button>` : ''}
+        </div>
         <div style="font-size:10px;color:#6e7681;font-family:monospace">${esc(r.codigo)}</div>
       </td>
       <td><span class="pr-badge" style="border-color:${r.tipo === 'servicio' ? '#3b82f6' : '#16a34a'};color:${r.tipo === 'servicio' ? '#3b82f6' : '#16a34a'}">
         ${r.tipo === 'servicio' ? 'SERVICIO' : 'PRODUCTO'}</span></td>
-      <td style="text-align:right">
-        ${editable
-          ? `<input class="pr-in" type="number" step="0.01" min="0" value="${r.precio_base ?? ''}"
-               placeholder="sin precio" data-id="${r.id}" data-tipo="${r.tipo}"
-               onchange="prGuardar('${r.id}','${r.tipo}', this.value, ${r.precio_base ?? 'null'})">`
-          : `<b>L. ${fmt(r.precio_base)}</b>`}
-      </td>
-      <td style="text-align:right;color:${colorMed};font-variant-numeric:tabular-nums">
-        ${r.mediana_historica ? 'L. ' + fmt(r.mediana_historica) : '—'}
-        ${r.veces_facturado ? `<div style="font-size:10px;color:#6e7681">${r.veces_facturado}× facturado</div>` : ''}
-      </td>
       <td style="text-align:center">
         ${r.tipo !== 'servicio'
           ? '<span style="color:#6e7681" title="Los productos no llevan código: pagan 3% fijo">—</span>'
@@ -222,6 +212,112 @@ window.__preciosBuild = '20260714d'
         ${r.ultimo_cambio ? new Date(r.ultimo_cambio).toLocaleDateString('es-HN') : '—'}
       </td>
     </tr>`
+  }
+
+  // ── Alta de ítem al catálogo ──
+  // Sugiere un código con la convención PRD_/SRV_ desde el nombre; el usuario lo puede ajustar.
+  function prSugerirCodigo (tipo, nombre) {
+    const pref = tipo === 's' ? 'SRV_' : 'PRD_'
+    const base = (nombre || '').toUpperCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // sin acentos
+      .replace(/[^A-Z0-9 ]/g, '').trim().split(/\s+/)
+      .filter(w => !['DE','DEL','LA','EL','Y','A','CON'].includes(w))   // fuera palabras vacías
+      .slice(0, 3).map(w => w.slice(0, 5)).join('_')
+    return pref + base
+  }
+
+  window.prRenombrar = async function (id, tipo, btn) {
+    const actual = btn?.dataset?.nombre || ''
+    const nuevo = prompt('Corregir el nombre:', actual)
+    if (nuevo == null) return
+    if (!nuevo.trim() || nuevo.trim().toUpperCase() === actual.toUpperCase()) return
+    const { data, error } = await sb().rpc('catalogo_renombrar', { p_tipo: tipo, p_id: id, p_nombre: nuevo })
+    if (error) { toast(error.message, 'error'); return }
+    toast(`Renombrado a «${data.nombre}»`, 'success')
+    initPrecios()
+  }
+
+  window.prPrecio = async function (id, tipo, actual) {
+    const val = prompt('Precio base (referencia). El precio de venta sale del histórico al cotizar:', actual == null ? '' : actual)
+    if (val == null) return
+    const limpio = String(val).trim()
+    const precio = limpio === '' ? null : parseFloat(limpio.replace(/[^0-9.]/g, ''))
+    if (limpio !== '' && (isNaN(precio) || precio < 0)) { toast('Precio inválido', 'error'); return }
+    const { error } = await sb().rpc('catalogo_precio', { p_tipo: tipo, p_id: id, p_precio: precio })
+    if (error) { toast(error.message, 'error'); return }
+    toast(precio == null ? 'Precio quitado' : 'Precio actualizado', 'success')
+    initPrecios()
+  }
+
+  window.prNuevoItem = function () {
+    const cont = document.getElementById('pr-nuevo-form')
+    if (!cont) return
+    if (cont.innerHTML) { cont.innerHTML = ''; return }   // toggle
+
+    cont.innerHTML = `
+      <div style="border:1px solid #16a34a;border-radius:10px;padding:14px;margin-bottom:12px;background:rgba(22,163,74,.05)">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Nuevo ítem del catálogo</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
+          <div>
+            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Tipo</div>
+            <select id="ni-tipo" onchange="prNuevoTipoCambio()" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:6px">
+              <option value="s">Servicio</option>
+              <option value="p">Producto</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Nombre</div>
+            <input id="ni-nombre" class="pr-in" style="width:100%;text-align:left" placeholder="Ej. CAMBIO DE FILTRO DE ACEITE" oninput="prNuevoNombreCambio()">
+          </div>
+          <div>
+            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Código</div>
+            <input id="ni-codigo" class="pr-in" style="width:160px;text-align:left;font-family:monospace" placeholder="SRV_..." oninput="this.dataset.tocado=1">
+          </div>
+          <div id="ni-comision-wrap">
+            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Código comisión</div>
+            <select id="ni-comision" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:6px">
+              <option value="">— sin código —</option>
+              <option value="10">10 · rápido (2%)</option>
+              <option value="20">20 · destreza (3%)</option>
+              <option value="30">30 · diagnóstico (4%)</option>
+            </select>
+          </div>
+          <button onclick="prNuevoGuardar()" style="background:#16a34a;border:0;color:#fff;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:600">Crear</button>
+          <button onclick="prNuevoItem()" style="background:none;border:1px solid #3a3f4a;color:#8b949e;border-radius:6px;padding:8px 14px;cursor:pointer">Cancelar</button>
+        </div>
+        <div style="font-size:11px;color:#6b7280;margin-top:8px">El precio se define al cotizar la primera vez (queda en el histórico). No hace falta ponerlo acá.</div>
+      </div>`
+  }
+
+  window.prNuevoTipoCambio = function () {
+    const tipo = document.getElementById('ni-tipo').value
+    // El código de comisión solo aplica a servicios
+    document.getElementById('ni-comision-wrap').style.display = tipo === 's' ? '' : 'none'
+    prNuevoNombreCambio()   // re-sugerir código con el prefijo correcto
+  }
+
+  window.prNuevoNombreCambio = function () {
+    const tipo = document.getElementById('ni-tipo').value
+    const nombre = document.getElementById('ni-nombre').value
+    const codInput = document.getElementById('ni-codigo')
+    // Solo autocompleta si el usuario no lo tocó a mano (o está vacío)
+    if (!codInput.dataset.tocado) codInput.value = prSugerirCodigo(tipo, nombre)
+  }
+
+  window.prNuevoGuardar = async function () {
+    const tipo = document.getElementById('ni-tipo').value
+    const nombre = document.getElementById('ni-nombre').value.trim()
+    const codigo = document.getElementById('ni-codigo').value.trim()
+    const comision = tipo === 's' ? (document.getElementById('ni-comision').value || null) : null
+    if (!nombre) { toast('Falta el nombre', 'error'); return }
+    if (!codigo) { toast('Falta el código', 'error'); return }
+    const { data, error } = await sb().rpc('catalogo_crear', {
+      p_tipo: tipo, p_nombre: nombre, p_codigo: codigo,
+      p_comision_codigo: comision, p_unidad: 'UND', p_precio_base: null
+    })
+    if (error) { toast(error.message, 'error'); return }
+    toast(`«${data.nombre}» creado`, 'success')
+    initPrecios()   // recargar el catálogo
   }
 
   window.prGuardar = async function (id, tipo, valor, anterior) {

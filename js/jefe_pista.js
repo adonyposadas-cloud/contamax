@@ -413,6 +413,27 @@ function jpCardAsignar(p) {
 // CANDADO: no se puede reasignar una orden con inspección ABIERTA. Si Yorbin llenó 15
 // de 21 puntos y se la pasan a Alex, Alex cobraría los hallazgos de Yorbin. El jefe de
 // pista tiene que cancelar esa inspección explícitamente primero — y eso deja rastro.
+window.jpCambiarTecnico = function (proformaId) {
+  const p = (jpData || []).find(x => x.id === proformaId); if (!p) return
+  const opts = (jpTecnicos || []).map(t =>
+    `<option value="${jpEsc(t.id)}" ${t.id === p.tecnico_id ? 'selected' : ''}>${jpEsc(t.nombre)}</option>`).join('')
+
+  let modal = document.getElementById('jp-cambtec-modal')
+  if (!modal) { modal = document.createElement('div'); modal.id = 'jp-cambtec-modal'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+    document.body.appendChild(modal) }
+  modal.innerHTML = `
+    <div style="background:#0d1117;border:1px solid #2a2e37;border-radius:14px;max-width:420px;width:100%;padding:20px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">Cambiar técnico de inspección</div>
+      <div style="font-size:12px;color:#8b949e;margin-bottom:14px">${jpEsc([p.marca,p.modelo].filter(Boolean).join(' '))} · orden #${jpEsc(p.numero_orden||'')}<br>Actual: <b>${jpEsc(p.mecanico||'—')}</b></div>
+      <select id="asig-${p.id}" class="jp-inp" style="width:100%;margin-bottom:14px">${opts}</select>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('jp-cambtec-modal').remove()" style="background:none;border:1px solid #3a3f4a;color:#8b949e;border-radius:8px;padding:8px 16px;cursor:pointer">Cancelar</button>
+        <button onclick="jpAsignarTecnico('${p.id}').then(()=>document.getElementById('jp-cambtec-modal')?.remove())" style="background:#8b5cf6;border:0;color:#fff;border-radius:8px;padding:8px 18px;font-weight:600;cursor:pointer">Reasignar</button>
+      </div>
+    </div>`
+}
+
 window.jpAsignarTecnico = async function (proformaId) {
   const sel = document.getElementById('asig-' + proformaId)
   const tecId = sel?.value
@@ -424,11 +445,26 @@ window.jpAsignarTecnico = async function (proformaId) {
   // ¿Hay una inspección abierta para esta orden?
   const { data: insp } = await jpSb().from('checklist_inspecciones')
     .select('id,estado,mecanico_id').eq('numero_orden', p.numero_orden).eq('estado', 'en_proceso').limit(1)
+
   if (insp && insp.length) {
-    window.toast?.('No se puede reasignar: hay una inspección en proceso. Cancelala primero para no transferir el trabajo de un técnico a otro.', 'error')
+    // Hay inspección a medias. Reasignar significa DESCARTAR lo que hizo el primero
+    // (el segundo empieza limpio). Confirmar explícitamente — deja rastro y evita
+    // transferir por error el trabajo (y la comisión) de un técnico a otro.
+    const ok = confirm(
+      `Esta orden ya tiene una inspección en proceso.\n\n` +
+      `Reasignar a ${nombre} va a DESCARTAR lo que el técnico anterior haya inspeccionado, ` +
+      `y ${nombre} empezará de cero.\n\n¿Continuar?`)
+    if (!ok) return
+    const { data, error } = await jpSb().rpc('checklist_reasignar_inspeccion', {
+      p_proforma_id: proformaId, p_tecnico_id: tecId, p_nombre: nombre
+    })
+    if (error) { window.toast?.(error.message, 'error'); return }
+    window.toast?.(`Reasignada a ${nombre} (inspección anterior descartada)`, 'success')
+    jpCargar()
     return
   }
 
+  // Sin inspección abierta: reasignación simple
   const { error } = await jpSb().from('cotizador_proformas')
     .update({ tecnico_id: tecId, mecanico: nombre }).eq('id', proformaId)
   if (error) { window.toast?.(error.message, 'error'); return }
@@ -479,6 +515,18 @@ function jpOrdenCard(p) {
   // Habilitar técnicos en la orden (Fase 2). Aparece cuando ya hay trabajo autorizado:
   // sin trabajo que ejecutar, no hay a quién asignar. La comisión de ejecución (80%)
   // sale de acá.
+  // Editar con el cliente: el jefe de pista poda la cotización cara a cara. Aparece cuando
+  // hay items cotizados y AÚN NO se autorizó (después ya no se toca). Solo QUITA (esconde),
+  // agregar sigue siendo del cotizador.
+  // Solo en la fase de AUTORIZACIÓN: ya hay cotización con precios (proc_inicio) y aún no
+  // se autorizó. En 'Esperando cotización' no hay precios finales que presentar al cliente.
+  const btnEdit = (f.fase === 'autorizacion' && Array.isArray(p.items) && p.items.length)
+    ? `<button class="jp-b" style="border-color:#c8a24a;color:#c8a24a" onclick="jpEditarCliente('${p.id}')" title="Quitar ítems con el cliente al lado, antes de autorizar">✏️ Editar con cliente</button>` : ''
+  // Cambiar el técnico que INSPECCIONA. Solo mientras se está cotizando (antes de que la
+  // orden pase a autorización): si el asignado no vino, se le pasa a otro. Si ya empezó a
+  // inspeccionar, reasignar descarta lo hecho (el segundo empieza limpio).
+  const btnCambiarTec = (esRec && p.tecnico_id && f.fase === 'cotizacion')
+    ? `<button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpCambiarTecnico('${p.id}')" title="Pasar la inspección a otro técnico">👤 Cambiar técnico</button>` : ''
   const btnTec = (esRec && p.proc_aprobada)
     ? `<button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden">👷 Técnicos</button>` : ''
   const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
@@ -490,7 +538,9 @@ function jpOrdenCard(p) {
       <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
     </div>
     ${reloj}
+    ${btnCambiarTec}
     ${btnTec}
+    ${btnEdit}
     ${btnWA}
     ${btnNV}
     ${btnPdf}
@@ -621,7 +671,7 @@ window.jpEnviarHallazgos = async function (proformaId) {
       .select('id,cliente,placa,marca,modelo,anio_vehiculo,items,numero_orden,descuento').eq('id', proformaId).single()
     if (e0) throw e0
 
-    const items = (pf.items || []).filter(it => it.hallazgo_linea_id)
+    const items = (pf.items || []).filter(it => it.hallazgo_linea_id && !it.oculto)
     if (!items.length) { window.toast?.('Esta proforma no tiene hallazgos cotizados', 'error'); return }
 
     const { data: insp } = await sb.from('checklist_inspecciones')
@@ -1175,4 +1225,106 @@ async function jpConstruirPDF (datos) {
   doc.text('Su carro está en el taller. Si autoriza, se lo entregamos hoy.', M, y)
 
   return doc.output('blob')
+}
+
+// ============================================================================
+// Editar con el cliente: el jefe de pista poda la cotización en vivo.
+// Quita (esconde con flag 'oculto') ítems que el cliente rechaza; puede regresarlos.
+// Agregar sigue siendo del cotizador. Al guardar, recalcula el total y deja la orden
+// lista para generar PDF y autorizar.
+// ============================================================================
+let _jpEditPF = null   // proforma en edición (copia de trabajo)
+
+window.jpEditarCliente = async function (proformaId) {
+  const sb = jpSb()
+  const { data: pf, error } = await sb.from('cotizador_proformas')
+    .select('id,correlativo,numero_orden,cliente,placa,marca,modelo,items,estado').eq('id', proformaId).single()
+  if (error) { window.toast?.(error.message, 'error'); return }
+  _jpEditPF = pf
+  jpRenderEditModal()
+}
+
+function jpRenderEditModal () {
+  const pf = _jpEditPF
+  const items = Array.isArray(pf.items) ? pf.items : []
+  const fmt = v => 'L. ' + Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  // Total solo de lo NO oculto
+  const total = items.filter(it => !it.oculto).reduce((sm, it) => {
+    const precio = Number(it.precio || 0), cant = Number(it.cantidad || 1), isv = Number(it.isv || 0)
+    return sm + precio * cant * (1 + isv / 100)
+  }, 0)
+
+  const fila = (it, i) => {
+    const precio = Number(it.precio || 0), cant = Number(it.cantidad || 1)
+    const oculto = !!it.oculto
+    const tag = it.tipo === 's' ? 'MO' : 'Pieza'
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #1c1f26;${oculto ? 'opacity:.45' : ''}">
+      <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(139,92,246,.15);color:#8b5cf6">${tag}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;${oculto ? 'text-decoration:line-through' : ''}">${jpEsc(it.desc || '')}</div>
+        <div style="font-size:11px;color:#6b7280">${cant} × ${fmt(precio)}</div>
+      </div>
+      ${oculto
+        ? `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #16a34a;color:#16a34a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">↩ Regresar</button>`
+        : `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #f85149;color:#f85149;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">✕ Quitar</button>`}
+    </div>`
+  }
+
+  let modal = document.getElementById('jp-edit-modal')
+  if (!modal) {
+    modal = document.createElement('div')
+    modal.id = 'jp-edit-modal'
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+    document.body.appendChild(modal)
+  }
+  modal.innerHTML = `
+    <div style="background:#0d1117;border:1px solid #2a2e37;border-radius:14px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid #2a2e37">
+        <div style="font-size:15px;font-weight:700">Editar con el cliente</div>
+        <div style="font-size:12px;color:#8b949e">${jpEsc([pf.marca, pf.modelo].filter(Boolean).join(' '))} · ${jpEsc(pf.placa || '')} · orden #${jpEsc(pf.numero_orden || '')}</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">Quitá lo que el cliente rechace. Podés regresarlo si cambia de opinión.</div>
+      </div>
+      <div style="flex:1;overflow:auto;padding:6px 16px">
+        ${items.length ? items.map(fila).join('') : '<div style="padding:20px;text-align:center;color:#8b949e">Sin ítems.</div>'}
+      </div>
+      <div style="padding:14px 18px;border-top:1px solid #2a2e37;display:flex;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div style="font-size:11px;color:#8b949e">TOTAL con lo aceptado</div>
+          <div style="font-size:20px;font-weight:800;color:#16a34a">${fmt(total)}</div>
+        </div>
+        <button onclick="jpEditCancelar()" style="background:none;border:1px solid #3a3f4a;color:#8b949e;border-radius:8px;padding:9px 16px;cursor:pointer">Cancelar</button>
+        <button onclick="jpEditGuardar()" style="background:#16a34a;border:0;color:#fff;border-radius:8px;padding:9px 18px;font-weight:600;cursor:pointer">Guardar y generar PDF</button>
+      </div>
+    </div>`
+}
+
+// Esconder/regresar un ítem (toggle del flag oculto), en la copia de trabajo
+window.jpEditToggle = function (i) {
+  const it = _jpEditPF.items[i]; if (!it) return
+  it.oculto = !it.oculto
+  jpRenderEditModal()
+}
+
+window.jpEditCancelar = function () {
+  _jpEditPF = null
+  document.getElementById('jp-edit-modal')?.remove()
+}
+
+window.jpEditGuardar = async function () {
+  const sb = jpSb(); const pf = _jpEditPF
+  // Recalcular total de lo NO oculto
+  const total = (pf.items || []).filter(it => !it.oculto).reduce((sm, it) =>
+    sm + Number(it.precio || 0) * Number(it.cantidad || 1) * (1 + Number(it.isv || 0) / 100), 0)
+
+  const { error } = await sb.from('cotizador_proformas')
+    .update({ items: pf.items, total }).eq('id', pf.id)
+  if (error) { window.toast?.(error.message, 'error'); return }
+
+  window.toast?.('Cotización actualizada', 'success')
+  document.getElementById('jp-edit-modal')?.remove()
+  // Generar el PDF con lo acordado
+  if (window.jpEnviarHallazgos) await window.jpEnviarHallazgos(pf.id)
+  _jpEditPF = null
+  if (window.initJefePista) initJefePista()
 }

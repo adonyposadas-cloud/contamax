@@ -16,7 +16,23 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714o'
+  window.__mecBuild = '20260714s'
+
+  // ── INTERRUPTOR: mostrar u ocultar "Mi comisión" a los técnicos ──
+  // Durante la prueba piloto se oculta para cuadrar los números internamente sin que los
+  // técnicos vean montos que todavía pueden cambiar. Cuando esté listo para producción,
+  // poner en true, bumpear el ?v= y avisar. (También se puede activar en vivo desde la
+  // consola: window.MOSTRAR_COMISION_TECNICO = true; renderOrdenes())
+  // La visibilidad de la comisión se lee de checklist_config (central), para que TODOS
+  // los técnicos la vean igual. Se cachea en _comisionVisible; default false hasta cargar.
+  window._comisionVisible = false
+  async function cargarVisibilidadComision () {
+    try {
+      const { data } = await sb().from('checklist_config').select('mostrar_comision_tecnico').eq('id', 1).single()
+      window._comisionVisible = !!(data && data.mostrar_comision_tecnico)
+    } catch (e) { window._comisionVisible = false }
+    return window._comisionVisible
+  }
 
   const sb = () => window._sb || window.sb
   const $ = id => document.getElementById(id)
@@ -137,6 +153,7 @@
   // ── 1. Órdenes por inspeccionar ────────────────────────────────────────────
   async function renderOrdenes () {
     const root = $('mec-root'); if (!root) return
+    await cargarVisibilidadComision()   // leer si la comisión está habilitada (config central)
     root.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3,#8b949e)">Cargando órdenes…</div>'
 
     const yo = await cargarYo()
@@ -213,7 +230,9 @@
     // órdenes y tomo los que hice. Un trabajo que ya tomó otro no aparece.
     html += '<div id="mec-trabajos"></div>'
 
-    html += `<div style="margin-top:22px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="mecComision()">💰 Mi comisión</button></div>`
+    if (window._comisionVisible) {
+      html += `<div style="margin-top:22px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="mecComision()">💰 Mi comisión</button></div>`
+    }
     root.innerHTML = html
     renderTrabajosAsignados(yo)   // async, rellena #mec-trabajos cuando carga
   }
@@ -375,26 +394,34 @@
         </div>
       </div>`
 
-    // La foto del freno ARMADO no sirve de evidencia. Se exige el disco/tambor DESMONTADO.
-    html += `<div class="mec-card" style="border-color:var(--gold,#c8a24a)">
-      <div style="font-weight:700;margin-bottom:4px">🔧 Desmontaje de ruedas</div>
-      <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">
-        Desmontá la <b>delantera izquierda</b> y la <b>trasera izquierda</b>. Sacá foto del disco/tambor descubierto.
-      </div>
-      ${['del', 'tra'].map(r => {
-        const path = INSP['foto_desmontaje_' + r]
-        const lbl = r === 'del' ? 'Delantera izq.' : 'Trasera izq.'
-        return `<div class="mec-foto" style="margin-bottom:6px">
+    // La foto del freno DESMONTADO acompaña a su punto de discos: la delantera aparece
+    // justo antes del primer punto que requiere rueda delantera, la trasera antes del
+    // primer punto de rueda trasera. Así el mecánico desmonta y fotografía EN EL MOMENTO
+    // que llega a los frenos en su recorrido, no todo junto al inicio.
+    const tarjetaDesmontaje = (r) => {
+      const path = INSP['foto_desmontaje_' + r]
+      const lbl = r === 'del' ? 'Delantera izq.' : 'Trasera izq.'
+      return `<div class="mec-card" style="border-color:var(--gold,#c8a24a)">
+        <div style="font-weight:700;margin-bottom:4px">🔧 Desmontá la rueda ${r === 'del' ? 'delantera' : 'trasera'} izquierda</div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Sacá foto del disco/tambor descubierto.</div>
+        <div class="mec-foto">
           ${path ? `<img data-foto="${esc(path)}" alt="">` : ''}
           <label class="btn ${path ? 'btn-ghost' : 'btn-gold'}" style="flex:1;text-align:center;padding:11px;cursor:pointer;margin:0">
             ${path ? '✓ ' + lbl : '📷 ' + lbl}
             <input type="file" accept="image/*" capture="environment" style="display:none" onchange="mecFotoDesmontaje('${r}', this)">
-          </label></div>`
-      }).join('')}
-    </div>`
+          </label></div>
+      </div>`
+    }
+
+    // ¿Cuál es el primer punto que requiere cada rueda? Ahí se inyecta su foto, una vez.
+    const primerDel = PUNTOS.find(p => p.rueda_requerida === 'del_izq')?.id
+    const primerTra = PUNTOS.find(p => p.rueda_requerida === 'tras_izq')?.id
 
     let sisActual = ''
     for (const p of PUNTOS) {
+      // Insertar la tarjeta de desmontaje ANTES del primer punto de cada rueda
+      if (p.id === primerDel) html += tarjetaDesmontaje('del')
+      if (p.id === primerTra) html += tarjetaDesmontaje('tra')
       if (p.sistema !== sisActual) { sisActual = p.sistema; html += `<div class="mec-sis">${esc(sisActual)}</div>` }
       html += puntoHTML(p)
     }
@@ -496,6 +523,7 @@
       ${sev && sev !== 'verde' ? `
         <div style="margin-top:8px">
           <textarea id="nota-${p.id}" rows="2" placeholder="${notaPlaceholder(p)}"
+            autocorrect="on" autocapitalize="sentences" spellcheck="true"
             onblur="mecNota(${p.id}, this.value)"
             style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a3340);
                    border-radius:8px;color:var(--text,#e6edf3);padding:8px;font-size:13px;resize:vertical;box-sizing:border-box"
@@ -544,7 +572,13 @@
   // Guarda la nota del punto. Se dispara al salir del campo (onblur), no en cada tecla.
   window.mecNota = async function (puntoId, texto) {
     const h = HALL[puntoId]; if (!h || !h.id) return
-    const t = String(texto || '').trim() || null
+    // Corregir ortografía antes de guardar: esta nota la lee el CLIENTE en el PDF.
+    let corregido = String(texto || '')
+    if (window.Corrector) corregido = window.Corrector.corregir(corregido)
+    // Reflejar la corrección en el campo, para que el técnico vea qué quedó
+    const campo = document.getElementById('nota-' + puntoId)
+    if (campo && campo.value !== corregido) campo.value = corregido
+    const t = corregido.trim() || null
     if (t === (h.nota || null)) return              // sin cambios, no pega a la base
     const { data, error } = await sb().from('checklist_hallazgos')
       .update({ nota: t }).eq('id', h.id).select('*').single()

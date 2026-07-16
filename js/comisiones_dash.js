@@ -13,7 +13,7 @@
  * La comisión corre sobre proformas FINALIZADAS. El 80% sin ejecutor aparece como
  * PENDIENTE (plata sin asignar) para que gerencia la cierre.
  * ========================================================================== */
-window.__comDashBuild = '20260715b'
+window.__comDashBuild = '20260715c'
 
 ;(function () {
   const sb = () => window._sb
@@ -36,9 +36,13 @@ window.__comDashBuild = '20260715b'
     if (!esAutorizado()) { root.innerHTML = '<div style="padding:24px;color:#f85149">Solo gerencia puede ver las comisiones.</div>'; return }
     root.innerHTML = '<div style="padding:24px;color:#8b949e">Cargando comisiones…</div>'
     try {
-      const { data, error } = await sb().from('v_checklist_comision_mecanico').select('*')
-      if (error) throw error
-      render(data || [])
+      const [rCom, rCfg] = await Promise.all([
+        sb().from('v_checklist_comision_mecanico').select('*'),
+        sb().from('checklist_config').select('mostrar_comision_tecnico').eq('id', 1).single()
+      ])
+      if (rCom.error) throw rCom.error
+      window._comVisibleTec = !!(rCfg.data && rCfg.data.mostrar_comision_tecnico)
+      render(rCom.data || [])
     } catch (e) {
       root.innerHTML = `<div style="padding:24px;color:#f85149">Error: ${esc(e.message || e)}</div>`
     }
@@ -84,7 +88,17 @@ window.__comDashBuild = '20260715b'
     const chipsMes = meses.map(m => `
       <button onclick="comDashMes('${m}')" style="padding:5px 12px;border-radius:16px;font-size:12px;cursor:pointer;border:1px solid ${MES_SEL === m ? '#c8a24a' : '#2a2e37'};background:${MES_SEL === m ? 'rgba(200,162,74,.15)' : 'transparent'};color:${MES_SEL === m ? '#c8a24a' : '#8b949e'}">${mesLabel(m)}</button>`).join('')
 
+    const vis = window._comVisibleTec
     root.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;margin-bottom:14px;border:1px solid ${vis ? '#16a34a' : '#3a3f4a'};border-radius:10px;background:${vis ? 'rgba(22,163,74,.08)' : 'rgba(255,255,255,.02)'}">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600">${vis ? '✅ Los técnicos VEN su comisión' : '🔒 Comisión oculta a los técnicos (modo prueba)'}</div>
+          <div style="font-size:11px;color:#8b949e">${vis ? 'Cada técnico ve su "Mi comisión" en el celular.' : 'Podés cuadrar los números sin que ellos vean montos.'}</div>
+        </div>
+        <button onclick="comDashToggleComision(${vis ? 'false' : 'true'})" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${vis ? '#f0a500' : '#16a34a'};background:transparent;color:${vis ? '#f0a500' : '#16a34a'}">
+          ${vis ? 'Ocultar' : 'Activar para técnicos'}
+        </button>
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
         <div style="display:flex;gap:6px;flex-wrap:wrap">${chipsMes || '<span style="color:#8b949e;font-size:12px">Sin datos aún</span>'}</div>
         <div style="text-align:right">
@@ -119,6 +133,14 @@ window.__comDashBuild = '20260715b'
   }
 
   window.comDashMes = function (m) { MES_SEL = m; EXPANDIDO = null; initComisionesDash() }
+
+  window.comDashToggleComision = async function (mostrar) {
+    const verbo = mostrar ? 'ACTIVAR la comisión para todos los técnicos' : 'OCULTAR la comisión a los técnicos'
+    if (!confirm('¿Seguro que querés ' + verbo + '?')) return
+    const { data, error } = await sb().rpc('checklist_toggle_comision', { p_mostrar: mostrar })
+    if (error) { alert('Error: ' + error.message); return }
+    initComisionesDash()   // recargar para reflejar el nuevo estado
+  }
 
   window.comDashDetalle = async function (tecnicoId) {
     // Toggle

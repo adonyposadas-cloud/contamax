@@ -16,7 +16,7 @@
  * Todo cambio va por RPC (checklist_punto_editar / _crear): valida en el SERVIDOR.
  * Si la validación viviera en este JS, un fetch la saltaría.
  * ========================================================================== */
-window.__chkCfgBuild = '20260714a'
+window.__chkCfgBuild = '20260715c'
 
 ;(function () {
   const sb = () => window._sb
@@ -88,7 +88,7 @@ window.__chkCfgBuild = '20260714a'
         <button class="btn btn-gold" onclick="chkCfgNuevo()">＋ Agregar punto nuevo</button>
       </div>
 
-      <div>${PUNTOS.map(tarjeta).join('')}</div>`
+      <div id="chk-lista-puntos">${PUNTOS.map(tarjeta).join('')}</div>`
   }
 
   function tarjeta (p) {
@@ -101,7 +101,11 @@ window.__chkCfgBuild = '20260714a'
     return `
       <div style="background:#15171c;border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <span style="font-size:11px;color:#6b7280">#${p.orden}</span>
+          <span style="display:inline-flex;flex-direction:column;gap:1px">
+            <button onclick="chkMover(${p.id},'arriba')" title="Subir" style="background:none;border:0;color:#8b949e;cursor:pointer;font-size:11px;line-height:1;padding:0">▲</button>
+            <button onclick="chkMover(${p.id},'abajo')" title="Bajar" style="background:none;border:0;color:#8b949e;cursor:pointer;font-size:11px;line-height:1;padding:0">▼</button>
+          </span>
+          <span style="font-size:11px;color:#6b7280;min-width:24px">#${p.orden}</span>
           <input value="${esc(p.nombre)}" onchange="chkCfgEdit(${p.id},'nombre',this.value)"
                  style="flex:1;font-weight:600;background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:6px 9px;font-size:14px">
           <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:${p.activo ? '#16a34a' : '#f85149'};cursor:pointer">
@@ -119,9 +123,6 @@ window.__chkCfgBuild = '20260714a'
             <select onchange="chkCfgEdit(${p.id},'sistema',this.value)" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px;margin-left:4px">
               ${SISTEMAS.map(sis => `<option value="${sis}" ${p.sistema === sis ? 'selected' : ''}>${sis}</option>`).join('')}
             </select>
-          </label>
-          <label style="color:#8b949e">Orden
-            <input type="number" value="${p.orden}" onchange="chkCfgEdit(${p.id},'orden',this.value)" style="width:56px;background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px;margin-left:4px">
           </label>
         </div>
 
@@ -145,6 +146,8 @@ window.__chkCfgBuild = '20260714a'
         <div style="border-top:1px solid #2a2e37;padding-top:9px">
           <div style="font-size:11px;color:#8b949e;margin-bottom:5px">QUÉ VENDE cuando sale 🟡 / 🔴:</div>
           ${lineas.length ? lineas.map(lineaRow).join('') : '<div style="font-size:11px;color:#6b7280;font-style:italic">Ninguna línea de venta. Este punto es solo informativo mientras no tenga qué vender.</div>'}
+          <div id="chk-add-linea-${p.id}" style="margin-top:6px"></div>
+          <button onclick="chkLineaFormAbrir(${p.id})" style="margin-top:4px;font-size:11px;background:none;border:1px dashed #3a3f4a;color:#8b949e;border-radius:6px;padding:4px 10px;cursor:pointer">+ Agregar línea de venta</button>
         </div>
       </div>`
   }
@@ -163,7 +166,93 @@ window.__chkCfgBuild = '20260714a'
       <span style="color:${precio == null ? '#f85149' : '#8b949e'}">${precio == null ? 'SIN PRECIO' : 'L.' + fmt(precio)}</span>
       ${cod ? `<span style="color:#c8a24a">cód ${cod}</span>` : ''}
       ${pct != null ? `<span style="color:#16a34a">${pct}%</span>` : ''}
+      <button onclick="chkLineaQuitar(${l.id})" title="Quitar esta línea" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:14px;padding:0 4px">✕</button>
     </div>`
+  }
+
+  // ── Editor de líneas de venta: abrir el formulario de agregar ──
+  window.chkMover = async function (id, direccion) {
+    // Intercambio local ANTES de llamar a la base: la pantalla responde al instante,
+    // sin flashear. El RPC solo persiste; si falla, revertimos.
+    const i = PUNTOS.findIndex(x => x.id === id)
+    if (i < 0) return
+    const j = direccion === 'arriba' ? i - 1 : i + 1
+    if (j < 0 || j >= PUNTOS.length) return   // ya está en el extremo
+
+    // Intercambiar en el array y sus números de orden
+    const a = PUNTOS[i], b = PUNTOS[j]
+    const oa = a.orden; a.orden = b.orden; b.orden = oa
+    PUNTOS[i] = b; PUNTOS[j] = a
+
+    // Repintar SOLO la lista (no toda la pantalla)
+    const cont = document.getElementById('chk-lista-puntos')
+    if (cont) cont.innerHTML = PUNTOS.map(tarjeta).join('')
+
+    // Persistir en la base. Si falla, recargar para volver al estado real.
+    const { data, error } = await sb().rpc('checklist_punto_mover', { p_id: id, p_direccion: direccion })
+    if (error || (data && data.ok === false)) {
+      toast((error && error.message) || (data && data.mensaje) || 'No se pudo mover', 'error')
+      initChecklistConfig()
+    }
+  }
+
+  window.chkLineaFormAbrir = function (puntoId) {
+    const cont = document.getElementById('chk-add-linea-' + puntoId)
+    if (!cont) return
+    if (cont.innerHTML) { cont.innerHTML = ''; return }   // toggle
+
+    // Opciones de servicios y productos del catálogo (ordenados por nombre)
+    const opts = (obj) => Object.values(obj)
+      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+      .map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')
+
+    cont.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px">
+        <select id="nl-sev-${puntoId}" style="background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+          <option value="amarillo">🟡 Recomendado</option>
+          <option value="rojo">🔴 Urgente</option>
+        </select>
+        <select id="nl-tipo-${puntoId}" onchange="chkLineaTipoCambio(${puntoId})" style="background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+          <option value="s">Servicio</option>
+          <option value="p">Producto</option>
+        </select>
+        <select id="nl-cat-${puntoId}" style="flex:1;min-width:180px;background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+          ${opts(NOMB.s)}
+        </select>
+        <input id="nl-cant-${puntoId}" type="number" step="0.1" min="0.1" value="1" title="cantidad" style="width:60px;background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+        <button onclick="chkLineaGuardar(${puntoId})" style="background:#16a34a;border:0;color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px">Agregar</button>
+      </div>`
+  }
+
+  // Cambiar el selector de catálogo según tipo (servicio vs producto)
+  window.chkLineaTipoCambio = function (puntoId) {
+    const tipo = document.getElementById('nl-tipo-' + puntoId).value
+    const sel = document.getElementById('nl-cat-' + puntoId)
+    const obj = tipo === 'p' ? NOMB.p : NOMB.s
+    sel.innerHTML = Object.values(obj)
+      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+      .map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')
+  }
+
+  window.chkLineaGuardar = async function (puntoId) {
+    const sev = document.getElementById('nl-sev-' + puntoId).value
+    const tipo = document.getElementById('nl-tipo-' + puntoId).value
+    const catId = document.getElementById('nl-cat-' + puntoId).value
+    const cant = parseFloat(document.getElementById('nl-cant-' + puntoId).value) || 1
+    const { error } = await sb().rpc('checklist_linea_agregar', {
+      p_punto_id: puntoId, p_severidad: sev, p_tipo: tipo, p_cat_id: catId, p_cantidad: cant
+    })
+    if (error) { toast(error.message, 'error'); return }
+    toast('Línea agregada', 'success')
+    initChecklistConfig()
+  }
+
+  window.chkLineaQuitar = async function (id) {
+    if (!confirm('¿Quitar esta línea de venta? Solo afecta órdenes nuevas.')) return
+    const { error } = await sb().rpc('checklist_linea_quitar', { p_id: id })
+    if (error) { toast(error.message, 'error'); return }
+    toast('Línea quitada', 'success')
+    initChecklistConfig()
   }
 
   window.chkCfgEdit = async function (id, campo, valor) {
