@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260714-chk6' } catch (e) {}
+  try { window.__cotBuild = '20260714-chk7' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -4010,9 +4010,20 @@
     })
   }
   async function ensureJsPDF () {
-    if (window.jspdf && window.jspdf.jsPDF) return
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js')
+    // Cargar jsPDF si falta
+    if (!(window.jspdf && window.jspdf.jsPDF)) {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+    }
+    // Verificar el plugin autoTable por separado: jsPDF puede estar (cargado por el index)
+    // pero SIN el plugin. Se prueba creando un doc y viendo si tiene autoTable.
+    let tieneAutoTable = false
+    try {
+      const { jsPDF } = window.jspdf
+      tieneAutoTable = typeof new jsPDF().autoTable === 'function'
+    } catch (e) { tieneAutoTable = false }
+    if (!tieneAutoTable) {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js')
+    }
   }
 
   // Ordena la cotización por tipo (productos→servicios) y prioridad (crít→rec→prev).
