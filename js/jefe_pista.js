@@ -6,6 +6,12 @@ const jpSb = () => window._sb
 const jpProfile = () => { try { return window._currentProfile?.() || {} } catch (e) { return {} } }
 const jpEsSuper = () => { const p = jpProfile(); return (p._rolReal || p.rol) === 'super_admin' }
 const jpEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+// Teléfono → formato wa.me (solo dígitos; 8 dígitos = celular HN, se antepone 504).
+// Misma lógica que normTel() del cotizador, para que ambos armen el mismo número.
+const jpNormTel = t => { let n = String(t || '').replace(/\D/g, ''); if (n && n.length <= 8) n = '504' + n; return n }
+// Normalización de nombre/placa idéntica a provNorm() del cotizador (así casa la clave
+// cliente_norm/placa_norm con la que el cotizador guardó el teléfono en clientes_contacto).
+const jpProvNorm = s => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
 const jpNombre = () => (jpProfile().nombre || '').toUpperCase()
 const jpCrono = ms => { if (ms == null || ms < 0) ms = 0; const s = Math.floor(ms / 1000); const hh = String(Math.floor(s / 3600)).padStart(2, '0'); const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0'); const ss = String(s % 60).padStart(2, '0'); return `${hh}:${mm}:${ss}` }
 const jpColor = (ms, fase) => { const h = ms / 3600000; const lim = fase === 'cotizacion' ? [0.5, 2] : (fase === 'autorizacion' ? [2, 8] : [24, 72]); return h <= lim[0] ? '#16a34a' : (h <= lim[1] ? '#f59e0b' : '#f85149') }
@@ -768,14 +774,30 @@ window.jpEnviarHallazgos = async function (proformaId) {
     msg += `TOTAL: L. ${fmt(total)}\n`
     msg += `Su carro está en el taller. Si autoriza, se lo entregamos hoy.`
 
-    jpModalWA(msg)
+    // Teléfono del cliente: lo capturó el cotizador y vive en clientes_contacto
+    // (clave nombre+placa). Lo traemos para abrir el chat directo; si no está,
+    // el modal deja escribirlo. Defensivo: si la tabla falta, seguimos sin número.
+    let telCli = ''
+    try {
+      const nom = jpProvNorm(pf.cliente), pla = jpProvNorm(pf.placa)
+      if (nom) {
+        const { data: cc } = await sb.from('clientes_contacto')
+          .select('telefono,placa_norm').eq('cliente_norm', nom)
+        const filas = cc || []
+        const exacta = filas.find(r => (r.placa_norm || '') === pla)
+        if (exacta && exacta.telefono) telCli = exacta.telefono
+        else { const conTel = filas.filter(r => r.telefono); if (conTel.length === 1) telCli = conTel[0].telefono }
+      }
+    } catch (e) { /* sin tabla o sin permiso: se abre el modal sin número */ }
+
+    jpModalWA(msg, telCli)
   } catch (e) {
     console.error('[jpEnviarHallazgos]', e)
     window.toast?.('Error: ' + (e.message || e), 'error')
   }
 }
 
-function jpModalWA (msg) {
+function jpModalWA (msg, tel) {
   let ov = document.getElementById('jp-wa-modal')
   if (ov) ov.remove()
   ov = document.createElement('div')
@@ -788,14 +810,28 @@ function jpModalWA (msg) {
         <b style="font-size:15px">📲 Mensaje para el cliente</b>
         <button onclick="document.getElementById('jp-wa-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
       </div>
-      <textarea id="jp-wa-txt" style="width:100%;height:300px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:11px;font-size:13px;font-family:inherit;line-height:1.5">${jpEsc(msg)}</textarea>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <label style="font-size:12px;color:#8b8f98;white-space:nowrap">📞 Teléfono</label>
+        <input id="jp-wa-tel" placeholder="Ej: 9704 5242" value="${jpEsc(tel || '')}" autocomplete="off" style="flex:1;min-width:0;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:8px 10px;font-size:13px">
+      </div>
+      <div id="jp-wa-telhint" style="font-size:11px;margin-bottom:8px;min-height:14px"></div>
+      <textarea id="jp-wa-txt" style="width:100%;height:280px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:11px;font-size:13px;font-family:inherit;line-height:1.5">${jpEsc(msg)}</textarea>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="jp-b" style="flex:1;padding:11px" onclick="jpCopiarWA()">📋 Copiar</button>
         <button class="jp-b green" style="flex:1;padding:11px" onclick="jpAbrirWA()">💬 Abrir WhatsApp</button>
       </div>
-      <div style="font-size:11px;color:#8b8f98;margin-top:8px">Podés editarlo antes de enviarlo. El PDF queda guardado y el link no vence.</div>
+      <div style="font-size:11px;color:#8b8f98;margin-top:8px">Podés editar el mensaje y el teléfono antes de enviarlo. El PDF queda guardado y el link no vence.</div>
     </div>`
   document.body.appendChild(ov)
+  // Pista viva: confirma a qué número abrirá, o avisa que se elegirá el contacto a mano.
+  const inp = ov.querySelector('#jp-wa-tel'), hint = ov.querySelector('#jp-wa-telhint')
+  const pintar = () => {
+    const n = jpNormTel(inp.value)
+    if (n.length >= 11) { hint.style.color = 'var(--green,#16a34a)'; hint.textContent = '✓ Abrirá el chat de +' + n }
+    else if (inp.value.trim()) { hint.style.color = 'var(--amber,#f59e0b)'; hint.textContent = '⚠ Número incompleto — se abrirá WhatsApp para elegir el contacto' }
+    else { hint.style.color = 'var(--text3,#8b949e)'; hint.textContent = 'Sin número: se abrirá WhatsApp para que elijas el contacto' }
+  }
+  inp.addEventListener('input', pintar); pintar()
 }
 
 window.jpCopiarWA = async function () {
@@ -806,7 +842,11 @@ window.jpCopiarWA = async function () {
 
 window.jpAbrirWA = function () {
   const t = document.getElementById('jp-wa-txt'); if (!t) return
-  window.open('https://wa.me/?text=' + encodeURIComponent(t.value), '_blank')
+  const telInp = document.getElementById('jp-wa-tel')
+  const num = telInp ? jpNormTel(telInp.value) : ''
+  // Con número completo abre el chat directo; sin él, WhatsApp pide elegir contacto.
+  const base = num.length >= 11 ? 'https://wa.me/' + num : 'https://wa.me/'
+  window.open(base + '?text=' + encodeURIComponent(t.value), '_blank')
 }
 
 
