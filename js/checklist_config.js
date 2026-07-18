@@ -16,7 +16,7 @@
  * Todo cambio va por RPC (checklist_punto_editar / _crear): valida en el SERVIDOR.
  * Si la validación viviera en este JS, un fetch la saltaría.
  * ========================================================================== */
-window.__chkCfgBuild = '20260715c'
+window.__chkCfgBuild = '20260717c'
 
 ;(function () {
   const sb = () => window._sb
@@ -99,8 +99,9 @@ window.__chkCfgBuild = '20260715c'
     })
     const mide = p.tipo_punto === 'medicion'
     return `
-      <div style="background:#15171c;border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
+      <div id="chk-punto-${p.id}" data-pid="${p.id}" style="background:#15171c;border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span class="chk-grip" data-grip="${p.id}" title="Arrastrá para reordenar" style="cursor:grab;touch-action:none;user-select:none;color:#6b7280;font-size:17px;line-height:1;padding:2px 2px">⠿</span>
           <span style="display:inline-flex;flex-direction:column;gap:1px">
             <button onclick="chkMover(${p.id},'arriba')" title="Subir" style="background:none;border:0;color:#8b949e;cursor:pointer;font-size:11px;line-height:1;padding:0">▲</button>
             <button onclick="chkMover(${p.id},'abajo')" title="Bajar" style="background:none;border:0;color:#8b949e;cursor:pointer;font-size:11px;line-height:1;padding:0">▼</button>
@@ -234,6 +235,19 @@ window.__chkCfgBuild = '20260715c'
       .map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')
   }
 
+  // Refresca las líneas de venta de UN solo punto y repinta SOLO su tarjeta.
+  // Así agregar/quitar una línea no reconstruye toda la pantalla (que mandaba
+  // el scroll arriba). Mismo espíritu que chkMover: tocar lo mínimo.
+  async function refrescarLineasPunto (puntoId) {
+    const { data, error } = await sb().from('checklist_punto_lineas').select('*').eq('punto_id', puntoId)
+    if (error) { toast(error.message, 'error'); initChecklistConfig(); return }
+    LINEAS[puntoId] = data || []
+    const p = PUNTOS.find(x => x.id === puntoId)
+    const card = document.getElementById('chk-punto-' + puntoId)
+    if (p && card) card.outerHTML = tarjeta(p)
+    else initChecklistConfig()   // fallback si no ubicamos la tarjeta
+  }
+
   window.chkLineaGuardar = async function (puntoId) {
     const sev = document.getElementById('nl-sev-' + puntoId).value
     const tipo = document.getElementById('nl-tipo-' + puntoId).value
@@ -244,26 +258,42 @@ window.__chkCfgBuild = '20260715c'
     })
     if (error) { toast(error.message, 'error'); return }
     toast('Línea agregada', 'success')
-    initChecklistConfig()
+    await refrescarLineasPunto(puntoId)
   }
 
   window.chkLineaQuitar = async function (id) {
     if (!confirm('¿Quitar esta línea de venta? Solo afecta órdenes nuevas.')) return
+    // Ubicar a qué punto pertenece ANTES de quitarla, para repintar solo esa tarjeta.
+    let puntoId = null
+    for (const pid in LINEAS) { const hit = (LINEAS[pid] || []).find(l => l.id === id); if (hit) { puntoId = hit.punto_id; break } }
     const { error } = await sb().rpc('checklist_linea_quitar', { p_id: id })
     if (error) { toast(error.message, 'error'); return }
     toast('Línea quitada', 'success')
-    initChecklistConfig()
+    if (puntoId != null) await refrescarLineasPunto(puntoId)
+    else initChecklistConfig()
+  }
+
+  // Re-baja UN punto y repinta SOLO su tarjeta. Refleja el estado real guardado
+  // (candados de comisión, umbrales al cambiar tipo) sin recargar toda la pantalla.
+  async function refrescarPunto (id) {
+    const { data, error } = await sb().from('checklist_puntos').select('*').eq('id', id).single()
+    if (error) { toast(error.message, 'error'); initChecklistConfig(); return }
+    const i = PUNTOS.findIndex(x => x.id === id)
+    if (i >= 0) PUNTOS[i] = data
+    const card = document.getElementById('chk-punto-' + id)
+    if (i >= 0 && card) card.outerHTML = tarjeta(data)
+    else initChecklistConfig()
   }
 
   window.chkCfgEdit = async function (id, campo, valor) {
-    const v = (typeof valor === 'boolean') ? String(valor) : String(valor)
-    const { data, error } = await sb().rpc('checklist_punto_editar', {
-      p_id: id, p_campo: campo, p_valor: v
+    const { error } = await sb().rpc('checklist_punto_editar', {
+      p_id: id, p_campo: campo, p_valor: String(valor)
     })
     if (error) { toast(error.message, 'error'); initChecklistConfig(); return }
     toast('Guardado', 'success')
-    // Recargar para reflejar candados y dependencias (ej. tipo cambió → umbrales)
-    initChecklistConfig()
+    // Repinta solo esa tarjeta: refleja candados y dependencias (ej. tipo → umbrales)
+    // sin mandar el scroll arriba.
+    await refrescarPunto(id)
   }
 
   window.chkCfgNuevo = async function () {
@@ -282,4 +312,133 @@ window.__chkCfgBuild = '20260715c'
     toast(data.aviso || 'Punto creado', 'success')
     initChecklistConfig()
   }
+  // ══════════════════════════════════════════════════════════════════════════
+  //  ARRASTRAR Y SOLTAR para reordenar (agarrás el ⠿, la llevás y la soltás).
+  //  Con auto-scroll en los bordes: podés traer una tarjeta del fondo hasta
+  //  arriba sin soltarla. Un solo guardado al soltar (checklist_punto_reordenar).
+  //  Las flechas ▲▼ siguen para ajuste fino de un paso.
+  // ══════════════════════════════════════════════════════════════════════════
+  let DS = null   // estado del arrastre en curso
+
+  function scrollParent (el) {
+    let n = el && el.parentElement
+    while (n) {
+      const s = getComputedStyle(n)
+      if (/(auto|scroll|overlay)/.test(s.overflowY) && n.scrollHeight > n.clientHeight) return n
+      n = n.parentElement
+    }
+    return window
+  }
+
+  function autoScroll (y) {
+    const margin = 90, vh = window.innerHeight
+    let dy = 0
+    if (y < margin) dy = -Math.ceil((margin - y) / 5)
+    else if (y > vh - margin) dy = Math.ceil((y - (vh - margin)) / 5)
+    if (!dy) return
+    const sc = DS.scroller
+    if (sc === window) window.scrollBy(0, dy)
+    else sc.scrollTop += dy
+  }
+
+  function colocarPlaceholder (y) {
+    const cards = [...DS.list.querySelectorAll('[data-pid]')].filter(c => c !== DS.card)
+    let ref = null
+    for (const c of cards) {
+      const r = c.getBoundingClientRect()
+      if (y < r.top + r.height / 2) { ref = c; break }
+    }
+    if (ref) DS.list.insertBefore(DS.ph, ref)
+    else DS.list.appendChild(DS.ph)
+  }
+
+  function tick () {
+    if (!DS) return
+    const y = DS.lastY
+    DS.card.style.top = (y - DS.offsetY) + 'px'
+    autoScroll(y)
+    colocarPlaceholder(y)
+    DS.raf = requestAnimationFrame(tick)
+  }
+
+  function onDragMove (e) { if (DS) { DS.lastY = e.clientY; DS.moved = true } }
+
+  async function onDragUp () {
+    if (!DS) return
+    cancelAnimationFrame(DS.raf)
+    window.removeEventListener('pointermove', onDragMove)
+    window.removeEventListener('pointerup', onDragUp)
+    window.removeEventListener('pointercancel', onDragUp)
+
+    const { card, ph, list, moved } = DS
+    for (const k of ['position', 'zIndex', 'width', 'left', 'top', 'pointerEvents', 'boxShadow', 'opacity', 'transform']) card.style[k] = ''
+    document.body.style.userSelect = ''
+    const grip = card.querySelector('.chk-grip'); if (grip) grip.style.cursor = 'grab'
+    list.insertBefore(card, ph)
+    ph.remove()
+    DS = null
+    if (moved) await persistirOrden()
+  }
+
+  async function persistirOrden () {
+    const list = document.getElementById('chk-lista-puntos')
+    if (!list) return
+    const ids = [...list.querySelectorAll('[data-pid]')].map(c => Number(c.dataset.pid))
+    // Reordenar el arreglo local para que #orden y el estado de las flechas
+    // queden coherentes, y repintar SOLO la lista (sin recargar → sin salto).
+    const byId = {}; for (const p of PUNTOS) byId[p.id] = p
+    const nuevo = ids.map(id => byId[id]).filter(Boolean)
+    if (nuevo.length === PUNTOS.length) {
+      PUNTOS = nuevo
+      PUNTOS.forEach((p, i) => { p.orden = i + 1 })
+      list.innerHTML = PUNTOS.map(tarjeta).join('')
+    }
+    const { data, error } = await sb().rpc('checklist_punto_reordenar', { p_ids: ids })
+    if (error || (data && data.ok === false)) {
+      toast((error && error.message) || 'No se pudo guardar el orden', 'error')
+      initChecklistConfig()
+    } else {
+      toast('Orden guardado', 'success')
+    }
+  }
+
+  // Delegado en document: sobrevive a los repintados de tarjetas.
+  document.addEventListener('pointerdown', function (e) {
+    const grip = e.target.closest && e.target.closest('.chk-grip')
+    if (!grip) return
+    if (e.button != null && e.button !== 0) return   // solo botón primario
+    const card = grip.closest('[data-pid]')
+    const list = document.getElementById('chk-lista-puntos')
+    if (!card || !list) return
+    e.preventDefault()
+
+    const rect = card.getBoundingClientRect()
+    DS = {
+      card, list, ph: null, raf: 0, moved: false,
+      offsetY: e.clientY - rect.top, lastY: e.clientY,
+      scroller: scrollParent(list)
+    }
+    const ph = document.createElement('div')
+    ph.className = 'chk-ph'
+    ph.style.cssText = `height:${rect.height}px;margin-bottom:12px;border:2px dashed #c8a24a;border-radius:12px;background:rgba(200,162,74,.06)`
+    card.parentNode.insertBefore(ph, card)
+    DS.ph = ph
+
+    card.style.position = 'fixed'
+    card.style.zIndex = '10050'
+    card.style.width = rect.width + 'px'
+    card.style.left = rect.left + 'px'
+    card.style.top = (e.clientY - DS.offsetY) + 'px'
+    card.style.pointerEvents = 'none'
+    card.style.boxShadow = '0 14px 34px rgba(0,0,0,.55)'
+    card.style.opacity = '.97'
+    card.style.transform = 'rotate(.35deg)'
+    grip.style.cursor = 'grabbing'
+    document.body.style.userSelect = 'none'
+
+    window.addEventListener('pointermove', onDragMove)
+    window.addEventListener('pointerup', onDragUp)
+    window.addEventListener('pointercancel', onDragUp)
+    DS.raf = requestAnimationFrame(tick)
+  })
 })()
