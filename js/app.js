@@ -142,7 +142,7 @@ function setupUI() {
   const initials = p.nombre.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
   document.getElementById('top-avatar').textContent = initials
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
-  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', mecanico:'Mecánico', cafeteria:'Cafetería' }
+  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', mecanico:'Mecánico', cafeteria:'Cafetería', cafeteria_punto:'Punto de venta' }
   document.getElementById('top-role').textContent = roleLabels[p._rolReal || p.rol] || p._rolReal || p.rol
 
   // ── PERMISOS POR ROL ──
@@ -176,7 +176,13 @@ function setupUI() {
     // La cafetería es otro negocio: solo ve su inventario. Nada de la parte
     // automotriz, nada de contabilidad. La RLS (caf_puede) lo respalda del lado
     // del servidor, así que aunque alguien fuerce el nav, la base no le responde.
-    cafeteria:   ['nav-cafeteria']
+    cafeteria:   ['nav-cafeteria'],
+
+    // El encargado de punto ve SOLO su punto de venta: su inventario, sus
+    // ventas y su merma. Nada de Central, nada de los otros puntos, nada de
+    // envíos ni compras. La RLS (caf_puede_ubicacion) lo respalda en el
+    // servidor: aunque fuerce el nav, la base no le responde por otro punto.
+    cafeteria_punto: ['nav-cafeteria']
   }
   // Rol "admin": plantilla = TODO (navs + pestañas), para que al elegirlo se premarque
   // todo y puedas destildar lo que no querés que vea.
@@ -672,9 +678,46 @@ const MODULOS_CATALOGO = [
     ['nav-cotizador', 'Cotizador (Proformas)'],
     ['nav-mecanico', '🔧 Checklist de inspección (mecánico)'],
     ['nav-precios', '💰 Precios y códigos de comisión'],
+    ['nav-checklist-config', '⚙️ Configurar Checklist'],
     ['nav-estados-fisicos', 'Conciliación de Estados Físicos']
+  ]},
+  { grupo: 'Cafetería', items: [
+    ['nav-cafeteria', '☕ Cafetería (inventario y ventas)']
+  ]},
+  { grupo: 'Otros', items: [
+    ['nav-flujo-efectivo', 'Flujo de efectivo'],
+    ['nav-vencimientos', 'Vencimiento de documentos'],
+    ['nav-solicitudes', 'Solicitudes de mejora'],
+    ['nav-importar-taxis', 'Importar entregas Taxis']
   ]}
 ]
+
+// ── RED DE SEGURIDAD CONTRA LA DESINCRONIZACIÓN ──
+// La lista de arriba es fija; el sidebar crece. Cada vez que se agrega un nav
+// nuevo y se olvida ponerlo acá, ese módulo NO se le puede dar a nadie desde la
+// pantalla de usuarios: existe, se ve, pero es imposible de asignar. Ya pasó
+// con seis módulos (cafetería, configurar checklist, flujo de efectivo,
+// vencimientos, solicitudes e importar taxis).
+//
+// En vez de confiar en que nadie se olvide, se DESCUBREN del DOM los que
+// falten y se agregan solos a "Otros". El sidebar es la fuente de verdad.
+function modulosCompletar () {
+  const yaListados = new Set()
+  for (const g of MODULOS_CATALOGO) for (const [id] of g.items) yaListados.add(id)
+
+  const huerfanos = []
+  document.querySelectorAll('.nav-item[id^="nav-"]').forEach(el => {
+    if (yaListados.has(el.id)) return
+    const txt = (el.textContent || '').trim().replace(/\s+/g, ' ')
+    huerfanos.push([el.id, txt || el.id.replace('nav-', '')])
+  })
+  if (!huerfanos.length) return
+
+  let otros = MODULOS_CATALOGO.find(g => g.grupo === 'Otros')
+  if (!otros) { otros = { grupo: 'Otros', items: [] }; MODULOS_CATALOGO.push(otros) }
+  for (const h of huerfanos) otros.items.push(h)
+  console.warn('[permisos] módulos descubiertos del DOM y agregados a "Otros":', huerfanos.map(h => h[0]))
+}
 
 // ── TÉCNICOS ──
 // Un usuario con rol 'mecanico' DEBE tener tecnico_id: sin él, el checklist funciona,
@@ -744,6 +787,7 @@ window.crearTecnicoNuevo = async function (selId) {
 function renderPanelPermisos(containerId, marcados) {
   const cont = document.getElementById(containerId)
   if (!cont) return
+  modulosCompletar()   // agrega los navs que falten en el catálogo fijo
   const set = new Set(marcados || [])
   cont.innerHTML = MODULOS_CATALOGO.map(g => `
     <div style="margin-bottom:10px">

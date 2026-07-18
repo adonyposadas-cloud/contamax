@@ -15,7 +15,7 @@
  * El costo tampoco se edita: sale del promedio ponderado de las compras.
  * Si se pudiera escribir a mano, el costo de los platos mentiría.
  * ========================================================================== */
-window.__cafBuild = '20260718f'
+window.__cafBuild = '20260718h'
 
 ;(function () {
   const sb = () => window._sb
@@ -42,6 +42,8 @@ window.__cafBuild = '20260718f'
   let TRAS = []         // traslados recientes
   let TLIN = {}         // traslado_id → líneas
   let ENVIO = {}        // insumo_id → cantidad a enviar
+  let PEND = []         // v_caf_corte_pendiente (lo que falta cortar)
+  let CORTES = []       // historial de cortes
 
   const GRUPOS = [
     ['A', 'A · Caro (se porciona)', '#b4472f'],
@@ -92,14 +94,16 @@ window.__cafBuild = '20260718f'
       if (USEL === null) USEL = veTodo() ? CENTRAL : (UBIC[0] ? UBIC[0].id : null)
     }
 
-    const [ri, rr, rg, rm, rv, rd, rt] = await Promise.all([
+    const [ri, rr, rg, rm, rv, rd, rt, rp, rc] = await Promise.all([
       sb().from('v_caf_existencias_ubic').select('*').eq('ubicacion_id', USEL).order('nombre'),
       sb().from('v_caf_recetas_costo').select('*').order('nombre'),
       sb().from('caf_receta_ingredientes').select('*'),
       sb().from('caf_inventario_mov').select('*').eq('ubicacion_id', USEL).order('fecha', { ascending: false }).limit(120),
       sb().from('caf_ventas').select('*').eq('ubicacion_id', USEL).order('fecha', { ascending: false }).limit(40),
       sb().from('v_caf_ventas_dia').select('*').order('dia', { ascending: false }).limit(30),
-      sb().from('caf_traslados').select('*').order('fecha', { ascending: false }).limit(30)
+      sb().from('caf_traslados').select('*').order('fecha', { ascending: false }).limit(30),
+      sb().from('v_caf_corte_pendiente').select('*'),
+      sb().from('v_caf_cortes').select('*').order('fecha', { ascending: false }).limit(30)
     ])
     if (ri.error) throw ri.error
     if (rr.error) throw rr.error
@@ -108,6 +112,8 @@ window.__cafBuild = '20260718f'
     MOVS = rm.data || []
     VENTAS = rv.error ? [] : (rv.data || [])
     TRAS = rt.error ? [] : (rt.data || [])
+    PEND = rp.error ? [] : (rp.data || [])
+    CORTES = rc.error ? [] : (rc.data || [])
     INGR = {}
     for (const g of (rg.data || [])) (INGR[g.receta_id] = INGR[g.receta_id] || []).push(g)
 
@@ -156,12 +162,14 @@ window.__cafBuild = '20260718f'
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
           <h2 style="margin:0;font-size:19px;color:#e6edf3">☕ Cafetería</h2>
           ${selUbic}
+          ${veTodo() ? '<button onclick="cafAdmin()" title="Puntos y encargados" style="background:#1c2027;border:1px solid #2a2e37;border-radius:8px;color:#8b949e;padding:7px 10px;cursor:pointer;font-size:13px">⚙</button>' : ''}
           <div style="flex:1"></div>
           ${tab('insumos', '📦', 'Inventario')}
           ${tab('recetas', '🍽️', 'Productos')}
           ${tab('ventas', '💵', 'Ventas')}
           ${veTodo() ? tab('envios', '🚚', 'Envíos') : ''}
-          ${tab('compras', '🛒', 'Lista de compras')}
+          ${tab('cortes', '💰', 'Corte de caja')}
+          ${veTodo() ? tab('compras', '🛒', 'Lista de compras') : ''}
           ${tab('movs', '📋', 'Movimientos')}
         </div>
         <div style="color:#6e7681;font-size:11.5px;margin-bottom:12px">
@@ -189,9 +197,10 @@ window.__cafBuild = '20260718f'
     b.innerHTML = TAB === 'insumos' ? vistaInsumos()
       : TAB === 'recetas' ? vistaRecetas()
         : TAB === 'ventas' ? vistaVentas()
-          : TAB === 'envios' ? vistaEnvios()
-            : TAB === 'compras' ? vistaCompras()
-              : vistaMovs()
+          : TAB === 'cortes' ? vistaCortes()
+            : TAB === 'envios' ? vistaEnvios()
+              : TAB === 'compras' ? vistaCompras()
+                : vistaMovs()
   }
 
   window.cafTab = function (k) { TAB = k; render() }
@@ -219,10 +228,10 @@ window.__cafBuild = '20260718f'
         <td style="padding:9px 8px;text-align:right;color:#8b949e">L. ${fmt(i.valor)}</td>
         <td style="padding:9px 8px;text-align:right;color:#6e7681;font-size:12px">${fmt(i.stock_minimo)}</td>
         <td style="padding:9px 8px;text-align:right;white-space:nowrap">
-          <button onclick="cafComprar(${i.id})" title="Registrar compra" style="background:none;border:0;cursor:pointer;font-size:15px">🛒</button>
+          ${veTodo() ? `<button onclick="cafComprar(${i.id})" title="Registrar compra" style="background:none;border:0;cursor:pointer;font-size:15px">🛒</button>` : ''}
           <button onclick="cafConteo(${i.id})" title="Conteo físico" style="background:none;border:0;cursor:pointer;font-size:15px">📋</button>
           <button onclick="cafMerma(${i.id})" title="Registrar merma" style="background:none;border:0;cursor:pointer;font-size:15px">🗑️</button>
-          <button onclick="cafInsumoEditar(${i.id})" title="Editar" style="background:none;border:0;cursor:pointer;font-size:14px">✏️</button>
+          ${veTodo() ? `<button onclick="cafInsumoEditar(${i.id})" title="Editar" style="background:none;border:0;cursor:pointer;font-size:14px">✏️</button>` : ''}
         </td>
       </tr>`
     }).join('')
@@ -230,7 +239,7 @@ window.__cafBuild = '20260718f'
     return `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div style="color:#8b949e;font-size:13px">Valor del inventario: <b style="color:#e6edf3">L. ${fmt(valor)}</b></div>
-        <button onclick="cafInsumoNuevo()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Nuevo insumo</button>
+        ${veTodo() ? '<button onclick="cafInsumoNuevo()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Nuevo insumo</button>' : ''}
       </div>
       <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -266,8 +275,8 @@ window.__cafBuild = '20260718f'
           <td style="padding:6px 8px;text-align:right;color:#8b949e">${fmt(g.cantidad)} ${esc(unidad(i))}</td>
           <td style="padding:6px 8px;text-align:right;color:#8b949e">L. ${fmt(sub)}</td>
           <td style="padding:6px 8px;text-align:right">
-            <button onclick="cafIngrEditar(${r.id},${g.insumo_id},${g.cantidad})" title="Cambiar cantidad" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
-            <button onclick="cafIngrQuitar(${g.id},${r.id})" title="Quitar" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:14px">✕</button>
+            ${!veTodo() ? '' : `<button onclick="cafIngrEditar(${r.id},${g.insumo_id},${g.cantidad})" title="Cambiar cantidad" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
+            <button onclick="cafIngrQuitar(${g.id},${r.id})" title="Quitar" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:14px">✕</button>`}
           </td></tr>`
       }).join('')
 
@@ -300,8 +309,8 @@ window.__cafBuild = '20260718f'
             <tbody>${ings || '<tr><td colspan="4" style="padding:12px;color:#6e7681;text-align:center">Sin ingredientes todavía.</td></tr>'}</tbody>
           </table>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-            <button onclick="cafIngrAgregar(${r.id})" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">+ Agregar ingrediente</button>
-            <button onclick="cafRecetaEditar(${r.id})" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">✏️ Editar receta</button>
+            ${!veTodo() ? '' : `<button onclick="cafIngrAgregar(${r.id})" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">+ Agregar ingrediente</button>
+            <button onclick="cafRecetaEditar(${r.id})" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">✏️ Editar receta</button>`}
           </div>
           ${r.food_cost_pct != null && r.food_cost_pct > 45 ? '<div style="margin-top:9px;color:#f0a868;font-size:11.5px">⚠ El costo pasa del 45% del precio. Conviene revisar la porción o el precio.</div>' : ''}
         </div>` : ''}
@@ -312,8 +321,8 @@ window.__cafBuild = '20260718f'
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div style="color:#8b949e;font-size:12.5px">Lo sano es un food cost entre <b style="color:#4e7a51">28% y 35%</b>.</div>
         <div style="display:flex;gap:8px">
-          <button onclick="cafReventaNueva()" title="Se compra hecho y se vende tal cual: sodas, galletas, snacks" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Producto de reventa</button>
-          <button onclick="cafRecetaNueva()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Receta de cocina</button>
+          ${!veTodo() ? '' : `<button onclick="cafReventaNueva()" title="Se compra hecho y se vende tal cual: sodas, galletas, snacks" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Producto de reventa</button>
+          <button onclick="cafRecetaNueva()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Receta de cocina</button>`}
         </div>
       </div>
       ${cards || '<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">Todavía no hay recetas. Creá la del plato que más se vende.</div>'}`
@@ -527,6 +536,130 @@ window.__cafBuild = '20260718f'
     try {
       await rpc('caf_venta_anular', { p_venta_id: id, p_motivo: motivo || null })
       await refrescar('Venta anulada · los insumos volvieron al inventario')
+    } catch (e) { toast(e.message, 'error') }
+  }
+
+  // ── TAB CORTE DE CAJA ────────────────────────────────────────────────────
+  //  El sistema sabe cuánto vendió cada punto → sabe cuánto efectivo debe
+  //  entregar el encargado. Se registra lo que entregó de verdad y la
+  //  diferencia queda a la vista.
+  //  El encargado VE lo suyo pero NO cierra su corte: si pudiera, el control
+  //  no serviría de nada. Lo cierra la administración.
+  function vistaCortes () {
+    const admin = veTodo()
+    const visibles = admin ? PEND.filter(p => p.ubicacion_tipo !== 'central' || Number(p.ventas) > 0)
+      : PEND.filter(p => p.ubicacion_id === USEL)
+
+    const tarjetas = visibles.map(p => {
+      const hay = Number(p.ventas) > 0
+      return `
+      <div style="background:#15171c;border:1px solid ${hay ? '#c0632f55' : '#2a2e37'};border-radius:10px;padding:13px 15px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px">
+            <div style="color:#e6edf3;font-weight:600;font-size:14px">${p.ubicacion_tipo === 'central' ? '🏬' : '🏪'} ${esc(p.ubicacion)}</div>
+            <div style="color:#6e7681;font-size:11px">${p.ventas} venta${p.ventas === 1 ? '' : 's'} sin cortar</div>
+          </div>
+          <div style="text-align:right">
+            <div style="color:#6e7681;font-size:10.5px">DEBE ENTREGAR</div>
+            <div style="color:${hay ? '#4e7a51' : '#6e7681'};font-weight:700;font-size:18px">L. ${fmt(p.esperado)}</div>
+          </div>
+          ${admin && hay ? `<button onclick="cafCorteCerrar(${p.ubicacion_id})" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:13px;font-weight:600">Cerrar corte</button>` : ''}
+        </div>
+        ${hay ? `<div style="color:#6e7681;font-size:11px;margin-top:7px;border-top:1px solid #21262d;padding-top:7px">
+          Desde ${new Date(p.desde).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          · costo L. ${fmt(p.costo)} · ganancia <b style="color:#4e7a51">L. ${fmt(p.ganancia)}</b>
+        </div>` : ''}
+      </div>`
+    }).join('')
+
+    const hist = CORTES.length ? CORTES.map(c => {
+      const dif = Number(c.diferencia)
+      const col = c.anulado ? '#6e7681' : dif === 0 ? '#4e7a51' : dif < 0 ? '#f85149' : '#b8860b'
+      const et = c.anulado ? 'ANULADO' : dif === 0 ? 'Cuadró' : dif < 0 ? 'Faltante' : 'Sobrante'
+      return `<tr style="border-bottom:1px solid #21262d;${c.anulado ? 'opacity:.45' : ''}">
+        <td style="padding:7px 8px;color:#6e7681;font-size:11px;white-space:nowrap">
+          #${c.id}<br>${new Date(c.fecha).toLocaleDateString('es-HN', { day: '2-digit', month: 'short' })}
+        </td>
+        <td style="padding:7px 8px;font-size:12px">
+          <div style="color:#e6edf3">${esc(c.ubicacion)}</div>
+          <div style="color:#6e7681;font-size:10.5px">${c.ventas} venta${c.ventas === 1 ? '' : 's'}${Number(c.merma_valor) > 0 ? ` · merma L. ${fmt(c.merma_valor)}` : ''}</div>
+        </td>
+        <td style="padding:7px 8px;text-align:right;color:#8b949e;font-size:12px">L. ${fmt(c.esperado)}</td>
+        <td style="padding:7px 8px;text-align:right;color:#e6edf3;font-size:12px">L. ${fmt(c.entregado)}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap">
+          <span style="color:${col};font-weight:700;font-size:12.5px">${dif > 0 ? '+' : ''}${fmt(dif)}</span>
+          <div style="color:${col};font-size:10px">${et}</div>
+        </td>
+        <td style="padding:7px 8px;text-align:right">
+          ${(c.anulado || !admin) ? '' : `<button onclick="cafCorteAnular(${c.id})" title="Anular corte" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">✕</button>`}
+        </td>
+      </tr>`
+    }).join('') : '<tr><td colspan="6" style="padding:22px;text-align:center;color:#6e7681">Sin cortes todavía.</td></tr>'
+
+    const faltantes = CORTES.filter(c => !c.anulado && Number(c.diferencia) < 0)
+    const totalFalt = faltantes.reduce((a, c) => a + Number(c.diferencia), 0)
+
+    return `
+      <div style="color:#8b949e;font-size:12.5px;margin-bottom:10px">
+        ${admin
+          ? 'El sistema calcula cuánto efectivo debe entregar cada punto según lo que vendió. Registrá lo que entregó de verdad.'
+          : 'Esto es lo que llevás vendido. El corte lo cierra la administración cuando entregues el efectivo.'}
+      </div>
+      ${tarjetas || '<div style="background:#15171c;border:1px dashed #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">No hay ventas pendientes de cortar.</div>'}
+      ${admin && faltantes.length ? `<div style="background:#3a1d1d;border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin:14px 0;color:#f0c8c0;font-size:13px">
+        <b>${faltantes.length} corte${faltantes.length > 1 ? 's' : ''} con faltante</b> · acumulado <b>L. ${fmt(Math.abs(totalFalt))}</b>
+      </div>` : ''}
+      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;margin-top:14px">
+        <div style="padding:11px 14px;border-bottom:1px solid #21262d"><b style="font-size:13.5px;color:#e6edf3">Historial de cortes</b></div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#1c2027;color:#8b949e;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px">
+            <th style="padding:8px;text-align:left">Corte</th>
+            <th style="padding:8px;text-align:left">Punto</th>
+            <th style="padding:8px;text-align:right">Esperado</th>
+            <th style="padding:8px;text-align:right">Entregado</th>
+            <th style="padding:8px;text-align:right">Diferencia</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${hist}</tbody>
+        </table>
+      </div>`
+  }
+
+  window.cafCorteCerrar = async function (ubicId) {
+    let previo
+    try {
+      previo = await rpc('caf_corte_previo', { p_ubicacion_id: ubicId })
+    } catch (e) { toast(e.message, 'error'); return }
+
+    const esperado = Number(previo.esperado || 0)
+    modal('💰 Cerrar corte de caja', [
+      { k: 'entregado', label: 'Efectivo que entregó (L.)', tipo: 'num', valor: esperado,
+        hint: `Debe entregar L. ${fmt(esperado)} por ${previo.ventas} venta(s).` },
+      { k: 'nota', label: 'Nota', ph: 'Turno de la tarde, quién entregó…' }
+    ], async (v, msg) => {
+      if (v.entregado == null || v.entregado < 0) throw new Error('Poné cuánto entregó')
+      const dif = Number(v.entregado) - esperado
+      if (dif !== 0) {
+        const txt = dif < 0
+          ? `Falta L. ${fmt(Math.abs(dif))}.`
+          : `Sobra L. ${fmt(dif)}.`
+        if (!confirm(`${txt}\n\nEsperado: L. ${fmt(esperado)}\nEntregado: L. ${fmt(v.entregado)}\n\n¿Cerrar el corte así?`)) return false
+      }
+      const d = await rpc('caf_corte_registrar', {
+        p_ubicacion_id: ubicId, p_entregado: v.entregado, p_nota: (v.nota || '').trim() || null
+      })
+      await refrescar(d.estado === 'cuadro'
+        ? `Corte #${d.corte_id} · cuadró exacto ✓`
+        : `Corte #${d.corte_id} · ${d.estado} de L. ${fmt(Math.abs(d.diferencia))}`)
+    }, `${previo.ubicacion} · ${Number(previo.merma_valor) > 0 ? `merma reportada L. ${fmt(previo.merma_valor)}` : 'sin merma reportada'}`)
+  }
+
+  window.cafCorteAnular = async function (id) {
+    const motivo = prompt('¿Por qué se anula este corte?\n\nLas ventas vuelven a quedar pendientes de cortar.', 'Se contó mal')
+    if (motivo === null) return
+    try {
+      const d = await rpc('caf_corte_anular', { p_id: id, p_motivo: motivo || null })
+      await refrescar(`Corte anulado · ${d.ventas_liberadas} venta(s) vuelven a pendiente`)
     } catch (e) { toast(e.message, 'error') }
   }
 
@@ -795,6 +928,130 @@ window.__cafBuild = '20260718f'
       ta.remove()
     }
   }
+
+  // ── PANEL DE ADMINISTRACIÓN: puntos y encargados ─────────────────────────
+  window.cafAdmin = async function () {
+    document.getElementById('caf-modal')?.remove()
+    const ov = document.createElement('div')
+    ov.id = 'caf-modal'
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10040;display:flex;align-items:center;justify-content:center;padding:20px'
+    ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+    ov.innerHTML = `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:560px;width:100%;padding:18px;color:#e6edf3;max-height:88vh;overflow:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <b style="font-size:15px">⚙ Puntos y encargados</b>
+        <button onclick="document.getElementById('caf-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div id="caf-admin-body" style="color:#8b949e;font-size:13px">Cargando…</div>
+    </div>`
+    document.body.appendChild(ov)
+    await pintarAdmin()
+  }
+
+  async function pintarAdmin () {
+    const cont = document.getElementById('caf-admin-body')
+    if (!cont) return
+    let enc = []
+    try {
+      const { data, error } = await sb().rpc('caf_encargados_listar')
+      if (error) throw new Error(error.message)
+      enc = data || []
+    } catch (e) {
+      cont.innerHTML = `<div style="color:#f85149">No se pudo leer los encargados: ${esc(e.message)}</div>`
+      return
+    }
+
+    const puntos = UBIC.map(u => `
+      <tr style="border-bottom:1px solid #21262d">
+        <td style="padding:7px 4px">
+          <span style="color:#e6edf3;font-size:13px">${u.tipo === 'central' ? '🏬' : '🏪'} ${esc(u.nombre)}</span>
+          <div style="color:#6e7681;font-size:10.5px">${esc(u.codigo)}</div>
+        </td>
+        <td style="padding:7px 4px;text-align:right;white-space:nowrap">
+          <button onclick="cafUbicRenombrar(${u.id})" title="Cambiar nombre" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
+          ${u.tipo === 'central' ? '' : `<button onclick="cafUbicDesactivar(${u.id})" title="Desactivar punto" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">✕</button>`}
+        </td>
+      </tr>`).join('')
+
+    const opciones = UBIC.filter(u => u.tipo !== 'central')
+      .map(u => `<option value="${u.id}">${esc(u.nombre)}</option>`).join('')
+
+    const encargados = enc.length ? enc.map(e => `
+      <tr style="border-bottom:1px solid #21262d">
+        <td style="padding:7px 4px">
+          <span style="color:#e6edf3;font-size:13px">${esc(e.nombre)}</span>
+          <div style="color:#6e7681;font-size:10.5px">${esc(e.rol)}</div>
+        </td>
+        <td style="padding:7px 4px;text-align:right">
+          ${e.rol === 'cafeteria'
+            ? '<span style="color:#4e7a51;font-size:11.5px">ve todos los puntos</span>'
+            : `<select onchange="cafAsignar('${e.usuario_id}', this.value)" style="background:#0d1117;border:1px solid ${e.ubicacion_id ? '#2a2e37' : '#b4472f'};border-radius:6px;color:#e6edf3;padding:5px 8px;font-size:12px">
+                 <option value="">— sin asignar —</option>${opciones}
+               </select>`}
+        </td>
+      </tr>`).join('') : '<tr><td colspan="2" style="padding:16px;text-align:center;color:#6e7681;font-size:12.5px">No hay usuarios con rol de cafetería todavía.</td></tr>'
+
+    cont.innerHTML = `
+      <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Puntos de venta</div>
+      <table style="width:100%;border-collapse:collapse"><tbody>${puntos}</tbody></table>
+      <button onclick="cafUbicNueva()" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px;margin-top:9px">+ Nuevo punto</button>
+
+      <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 4px">Encargados</div>
+      <table style="width:100%;border-collapse:collapse"><tbody>${encargados}</tbody></table>
+      <div style="color:#6e7681;font-size:11px;margin-top:9px">
+        Los usuarios con rol <b>cafeteria_punto</b> ven solo el punto que se les asigne. Se crean en Gestión de usuarios.
+      </div>`
+    // Marcar la asignación actual de cada encargado
+    for (const e of enc) {
+      if (e.rol === 'cafeteria' || !e.ubicacion_id) continue
+      const sel = cont.querySelector(`select[onchange*="${e.usuario_id}"]`)
+      if (sel) sel.value = String(e.ubicacion_id)
+    }
+  }
+
+  window.cafAsignar = async function (usuarioId, ubicId) {
+    try {
+      await rpc('caf_usuario_asignar', {
+        p_usuario_id: usuarioId,
+        p_ubicacion_id: ubicId ? Number(ubicId) : null
+      })
+      toast(ubicId ? 'Encargado asignado' : 'Asignación quitada', 'success')
+      await pintarAdmin()
+    } catch (e) { toast(e.message, 'error'); await pintarAdmin() }
+  }
+
+  window.cafUbicNueva = async function () {
+    const n = prompt('Nombre del punto de venta:', '')
+    if (!n || !n.trim()) return
+    try {
+      await rpc('caf_ubicacion_crear', { p_nombre: n.trim() })
+      UBIC = []                       // forzar recarga de ubicaciones
+      await cargar(); render(); toast('Punto creado', 'success')
+      await window.cafAdmin()
+    } catch (e) { toast(e.message, 'error') }
+  }
+
+  window.cafUbicRenombrar = async function (id) {
+    const u = UBIC.find(x => x.id === id); if (!u) return
+    const n = prompt('Nombre:', u.nombre)
+    if (n === null || !n.trim()) return
+    try {
+      await rpc('caf_ubicacion_editar', { p_id: id, p_campo: 'nombre', p_valor: n.trim() })
+      UBIC = []
+      await cargar(); render(); toast('Guardado', 'success')
+      await window.cafAdmin()
+    } catch (e) { toast(e.message, 'error') }
+  }
+
+  window.cafUbicDesactivar = async function (id) {
+    if (!confirm('¿Desactivar este punto?\n\nSolo se puede si ya no tiene existencia.')) return
+    try {
+      await rpc('caf_ubicacion_editar', { p_id: id, p_campo: 'activo', p_valor: 'false' })
+      UBIC = []; USEL = null
+      await cargar(); render(); toast('Punto desactivado', 'success')
+    } catch (e) { toast(e.message, 'error') }
+  }
+
+  // ── PANEL DE ADMINISTRACIÓN (fin) ────────────────────────────────────────
 
   // ── Modal genérico ───────────────────────────────────────────────────────
   // campos: [{k,label,tipo,valor,hint,opciones}]  ·  onOk(vals) → true para cerrar
