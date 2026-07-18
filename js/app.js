@@ -142,13 +142,13 @@ function setupUI() {
   const initials = p.nombre.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase()
   document.getElementById('top-avatar').textContent = initials
   document.getElementById('top-name').textContent = p.nombre.split(' ').slice(0,2).join(' ')
-  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', mecanico:'Mecánico' }
+  const roleLabels = { super_admin:'Super Admin', admin:'Admin', contador:'Contador', aux_contable:'Aux. Contable', compras:'Compras', contador_fiscal:'Contador Fiscal', mecanico:'Mecánico', cafeteria:'Cafetería' }
   document.getElementById('top-role').textContent = roleLabels[p._rolReal || p.rol] || p._rolReal || p.rol
 
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
@@ -171,7 +171,12 @@ function setupUI() {
     cotizador:   ['nav-cotizador', 'nav-jefe-pista', 'nav-precios'],
 
     // Gerencia ve el dashboard de comisiones y Precios (edita la base de la comisión).
-    gerencia:    ['nav-comisiones-dash', 'nav-precios']
+    gerencia:    ['nav-comisiones-dash', 'nav-precios'],
+
+    // La cafetería es otro negocio: solo ve su inventario. Nada de la parte
+    // automotriz, nada de contabilidad. La RLS (caf_puede) lo respalda del lado
+    // del servidor, así que aunque alguien fuerce el nav, la base no le responde.
+    cafeteria:   ['nav-cafeteria']
   }
   // Rol "admin": plantilla = TODO (navs + pestañas), para que al elegirlo se premarque
   // todo y puedas destildar lo que no querés que vea.
@@ -260,6 +265,10 @@ function setupUI() {
   const conciliaItems = ['nav-concilia-taxis', 'nav-conciliacion', 'nav-conciliacion-puente', 'nav-estados-fisicos']
   const sectionConcilia = document.getElementById('section-concilia')
   if (sectionConcilia) sectionConcilia.classList.toggle('hidden', !conciliaItems.some(id => visibles.includes(id)))
+
+  // Sección Cafetería (negocio aparte: su propia agrupación)
+  const sectionCafeteria = document.getElementById('section-cafeteria')
+  if (sectionCafeteria) sectionCafeteria.classList.toggle('hidden', !visibles.includes('nav-cafeteria'))
 
   // Ocultar sección RRHH si no tiene ningún módulo
   const rrhhItems = ['nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-vacaciones']

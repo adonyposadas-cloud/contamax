@@ -301,6 +301,17 @@
           </div>
         </div>
       </div>
+
+      <div class="sidebar-section hidden" id="section-cafeteria">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('cafeteria-items')">
+          Cafetería <span class="toggle-arrow collapsed" id="arrow-cafeteria-items">▾</span>
+        </div>
+        <div class="sidebar-group collapsed" id="cafeteria-items">
+          <div class="nav-item hidden" id="nav-cafeteria" onclick="showView('cafeteria','Cafetería · Inventario'); initCafeteria()">
+            <span class="nav-dot"></span>Inventario
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="content">
@@ -316,6 +327,9 @@
       <div class="view" id="view-precios"></div>
       <div class="view" id="view-checklist-config"></div>
       <div class="view" id="view-comisiones-dash"></div>
+
+      <!-- CAFETERÍA · INVENTARIO (contenido inyectado por js/cafeteria.js) -->
+      <div class="view" id="view-cafeteria"></div>
 
       <!-- ESTADOS FÍSICOS (contenido inyectado por js/estados_fisicos.js) -->
       <div class="view" id="view-estados-fisicos"></div>
@@ -2868,6 +2882,7 @@
           <option value="cotizador">Cotizador (vendedor de repuestos)</option>
           <option value="jefe_pista">Jefe de Pista</option>
           <option value="mecanico">Mecánico (checklist)</option>
+          <option value="cafeteria">Cafetería (inventario)</option>
         </select>
       </div>
       <!-- Solo aparece si el rol es 'mecanico'. Sin tecnico_id, su comisión no se
@@ -2923,6 +2938,7 @@
           <option value="cotizador">Cotizador (vendedor de repuestos)</option>
           <option value="jefe_pista">Jefe de Pista</option>
           <option value="mecanico">Mecánico (checklist)</option>
+          <option value="cafeteria">Cafetería (inventario)</option>
         </select>
       </div>
       <!-- Solo si el rol es 'mecanico'. Sin tecnico_id la comisión no tiene dueño. -->
@@ -3581,12 +3597,13 @@
 <script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
 <script defer src="js/cotizador.js?v=20260714-chk7"></script>
-<script defer src="js/jefe_pista.js?v=20260715f"></script>
+<script defer src="js/jefe_pista.js?v=20260718a"></script>
 <script src="js/corrector.js?v=20260715a"></script>
 <script defer src="js/mecanico.js?v=20260714s"></script>
 <script defer src="js/precios.js?v=20260715d"></script>
-<script defer src="js/checklist_config.js?v=20260715c"></script>
+<script defer src="js/checklist_config.js?v=20260717c"></script>
 <script defer src="js/comisiones_dash.js?v=20260715c"></script>
+<script defer src="js/cafeteria.js?v=20260718a"></script>
 <script defer src="js/estados_fisicos.js?v=20260704s"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
