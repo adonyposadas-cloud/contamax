@@ -9,6 +9,15 @@
    ============================================================ */
 (function () {
   const csb = () => window._sb
+
+  // Cuántos días atrás se busca una referencia para considerarla repetida.
+  // BAC REUSA los números de transferencia: el mismo 412444292 apareció el
+  // 07/07 (Rafael Moncada, L.200) y el 18/07 (Raúl Santos, L.500). Con una
+  // ventana larga, el sistema descartaba depósitos buenos creyéndolos repetidos.
+  // 3 días cubre lo que hay que cubrir (re-envío del banco y el extracto del
+  // lunes que sirve para sábado y domingo) sin llegar a los números reusados.
+  const DIAS_DUP = 3
+
   let ctxBanco = 'BAC'
   let ctxFecha = ''
   let ctxFechaBanco = ''
@@ -272,11 +281,25 @@
       let duplicados = []
       // (0) Duplicados dentro del MISMO extracto: 1-2 veces por mes BAC repite
       // todos los depósitos con la misma referencia exacta. Se deja el primero
-      // y se omiten los repetidos (referencia idéntica).
+      // y se omiten los repetidos.
+      //
+      // OJO — la referencia SOLA no identifica una transferencia: BAC REUSA los
+      // números. Se vio el mismo 412444292 el 07/07 (Rafael Moncada, L.200) y el
+      // 18/07 (Raúl Santos, L.500): dos transferencias distintas con el mismo
+      // número. Por eso la llave lleva referencia + MONTO. Si el banco repite
+      // una línea de verdad, el monto también viene igual y se sigue detectando;
+      // pero dos transferencias distintas que casualmente comparten número ya
+      // no se confunden.
+      const kRef = (ref, monto) => {
+        const r = String(ref == null ? '' : ref).trim()
+        if (!r) return ''
+        const n = Number(monto)
+        return Number.isFinite(n) ? r + '|' + n.toFixed(2) : r
+      }
       const _vistos = new Set()
       let movs = []
       movsAll.forEach(m => {
-        const key = m.ref ? String(m.ref).trim() : ''
+        const key = kRef(m.ref, m.monto)
         if (key && _vistos.has(key)) { m.dupTipo = 'igual'; duplicados.push(m) }
         else { if (key) _vistos.add(key); movs.push(m) }
       })
@@ -286,21 +309,33 @@
         if (payload.length) {
           await csb().rpc('tx_refs_guardar', { p_banco: ctxBanco, p_fecha: fechaBanco, p_refs: payload })
         }
-        const seen = {}
+        const seen = {}       // 'ref|monto' → info  (preferido: descarta reuso de número)
+        const seenSolo = {}   // 'ref' → info        (respaldo si la base no devuelve monto)
+        // Guardar la info de una referencia previa, con monto si viene.
+        const marcar = (referencia, monto, info) => {
+          if (!referencia) return
+          const r = String(referencia).trim()
+          const n = Number(monto)
+          if (Number.isFinite(n) && monto !== null && monto !== '') seen[r + '|' + n.toFixed(2)] = info
+          else seenSolo[r] = info
+        }
         // (1) re-envíos por fecha del banco
         try {
-          const { data: prev } = await csb().rpc('tx_refs_previas', { p_banco: ctxBanco, p_fecha: fechaBanco, p_dias: 7 })
-          ;(Array.isArray(prev) ? prev : []).forEach(p => { if (p.referencia) seen[String(p.referencia)] = { tipo: 'reenvio', fecha: p.fecha } })
+          const { data: prev } = await csb().rpc('tx_refs_previas', { p_banco: ctxBanco, p_fecha: fechaBanco, p_dias: DIAS_DUP })
+          ;(Array.isArray(prev) ? prev : []).forEach(p => marcar(p.referencia, p.monto, { tipo: 'reenvio', fecha: p.fecha }))
         } catch (e) {}
         // (2) ya conciliadas para otro día de entregas reciente (precede a re-envío)
         try {
-          const { data: conc } = await csb().rpc('tx_refs_conciliadas_previas', { p_banco: ctxBanco, p_fecha_entregas: ctxFecha, p_dias: 15 })
-          ;(Array.isArray(conc) ? conc : []).forEach(c => { if (c.referencia) seen[String(c.referencia)] = { tipo: 'conciliado', fecha: c.fecha_entregas } })
+          const { data: conc } = await csb().rpc('tx_refs_conciliadas_previas', { p_banco: ctxBanco, p_fecha_entregas: ctxFecha, p_dias: DIAS_DUP })
+          ;(Array.isArray(conc) ? conc : []).forEach(c => marcar(c.referencia, c.monto, { tipo: 'conciliado', fecha: c.fecha_entregas }))
         } catch (e) {}
-        if (Object.keys(seen).length) {
+        if (Object.keys(seen).length || Object.keys(seenSolo).length) {
           const _f = []
           movs.forEach(m => {
-            const s = m.ref ? seen[String(m.ref)] : null
+            const r = m.ref ? String(m.ref).trim() : ''
+            // Primero por referencia+monto (preciso). Si la base no guardó el
+            // monto, se cae al respaldo por referencia sola.
+            const s = r ? (seen[kRef(m.ref, m.monto)] || seenSolo[r]) : null
             if (s) { m.dupFecha = s.fecha; m.dupTipo = s.tipo; duplicados.push(m) }
             else _f.push(m)
           })
@@ -442,7 +477,7 @@
     }).join('')
     const cDup = dups.length
       ? `<div class="ctx-grp"><div class="ctx-grp-t dup">♻️ Referencias omitidas (${dups.length})</div>
-          <div class="ctx-hint">Depósitos repetidos dentro del mismo extracto (misma referencia), o que ya se conciliaron otro día, o que el banco re-envió de días anteriores. Se omiten para no contarlos dos veces.</div>
+          <div class="ctx-hint">Depósitos repetidos dentro del mismo extracto, o que ya se conciliaron en los últimos ${DIAS_DUP} días, o que el banco re-envió de días anteriores. Se comparan por referencia <b>y monto</b>, porque BAC reusa los números de transferencia.</div>
           ${dupRows}</div>`
       : ''
 
