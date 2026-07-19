@@ -29,6 +29,11 @@
   let ULTIMA = null   // resultado de la última conciliación (para el panel)
   let ES_SUPER = false
   let _manualLinea = null
+  // Filtro de fechas del panel de Conciliados (vacío = sin límite).
+  // Es un filtro REAL sobre los datos, no un ocultar filas: así el tope de 400
+  // facturas se aplica DESPUÉS de filtrar y no se pierden las del rango pedido.
+  let CONC_D = ''     // desde (YYYY-MM-DD)
+  let CONC_H = ''     // hasta (YYYY-MM-DD)
 
   function viewHTML () {
     return `
@@ -589,6 +594,107 @@
     toast('Excel exportado', 'success')
   }
 
+  // ── CONCILIADOS: bloque con filtro por rango de fechas ────────────────────
+  //  La fecha que manda es la de la FACTURA (c.fecha), que es lo que se busca
+  //  cuando alguien pregunta "¿qué se facturó en estos días?".
+  //  Las fechas vienen en ISO (YYYY-MM-DD), así que comparar como texto es
+  //  correcto y evita líos de zona horaria.
+  function hoyISO () {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
+  }
+  function diasAtrasISO (n) {
+    const d = new Date()
+    d.setDate(d.getDate() - n)
+    return d.toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
+  }
+
+  function concFiltrar (grpArr) {
+    if (!CONC_D && !CONC_H) return grpArr
+    return grpArr.filter(items => {
+      const f = (items[0] && items[0].fecha) ? String(items[0].fecha).slice(0, 10) : ''
+      if (!f) return false                       // sin fecha no entra a un rango
+      if (CONC_D && f < CONC_D) return false
+      if (CONC_H && f > CONC_H) return false
+      return true
+    })
+  }
+
+  function concBloqueHTML (grpArr) {
+    const vis = concFiltrar(grpArr)
+    const nEF = vis.reduce((a, items) => a + items.length, 0)
+    const totL = vis.reduce((a, items) => a + (Number(items[0].monto_linea) || 0), 0)
+    const rango = !!(CONC_D || CONC_H)
+
+    const btn = (txt, d, h, activo) =>
+      `<button class="btn ef-conc-rng" data-d="${d}" data-h="${h}" style="font-size:11px;padding:3px 9px;${activo ? 'border-color:var(--green,#16a34a);color:var(--green,#16a34a)' : 'color:var(--text3,#8b949e)'}">${txt}</button>`
+
+    const hoy = hoyISO()
+    const esRango = (d, h) => CONC_D === d && CONC_H === h
+
+    const controles = `
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        ${btn('Hoy', hoy, hoy, esRango(hoy, hoy))}
+        ${btn('3 días', diasAtrasISO(2), hoy, esRango(diasAtrasISO(2), hoy))}
+        ${btn('7 días', diasAtrasISO(6), hoy, esRango(diasAtrasISO(6), hoy))}
+        ${btn('30 días', diasAtrasISO(29), hoy, esRango(diasAtrasISO(29), hoy))}
+        ${btn('Todo', '', '', !rango)}
+        <span style="color:var(--text3,#8b949e);font-size:11px;margin-left:4px">Desde</span>
+        <input type="date" id="ef-conc-desde" class="ef-in" value="${CONC_D}" style="width:150px;padding:3px 6px;font-size:12px">
+        <span style="color:var(--text3,#8b949e);font-size:11px">Hasta</span>
+        <input type="date" id="ef-conc-hasta" class="ef-in" value="${CONC_H}" style="width:150px;padding:3px 6px;font-size:12px">
+        ${rango ? `<span style="color:var(--green,#16a34a);font-size:11.5px;margin-left:4px">Total del rango: <b>L. ${fmt(totL)}</b></span>` : ''}
+      </div>`
+
+    return `<div class="ef-grp">
+      <div class="ef-grp-t" style="color:var(--green,#16a34a)">
+        ✓ Conciliados (${nEF}) · ${vis.length} facturas${rango ? ` <span style="color:var(--amber,#f59e0b);font-size:11.5px">· filtrado por fecha (de ${grpArr.length})</span>` : ''}
+        <input class="ef-filter ef-in" data-target="ef-list-conc" placeholder="🔍 placa/N°/factura…" style="width:200px;text-transform:uppercase">
+      </div>
+      ${controles}
+      <div id="ef-list-conc" style="max-height:360px;overflow:auto;margin-top:8px">${concListaHTML(vis)}</div>
+    </div>`
+  }
+
+  function concListaHTML (vis) {
+    if (!vis.length) {
+      return `<div style="padding:18px;text-align:center;color:var(--text3,#8b949e);font-size:12.5px">No hay facturas conciliadas en ese rango de fechas.</div>`
+    }
+    return vis.slice(0, 400).map(items => {
+      const c0 = items[0]
+      const efCount = c0.placas_linea || items.filter(x => x.categoria !== 'repotenciacion').length
+      const head = c0.compartida ? `<div style="font-size:11px;color:var(--amber,#f59e0b);margin-bottom:3px">🔗 Línea compartida · ${efCount} estados físicos · total L. ${fmt(c0.monto_linea)} (prorrateado)</div>` : ''
+      return `<div style="border:1px solid var(--border,#2a3340);border-radius:8px;padding:8px 10px;margin-bottom:8px">${head}
+        ${items.map(c => `<div class="ef-row" style="border:none;padding:3px 0"><span>#${c.numero || '—'} · <span class="ef-plate">${esc(c.placa)}</span> · ${c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico'} · <span style="color:var(--text3,#8b949e)">${esc(c.propietario || '')}</span></span><span style="color:var(--text3,#8b949e)">L. ${fmt(c.monto)}</span></div>`).join('')}
+        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border,#2a3340);margin-top:4px;padding-top:4px;font-size:12px"><span style="color:var(--text3,#8b949e)">Factura ${esc(c0.factura)} · ${esc(c0.fecha)}</span><b style="color:var(--gold,#c8a24a)">Total L. ${fmt(c0.monto_linea)}</b></div>
+      </div>`
+    }).join('') + (vis.length > 400
+      ? `<div style="font-size:12px;color:var(--text3,#8b949e)">… y ${vis.length - 400} facturas más. Achicá el rango de fechas para verlas.</div>`
+      : '')
+  }
+
+  // Repinta SOLO el bloque de conciliados (no toda la pantalla): así no se
+  // pierde el scroll ni lo que haya escrito en los otros buscadores.
+  function repintarConc () {
+    const R = ULTIMA; if (!R) return
+    const grupos = {}
+    R.conciliados.forEach(c => { const k = `${c.factura}|${c.monto_linea}`; (grupos[k] = grupos[k] || []).push(c) })
+    const grpArr = Object.values(grupos)
+    const cont = document.getElementById('ef-list-conc')
+    const grp = cont && cont.closest('.ef-grp')
+    if (!grp) return
+    grp.outerHTML = concBloqueHTML(grpArr)
+    wireConc(); wireFilters()
+  }
+
+  function wireConc () {
+    const d = $('ef-conc-desde'); const h = $('ef-conc-hasta')
+    if (d) d.onchange = () => { CONC_D = d.value || ''; repintarConc() }
+    if (h) h.onchange = () => { CONC_H = h.value || ''; repintarConc() }
+    document.querySelectorAll('#view-estados-fisicos .ef-conc-rng').forEach(b => {
+      b.onclick = () => { CONC_D = b.dataset.d || ''; CONC_H = b.dataset.h || ''; repintarConc() }
+    })
+  }
+
   function wireFilters () {
     document.querySelectorAll('#view-estados-fisicos .ef-filter').forEach(inp => {
       inp.oninput = () => {
@@ -616,23 +722,14 @@
     const grupos = {}
     R.conciliados.forEach(c => { const k = `${c.factura}|${c.monto_linea}`; (grupos[k] = grupos[k] || []).push(c) })
     const grpArr = Object.values(grupos)
-    const gConc = `<div class="ef-grp"><div class="ef-grp-t" style="color:var(--green,#16a34a)">✓ Conciliados (${R.conciliados.length}) · ${grpArr.length} facturas ${filtro('ef-list-conc')}</div>
-      <div id="ef-list-conc" style="max-height:360px;overflow:auto">${grpArr.slice(0, 400).map(items => {
-        const c0 = items[0]
-        const efCount = c0.placas_linea || items.filter(x => x.categoria !== 'repotenciacion').length
-        const head = c0.compartida ? `<div style="font-size:11px;color:var(--amber,#f59e0b);margin-bottom:3px">🔗 Línea compartida · ${efCount} estados físicos · total L. ${fmt(c0.monto_linea)} (prorrateado)</div>` : ''
-        return `<div style="border:1px solid var(--border,#2a3340);border-radius:8px;padding:8px 10px;margin-bottom:8px">${head}
-          ${items.map(c => `<div class="ef-row" style="border:none;padding:3px 0"><span>#${c.numero || '—'} · <span class="ef-plate">${esc(c.placa)}</span> · ${c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico'} · <span style="color:var(--text3,#8b949e)">${esc(c.propietario || '')}</span></span><span style="color:var(--text3,#8b949e)">L. ${fmt(c.monto)}</span></div>`).join('')}
-          <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border,#2a3340);margin-top:4px;padding-top:4px;font-size:12px"><span style="color:var(--text3,#8b949e)">Factura ${esc(c0.factura)} · ${esc(c0.fecha)}</span><b style="color:var(--gold,#c8a24a)">Total L. ${fmt(c0.monto_linea)}</b></div>
-        </div>`
-      }).join('') || '—'}${grpArr.length > 400 ? `<div style="font-size:12px;color:var(--text3,#8b949e)">… y ${grpArr.length - 400} facturas más</div>` : ''}</div></div>`
+    const gConc = concBloqueHTML(grpArr)
     const gNo = R.sinMatch.length ? `<div class="ef-grp"><div class="ef-grp-t" style="color:var(--text3,#8b949e)">Facturados con placa que NO está entre los pendientes (${R.sinMatch.length}) — <span style="color:var(--red,#f85149)">rojo = posterior al corte, revisar (placa mal escrita)</span> ${filtro('ef-list-nomatch')}</div>
       <div id="ef-list-nomatch" style="max-height:260px;overflow:auto">${R.sinMatch.map((l, i) => { const rev = fCorte && l.fecha && l.fecha >= fCorte; return `<div class="ef-row"${rev ? ' style="background:rgba(248,81,73,.06)"' : ''}><span>${rev ? '⚠ ' : ''}${esc(l.producto)} · <span class="ef-plate">${(l.placas || []).join(', ')}</span></span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0;color:var(--text3,#8b949e)">F${esc(l.factura)} · ${esc(l.fecha || '')} · <b style="color:var(--gold,#c8a24a)">L. ${fmt(l.monto)}</b><button class="btn" data-nomatch="${i}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>` }).join('')}</div></div>` : ''
     $('ef-result').innerHTML = gSinPlaca + huerfanasHTML() + pendientesHTML() + gNo + gConc
     $('ef-result').querySelectorAll('[data-manual]').forEach(b => b.addEventListener('click', () => abrirManual(R.sinPlaca[parseInt(b.dataset.manual, 10)])))
     $('ef-result').querySelectorAll('[data-spdesc]').forEach(b => b.addEventListener('click', () => descartarSinPlaca(R.sinPlaca[parseInt(b.dataset.spdesc, 10)])))
     $('ef-result').querySelectorAll('[data-nomatch]').forEach(b => b.addEventListener('click', () => abrirManual(R.sinMatch[parseInt(b.dataset.nomatch, 10)])))
-    bindPendBuscador(); wireFilters()
+    bindPendBuscador(); wireFilters(); wireConc()
   }
 
   function pendAgrupados () {
