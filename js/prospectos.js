@@ -13,7 +13,7 @@
  * Un taller es UNA ficha; cada pasada es una VISITA. Volver al mismo taller no
  * duplica nada: le suma una visita y queda el historial.
  * ========================================================================== */
-window.__prospBuild = '20260720b'
+window.__prospBuild = '20260720c'
 
 ;(function () {
   const sb = () => window._sb
@@ -159,7 +159,7 @@ window.__prospBuild = '20260720b'
 
     return `
       <input id="prosp-q" value="${esc(F.q)}" oninput="prospBuscar(this.value)" placeholder="🔍 Buscar taller, dueño, zona, carro…"
-             style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:10px;color:#e6edf3;padding:11px 13px;font-size:14px;margin-bottom:10px">
+             style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:10px;color:#e6edf3;padding:11px 13px;font-size:14px;margin-bottom:10px;text-transform:uppercase">
       <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px">
         ${chip(!F.zona && !F.tipo && !F.estado, 'Todos', "prospFiltro('reset','')")}
         ${ESTADOS.map(e => chip(F.estado === e[0], e[1], `prospFiltro('estado','${e[0]}')`)).join('')}
@@ -405,6 +405,12 @@ window.__prospBuild = '20260720b'
   }
 
   // ── Modal genérico ───────────────────────────────────────────────────────
+  // Todo el módulo trabaja en MAYÚSCULAS: así los nombres de talleres, zonas y
+  // notas quedan parejos y las búsquedas no dependen de cómo se escribió.
+  // Se excluyen la URL de Maps (los links distinguen mayúsculas y se romperían)
+  // y el teléfono (son números).
+  const mayus = c => c.mayus !== false && (c.tipo === 'area' || !c.tipo || c.tipo === 'text')
+
   function modal (titulo, campos, onOk, sub) {
     document.getElementById('prosp-modal')?.remove()
     const ov = document.createElement('div')
@@ -418,7 +424,7 @@ window.__prospBuild = '20260720b'
       if (c.tipo === 'select') {
         ctrl = `<select id="${id}" style="${base}">${(c.opciones || []).map(o => `<option value="${esc(o[0])}"${String(c.valor) === String(o[0]) ? ' selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`
       } else if (c.tipo === 'area') {
-        ctrl = `<textarea id="${id}" rows="3" placeholder="${esc(c.ph || '')}" style="${base};font-family:inherit;resize:vertical">${esc(c.valor || '')}</textarea>`
+        ctrl = `<textarea id="${id}" rows="3" placeholder="${esc(c.ph || '')}" style="${base};font-family:inherit;resize:vertical${mayus(c) ? ';text-transform:uppercase' : ''}">${esc(c.valor || '')}</textarea>`
       } else if (c.tipo === 'fotos') {
         ctrl = `<input id="${id}" type="file" accept="image/*" capture="environment" multiple style="${base};padding:9px">`
       } else if (c.tipo === 'gps') {
@@ -426,7 +432,7 @@ window.__prospBuild = '20260720b'
       } else if (c.tipo === 'check') {
         ctrl = `<label style="display:flex;align-items:center;gap:9px;margin-top:6px;cursor:pointer"><input id="${id}" type="checkbox" ${c.valor ? 'checked' : ''} style="width:20px;height:20px"><span style="font-size:14px;color:#e6edf3">${esc(c.textoCheck || '')}</span></label>`
       } else {
-        ctrl = `<input id="${id}" type="${c.tipo === 'tel' ? 'tel' : 'text'}" value="${esc(c.valor ?? '')}" placeholder="${esc(c.ph || '')}" style="${base}">`
+        ctrl = `<input id="${id}" type="${c.tipo === 'tel' ? 'tel' : 'text'}" value="${esc(c.valor ?? '')}" placeholder="${esc(c.ph || '')}" style="${base}${mayus(c) ? ';text-transform:uppercase' : ''}">`
       }
       return `<div style="margin-bottom:13px">
         ${c.tipo === 'check' ? '' : `<label style="font-size:11.5px;color:#8b949e;text-transform:uppercase;letter-spacing:.4px">${esc(c.label)}</label>`}
@@ -457,7 +463,7 @@ window.__prospBuild = '20260720b'
         if (c.tipo === 'fotos') v[c.k] = el.files ? Array.from(el.files) : []
         else if (c.tipo === 'check') v[c.k] = el.checked
         else if (c.tipo === 'gps') v[c.k] = el.value ? JSON.parse(el.value) : null
-        else v[c.k] = el.value
+        else v[c.k] = mayus(c) ? String(el.value || '').toUpperCase() : el.value
       }
       return v
     }
@@ -576,7 +582,7 @@ window.__prospBuild = '20260720b'
       { k: 'estado', label: 'Estado del prospecto', tipo: 'select', valor: t.estado, opciones: ESTADOS.map(e => [e[0], e[1]]) },
       { k: 'zona', label: 'Zona', valor: t.zona || '' },
       { k: 'direccion', label: 'Dirección', valor: t.direccion || '' },
-      { k: 'maps_url', label: 'Link de Google Maps', valor: t.maps_url || '', hint: 'Solo si el taller ya tiene ficha en Maps. El GPS tiene prioridad.' },
+      { k: 'maps_url', label: 'Link de Google Maps', valor: t.maps_url || '', mayus: false, hint: 'Solo si el taller ya tiene ficha en Maps. El GPS tiene prioridad. (Este no va en mayúsculas: los links las distinguen.)' },
       { k: 'notas', label: 'Notas', tipo: 'area', valor: t.notas || '' }
     ], async v => {
       if (!v.nombre || v.nombre.trim().length < 3) throw new Error('Poné el nombre')
