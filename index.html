@@ -302,6 +302,17 @@
         </div>
       </div>
 
+      <div class="sidebar-section hidden" id="section-prospectos">
+        <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('prospectos-items')">
+          Prospección <span class="toggle-arrow collapsed" id="arrow-prospectos-items">▾</span>
+        </div>
+        <div class="sidebar-group collapsed" id="prospectos-items">
+          <div class="nav-item hidden" id="nav-prospectos" onclick="showView('prospectos','Prospección de talleres'); initProspectos()">
+            <span class="nav-dot"></span>Talleres
+          </div>
+        </div>
+      </div>
+
       <div class="sidebar-section hidden" id="section-cafeteria">
         <div class="sidebar-label sidebar-toggle" onclick="toggleSidebarSection('cafeteria-items')">
           Cafetería <span class="toggle-arrow collapsed" id="arrow-cafeteria-items">▾</span>
@@ -330,6 +341,9 @@
 
       <!-- CAFETERÍA · INVENTARIO (contenido inyectado por js/cafeteria.js) -->
       <div class="view" id="view-cafeteria"></div>
+
+      <!-- PROSPECCIÓN DE TALLERES (contenido inyectado por js/prospectos.js) -->
+      <div class="view" id="view-prospectos"></div>
 
       <!-- ESTADOS FÍSICOS (contenido inyectado por js/estados_fisicos.js) -->
       <div class="view" id="view-estados-fisicos"></div>
@@ -2884,6 +2898,7 @@
           <option value="mecanico">Mecánico (checklist)</option>
           <option value="cafeteria">Cafetería (administración)</option>
           <option value="cafeteria_punto">Cafetería · Punto de venta</option>
+          <option value="vendedor_ruta">Vendedor de ruta (prospección)</option>
         </select>
       </div>
       <!-- Solo aparece si el rol es 'mecanico'. Sin tecnico_id, su comisión no se
@@ -2941,6 +2956,7 @@
           <option value="mecanico">Mecánico (checklist)</option>
           <option value="cafeteria">Cafetería (administración)</option>
           <option value="cafeteria_punto">Cafetería · Punto de venta</option>
+          <option value="vendedor_ruta">Vendedor de ruta (prospección)</option>
         </select>
       </div>
       <!-- Solo si el rol es 'mecanico'. Sin tecnico_id la comisión no tiene dueño. -->
@@ -3596,7 +3612,7 @@
 <script defer src="js/conciliacion.js?v=20260701e"></script>
 <script defer src="js/fiscal.js?v=20260707a"></script>
 <script defer src="js/revision_taxis.js?v=20260705e"></script>
-<script defer src="js/conciliacion_taxis.js?v=20260701a"></script>
+<script defer src="js/conciliacion_taxis.js?v=20260720a"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
 <script defer src="js/cotizador.js?v=20260714-chk7"></script>
 <script defer src="js/jefe_pista.js?v=20260718a"></script>
@@ -3606,7 +3622,8 @@
 <script defer src="js/checklist_config.js?v=20260717c"></script>
 <script defer src="js/comisiones_dash.js?v=20260715c"></script>
 <script defer src="js/cafeteria.js?v=20260718h"></script>
-<script defer src="js/estados_fisicos.js?v=20260704s"></script>
+<script defer src="js/prospectos.js?v=20260720a"></script>
+<script defer src="js/estados_fisicos.js?v=20260720a"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">
