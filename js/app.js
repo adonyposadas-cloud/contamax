@@ -3446,10 +3446,18 @@ window.guardarPartida = async (estado) => {
 
   // Guardar conteo de billetes si existe
   const lineasConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
+
+  // El borrado de los conteos viejos va SIEMPRE, aunque ya no quede ninguna
+  // línea de caja. Antes estaba dentro del if de abajo, y eso dejaba huérfanos:
+  // si a una partida se le cambiaba la cuenta de Caja General por otra (pasó con
+  // la #2388, Caja General → Gastos Personales), la partida quedaba sin líneas
+  // con billetes, el if no entraba, y el conteo anterior seguía vivo en la base.
+  // Contablemente todo cuadraba, así que nada avisaba: el descuadre solo aparecía
+  // en el arqueo de caja, por el monto exacto de la línea que se había cambiado.
+  const { error: delErr } = await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+  if (delErr) console.warn('[CONTEO] Error borrando conteos anteriores:', delErr)
+
   if (lineasConBilletes.length > 0) {
-    // Borrar conteos anteriores de esta partida
-    const { error: delErr } = await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
-    if (delErr) console.warn('[CONTEO] Error borrando conteos anteriores:', delErr)
     const conteos = lineasConBilletes.map(l => ({
       partida_id: partidaId,
       tipo: l.tipo === 'debito' ? 'ingreso' : 'egreso',
