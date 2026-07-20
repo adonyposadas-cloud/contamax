@@ -1973,6 +1973,7 @@ const YK_UNI_COLS = [
 ]
 
 let ykUniFilas = null      // filas leídas del Excel, ya mapeadas
+let ykUniCambios = []      // diff contra lo que ya está en la base
 
 window.ykRenderUnidades = () => {
   const hoy = new Date().toISOString().slice(0, 10)
@@ -1985,10 +1986,10 @@ window.ykRenderUnidades = () => {
 
     <div class="yk-ctrl" style="margin:14px 0 10px">
       <div class="fld"><label>Contenedor</label>
-        <input id="yk-uni-cont" type="text" placeholder="Ej: 31" style="width:120px">
+        <input id="yk-uni-cont" type="text" placeholder="Ej: 31" style="width:120px" onchange="ykUniRefrescar()">
       </div>
       <div class="fld"><label>Fecha del contenedor</label>
-        <input id="yk-uni-fecha" type="date" value="${hoy}" style="width:170px">
+        <input id="yk-uni-fecha" type="date" value="${hoy}" style="width:170px" onchange="ykUniRefrescar()">
       </div>
       <button class="btn" onclick="ykUniPlantilla()">📥 Descargar plantilla</button>
     </div>
@@ -2096,12 +2097,34 @@ window.ykUniLeer = async (input) => {
     const existentes = yaHay || []
 
     ykUniFilas = filas
+
+    // Si hay códigos que ya existen, preguntamos a la base QUÉ cambiaría.
+    // Mostrar el cambio antes de escribir es lo que hace seguro el "actualizar".
+    let cambios = []
+    let faltaCont = false
+    if (existentes.length) {
+      const cont = (document.getElementById('yk-uni-cont')?.value || '').trim()
+      const fec = document.getElementById('yk-uni-fecha')?.value || null
+      if (cont) {
+        const { data: dif } = await ykSb().rpc('yonker_unidad_diff', { p_contenedor: cont, p_fecha: fec, p_filas: filas })
+        cambios = dif || []
+      } else {
+        faltaCont = true   // sin contenedor no se puede saber qué cambiaría
+      }
+    }
+    ykUniCambios = cambios
+
     const avisos = []
+    if (faltaCont) avisos.push('⚠️ Escribí primero el número de contenedor para poder ver qué cambiaría en las unidades que ya existen.')
     if (sinCodigo.length) avisos.push(`⚠️ ${sinCodigo.length} fila(s) sin CÓDIGO — se van a ignorar (filas ${sinCodigo.slice(0, 8).join(', ')}${sinCodigo.length > 8 ? '…' : ''}).`)
     if (repes.length) avisos.push(`⛔ El archivo trae códigos repetidos: ${[...new Set(repes)].join(', ')}. Corregilo antes de guardar.`)
-    if (existentes.length) avisos.push(`⛔ ${existentes.length} código(s) YA EXISTEN en la base: ${existentes.slice(0, 10).map(e => `${e.vehiculo_codigo} (cont. ${e.contenedor})`).join(', ')}${existentes.length > 10 ? '…' : ''}`)
+    if (existentes.length) avisos.push(`ℹ️ ${existentes.length} código(s) ya existen en la base. Podés dejarlos como están o actualizarlos (mirá abajo qué cambiaría).`)
 
-    const bloqueado = repes.length > 0 || existentes.length > 0
+    // Mover una unidad de contenedor casi siempre es un archivo equivocado
+    const cambioCont = cambios.filter(c => c.es_contenedor)
+    if (cambioCont.length) avisos.push(`⚠️ ${cambioCont.length} unidad(es) se MOVERÍAN de contenedor: ${cambioCont.slice(0, 6).map(c => `${c.vehiculo_codigo} (${c.actual}→${c.nuevo})`).join(', ')}. Revisá que sea el archivo correcto.`)
+
+    const bloqueado = repes.length > 0
 
     prev.innerHTML = `
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
@@ -2120,19 +2143,42 @@ window.ykUniLeer = async (input) => {
           <td>${f.num_motor || '—'}</td></tr>`).join('')}</tbody>
       </table>
       ${filas.length > 60 ? `<div class="page-sub">… y ${filas.length - 60} más</div>` : ''}
-      <div style="margin-top:14px">
-        <button class="btn primary" ${bloqueado ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''} onclick="ykUniGuardar()">
-          ${bloqueado ? 'Corregí lo marcado para poder guardar' : `Dar de alta ${filas.length} unidades`}
-        </button>
-        ${existentes.length ? `<button class="btn" style="margin-left:8px" onclick="ykUniGuardar(true)">Guardar solo las nuevas (${filas.length - existentes.length})</button>` : ''}
+      ${cambios.length ? `
+        <div class="page-title" style="font-size:15px;margin-top:18px">Qué cambiaría si actualizás (${cambios.length})</div>
+        <table class="yk-tbl" style="margin-top:6px">
+          <thead><tr><th>Vehículo</th><th>Campo</th><th>Valor actual</th><th>Valor nuevo</th></tr></thead>
+          <tbody>${cambios.map(c => `<tr${c.es_contenedor ? ' style="background:rgba(224,90,90,.10)"' : ''}>
+            <td><b>${c.vehiculo_codigo}</b></td>
+            <td>${c.es_contenedor ? '⚠️ ' : ''}${c.campo}</td>
+            <td style="color:var(--text3,#8b949e)">${c.actual ?? '—'}</td>
+            <td style="color:var(--gold,#d4af37)"><b>${c.nuevo ?? '—'}</b></td>
+          </tr>`).join('')}</tbody>
+        </table>
+        <div class="page-sub" style="margin-top:4px">Las celdas vacías del Excel no borran nada: si el archivo no dice nada de un campo, ese campo se queda como está.</div>
+      ` : (existentes.length ? '<div class="page-sub" style="margin-top:12px">Las que ya existen tienen exactamente los mismos datos: no hay nada que actualizar.</div>' : '')}
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        ${!existentes.length ? `
+          <button class="btn primary" ${bloqueado ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''} onclick="ykUniGuardar('estricto')">
+            ${bloqueado ? 'Corregí lo marcado para poder guardar' : `Dar de alta ${filas.length} unidades`}
+          </button>` : `
+          ${cambios.length ? `<button class="btn primary" ${bloqueado ? 'disabled' : ''} onclick="ykUniGuardar('actualizar')">Aplicar ${cambios.length} cambio(s)${filas.length - existentes.length > 0 ? ` y dar de alta ${filas.length - existentes.length} nueva(s)` : ''}</button>` : ''}
+          ${filas.length - existentes.length > 0 ? `<button class="btn" ${bloqueado ? 'disabled' : ''} onclick="ykUniGuardar('solo_nuevas')">Solo dar de alta las ${filas.length - existentes.length} nueva(s), sin tocar las demás</button>` : ''}
+        `}
       </div>`
   } catch (e) {
     prev.innerHTML = `<div class="page-sub" style="color:#e05a5a">Error al leer: ${e.message || e}</div>`
   }
 }
 
+// Si cambian el contenedor o la fecha DESPUÉS de subir el archivo, hay que
+// recalcular: el diff se compara contra esos valores.
+window.ykUniRefrescar = () => {
+  const fi = document.getElementById('yk-uni-file')
+  if (fi && fi.files && fi.files.length) window.ykUniLeer(fi)
+}
+
 // ── Guardar ────────────────────────────────────────────────────────────────
-window.ykUniGuardar = async (omitirExistentes) => {
+window.ykUniGuardar = async (modo) => {
   const cont = (document.getElementById('yk-uni-cont')?.value || '').trim()
   const fecha = document.getElementById('yk-uni-fecha')?.value || null
   if (!cont) { window.toast?.('Poné el número de contenedor', 'error'); return }
@@ -2143,22 +2189,23 @@ window.ykUniGuardar = async (omitirExistentes) => {
   try {
     const { data, error } = await ykSb().rpc('yonker_unidad_importar', {
       p_contenedor: cont, p_fecha: fecha, p_filas: ykUniFilas,
-      p_omitir_existentes: !!omitirExistentes
+      p_modo: modo || 'estricto'
     })
     if (error) throw new Error(error.message)
     if (data && data.ok === false && data.motivo === 'codigos_existentes') {
-      fin.innerHTML = `<div class="page-sub" style="color:#e0a800">No se guardó nada: ${data.existentes.length} código(s) ya existen. Usá "Guardar solo las nuevas" si querés continuar.</div>`
+      fin.innerHTML = `<div class="page-sub" style="color:#e0a800">No se guardó nada: ${data.existentes.length} código(s) ya existen. Elegí "Aplicar cambios" o "Solo las nuevas".</div>`
       return
     }
     if (window.logActividad) window.logActividad('yonker_unidades', 'importar', `Alta de ${data.insertadas} unidades del contenedor ${cont}`)
     fin.innerHTML = `
       <div class="page-title" style="font-size:17px;margin-top:14px">✓ Contenedor ${cont} dado de alta</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0">
-        <div class="yk-card ok"><div class="v">${data.insertadas}</div><div class="l">Unidades creadas</div></div>
-        ${data.omitidas ? `<div class="yk-card"><div class="v">${data.omitidas}</div><div class="l">Omitidas (ya existían)</div></div>` : ''}
+        ${data.insertadas ? `<div class="yk-card ok"><div class="v">${data.insertadas}</div><div class="l">Unidades creadas</div></div>` : ''}
+        ${data.actualizadas ? `<div class="yk-card ok"><div class="v">${data.actualizadas}</div><div class="l">Unidades actualizadas</div></div>` : ''}
+        ${data.omitidas ? `<div class="yk-card"><div class="v">${data.omitidas}</div><div class="l">Sin cambios</div></div>` : ''}
       </div>
       <div class="page-sub">Ya podés importar las ventas de este contenedor: las líneas van a traer marca, modelo y año automáticamente.</div>`
-    ykUniFilas = null
+    ykUniFilas = null; ykUniCambios = []
     const fi = document.getElementById('yk-uni-file'); if (fi) fi.value = ''
     document.getElementById('yk-uni-prev').innerHTML = ''
     window.toast?.(`${data.insertadas} unidades dadas de alta`, 'success')
