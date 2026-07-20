@@ -15,7 +15,7 @@
  * El costo tampoco se edita: sale del promedio ponderado de las compras.
  * Si se pudiera escribir a mano, el costo de los platos mentiría.
  * ========================================================================== */
-window.__cafBuild = '20260720a'
+window.__cafBuild = '20260720b'
 
 ;(function () {
   const sb = () => window._sb
@@ -214,7 +214,7 @@ window.__cafBuild = '20260720a'
   // tecleada haría perder el foco y habría que volver a tocar el campo.
   function repintarConFoco (idCampo) {
     const val = document.getElementById(idCampo)?.value ?? ''
-    pintar()
+    pintarBody()
     const el = document.getElementById(idCampo)
     if (el) { el.focus(); el.setSelectionRange(val.length, val.length) }
   }
@@ -235,13 +235,13 @@ window.__cafBuild = '20260720a'
     if (k === 'reset') { FI = { q: FI.q, grupo: '', bajo: false } }
     else if (k === 'bajo') FI.bajo = !FI.bajo
     else FI[k] = FI[k] === v ? '' : v
-    pintar()
+    pintarBody()
   }
   window.cafFP = function (k, v) {
     if (k === 'q') { FP.q = v; repintarConFoco('caf-q-prod'); return }
     if (k === 'reset') { FP = { q: FP.q, clase: '', cat: '' } }
     else FP[k] = FP[k] === v ? '' : v
-    pintar()
+    pintarBody()
   }
   window.cafFV = function (v) { FV.q = v; repintarConFoco('caf-q-venta') }
   window.cafFIq = v => window.cafFI('q', v)
