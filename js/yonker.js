@@ -57,7 +57,7 @@ function ykFecha(v) {
 
 const ykR2 = v => Math.round((parseFloat(v) || 0) * 100) / 100
 
-const YK_TABS = [['imp', 'yk-tab-imp'], ['rep', 'yk-tab-rep'], ['dev', 'yk-tab-dev'], ['exp', 'yk-tab-exp'], ['cot', 'yk-tab-cot'], ['gen', 'yk-tab-gen']]
+const YK_TABS = [['imp', 'yk-tab-imp'], ['uni', 'yk-tab-uni'], ['rep', 'yk-tab-rep'], ['dev', 'yk-tab-dev'], ['exp', 'yk-tab-exp'], ['cot', 'yk-tab-cot'], ['gen', 'yk-tab-gen']]
 function ykPerms() {
   let esSuper = false, permisos = []
   try { const p = window._currentProfile?.(); esSuper = p?.rol === 'super_admin'; permisos = Array.isArray(p?.permisos_modulos) ? p.permisos_modulos : [] } catch (e) { /* sin perfil */ }
@@ -86,6 +86,7 @@ window.initYonker = async () => {
     <div class="page-title">📦 Yonker</div>
     <div class="yk-tabbar">
       <button class="yk-tab active" id="yk-tab-imp" onclick="ykTab('imp')">Importar ventas</button>
+      <button class="yk-tab" id="yk-tab-uni" onclick="ykTab('uni')">Importar unidades</button>
       <button class="yk-tab" id="yk-tab-rep" onclick="ykTab('rep')">Reportes</button>
       <button class="yk-tab" id="yk-tab-dev" onclick="ykTab('dev')">Devoluciones</button>
       <button class="yk-tab" id="yk-tab-exp" onclick="ykTab('exp')">Explorar</button>
@@ -98,14 +99,16 @@ window.initYonker = async () => {
 }
 
 window.ykTab = (which) => {
-  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp'), tc = document.getElementById('yk-tab-cot'), tg = document.getElementById('yk-tab-gen')
+  const ti = document.getElementById('yk-tab-imp'), tr = document.getElementById('yk-tab-rep'), td = document.getElementById('yk-tab-dev'), te = document.getElementById('yk-tab-exp'), tc = document.getElementById('yk-tab-cot'), tg = document.getElementById('yk-tab-gen'), tu = document.getElementById('yk-tab-uni')
   if (ti) ti.classList.toggle('active', which === 'imp')
+  if (tu) tu.classList.toggle('active', which === 'uni')
   if (tr) tr.classList.toggle('active', which === 'rep')
   if (td) td.classList.toggle('active', which === 'dev')
   if (te) te.classList.toggle('active', which === 'exp')
   if (tc) tc.classList.toggle('active', which === 'cot')
   if (tg) tg.classList.toggle('active', which === 'gen')
-  if (which === 'rep') ykRenderReportes()
+  if (which === 'uni') ykRenderUnidades()
+  else if (which === 'rep') ykRenderReportes()
   else if (which === 'dev') ykRenderDevoluciones()
   else if (which === 'exp') ykRenderExplorar()
   else if (which === 'cot') ykRenderCotizar()
@@ -138,7 +141,7 @@ function ykEnsureStyles() {
     .yk-ctrl{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:8px}
     .yk-ctrl .fld{display:flex;flex-direction:column;gap:3px}
     .yk-ctrl label{font-size:11px;color:var(--text3,#888)}
-    .yk-ctrl select{padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px}
+    .yk-ctrl select,.yk-ctrl input{padding:6px 8px;background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:6px;color:inherit;font-size:13px}
     .yk-num{text-align:right;font-family:var(--mono,monospace)}
     .yk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;max-height:130px;overflow:auto;padding:2px}
     .yk-chip{display:inline-block;padding:3px 10px;border-radius:14px;background:var(--bg3,#222);border:1px solid var(--border,#3a3a3a);color:var(--gold,#d4af37);font-size:12px;font-family:var(--mono,monospace);cursor:pointer;transition:all .12s}
@@ -1939,4 +1942,227 @@ window.ykCotEliminar = async (id) => {
     window.toast?.('Cotización eliminada', 'success')
     ykCotCerrarOv('yk-cotg-ov'); ykCotGestionar()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
+}
+/* ============================================================================
+ * PESTAÑA: IMPORTAR UNIDADES DE UN CONTENEDOR
+ *
+ * Antes no había forma de dar de alta las unidades de un contenedor nuevo, así
+ * que el importador de ventas avisaba "contenedor recién llegado sin dar de
+ * alta" y esas líneas quedaban sin marca/modelo/año.
+ *
+ * El flujo: se baja la plantilla → se llena → se sube → vista previa → guardar.
+ * La plantilla existe para que el formato nunca esté en duda: el CÓDIGO es la
+ * llave con la que después se cruzan las ventas, y si entra mal, las ventas de
+ * ese carro quedan huérfanas.
+ *
+ * El contenedor y la fecha NO van en el Excel: se ponen una vez en la pantalla,
+ * porque todas las unidades del contenedor comparten ambos.
+ * ========================================================================== */
+
+// Encabezados de la plantilla ↔ columnas de la base
+const YK_UNI_COLS = [
+  ['CODIGO',      'vehiculo_codigo', true,  'Número de vehículo. Es la llave: con esto se cruzan las ventas.'],
+  ['MARCA',       'marca',           false, 'HYUNDAI, TOYOTA, FORD…'],
+  ['MODELO',      'modelo',          false, 'SANTA FE, RAV4, F-150…'],
+  ['VERSION',     'version',         false, 'XLT, LIMITED… (opcional)'],
+  ['AÑO',         'anio_vehiculo',   false, 'Año del vehículo (4 dígitos)'],
+  ['COSTO USD',   'costo_usd',       false, 'Lo que costó en dólares'],
+  ['COSTO L.',    'costo_hnl',       false, 'Costo en lempiras ya con flete e importación prorrateados'],
+  ['N MOTOR',     'num_motor',       false, 'Número de motor (opcional)'],
+  ['TIPO',        'tipo',            false, 'vehiculo (por defecto) o el que corresponda']
+]
+
+let ykUniFilas = null      // filas leídas del Excel, ya mapeadas
+
+window.ykRenderUnidades = () => {
+  const hoy = new Date().toISOString().slice(0, 10)
+  document.getElementById('yk-pane').innerHTML = `
+    <div class="page-title" style="font-size:18px">📦 Dar de alta un contenedor</div>
+    <div class="page-sub">
+      Bajá la plantilla, llenala con las unidades del contenedor y subila.
+      El <b>CÓDIGO</b> es obligatorio: es el número con el que después se cruzan las ventas.
+    </div>
+
+    <div class="yk-ctrl" style="margin:14px 0 10px">
+      <div class="fld"><label>Contenedor</label>
+        <input id="yk-uni-cont" type="text" placeholder="Ej: 31" style="width:120px">
+      </div>
+      <div class="fld"><label>Fecha del contenedor</label>
+        <input id="yk-uni-fecha" type="date" value="${hoy}" style="width:170px">
+      </div>
+      <button class="btn" onclick="ykUniPlantilla()">📥 Descargar plantilla</button>
+    </div>
+
+    <div class="yk-ctrl" style="margin:12px 0">
+      <div class="fld" style="flex:1;min-width:260px"><label>Archivo de unidades (.xlsx)</label>
+        <input id="yk-uni-file" type="file" accept=".xlsx,.xls" onchange="ykUniLeer(this)">
+      </div>
+    </div>
+
+    <div id="yk-uni-prev"></div>
+    <div id="yk-uni-fin"></div>
+
+    <details style="margin-top:18px">
+      <summary style="cursor:pointer;color:var(--gold,#d4af37);font-size:13px">¿Qué lleva cada columna?</summary>
+      <table class="yk-tbl" style="margin-top:8px">
+        <thead><tr><th>Columna</th><th>¿Obligatoria?</th><th>Qué va</th></tr></thead>
+        <tbody>${YK_UNI_COLS.map(c => `<tr>
+          <td><b>${c[0]}</b></td>
+          <td>${c[2] ? '<span style="color:#e0a800">Sí</span>' : 'No'}</td>
+          <td style="color:var(--text3,#8b949e)">${c[3]}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div class="page-sub" style="margin-top:6px">
+        El contenedor y la fecha no van en el Excel: se ponen arriba, una sola vez para todas las filas.
+      </div>
+    </details>`
+}
+
+// ── Plantilla ──────────────────────────────────────────────────────────────
+window.ykUniPlantilla = () => {
+  try {
+    const enc = YK_UNI_COLS.map(c => c[0])
+    // Dos filas de ejemplo, para que se vea el formato esperado
+    const ejemplo = [
+      { 'CODIGO': '601', 'MARCA': 'TOYOTA', 'MODELO': 'RAV4', 'VERSION': '', 'AÑO': 2018, 'COSTO USD': 2100, 'COSTO L.': 108500.5, 'N MOTOR': '', 'TIPO': 'vehiculo' },
+      { 'CODIGO': '602', 'MARCA': 'NISSAN', 'MODELO': 'SENTRA', 'VERSION': '', 'AÑO': 2015, 'COSTO USD': 1450, 'COSTO L.': 88300, 'N MOTOR': '', 'TIPO': 'vehiculo' }
+    ]
+    const ws = window.XLSX.utils.json_to_sheet(ejemplo, { header: enc })
+    ws['!cols'] = [{ wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 11 }]
+
+    // Hoja de instrucciones, para que la plantilla se explique sola
+    const guia = [
+      ['CÓMO LLENAR ESTA PLANTILLA'], [''],
+      ['1. Borrá las dos filas de ejemplo de la hoja "Unidades".'],
+      ['2. Poné una fila por vehículo del contenedor.'],
+      ['3. El CÓDIGO es obligatorio y no se puede repetir.'],
+      ['4. El contenedor y la fecha NO van acá: se escriben en la pantalla al subir.'],
+      ['5. Guardá el archivo y subilo en la pestaña "Importar unidades".'], [''],
+      ['COLUMNA', '¿OBLIGATORIA?', 'QUÉ VA'],
+      ...YK_UNI_COLS.map(c => [c[0], c[2] ? 'SI' : 'No', c[3]])
+    ]
+    const wsG = window.XLSX.utils.aoa_to_sheet(guia)
+    wsG['!cols'] = [{ wch: 14 }, { wch: 15 }, { wch: 70 }]
+
+    const wb = window.XLSX.utils.book_new()
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Unidades')
+    window.XLSX.utils.book_append_sheet(wb, wsG, 'Instrucciones')
+    window.XLSX.writeFile(wb, 'plantilla_unidades_contenedor.xlsx')
+    window.toast?.('Plantilla descargada', 'success')
+  } catch (e) {
+    window.toast?.('No se pudo generar la plantilla: ' + (e.message || e), 'error')
+  }
+}
+
+// ── Leer el archivo y mostrar vista previa ─────────────────────────────────
+window.ykUniLeer = async (input) => {
+  const file = input.files?.[0]
+  const prev = document.getElementById('yk-uni-prev')
+  document.getElementById('yk-uni-fin').innerHTML = ''
+  ykUniFilas = null
+  if (!file) { prev.innerHTML = ''; return }
+  prev.innerHTML = '<div class="page-sub">Leyendo el archivo…</div>'
+  try {
+    const buf = await file.arrayBuffer()
+    const wb = window.XLSX.read(buf, { type: 'array' })
+    // Se busca la hoja "Unidades"; si no está, se usa la primera
+    const hoja = wb.SheetNames.find(n => n.toLowerCase().includes('unidad')) || wb.SheetNames[0]
+    const raw = window.XLSX.utils.sheet_to_json(wb.Sheets[hoja], { defval: null })
+    if (!raw.length) throw new Error('La hoja está vacía')
+
+    // Mapear encabezados de forma tolerante (mayúsculas, tildes, espacios)
+    const norm = s => String(s || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]/g, '')
+    const mapa = {}
+    for (const c of YK_UNI_COLS) mapa[norm(c[0])] = c[1]
+
+    const filas = []
+    const sinCodigo = []
+    raw.forEach((r, i) => {
+      const o = {}
+      for (const k in r) { const dest = mapa[norm(k)]; if (dest && r[k] !== null && String(r[k]).trim() !== '') o[dest] = String(r[k]).trim() }
+      if (!o.vehiculo_codigo) { sinCodigo.push(i + 2); return }   // +2: encabezado + base 1
+      filas.push(o)
+    })
+    if (!filas.length) throw new Error('No se encontró ninguna fila con CÓDIGO. ¿Usaste la plantilla?')
+
+    // Códigos repetidos dentro del archivo
+    const vistos = {}, repes = []
+    filas.forEach(f => { if (vistos[f.vehiculo_codigo]) repes.push(f.vehiculo_codigo); else vistos[f.vehiculo_codigo] = 1 })
+
+    // ¿Alguno ya existe en la base?
+    const { data: yaHay } = await ykSb().from('yonker_unidades')
+      .select('vehiculo_codigo,contenedor,marca,modelo')
+      .in('vehiculo_codigo', filas.map(f => f.vehiculo_codigo))
+    const existentes = yaHay || []
+
+    ykUniFilas = filas
+    const avisos = []
+    if (sinCodigo.length) avisos.push(`⚠️ ${sinCodigo.length} fila(s) sin CÓDIGO — se van a ignorar (filas ${sinCodigo.slice(0, 8).join(', ')}${sinCodigo.length > 8 ? '…' : ''}).`)
+    if (repes.length) avisos.push(`⛔ El archivo trae códigos repetidos: ${[...new Set(repes)].join(', ')}. Corregilo antes de guardar.`)
+    if (existentes.length) avisos.push(`⛔ ${existentes.length} código(s) YA EXISTEN en la base: ${existentes.slice(0, 10).map(e => `${e.vehiculo_codigo} (cont. ${e.contenedor})`).join(', ')}${existentes.length > 10 ? '…' : ''}`)
+
+    const bloqueado = repes.length > 0 || existentes.length > 0
+
+    prev.innerHTML = `
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
+        <div class="yk-card ok"><div class="v">${filas.length}</div><div class="l">Unidades a dar de alta</div></div>
+        ${sinCodigo.length ? `<div class="yk-card"><div class="v">${sinCodigo.length}</div><div class="l">Filas ignoradas</div></div>` : ''}
+        ${existentes.length ? `<div class="yk-card"><div class="v">${existentes.length}</div><div class="l">Ya existen</div></div>` : ''}
+      </div>
+      ${avisos.map(a => `<div class="page-sub" style="color:#e0a800">${a}</div>`).join('')}
+      <table class="yk-tbl" style="margin-top:10px">
+        <thead><tr><th>Código</th><th>Marca</th><th>Modelo</th><th>Versión</th><th>Año</th><th class="yk-num">USD</th><th class="yk-num">L.</th><th>N° motor</th></tr></thead>
+        <tbody>${filas.slice(0, 60).map(f => `<tr>
+          <td><b>${f.vehiculo_codigo}</b></td><td>${f.marca || '—'}</td><td>${f.modelo || '—'}</td>
+          <td>${f.version || '—'}</td><td>${f.anio_vehiculo || '—'}</td>
+          <td class="yk-num">${f.costo_usd ? ykFmt(f.costo_usd) : '—'}</td>
+          <td class="yk-num">${f.costo_hnl ? ykFmt(f.costo_hnl) : '—'}</td>
+          <td>${f.num_motor || '—'}</td></tr>`).join('')}</tbody>
+      </table>
+      ${filas.length > 60 ? `<div class="page-sub">… y ${filas.length - 60} más</div>` : ''}
+      <div style="margin-top:14px">
+        <button class="btn primary" ${bloqueado ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''} onclick="ykUniGuardar()">
+          ${bloqueado ? 'Corregí lo marcado para poder guardar' : `Dar de alta ${filas.length} unidades`}
+        </button>
+        ${existentes.length ? `<button class="btn" style="margin-left:8px" onclick="ykUniGuardar(true)">Guardar solo las nuevas (${filas.length - existentes.length})</button>` : ''}
+      </div>`
+  } catch (e) {
+    prev.innerHTML = `<div class="page-sub" style="color:#e05a5a">Error al leer: ${e.message || e}</div>`
+  }
+}
+
+// ── Guardar ────────────────────────────────────────────────────────────────
+window.ykUniGuardar = async (omitirExistentes) => {
+  const cont = (document.getElementById('yk-uni-cont')?.value || '').trim()
+  const fecha = document.getElementById('yk-uni-fecha')?.value || null
+  if (!cont) { window.toast?.('Poné el número de contenedor', 'error'); return }
+  if (!ykUniFilas || !ykUniFilas.length) { window.toast?.('Subí primero el archivo', 'error'); return }
+
+  const fin = document.getElementById('yk-uni-fin')
+  fin.innerHTML = '<div class="page-sub">Guardando…</div>'
+  try {
+    const { data, error } = await ykSb().rpc('yonker_unidad_importar', {
+      p_contenedor: cont, p_fecha: fecha, p_filas: ykUniFilas,
+      p_omitir_existentes: !!omitirExistentes
+    })
+    if (error) throw new Error(error.message)
+    if (data && data.ok === false && data.motivo === 'codigos_existentes') {
+      fin.innerHTML = `<div class="page-sub" style="color:#e0a800">No se guardó nada: ${data.existentes.length} código(s) ya existen. Usá "Guardar solo las nuevas" si querés continuar.</div>`
+      return
+    }
+    if (window.logActividad) window.logActividad('yonker_unidades', 'importar', `Alta de ${data.insertadas} unidades del contenedor ${cont}`)
+    fin.innerHTML = `
+      <div class="page-title" style="font-size:17px;margin-top:14px">✓ Contenedor ${cont} dado de alta</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0">
+        <div class="yk-card ok"><div class="v">${data.insertadas}</div><div class="l">Unidades creadas</div></div>
+        ${data.omitidas ? `<div class="yk-card"><div class="v">${data.omitidas}</div><div class="l">Omitidas (ya existían)</div></div>` : ''}
+      </div>
+      <div class="page-sub">Ya podés importar las ventas de este contenedor: las líneas van a traer marca, modelo y año automáticamente.</div>`
+    ykUniFilas = null
+    const fi = document.getElementById('yk-uni-file'); if (fi) fi.value = ''
+    document.getElementById('yk-uni-prev').innerHTML = ''
+    window.toast?.(`${data.insertadas} unidades dadas de alta`, 'success')
+  } catch (e) {
+    fin.innerHTML = `<div class="page-sub" style="color:#e05a5a">Error: ${e.message || e}</div>`
+  }
 }
