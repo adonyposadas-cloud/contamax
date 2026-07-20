@@ -194,12 +194,21 @@ function setupUI() {
   // super_admin SIEMPRE ve todo (no se puede limitar). El rol "admin" tiene su mismo poder
   // pero su navegación se restringe a sus casillas (_adminRestringido).
   let visibles
-  // Un super_admin REAL ve SIEMPRE la plantilla completa — nunca depende de
-  // permisos_modulos guardados. Antes, un super_admin con _adminRestringido caía en la
-  // primera rama y usaba su lista guardada, que quedaba vieja: cada nav nuevo (checklist,
-  // comisiones…) no aparecía hasta agregarlo a mano. Verificar el rol real primero lo evita.
+  // Un super_admin REAL ve TODO. Antes usaba la plantilla fija permisos.super_admin,
+  // pensando que eso evitaba la desactualización — pero la plantilla misma se
+  // desactualiza: cada módulo nuevo hay que acordarse de agregarlo ahí, y si se
+  // olvida, el nav existe en el menú pero el sistema lo esconde. Le pasó a
+  // Vencimientos, Flujo de efectivo y Solicitudes: estaban en el menú, con su
+  // script y su vista, invisibles para el dueño del sistema.
+  //
+  // Ahora los navs se DESCUBREN del DOM y se unen con la plantilla (que además
+  // trae permisos de pestañas internas, como las de Yonker). El menú es la
+  // fuente de verdad: si un módulo está en el sidebar, el super_admin lo ve.
   if ((p._rolReal || p.rol) === 'super_admin') {
-    visibles = permisos.super_admin
+    const navsDelMenu = Array.from(document.querySelectorAll('.nav-item[id^="nav-"]')).map(el => el.id)
+    visibles = [...new Set([...permisos.super_admin, ...navsDelMenu])]
+    const olvidados = navsDelMenu.filter(id => !permisos.super_admin.includes(id))
+    if (olvidados.length) console.warn('[permisos] navs que faltaban en la plantilla super_admin:', olvidados)
   } else if (p._adminRestringido) {
     visibles = (Array.isArray(p.permisos_modulos) && p.permisos_modulos.length) ? p.permisos_modulos : permisos.admin
   } else if (p.rol === 'super_admin') {
