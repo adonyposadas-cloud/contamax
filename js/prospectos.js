@@ -13,7 +13,7 @@
  * Un taller es UNA ficha; cada pasada es una VISITA. Volver al mismo taller no
  * duplica nada: le suma una visita y queda el historial.
  * ========================================================================== */
-window.__prospBuild = '20260720a'
+window.__prospBuild = '20260720b'
 
 ;(function () {
   const sb = () => window._sb
@@ -30,6 +30,13 @@ window.__prospBuild = '20260720a'
   let USUARIOS = {}         // usuario_id → nombre
   let ABIERTO = null        // ficha desplegada
   let F = { q: '', zona: '', tipo: '', estado: '' }
+
+  // Registro de grupos de fotos para el visor. Se limpia en cada pintado para
+  // que no crezca: pasar el arreglo entero por el onclick sería un lío de
+  // comillas, así que se guarda acá y el botón solo lleva la llave.
+  let FG = {}
+  let FGn = 0
+  function grupoFotos (fotos) { const k = 'g' + (++FGn); FG[k] = fotos || []; return k }
 
   const TIPOS = [['mecanica', '🔧 Mecánica'], ['pintura', '🎨 Pintura'], ['ambos', '🔧🎨 Ambos'], ['otro', 'Otro']]
   const ESTADOS = [
@@ -94,6 +101,7 @@ window.__prospBuild = '20260720a'
   window.prospTab = function (k) { TAB = k; ABIERTO = null; render() }
 
   function pintar () {
+    FG = {}; FGn = 0    // el registro se rearma con cada pintado
     const b = document.getElementById('prosp-body')
     if (b) b.innerHTML = TAB === 'talleres' ? vistaTalleres() : vistaBitacora()
   }
@@ -140,9 +148,10 @@ window.__prospBuild = '20260720a'
             <span>🔁 ${t.visitas} visita${t.visitas === 1 ? '' : 's'}</span>
             ${sinVisitar != null ? `<span style="color:${sinVisitar > 60 ? '#f0a868' : '#8b949e'}">hace ${sinVisitar} día${sinVisitar === 1 ? '' : 's'}</span>` : ''}
           </div>
-          ${fotos.length ? `<div style="display:flex;gap:5px;margin-top:9px;overflow-x:auto">
-            ${fotos.slice(0, 3).map(f => `<img src="${esc(f.url)}" style="width:74px;height:56px;object-fit:cover;border-radius:7px;flex:0 0 auto" loading="lazy">`).join('')}
-          </div>` : ''}
+          ${fotos.length ? (() => { const k = grupoFotos(fotos); return `<div style="display:flex;gap:5px;margin-top:9px;overflow-x:auto">
+            ${fotos.slice(0, 3).map((f, i) => `<img src="${esc(f.url)}" onclick="event.stopPropagation();prospVisor('${k}',${i})" style="width:74px;height:56px;object-fit:cover;border-radius:7px;flex:0 0 auto;cursor:zoom-in" loading="lazy">`).join('')}
+            ${fotos.length > 3 ? `<div onclick="event.stopPropagation();prospVisor('${k}',3)" style="width:44px;height:56px;display:flex;align-items:center;justify-content:center;background:#1c2027;border-radius:7px;color:#8b949e;font-size:12px;cursor:pointer;flex:0 0 auto">+${fotos.length - 3}</div>` : ''}
+          </div>` })() : ''}
         </div>
         ${abierta ? detalle(t) : ''}
       </div>`
@@ -198,9 +207,9 @@ window.__prospBuild = '20260720a'
               </div>
               ${v.carros ? `<div style="color:#e6edf3;font-size:12.5px;margin-top:3px">🚗 ${esc(v.carros)}</div>` : ''}
               ${v.observaciones ? `<div style="color:#8b949e;font-size:12.5px;margin-top:2px">${esc(v.observaciones)}</div>` : ''}
-              ${(v.fotos || []).length ? `<div style="display:flex;gap:5px;margin-top:6px;overflow-x:auto">
-                ${v.fotos.map(f => `<img src="${esc(f.url)}" onclick="window.open('${esc(f.url)}','_blank')" style="width:66px;height:50px;object-fit:cover;border-radius:6px;cursor:pointer;flex:0 0 auto" loading="lazy">`).join('')}
-              </div>` : ''}
+              ${(v.fotos || []).length ? (() => { const k = grupoFotos(v.fotos); return `<div style="display:flex;gap:5px;margin-top:6px;overflow-x:auto">
+                ${v.fotos.map((f, i) => `<img src="${esc(f.url)}" onclick="prospVisor('${k}',${i})" style="width:66px;height:50px;object-fit:cover;border-radius:6px;cursor:zoom-in;flex:0 0 auto" loading="lazy">`).join('')}
+              </div>` })() : ''}
               <button onclick="prospVisitaBorrar(${v.id},${t.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:11px;padding:2px 0;margin-top:3px">borrar</button>
             </div>`).join('') : '<div style="color:#6e7681;font-size:12px">Sin visitas registradas.</div>'}</div>` : ''}
         </div>
@@ -213,6 +222,7 @@ window.__prospBuild = '20260720a'
     if (!b) return
     // Repintar solo la lista para no perder el foco del buscador
     const cur = document.activeElement
+    FG = {}; FGn = 0
     b.innerHTML = vistaTalleres()
     const nq = document.getElementById('prosp-q')
     if (nq && cur && cur.id === 'prosp-q') { nq.focus(); nq.setSelectionRange(v.length, v.length) }
@@ -320,6 +330,78 @@ window.__prospBuild = '20260720a'
       out.push({ path, url: data.publicUrl })
     }
     return out
+  }
+
+  // ── VISOR DE FOTOS a pantalla completa ───────────────────────────────────
+  //  Abrir la foto en pestaña nueva es incómodo en celular (hay que volver
+  //  atrás y se pierde el scroll). Esto la muestra encima, se pasa con el dedo
+  //  y se cierra tocando afuera.
+  let VS = null   // { fotos, i }
+
+  window.prospVisor = function (grupo, i) {
+    const fotos = FG[grupo]
+    if (!fotos || !fotos.length) return
+    VS = { fotos, i: Math.min(Math.max(i || 0, 0), fotos.length - 1) }
+    document.getElementById('prosp-visor')?.remove()
+    const ov = document.createElement('div')
+    ov.id = 'prosp-visor'
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:10080;display:flex;align-items:center;justify-content:center;touch-action:none'
+    ov.addEventListener('click', e => { if (e.target === ov || e.target.id === 'pv-img') prospVisorCerrar() })
+    ov.innerHTML = `
+      <button onclick="prospVisorCerrar()" style="position:absolute;top:14px;right:14px;background:rgba(0,0,0,.5);border:0;color:#fff;font-size:26px;width:42px;height:42px;border-radius:50%;cursor:pointer;line-height:1;z-index:2">×</button>
+      <div id="pv-cont" style="position:absolute;top:18px;left:0;right:0;text-align:center;color:#c8c8c8;font-size:13px;pointer-events:none"></div>
+      <img id="pv-img" src="" style="max-width:96vw;max-height:88vh;object-fit:contain;border-radius:6px;user-select:none">
+      <button id="pv-prev" onclick="prospVisorMover(-1)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);border:0;color:#fff;font-size:26px;width:46px;height:64px;border-radius:10px;cursor:pointer">‹</button>
+      <button id="pv-next" onclick="prospVisorMover(1)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);border:0;color:#fff;font-size:26px;width:46px;height:64px;border-radius:10px;cursor:pointer">›</button>
+      <a id="pv-abrir" href="#" target="_blank" rel="noopener" style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.12);color:#fff;text-decoration:none;padding:8px 16px;border-radius:20px;font-size:12.5px">Abrir original ↗</a>`
+    document.body.appendChild(ov)
+
+    // Pasar la foto con el dedo
+    let x0 = null
+    ov.addEventListener('touchstart', e => { x0 = e.touches[0].clientX }, { passive: true })
+    ov.addEventListener('touchend', e => {
+      if (x0 == null) return
+      const dx = e.changedTouches[0].clientX - x0
+      if (Math.abs(dx) > 45) window.prospVisorMover(dx < 0 ? 1 : -1)
+      x0 = null
+    }, { passive: true })
+
+    document.addEventListener('keydown', visorTecla)
+    pintarVisor()
+  }
+
+  function visorTecla (e) {
+    if (!VS) return
+    if (e.key === 'Escape') prospVisorCerrar()
+    else if (e.key === 'ArrowRight') window.prospVisorMover(1)
+    else if (e.key === 'ArrowLeft') window.prospVisorMover(-1)
+  }
+
+  function pintarVisor () {
+    if (!VS) return
+    const f = VS.fotos[VS.i]
+    const img = document.getElementById('pv-img')
+    const cont = document.getElementById('pv-cont')
+    const ab = document.getElementById('pv-abrir')
+    if (img) img.src = f.url
+    if (ab) ab.href = f.url
+    if (cont) cont.textContent = VS.fotos.length > 1 ? `${VS.i + 1} de ${VS.fotos.length}` : ''
+    const uno = VS.fotos.length < 2
+    const p = document.getElementById('pv-prev'); const n = document.getElementById('pv-next')
+    if (p) p.style.display = uno ? 'none' : ''
+    if (n) n.style.display = uno ? 'none' : ''
+  }
+
+  window.prospVisorMover = function (d) {
+    if (!VS) return
+    VS.i = (VS.i + d + VS.fotos.length) % VS.fotos.length
+    pintarVisor()
+  }
+
+  window.prospVisorCerrar = function () {
+    document.removeEventListener('keydown', visorTecla)
+    document.getElementById('prosp-visor')?.remove()
+    VS = null
   }
 
   // ── Modal genérico ───────────────────────────────────────────────────────
