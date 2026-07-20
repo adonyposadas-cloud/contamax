@@ -15,7 +15,7 @@
  * El costo tampoco se edita: sale del promedio ponderado de las compras.
  * Si se pudiera escribir a mano, el costo de los platos mentiría.
  * ========================================================================== */
-window.__cafBuild = '20260718h'
+window.__cafBuild = '20260720a'
 
 ;(function () {
   const sb = () => window._sb
@@ -42,6 +42,11 @@ window.__cafBuild = '20260718h'
   let TRAS = []         // traslados recientes
   let TLIN = {}         // traslado_id → líneas
   let ENVIO = {}        // insumo_id → cantidad a enviar
+  // Filtros de cada pestaña. Con 25+ productos las listas se hacen largas y
+  // encontrar uno a ojo cuesta más que buscarlo.
+  let FI = { q: '', grupo: '', bajo: false }   // inventario
+  let FP = { q: '', clase: '', cat: '' }       // productos
+  let FV = { q: '' }                           // ventas
   let PEND = []         // v_caf_corte_pendiente (lo que falta cortar)
   let CORTES = []       // historial de cortes
 
@@ -205,10 +210,55 @@ window.__cafBuild = '20260718h'
 
   window.cafTab = function (k) { TAB = k; render() }
 
+  // Repinta el cuerpo y devuelve el cursor al buscador: sin esto, cada letra
+  // tecleada haría perder el foco y habría que volver a tocar el campo.
+  function repintarConFoco (idCampo) {
+    const val = document.getElementById(idCampo)?.value ?? ''
+    pintar()
+    const el = document.getElementById(idCampo)
+    if (el) { el.focus(); el.setSelectionRange(val.length, val.length) }
+  }
+
+  // Buscador reutilizable
+  function buscador (id, valor, fn, ph) {
+    return `<input id="${id}" value="${esc(valor)}" oninput="${fn}(this.value)" placeholder="${esc(ph)}"
+      style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:9px;color:#e6edf3;padding:9px 12px;font-size:13.5px;margin-bottom:8px">`
+  }
+
+  // Chip de filtro reutilizable
+  function chipF (activo, txt, onclick) {
+    return `<button onclick="${onclick}" style="background:${activo ? '#c0632f22' : 'transparent'};border:1px solid ${activo ? '#c0632f' : '#2a2e37'};color:${activo ? '#c0632f' : '#8b949e'};border-radius:14px;padding:4px 11px;cursor:pointer;font-size:11.5px;white-space:nowrap">${txt}</button>`
+  }
+
+  window.cafFI = function (k, v) {
+    if (k === 'q') { FI.q = v; repintarConFoco('caf-q-ins'); return }
+    if (k === 'reset') { FI = { q: FI.q, grupo: '', bajo: false } }
+    else if (k === 'bajo') FI.bajo = !FI.bajo
+    else FI[k] = FI[k] === v ? '' : v
+    pintar()
+  }
+  window.cafFP = function (k, v) {
+    if (k === 'q') { FP.q = v; repintarConFoco('caf-q-prod'); return }
+    if (k === 'reset') { FP = { q: FP.q, clase: '', cat: '' } }
+    else FP[k] = FP[k] === v ? '' : v
+    pintar()
+  }
+  window.cafFV = function (v) { FV.q = v; repintarConFoco('caf-q-venta') }
+  window.cafFIq = v => window.cafFI('q', v)
+  window.cafFPq = v => window.cafFP('q', v)
+
   // ── TAB INSUMOS ──────────────────────────────────────────────────────────
   function vistaInsumos () {
-    const valor = INSUMOS.reduce((a, i) => a + Number(i.valor || 0), 0)
-    const filas = INSUMOS.map(i => {
+    const q = FI.q.trim().toUpperCase()
+    const vis = INSUMOS.filter(i => {
+      if (FI.grupo && i.grupo !== FI.grupo) return false
+      if (FI.bajo && !(i.bajo_minimo && i.activo)) return false
+      if (!q) return true
+      return [i.nombre, i.codigo, i.unidad_base, i.unidad_compra].some(v => String(v || '').toUpperCase().includes(q))
+    })
+    const valor = vis.reduce((a, i) => a + Number(i.valor || 0), 0)
+    const nBajos = INSUMOS.filter(i => i.bajo_minimo && i.activo).length
+    const filas = vis.map(i => {
       const g = GRUPOS.find(x => x[0] === i.grupo) || GRUPOS[1]
       const bajo = i.bajo_minimo && i.activo
       return `
@@ -237,8 +287,16 @@ window.__cafBuild = '20260718h'
     }).join('')
 
     return `
+      ${buscador('caf-q-ins', FI.q, 'cafFIq', '🔍 Buscar insumo por nombre o código…')}
+      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px">
+        ${chipF(!FI.grupo && !FI.bajo, 'Todos', "cafFI('reset','')")}
+        ${nBajos ? chipF(FI.bajo, `⚠ Bajo mínimo (${nBajos})`, "cafFI('bajo','')") : ''}
+        ${GRUPOS.map(g => chipF(FI.grupo === g[0], `${g[0]} · ${g[1].split('·')[1] ? g[1].split('·')[1].trim() : g[0]}`, `cafFI('grupo','${g[0]}')`)).join('')}
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div style="color:#8b949e;font-size:13px">Valor del inventario: <b style="color:#e6edf3">L. ${fmt(valor)}</b></div>
+        <div style="color:#8b949e;font-size:13px">
+          ${vis.length !== INSUMOS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${INSUMOS.length} · ` : ''}Valor: <b style="color:#e6edf3">L. ${fmt(valor)}</b>
+        </div>
         ${veTodo() ? '<button onclick="cafInsumoNuevo()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Nuevo insumo</button>' : ''}
       </div>
       <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
@@ -252,7 +310,7 @@ window.__cafBuild = '20260718h'
             <th style="padding:9px 8px;text-align:right">Mínimo</th>
             <th style="padding:9px 8px;text-align:right">Acciones</th>
           </tr></thead>
-          <tbody>${filas || '<tr><td colspan="7" style="padding:26px;text-align:center;color:#6e7681">Todavía no hay insumos. Empezá con “+ Nuevo insumo”.</td></tr>'}</tbody>
+          <tbody>${filas || `<tr><td colspan="7" style="padding:26px;text-align:center;color:#6e7681">${INSUMOS.length ? 'Ningún insumo coincide con la búsqueda.' : 'Todavía no hay insumos. Empezá con “+ Nuevo insumo”.'}</td></tr>`}</tbody>
         </table>
       </div>
       <div style="color:#6e7681;font-size:11.5px;margin-top:8px">
@@ -264,7 +322,20 @@ window.__cafBuild = '20260718h'
   function colorFC (p) { return p == null ? '#6e7681' : p <= 35 ? '#4e7a51' : p <= 45 ? '#b8860b' : '#b4472f' }
 
   function vistaRecetas () {
-    const cards = RECETAS.map(r => {
+    const q = FP.q.trim().toUpperCase()
+    const vis = RECETAS.filter(r => {
+      if (FP.clase === 'reventa' && !r.es_reventa) return false
+      if (FP.clase === 'cocina' && r.es_reventa) return false
+      if (FP.clase === 'caro' && !(r.food_cost_pct != null && r.food_cost_pct > 45)) return false
+      if (FP.clase === 'sinreceta' && !(!r.es_reventa && r.ingredientes === 0)) return false
+      if (FP.cat && (r.categoria || '') !== FP.cat) return false
+      if (!q) return true
+      return [r.nombre, r.categoria, r.codigo].some(v => String(v || '').toUpperCase().includes(q))
+    })
+    const cats = [...new Set(RECETAS.map(r => r.categoria).filter(Boolean))].sort()
+    const nCaros = RECETAS.filter(r => r.food_cost_pct != null && r.food_cost_pct > 45).length
+    const nSinRec = RECETAS.filter(r => !r.es_reventa && r.ingredientes === 0).length
+    const cards = vis.map(r => {
       const abierta = ABIERTA === r.id
       const c = colorFC(r.food_cost_pct)
       const ings = (INGR[r.id] || []).map(g => {
@@ -318,14 +389,25 @@ window.__cafBuild = '20260718h'
     }).join('')
 
     return `
+      ${buscador('caf-q-prod', FP.q, 'cafFPq', '🔍 Buscar producto por nombre o categoría…')}
+      <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px">
+        ${chipF(!FP.clase && !FP.cat, 'Todos', "cafFP('reset','')")}
+        ${chipF(FP.clase === 'reventa', 'Reventa', "cafFP('clase','reventa')")}
+        ${chipF(FP.clase === 'cocina', 'Cocina', "cafFP('clase','cocina')")}
+        ${nCaros ? chipF(FP.clase === 'caro', `⚠ Food cost alto (${nCaros})`, "cafFP('clase','caro')") : ''}
+        ${nSinRec ? chipF(FP.clase === 'sinreceta', `Sin receta (${nSinRec})`, "cafFP('clase','sinreceta')") : ''}
+        ${cats.map(c => chipF(FP.cat === c, esc(c), `cafFP('cat','${esc(c).replace(/'/g, "\\'")}')`)).join('')}
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div style="color:#8b949e;font-size:12.5px">Lo sano es un food cost entre <b style="color:#4e7a51">28% y 35%</b>.</div>
+        <div style="color:#8b949e;font-size:12.5px">
+          ${vis.length !== RECETAS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${RECETAS.length} · ` : ''}Lo sano es un food cost entre <b style="color:#4e7a51">28% y 35%</b>.
+        </div>
         <div style="display:flex;gap:8px">
           ${!veTodo() ? '' : `<button onclick="cafReventaNueva()" title="Se compra hecho y se vende tal cual: sodas, galletas, snacks" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Producto de reventa</button>
           <button onclick="cafRecetaNueva()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Receta de cocina</button>`}
         </div>
       </div>
-      ${cards || '<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">Todavía no hay recetas. Creá la del plato que más se vende.</div>'}`
+      ${cards || `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">${RECETAS.length ? 'Ningún producto coincide con la búsqueda.' : 'Todavía no hay productos. Creá el que más se vende.'}</div>`}`
   }
 
   // ── TAB MOVIMIENTOS ──────────────────────────────────────────────────────
@@ -420,8 +502,13 @@ window.__cafBuild = '20260718h'
       return a + (r ? Number(r.precio_venta) * VENTA[id] : 0)
     }, 0)
 
-    const filas = activas.map(r => `
-      <tr style="border-bottom:1px solid #21262d">
+    const qv = FV.q.trim().toUpperCase()
+    // Lo elegido se muestra siempre, aunque no coincida con la búsqueda: si no,
+    // se perdería de vista lo que ya se cargó al filtrar por otra cosa.
+    const visV = activas.filter(r => VENTA[r.id] || !qv ||
+      [r.nombre, r.categoria].some(v => String(v || '').toUpperCase().includes(qv)))
+    const filas = visV.map(r => `
+      <tr style="border-bottom:1px solid #21262d;${VENTA[r.id] ? 'background:#1a2e1c33' : ''}">
         <td style="padding:8px">
           <div style="color:#e6edf3;font-weight:600">${esc(r.nombre)}</div>
           <div style="color:#6e7681;font-size:11px">L. ${fmt(r.precio_venta)}${r.ingredientes === 0 ? ' · ⚠ sin ingredientes' : ''}</div>
@@ -471,7 +558,11 @@ window.__cafBuild = '20260718h'
             <b style="font-size:13.5px;color:#e6edf3">¿Qué se vendió?</b>
             <div style="color:#6e7681;font-size:11.5px;margin-top:2px">Al registrar, los ingredientes bajan solos.</div>
           </div>
-          <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas}</tbody></table>
+          <div style="padding:9px 12px 4px">
+            ${buscador('caf-q-venta', FV.q, 'cafFV', '🔍 Buscar producto…')}
+            ${qv ? `<div style="color:#6e7681;font-size:11px;margin:-4px 0 6px">${visV.length} de ${activas.length}${Object.keys(VENTA).length ? ' · lo ya elegido se sigue mostrando' : ''}</div>` : ''}
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas || '<tr><td style="padding:20px;text-align:center;color:#6e7681;font-size:12.5px">Ningún producto coincide.</td></tr>'}</tbody></table>
           <div style="padding:11px 14px;border-top:1px solid #21262d">
             ${totalVenta > 0 ? `<div style="color:#8b949e;font-size:12.5px;margin-bottom:8px">Total: <b style="color:#4e7a51;font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
             <div style="display:flex;gap:8px">
