@@ -244,6 +244,10 @@
     const libro = libroMovs.map((m, i) => ({ ...m, _i: i, _match: null }))
     const pares = []
 
+    // Grupos que quedaron a medias: el libro dice un total y el extracto ya no
+    // trae todos sus movimientos. Es la fuente de descuadres invisibles.
+    const gruposIncompletos = []
+
     // PASO 0a — marcas AGRUPADAS (N movimientos del banco : 1 línea del libro).
     // Junta las marcas por grupo_id, suma los movimientos del banco y empareja contra
     // la línea del libro de la misma partida (monto ≈ total del grupo). Caso típico: taxis,
@@ -260,15 +264,43 @@
         const grupoTotal = Number(gmarcas[0].grupo_total) ||
           r2(gmarcas.reduce((s, mk) => s + Number(mk.mov_monto || 0), 0))
         const movsB = []
+        const faltantesDelGrupo = []
         for (const mk of gmarcas) {
           const b = banco.find(x => x._match === null && !movsB.includes(x) &&
             x.fecha === mk.mov_fecha && Math.abs(x.monto - Number(mk.mov_monto)) <= 0.01 && x.tipo === mk.mov_tipo)
           if (b) movsB.push(b)
+          else faltantesDelGrupo.push(mk)          // estaba conciliado, hoy no está en el extracto
         }
         if (!movsB.length) continue
         const l = libro.find(x => x._match === null && x.partida_id === partidaId &&
           x.tipo === movsB[0].tipo && Math.abs(x.monto - grupoTotal) <= 0.02)
         if (!l) continue
+
+        // ── GRUPO INCOMPLETO ──
+        // El grupo se cruza contra la línea del libro por su total ORIGINAL,
+        // pero movsB solo trae los movimientos que HOY están en el extracto.
+        // Si el banco quitó algunos, el resto se marcaba como cruzado igual y
+        // la línea del libro también: todo quedaba "conciliado" y la plata que
+        // faltaba desaparecía de la vista. El descuadre seguía en el total, sin
+        // nada que lo explicara — que es exactamente lo que estaba pasando.
+        // Ahora se cruza igual (para no llenar la pantalla de ruido) pero se
+        // registra el faltante, y se muestra aparte con su monto exacto.
+        const sumaB = r2(movsB.reduce((s, b) => s + Number(b.monto || 0), 0))
+        const brecha = r2(Number(l.monto) - sumaB)
+        if (Math.abs(brecha) > 0.02) {
+          gruposIncompletos.push({
+            grupo_id: gid,
+            partida_id: partidaId,
+            partida_numero: gmarcas[0].partida_numero,
+            libro_monto: Number(l.monto),
+            banco_suma: sumaB,
+            brecha,
+            esperados: gmarcas.length,
+            encontrados: movsB.length,
+            faltantes: faltantesDelGrupo
+          })
+        }
+
         l._match = movsB[0]._i
         for (const b of movsB) {
           b._match = l._i
@@ -320,6 +352,7 @@
       pares,
       soloBanco: banco.filter(b => b._match === null),
       soloLibro: libro.filter(l => l._match === null),
+      gruposIncompletos,
       banco, libro
     }
   }
@@ -428,20 +461,35 @@
       const bancoMovs = parsearExcel(wb, bancoId)
       if (!bancoMovs.length) throw new Error('No se leyeron movimientos del archivo. Revisá que sea el estado de cuenta correcto.')
 
-      // 2) Cargar libro (de la cuenta elegida) + marcas guardadas
-      const libroMovs = await cargarLibro(cuentaCod, desde, hasta)
+      // 2) Cargar libro + marcas.
+      //
+      // OJO CON EL RANGO: los movimientos del banco salen del ARCHIVO y no se
+      // filtran por fecha, pero el libro y las marcas SÍ se filtran por el
+      // Desde/Hasta del formulario. Si el archivo trae días fuera de ese rango,
+      // sus marcas no se cargan, el grupo no se reconoce y esos movimientos
+      // aparecen en "Solo en banco" como si nunca se hubieran conciliado.
+      // Parece que el sistema deshizo una conciliación vieja, y no es cierto:
+      // simplemente quedó fuera de la ventana. Peor aún, invita a re-agrupar y
+      // duplicar marcas que ya existían.
+      // Solución: el rango efectivo cubre SIEMPRE lo que trae el archivo.
+      const fechasArch = bancoMovs.map(m => m.fecha).filter(Boolean).sort()
+      const desdeEf = fechasArch.length && fechasArch[0] < desde ? fechasArch[0] : desde
+      const hastaEf = fechasArch.length && fechasArch[fechasArch.length - 1] > hasta ? fechasArch[fechasArch.length - 1] : hasta
+      const rangoAmpliado = (desdeEf !== desde || hastaEf !== hasta)
+
+      const libroMovs = await cargarLibro(cuentaCod, desdeEf, hastaEf)
       // 2b) Materializar las marcas de taxis (depósitos ya conciliados en Taxis)
       //     para que el PASO 0a agrupe esos depósitos contra la partida [IMP-TAXI].
-      try { await getSb().rpc('tx_marcas_taxis_sync', { p_cuenta: cuentaCod, p_desde: desde, p_hasta: hasta }) }
+      try { await getSb().rpc('tx_marcas_taxis_sync', { p_cuenta: cuentaCod, p_desde: desdeEf, p_hasta: hastaEf }) }
       catch (e) { console.warn('No se sincronizaron marcas de taxis:', e?.message || e) }
-      const marcas = await cargarMarcas(cuentaCod, desde, hasta)
+      const marcas = await cargarMarcas(cuentaCod, desdeEf, hastaEf)
 
       // 3) Cruzar (marcas primero, luego monto+fecha)
       const res = conciliar(bancoMovs, libroMovs, tol, marcas)
       const saldoBancoNeto = r2(bancoMovs.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.monto : -m.monto), 0))
       const saldoLibroNeto = r2(libroMovs.reduce((s, m) => s + (m.tipo === 'ingreso' ? m.monto : -m.monto), 0))
 
-      estadoConc = { bancoId, banco: bancoDef.label, cuenta: cuentaCod, cuentaNombre, desde, hasta, tol, ...res, saldoBancoNeto, saldoLibroNeto, reversosNetados: _ultimoNeteo, marcas }
+      estadoConc = { bancoId, banco: bancoDef.label, cuenta: cuentaCod, cuentaNombre, desde: desdeEf, hasta: hastaEf, desdeForm: desde, hastaForm: hasta, rangoAmpliado, tol, ...res, saldoBancoNeto, saldoLibroNeto, reversosNetados: _ultimoNeteo, marcas }
       renderResultado()
     } catch (e) {
       console.error('conciliar:', e)
@@ -469,14 +517,276 @@
     return out
   }
 
+  // ──────────────────────────────────────────────────────────
+  //  DESCONCILIAR marcas huérfanas
+  //
+  //  Una marca dice "este movimiento del banco ya está cruzado con esta
+  //  partida". Si el banco lo revirtió o lo quitó del extracto, la marca queda
+  //  apuntando a algo que no existe y ensucia la conciliación para siempre.
+  //
+  //  UN GRUPO SE DESHACE ENTERO O NADA. Cuando se concilian N movimientos del
+  //  banco contra 1 línea del libro, esas N marcas comparten grupo_id y su suma
+  //  es grupo_total. Sacar una sola dejaría a las otras N-1 diciendo que cuadran
+  //  contra una línea que ya no cuadra: un descuadre nuevo, escondido y peor que
+  //  el original. Por eso siempre se borra el grupo completo.
+  //
+  //  OJO con el alcance: borrar las marcas NO toca la partida ni la contabilidad.
+  //  Solo dice "esto ya no está conciliado". Si el dinero de verdad no entró, la
+  //  partida hay que corregirla aparte — eso es una decisión contable, no algo
+  //  que deba hacer por su cuenta un botón de conciliación.
+  // ──────────────────────────────────────────────────────────
+
+  // Trae TODAS las marcas del grupo desde la base (no solo las que están en
+  // memoria): un grupo puede tener movimientos fuera del período consultado.
+  async function marcasDelGrupo(mk) {
+    const sb = getSb()
+    if (!mk.grupo_id) return [mk]
+    const { data, error } = await sb.from('conciliacion_marcas')
+      .select('*').eq('grupo_id', mk.grupo_id)
+    if (error) throw new Error(error.message)
+    return (data && data.length) ? data : [mk]
+  }
+
+  async function borrarMarcas(ids) {
+    const sb = getSb()
+    const { error } = await sb.from('conciliacion_marcas').delete().in('id', ids)
+    if (error) throw new Error(error.message)
+    if (estadoConc && Array.isArray(estadoConc.marcas)) {
+      estadoConc.marcas = estadoConc.marcas.filter(m => !ids.includes(m.id))
+    }
+  }
+
+  function resumenGrupo(marcas) {
+    const suma = marcas.reduce((s, m) => s + Number(m.mov_monto || 0), 0)
+    const parts = [...new Set(marcas.map(m => m.partida_numero).filter(Boolean))]
+    return { n: marcas.length, suma, partidas: parts }
+  }
+
+  window._cbDesconciliar = async function (id) {
+    const mk = (estadoConc?.marcas || []).find(m => m.id === id)
+    if (!mk) { window.toast?.('No se encontró esa marca', 'error'); return }
+    try {
+      const grupo = await marcasDelGrupo(mk)
+      const g = resumenGrupo(grupo)
+      let msg
+      if (g.n > 1) {
+        msg = `Ese movimiento es parte de un GRUPO:\n\n` +
+          `${g.n} movimientos del banco que suman ${fmtL(g.suma)}\n` +
+          `conciliados contra la partida ${g.partidas.map(p => '#' + p).join(', ')}\n\n` +
+          `Se van a desconciliar LOS ${g.n}, no solo este.\n` +
+          `Un grupo se deshace entero: si se quitara uno solo, los otros ${g.n - 1} quedarían ` +
+          `cuadrando contra una línea del libro que ya no cuadra.\n\n` +
+          `Las partidas y la contabilidad NO se tocan.\n\n¿Continuar?`
+      } else {
+        msg = `¿Desconciliar este movimiento?\n\n` +
+          `${mk.mov_fecha} · ${mk.mov_descripcion || '(sin descripción)'}\n` +
+          `Monto: ${fmtL(mk.mov_monto)}${mk.partida_numero ? `\nPartida: #${mk.partida_numero}` : ''}\n\n` +
+          `Se quita la marca de conciliación. La partida y la contabilidad NO se tocan.`
+      }
+      if (!confirm(msg)) return
+      await borrarMarcas(grupo.map(m => m.id))
+      window.toast?.(g.n > 1 ? `Grupo desconciliado (${g.n} movimientos)` : 'Movimiento desconciliado', 'success')
+      renderResultado()
+    } catch (e) { window.toast?.('Error: ' + e.message, 'error') }
+  }
+
+  window._cbDesconciliarTodas = async function () {
+    const faltan = marcasFaltantes(estadoConc?.marcas, estadoConc?.banco)
+    if (!faltan.length) { window.toast?.('No hay marcas para desconciliar', 'error'); return }
+    try {
+      // Juntar los grupos completos de cada huérfana. Varias huérfanas pueden
+      // caer en el mismo grupo (pasó con los dos DEP_ATM del mismo día): así se
+      // borra una sola vez y el conteo que se muestra es el real.
+      const todas = new Map()
+      for (const mk of faltan) {
+        for (const m of await marcasDelGrupo(mk)) todas.set(m.id, m)
+      }
+      const lista = [...todas.values()]
+      const g = resumenGrupo(lista)
+      const grupos = new Set(lista.map(m => m.grupo_id || m.id)).size
+      const msg =
+        `Se van a desconciliar ${grupos} grupo(s) de conciliación:\n\n` +
+        `${lista.length} movimientos del banco · ${fmtL(g.suma)}\n` +
+        `Partidas afectadas: ${g.partidas.map(p => '#' + p).join(', ') || '—'}\n\n` +
+        `Los ${faltan.length} movimientos que no aparecen en el extracto arrastran a todo su grupo: ` +
+        `un grupo se deshace entero o queda descuadrado.\n\n` +
+        `Las partidas y la contabilidad NO se tocan.\n\n¿Continuar?`
+      if (!confirm(msg)) return
+      await borrarMarcas(lista.map(m => m.id))
+      window.toast?.(`${lista.length} movimiento(s) desconciliado(s)`, 'success')
+      renderResultado()
+    } catch (e) { window.toast?.('Error: ' + e.message, 'error') }
+  }
+
+  // ──────────────────────────────────────────────────────────
+  //  RECUPERAR un grupo roto
+  //
+  //  Cuando se borran marcas de a una, el grupo queda con menos movimientos de
+  //  los que su total reclama. Esos movimientos siguen en el extracto pero
+  //  quedan sueltos en "Solo en banco", y NO se pueden reparar con «Agrupar N
+  //  banco → 1 libro»: esa herramienta pide seleccionar la línea del libro, y
+  //  esa línea ya está cruzada con la parte del grupo que sí sobrevivió.
+  //
+  //  Esto es lo que faltaba: volver a pegar los movimientos sueltos AL GRUPO
+  //  que ya existe, usando su mismo grupo_id. Con un objetivo a la vista, para
+  //  no tener que sumar doce depósitos a ojo.
+  // ──────────────────────────────────────────────────────────
+  let objetivoGrupo = null
+
+  window._cbArmarGrupo = function (gid) {
+    const g = (estadoConc?.gruposIncompletos || []).find(x => x.grupo_id === gid)
+    if (!g) { window.toast?.('No se encontró ese grupo', 'error'); return }
+    const mk = (estadoConc.marcas || []).find(m => m.grupo_id === gid)
+    objetivoGrupo = {
+      grupo_id: gid,
+      partida_id: g.partida_id,
+      partida_numero: g.partida_numero,
+      falta: r2(g.sinMarca),
+      cuenta_codigo: mk?.cuenta_codigo || estadoConc.cuenta,
+      banco: mk?.banco || estadoConc.bancoId,
+      grupo_total: mk?.grupo_total ?? g.libro_monto
+    }
+    // Limpiar selección previa para arrancar de cero
+    document.querySelectorAll('.cb-sel-banco:checked').forEach(c => { c.checked = false })
+    window._cbSumaSel()
+    document.getElementById('cb-objetivo')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.toast?.(`Seleccioná los movimientos de la partida #${g.partida_numero}`, 'success')
+  }
+
+  window._cbCancelarObjetivo = function () {
+    objetivoGrupo = null
+    document.querySelectorAll('.cb-sel-banco:checked').forEach(c => { c.checked = false })
+    window._cbSumaSel()
+  }
+
+  // Pinta el objetivo y cuánto falta según lo que va seleccionado
+  function pintarObjetivo(sumaSel) {
+    const cont = document.getElementById('cb-objetivo')
+    if (!cont) return
+    if (!objetivoGrupo) { cont.innerHTML = ''; return }
+    const o = objetivoGrupo
+    const restan = r2(o.falta - sumaSel)
+    const cuadra = Math.abs(restan) < 0.01
+    cont.innerHTML = `
+      <div style="padding:10px 14px;background:${cuadra ? 'rgba(22,163,74,.10)' : 'rgba(224,168,0,.10)'};border-bottom:1px solid ${cuadra ? 'var(--green)' : 'var(--amber)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="font-size:13px">
+            🔧 Armando el grupo de la partida <strong>#${o.partida_numero}</strong>
+            <div style="font-size:12px;color:var(--text3);margin-top:3px">
+              Falta recuperar <strong>${fmtL(o.falta)}</strong> ·
+              seleccionado <strong style="color:var(--text)">${fmtL(sumaSel)}</strong> ·
+              ${cuadra ? '<strong style="color:var(--green)">✓ cuadra exacto</strong>'
+                       : `restan <strong style="color:var(--amber)">${fmtL(restan)}</strong>`}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11.5px" onclick="window._cbCancelarObjetivo()">Cancelar</button>
+            <button class="btn ${cuadra ? 'btn-gold' : 'btn-ghost'}" style="padding:4px 12px;font-size:11.5px${cuadra ? '' : ';opacity:.5'}"
+                    ${cuadra ? '' : 'disabled'} onclick="window._cbConfirmarGrupo()">Pegar al grupo #${o.partida_numero}</button>
+          </div>
+        </div>
+      </div>`
+  }
+
+  let _guardandoGrupo = false
+  window._cbConfirmarGrupo = async function () {
+    if (!objetivoGrupo) return
+    // Un segundo clic mientras se guarda insertaba las marcas DOS VECES.
+    // Le pasó a la #1569: quedó con 52 marcas por 32,248 contra una línea de
+    // 21,399 — el doble de lo recuperado.
+    if (_guardandoGrupo) return
+    const o = objetivoGrupo
+    const sel = [...document.querySelectorAll('.cb-sel-banco:checked')].map(c => parseInt(c.value, 10))
+    const movs = sel.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
+    if (!movs.length) { window.toast?.('No hay movimientos seleccionados', 'error'); return }
+    const suma = r2(movs.reduce((s, m) => s + Number(m.monto || 0), 0))
+    if (Math.abs(suma - o.falta) > 0.01) {
+      window.toast?.(`La suma (${fmtL(suma)}) no coincide con lo que falta (${fmtL(o.falta)})`, 'error'); return
+    }
+    if (!confirm(
+      `¿Pegar ${movs.length} movimiento(s) por ${fmtL(suma)} al grupo de la partida #${o.partida_numero}?\n\n` +
+      `Se recrean las marcas que se habían borrado. La partida y la contabilidad NO se tocan.`)) return
+    _guardandoGrupo = true
+    const btnOk = document.querySelector('#cb-objetivo button.btn-gold')
+    if (btnOk) { btnOk.disabled = true; btnOk.textContent = 'Guardando…' }
+    try {
+      // Releer el grupo desde la base antes de escribir.
+      const { data: yaHay } = await getSb().from('conciliacion_marcas')
+        .select('mov_fecha,mov_monto').eq('grupo_id', o.grupo_id)
+      const actuales = yaHay || []
+      const sumaActual = r2(actuales.reduce((s2, m) => s2 + Number(m.mov_monto || 0), 0))
+
+      // INVARIANTE DURA: un grupo NUNCA puede sumar más que su total declarado.
+      // Es la única regla que no depende de comparar descripciones (que difieren
+      // entre las marcas de Taxis y las del extracto) ni de contar montos
+      // repetidos (el 29-jun tiene siete depósitos de L.500 distintos, y
+      // deduplicar por monto se llevaría marcas buenas).
+      // Sin esta regla, la #1569 terminó con 52 marcas por 32,248 contra una
+      // línea de 21,399.
+      const totalGrupo = Number(o.grupo_total || 0)
+      if (totalGrupo > 0 && r2(sumaActual + suma) > r2(totalGrupo) + 0.02) {
+        window.toast?.(
+          `No se puede: el grupo ya suma ${fmtL(sumaActual)} y la línea del libro dice ${fmtL(totalGrupo)}. ` +
+          `Agregar ${fmtL(suma)} lo pasaría de largo.`, 'error')
+        return
+      }
+
+      // Además, no reinsertar movimientos que ya estén (misma fecha y monto,
+      // contando repeticiones: si el grupo ya tiene tres de L.500 ese día y se
+      // seleccionan cuatro, solo entra uno).
+      const cuenta = {}
+      for (const m of actuales) {
+        const k = `${m.mov_fecha}|${Number(m.mov_monto).toFixed(2)}`
+        cuenta[k] = (cuenta[k] || 0) + 1
+      }
+      const nuevos = []
+      for (const m of movs) {
+        const k = `${m.fecha}|${Number(m.monto).toFixed(2)}`
+        if (cuenta[k] > 0) { cuenta[k]--; continue }
+        nuevos.push(m)
+      }
+      if (!nuevos.length) {
+        window.toast?.('Esos movimientos ya estaban en el grupo — no se duplicó nada', 'error')
+        objetivoGrupo = null; window._cbConciliar(); return
+      }
+      if (nuevos.length < movs.length) {
+        window.toast?.(`${movs.length - nuevos.length} ya estaban en el grupo; se agregan ${nuevos.length}`, 'success')
+      }
+      const filas = nuevos.map(m => ({
+        cuenta_codigo: o.cuenta_codigo, banco: o.banco,
+        mov_fecha: m.fecha, mov_monto: m.monto, mov_tipo: m.tipo,
+        mov_descripcion: (m.descripcion || '').slice(0, 120),
+        partida_id: o.partida_id, partida_numero: o.partida_numero,
+        origen: 'grupo', grupo_id: o.grupo_id, grupo_total: o.grupo_total
+      }))
+      const { error } = await getSb().from('conciliacion_marcas').insert(filas)
+      if (error) throw new Error(error.message)
+      objetivoGrupo = null
+      window.toast?.(`${filas.length} movimiento(s) devueltos al grupo — reconciliando…`, 'success')
+      window._cbConciliar()
+    } catch (e) { window.toast?.('Error: ' + e.message, 'error') }
+    finally { _guardandoGrupo = false }
+  }
+
   function renderResultado() {
     const e = estadoConc
     const resumen = document.getElementById('cb-resumen')
     const dif = r2(e.saldoBancoNeto - e.saldoLibroNeto)
     const cuadra = Math.abs(dif) < 0.01
     const faltan = marcasFaltantes(e.marcas, e.banco)
-    const banner = `<div style="padding:11px 16px;border-radius:10px;margin-bottom:12px;font-weight:700;font-size:15px;background:${cuadra ? 'rgba(22,163,74,.12)' : 'rgba(248,81,73,.12)'};border:1px solid ${cuadra ? 'var(--green)' : 'var(--red)'};color:${cuadra ? 'var(--green)' : 'var(--red)'}">${cuadra ? '✓ CUADRA — banco y libro coinciden' : `⚠ NO CUADRA — Diferencia ${fmtL(dif)}`}${faltan.length ? ` · ${faltan.length} conciliado(s) ya no está(n) en el extracto` : ''}</div>`
-    resumen.innerHTML = banner + `
+    const gi = e.gruposIncompletos || []
+    // Solo lo que el banco NO trae puede explicar el descuadre. Lo que perdió su
+    // marca sigue en el extracto (queda en "Solo en banco"), así que no mueve el
+    // neto: contarlo hacía que el aviso dijera L. 11,713 con un descuadre de 600.
+    const sinBancoTot = r2(gi.reduce((s, g) =>
+      s + r2((g.faltantes || []).reduce((a, f) => a + Number(f.mov_monto || 0), 0)), 0))
+    const sinMarcaTot = r2(gi.reduce((s, g) => s + r2(g.brecha), 0) - sinBancoTot)
+    const banner = `<div style="padding:11px 16px;border-radius:10px;margin-bottom:12px;font-weight:700;font-size:15px;background:${cuadra ? 'rgba(22,163,74,.12)' : 'rgba(248,81,73,.12)'};border:1px solid ${cuadra ? 'var(--green)' : 'var(--red)'};color:${cuadra ? 'var(--green)' : 'var(--red)'}">${cuadra ? '✓ CUADRA — banco y libro coinciden' : `⚠ NO CUADRA — Diferencia ${fmtL(dif)}`}${faltan.length ? ` · ${faltan.length} conciliado(s) ya no está(n) en el extracto` : ''}${gi.length ? `<div style="font-weight:500;font-size:12.5px;margin-top:5px;color:var(--amber)">🧩 ${gi.length} grupo(s) incompleto(s)${sinBancoTot !== 0 ? ` · ${fmtL(sinBancoTot)} que el banco ya no trae` : ''}${sinMarcaTot !== 0 ? ` · ${fmtL(sinMarcaTot)} de marcas perdidas (el dinero está, quedó en "Solo en banco")` : ''}</div>` : ''}</div>`
+    const avisoRango = e.rangoAmpliado ? `<div style="padding:9px 14px;border-radius:9px;margin-bottom:10px;background:rgba(59,130,246,.10);border:1px solid #3b82f6;color:#9ec5fe;font-size:12.5px">
+      📅 El archivo trae movimientos del <strong>${e.desde}</strong> al <strong>${e.hasta}</strong>, fuera del rango que pusiste (${e.desdeForm} → ${e.hastaForm}).
+      Se amplió solo para cargar el libro y las marcas de esos días — si no, las conciliaciones viejas de esas fechas aparecerían como si nunca se hubieran hecho.
+    </div>` : ''
+    resumen.innerHTML = banner + avisoRango + `
       <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
         <div class="stat-card"><div class="stat-num" style="font-size:17px;color:var(--green)">${e.pares.length}</div><div class="stat-label">Conciliados</div></div>
         <div class="stat-card"><div class="stat-num" style="font-size:17px;color:var(--amber)">${e.soloBanco.length}</div><div class="stat-label">Solo en banco</div></div>
@@ -511,20 +821,102 @@
       </div>` : ''
 
     document.getElementById('cb-resultado').innerHTML = `
-      ${faltan.length ? `<div class="table-wrap" style="margin-bottom:14px;border:1px solid var(--red)">
-        <div style="padding:10px 14px;font-weight:700;color:var(--red);background:var(--bg3)">⚠️ Conciliados que ya NO están en el extracto (${faltan.length}) — el banco los eliminó o revirtió</div>
-        <table style="width:100%"><thead><tr><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th>Partida</th></tr></thead>
-        <tbody>${faltan.map(mk => `<tr>
+      ${(e.gruposIncompletos || []).length ? (() => {
+        const gi = e.gruposIncompletos
+        // Un grupo incompleto tiene DOS causas posibles, y se distinguen así:
+        //
+        //  a) LA MARCA EXISTE pero el movimiento no está en el extracto
+        //     → el banco lo quitó o revirtió. Plata que el libro reclama y el
+        //       banco no muestra. Eso sí es un problema contable.
+        //
+        //  b) EL MOVIMIENTO EXISTE pero su marca se borró
+        //     → el grupo se rompió (pasa al desconciliar de a uno). El dinero
+        //       está: el movimiento quedó suelto en "Solo en banco". No falta
+        //       plata, falta volver a emparejarlo.
+        //
+        //  Se separan porque mezclarlas hacía decir "explican L. 11,713" cuando
+        //  el descuadre real era L. 600: casi todo era (b), no plata perdida.
+        for (const g of gi) {
+          g.sinBanco = r2(g.faltantes.reduce((s2, f) => s2 + Number(f.mov_monto || 0), 0))
+          g.sinMarca = r2(g.brecha - g.sinBanco)
+        }
+        const totSinBanco = r2(gi.reduce((s2, g) => s2 + g.sinBanco, 0))
+        const totSinMarca = r2(gi.reduce((s2, g) => s2 + g.sinMarca, 0))
+        return `<div class="table-wrap" style="margin-bottom:14px;border:1px solid var(--amber)">
+        <div style="padding:10px 14px;font-weight:700;color:var(--amber);background:var(--bg3)">
+          🧩 Grupos incompletos (${gi.length})
+        </div>
+        <div style="padding:9px 14px;font-size:12.5px;color:var(--text2);background:var(--bg2);border-bottom:1px solid var(--border)">
+          ${totSinBanco !== 0 ? `⚠️ <strong style="color:var(--red)">${fmtL(totSinBanco)}</strong> — el banco <strong>ya no trae</strong> esos movimientos. Esa sí es plata que el libro reclama y el extracto no muestra: si el banco los revirtió, la partida tiene de más.` : ''}
+          ${totSinBanco !== 0 && totSinMarca !== 0 ? '<br>' : ''}
+          ${totSinMarca !== 0 ? `🔧 <strong style="color:var(--amber)">${fmtL(totSinMarca)}</strong> — <strong>el grupo se rompió</strong>: esos movimientos están en el extracto pero perdieron su marca, y quedaron sueltos abajo en "Solo en banco". <strong>No falta plata</strong>, falta volver a emparejarlos con «🧩 Agrupar N banco → 1 libro».` : ''}
+        </div>
+        <table style="width:100%"><thead><tr>
+          <th>Partida</th><th style="text-align:right">Dice el libro</th><th style="text-align:right">Trae el extracto</th>
+          <th style="text-align:right">Banco no lo trae</th><th style="text-align:right">Marca perdida</th><th>Movs</th><th>Qué falta</th>
+        </tr></thead>
+        <tbody>${gi.map(g => `<tr>
+          <td>${g.partida_numero ? '#' + g.partida_numero : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmtL(g.libro_monto)}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmtL(g.banco_suma)}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${Math.abs(g.sinBanco) > 0.01 ? 'var(--red)' : 'var(--text3)'};font-weight:${Math.abs(g.sinBanco) > 0.01 ? '700' : '400'}">${Math.abs(g.sinBanco) > 0.01 ? fmtL(g.sinBanco) : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${Math.abs(g.sinMarca) > 0.01 ? 'var(--amber)' : 'var(--text3)'}">${Math.abs(g.sinMarca) > 0.01 ? fmtL(g.sinMarca) : '—'}</td>
+          <td style="font-size:12px">${g.encontrados} de ${g.esperados}</td>
+          <td style="font-size:11.5px;color:var(--text3)">
+            ${g.faltantes.slice(0, 3).map(m => `${m.mov_fecha} · ${fmtL(m.mov_monto)} · ${(m.mov_descripcion || '').slice(0, 24)}`).join('<br>') || '<em>—</em>'}
+            ${g.faltantes.length > 3 ? `<br>… y ${g.faltantes.length - 3} más` : ''}
+            ${Math.abs(g.sinMarca) > 0.01 ? `<div style="margin-top:5px"><button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--amber);border-color:var(--amber)"
+              onclick="window._cbArmarGrupo('${g.grupo_id}')">🔧 Recuperar ${fmtL(g.sinMarca)}</button></div>` : ''}
+          </td>
+        </tr>`).join('')}</tbody></table>
+        <div style="padding:8px 14px;font-size:12px;color:var(--text3)">
+          <strong>"Banco no lo trae"</strong>: la marca existe pero el movimiento no está en el extracto. El banco lo quitó o revirtió → revisá la partida.
+          <br><strong>"Marca perdida"</strong>: el movimiento está en el extracto pero sin marca, y quedó suelto en "Solo en banco". Se arregla seleccionándolo ahí y usando «🧩 Agrupar N banco → 1 libro» contra la línea de esa partida. No es plata faltante.
+        </div>
+      </div>` })() : ''}
+      ${faltan.length ? (() => {
+        // Cuántas marcas tiene cada grupo (de las que están en memoria: sirve
+        // para avisar del arrastre; el conteo exacto sale de la base al borrar)
+        const porGrupo = {}
+        for (const m of (estadoConc.marcas || [])) {
+          const k = m.grupo_id || ('solo:' + m.id)
+          porGrupo[k] = porGrupo[k] || { n: 0, suma: 0, partida: m.partida_numero }
+          porGrupo[k].n++; porGrupo[k].suma += Number(m.mov_monto || 0)
+        }
+        const gruposAfectados = new Set(faltan.map(m => m.grupo_id || ('solo:' + m.id)))
+        return `<div class="table-wrap" style="margin-bottom:14px;border:1px solid var(--red)">
+        <div style="padding:10px 14px;font-weight:700;color:var(--red);background:var(--bg3);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <span>⚠️ Conciliados que ya NO están en el extracto (${faltan.length}) — el banco los eliminó o revirtió</span>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11.5px;color:var(--red);border-color:var(--red)"
+                  onclick="window._cbDesconciliarTodas()">Desconciliar ${gruposAfectados.size} grupo(s)</button>
+        </div>
+        <table style="width:100%"><thead><tr><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th>Partida</th><th>Grupo</th><th style="text-align:right">Acción</th></tr></thead>
+        <tbody>${faltan.map(mk => {
+          const k = mk.grupo_id || ('solo:' + mk.id)
+          const g = porGrupo[k] || { n: 1, suma: Number(mk.mov_monto || 0) }
+          return `<tr>
           <td>${mk.mov_fecha}</td>
           <td>${(mk.mov_descripcion || '—')}</td>
           <td style="text-align:right;color:var(--red)">${fmtL(mk.mov_monto)}</td>
           <td>${mk.partida_numero ? '#' + mk.partida_numero : '—'}</td>
-        </tr>`).join('')}</tbody></table>
-        <div style="padding:8px 14px;font-size:12px;color:var(--text3)">Estaban conciliados antes pero no aparecen en el estado de cuenta subido. Revisá si el banco los revirtió (duplicados) o si falta un extracto — su partida del libro quedó en "Solo en el libro".</div>
-      </div>` : ''}
+          <td style="font-size:11.5px;color:${g.n > 1 ? 'var(--amber)' : 'var(--text3)'}">
+            ${g.n > 1 ? `⚠ ${g.n} movs · ${fmtL(g.suma)}` : 'individual'}
+          </td>
+          <td style="text-align:right">
+            <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px"
+                    onclick="window._cbDesconciliar('${mk.id}')">${g.n > 1 ? `Desconciliar grupo (${g.n})` : 'Desconciliar'}</button>
+          </td>
+        </tr>` }).join('')}</tbody></table>
+        <div style="padding:8px 14px;font-size:12px;color:var(--text3)">
+          Estaban conciliados antes pero no aparecen en el estado de cuenta subido. Revisá si el banco los revirtió (duplicados) o si falta un extracto.
+          <br><strong>Los que dicen "N movs" arrastran a todo su grupo:</strong> esos N se conciliaron juntos contra una sola línea del libro, así que se deshacen enteros o el grupo queda descuadrado.
+          <br><strong>Desconciliar solo quita la marca</strong> — no toca la partida ni la contabilidad.
+        </div>
+      </div>` })() : ''}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="table-wrap">
           <div style="padding:10px 14px;font-weight:600;color:var(--amber);background:var(--bg3)">⚠️ Solo en el banco (${e.soloBanco.length}) — falta registrar en el sistema</div>
+          <div id="cb-objetivo"></div>
           ${controlesDiaBanco}
           <table style="width:100%"><thead><tr><th style="width:28px"></th><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th>Acción</th></tr></thead>
           <tbody>${e.soloBanco.map((m) => filaMov(m, 'banco', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
@@ -667,6 +1059,11 @@
     if (!el || !estadoConc) return
     const selB = [...document.querySelectorAll('.cb-sel-banco:checked')].map(c => parseInt(c.value, 10))
     const selL = [...document.querySelectorAll('.cb-sel-libro:checked')].map(c => parseInt(c.value, 10))
+    // Si se está armando un grupo roto, el objetivo se actualiza con cada clic
+    if (objetivoGrupo) {
+      const movsObj = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
+      pintarObjetivo(r2(movsObj.reduce((s2, m) => s2 + Number(m.monto || 0), 0)))
+    }
     if (!selB.length && !selL.length) { el.innerHTML = ''; return }
     const movsB = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
     // Neto: ingreso suma, egreso resta → un crédito y un débito iguales se cancelan
@@ -722,6 +1119,37 @@
     }
     estadoConc.soloLibro = estadoConc.soloLibro.filter(x => x._i !== l._i)
     // Guardar el grupo: una marca por movimiento del banco, con grupo_id y grupo_total compartidos
+    //
+    // ANTES de insertar hay que ver si esa línea del libro YA tiene marcas. Si
+    // se agrupa de nuevo sobre una partida que ya tenía grupo (típico al reparar
+    // uno roto), quedaban DOS grupos para la misma línea. En la conciliación
+    // siguiente los dos pelean por los mismos movimientos del banco: el que
+    // corre primero se los lleva y el otro queda incompleto. El resultado es que
+    // días que estaban bien aparecen de golpe sin conciliar, sin que nadie haya
+    // borrado nada. Una línea del libro = un solo grupo.
+    let previas = []
+    try {
+      const { data } = await getSb().from('conciliacion_marcas')
+        .select('id,grupo_id,mov_monto,grupo_total')
+        .eq('partida_id', l.partida_id).eq('cuenta_codigo', estadoConc.cuenta)
+      previas = (data || []).filter(m => Math.abs(Number(m.grupo_total ?? l.monto) - Number(l.monto)) <= 0.02)
+    } catch (e) { /* si no se puede consultar, se sigue y se avisa abajo */ }
+
+    if (previas.length) {
+      const sumaPrev = r2(previas.reduce((s, m) => s + Number(m.mov_monto || 0), 0))
+      const ok = confirm(
+        `La partida #${l.numero_partida || '—'} YA tiene ${previas.length} marca(s) de conciliación ` +
+        `por ${fmtL(sumaPrev)} contra esta misma línea.\n\n` +
+        `Si se agregan las nuevas sin quitar las viejas, quedan DOS grupos para la misma línea y ` +
+        `la próxima conciliación se descuadra sola.\n\n` +
+        `¿Reemplazar las ${previas.length} marcas anteriores por estos ${movsB.length} movimientos?\n\n` +
+        `(No se toca la partida ni la contabilidad.)`)
+      if (!ok) { window.toast?.('Agrupado cancelado', 'error'); return }
+      const { error: dErr } = await getSb().from('conciliacion_marcas')
+        .delete().in('id', previas.map(m => m.id))
+      if (dErr) { window.toast?.('No se pudieron quitar las marcas anteriores: ' + dErr.message, 'error'); return }
+    }
+
     const gid = (window.crypto?.randomUUID?.() || ('g' + Date.now() + Math.random().toString(36).slice(2)))
     const filas = movsB.map(b => ({
       cuenta_codigo: estadoConc.cuenta, banco: estadoConc.bancoId,
