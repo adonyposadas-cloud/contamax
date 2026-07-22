@@ -2855,32 +2855,102 @@
         [cAut.count || 0, 'Autorizadas']
       ]
       stats.innerHTML = st.map(s => `<div class="cot-stat"><div class="n">${s[0]}</div><div class="l">${s[1]}</div></div>`).join('')
-      const rows = pend.data || []
-      const grupos = { cotizacion: [], autorizacion: [], compra: [] }
-      rows.forEach(p => { grupos[grupoDe(p)].push(p) })
-      const secDef = [
-        ['cotizacion', '📝 En cotización'],
-        ['autorizacion', '⏱ Esperando autorización'],
-        ['compra', '📦 Pedido de repuestos']
-      ]
-      const grupHTML = secDef.map(([key, titulo]) => {
-        const arr = grupos[key]
-        const cuerpo = arr.length ? cuerpoSeccion(key, arr)
-          : '<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ninguna —</div>'
-        return `<div style="margin-bottom:14px">
-          <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37)">
-            <span style="font-size:12px;font-weight:800;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px">${titulo}</span>
-            <span style="font-size:11px;color:var(--text3,#8b949e)">${arr.length}</span>
-          </div>${cuerpo}</div>`
-      }).join('')
-      list.innerHTML = rows.length ? grupHTML
-        : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones activas</div>'
-      startClock()
+      _dashRows = pend.data || []
+      pintarDashLista()
       loadPedidosRapidos()
     } catch (e) {
       console.error('[cotizador dashboard]', e)
       stats.innerHTML = ''; list.innerHTML = `<div style="text-align:center;color:var(--red,#f85149);padding:20px">Error al cargar: ${esc(e.message || e)}</div>`
     }
+  }
+
+  // Buscador del tablero: filtra las tres secciones a la vez.
+  let _dashQ = ''
+  window._cotDashBuscar = (v) => {
+    _dashQ = String(v || '')
+    const cur = document.activeElement
+    const pos = cur && cur.id === 'cot-dash-q' ? cur.selectionStart : null
+    pintarDashLista()
+    const el = document.getElementById('cot-dash-q')
+    if (el && pos !== null) { el.focus(); el.setSelectionRange(pos, pos) }
+  }
+  window._cotDashLimpiar = () => { _dashQ = ''; pintarDashLista() }
+
+  // Una solicitada sin ítems ni solicitados no tiene NADA que cotizar: se creó
+  // solo para habilitar el checklist del mecánico. Mezclarlas con las que sí
+  // esperan precio ensucia la cola y hace perder de vista el trabajo real.
+  const soloParaChecklist = (p) =>
+    p.tipo_solicitud === 'solicitado' &&
+    (p.items || []).length === 0 &&
+    (p.solicitados || []).length === 0
+
+  const coincide = (p, q) => {
+    if (!q) return true
+    const t = q.trim().toUpperCase()
+    return [p.numero_orden, p.correlativo, p.placa, p.cliente, p.marca, p.modelo,
+            p.mecanico, p.vendedor, p.jefe_pista]
+      .some(v => String(v || '').toUpperCase().includes(t))
+  }
+
+  let _dashRows = []
+  let _verChecklist = false
+  window._cotVerChecklist = () => { _verChecklist = !_verChecklist; pintarDashLista() }
+
+  function pintarDashLista () {
+    const list = document.getElementById('cot-dash-list'); if (!list) return
+    const todas = _dashRows || []
+
+    // Separar las que solo existen para habilitar el checklist
+    const chk = todas.filter(soloParaChecklist)
+    const reales = todas.filter(p => !soloParaChecklist(p))
+
+    const q = _dashQ
+    const grupos = { cotizacion: [], autorizacion: [], compra: [] }
+    reales.filter(p => coincide(p, q)).forEach(p => { grupos[grupoDe(p)].push(p) })
+    const chkVis = chk.filter(p => coincide(p, q))
+
+    const secDef = [
+      ['cotizacion', '📝 En cotización'],
+      ['autorizacion', '⏱ Esperando autorización'],
+      ['compra', '📦 Pedido de repuestos']
+    ]
+    const grupHTML = secDef.map(([key, titulo]) => {
+      const arr = grupos[key]
+      const cuerpo = arr.length ? cuerpoSeccion(key, arr)
+        : `<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ${q ? 'ninguna coincide' : 'ninguna'} —</div>`
+      return `<div style="margin-bottom:14px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37)">
+          <span style="font-size:12px;font-weight:800;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px">${titulo}</span>
+          <span style="font-size:11px;color:var(--text3,#8b949e)">${arr.length}</span>
+        </div>${cuerpo}</div>`
+    }).join('')
+
+    // Sección aparte, colapsada: no tienen nada que cotizar
+    const chkHTML = chk.length ? `
+      <div style="margin-bottom:14px">
+        <div onclick="window._cotVerChecklist()" style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37);cursor:pointer">
+          <span style="font-size:12px;font-weight:800;color:var(--text3,#8b949e);text-transform:uppercase;letter-spacing:.5px">
+            ${_verChecklist ? '▾' : '▸'} 🔧 Solo para habilitar el checklist
+          </span>
+          <span style="font-size:11px;color:var(--text3,#8b949e)">${chkVis.length}</span>
+          <span style="font-size:11px;color:var(--text3,#8b949e);margin-left:auto">no tienen nada que cotizar</span>
+        </div>
+        ${_verChecklist ? (chkVis.length ? cuerpoSeccion('cotizacion', chkVis)
+          : '<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ninguna coincide —</div>') : ''}
+      </div>` : ''
+
+    const buscador = `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <input id="cot-dash-q" class="cot-in" value="${esc(_dashQ)}" oninput="window._cotDashBuscar(this.value)"
+               placeholder="🔍 Buscar por orden, placa, cliente, técnico…"
+               style="flex:1;text-transform:uppercase">
+        ${_dashQ ? '<button class="btn btn-ghost" style="font-size:12px;padding:7px 12px" onclick="window._cotDashLimpiar()">Limpiar</button>' : ''}
+      </div>`
+
+    list.innerHTML = buscador + (todas.length
+      ? (grupHTML + chkHTML)
+      : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones activas</div>')
+    startClock()
   }
 
   function progresoPedidos (items) {
@@ -2946,6 +3016,10 @@
     if (esAut) {
       const completo = pr.total === 0 || pr.llegados === pr.total
       accion = editar + ` <button class="btn btn-ghost" data-dashact="finalizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:${completo ? 'var(--green,#16a34a)' : 'var(--text3,#8b949e)'}${completo ? '' : ';opacity:.45;cursor:not-allowed'}"${completo ? '' : ` disabled title="Faltan productos por llegar (${pr.llegados}/${pr.total})"`}>Finalizar</button>`
+    } else if (soloParaChecklist(p)) {
+      // No tiene nada que cotizar: se creó para habilitar el checklist. Lo único
+      // sensato es cerrarla cuando el carro ya siguió su curso por la recomendada.
+      accion = editar + ` <button class="btn btn-ghost" data-dashact="cerrar-chk" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--text3,#8b949e)" title="No hay nada que cotizar acá. Cerrala para sacarla de la cola.">✓ Cerrar</button>`
     } else {
       accion = editar + ` <button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
     }
@@ -3057,6 +3131,30 @@
 
   async function dashAccion (act, id) {
     if (act === 'editar') { if (await recuperarProforma(id) !== false) switchTab('nueva'); return }
+    if (act === 'cerrar-chk') {
+      // Antes de cerrar, mirar si la recomendada de esa orden ya siguió su curso.
+      // Si está autorizada o facturada, esta solicitada ya cumplió su función.
+      // Si la recomendada todavía está en proceso, conviene avisarlo: cerrar acá
+      // no rompe nada, pero el usuario debería saberlo.
+      let ctx = ''
+      try {
+        const { data: p0 } = await sb().from('cotizador_proformas')
+          .select('numero_orden,correlativo').eq('id', id).single()
+        if (p0?.numero_orden) {
+          const { data: rec } = await sb().from('cotizador_proformas')
+            .select('estado').eq('numero_orden', p0.numero_orden).eq('tipo_solicitud', 'recomendado')
+          const ests = (rec || []).map(r => r.estado)
+          if (!ests.length) ctx = '\n\n⚠ Esta orden todavía NO tiene checklist cerrado. Si el mecánico no la inspeccionó, al cerrarla desaparece de su lista.'
+          else if (ests.some(e => ['autorizada', 'finalizada'].includes(e))) ctx = `\n\n✓ Su recomendada ya está ${ests.join(', ')} — el carro siguió su curso.`
+          else ctx = `\n\nSu recomendada está en: ${ests.join(', ')}.`
+        }
+      } catch (e) { /* si falla la consulta, se cierra igual */ }
+      if (!confirm('¿Cerrar esta solicitada?\n\nNo tiene nada que cotizar: se creó para habilitar el checklist.' + ctx + '\n\nSe quita del tablero. No afecta la contabilidad ni la recomendada.')) return
+      const { error } = await sb().from('cotizador_proformas')
+        .update({ estado: 'finalizada', proc_completada: new Date().toISOString() }).eq('id', id)
+      if (error) { toast('Error al cerrar: ' + error.message, 'error'); return }
+      toast('Cerrada — ya no estorba en la cola', 'success'); loadDashboard(); return
+    }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
       const { error } = await sb().rpc('cot_autorizar', { p_id: id, p_por: ((window._currentProfile() || {}).nombre || '') })

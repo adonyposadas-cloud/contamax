@@ -45,6 +45,7 @@
   let YO = null            // fila de `usuarios` (NO es auth.uid(): el vínculo es auth_user_id)
   let INSP = null          // inspección abierta
   let VEH = null           // datos del vehículo de la orden (marca/modelo/año/placa)
+  let EXTRAS = []          // hallazgos fuera de la lista de 34 puntos
   let HALL = {}            // punto_id → { severidad, medicion, medicion_extra, foto_url, nota }
   let SUBIENDO = 0
 
@@ -374,6 +375,14 @@
   // la otra. Antes el checklist mostraba solo la placa de la solicitada, así
   // que decía "sin placa" y no mostraba marca ni modelo, aunque el sistema los
   // tuviera a un campo de distancia.
+  // Hallazgos que el mecánico encontró fuera de los 34 puntos.
+  async function cargarExtras () {
+    if (!INSP) { EXTRAS = []; return }
+    const { data } = await sb().from('checklist_extras')
+      .select('*').eq('inspeccion_id', INSP.id).order('created_at')
+    EXTRAS = data || []
+  }
+
   async function cargarVehiculo (numeroOrden) {
     if (!numeroOrden) { VEH = null; return }
     try {
@@ -428,7 +437,7 @@
       // Ya no hay proforma huérfana que limpiar: si el insert falla, no se creó nada.
       if (e2) throw e2
 
-      INSP = insp; HALL = {}
+      INSP = insp; HALL = {}; EXTRAS = []
       await cargarVehiculo(insp.numero_orden)
       renderChecklist()
     } catch (e) {
@@ -444,6 +453,7 @@
     INSP = insp; HALL = {}
     for (const x of (h || [])) HALL[x.punto_id] = x
     await cargarVehiculo(insp.numero_orden)
+    await cargarExtras()
     renderChecklist()
   }
 
@@ -496,10 +506,47 @@
       html += puntoHTML(p)
     }
 
+    // ── OTROS HALLAZGOS ─────────────────────────────────────────────────────
+    // Lo que el mecánico vio y no está en los 34 puntos: el puente de dirección
+    // con juego, un cable de ABS cortado, una moldura rota. Antes se perdía —
+    // y con eso, una venta.
+    html += `
+      <div class="mec-sis">Otros hallazgos</div>
+      <div class="mec-pt" style="border-style:dashed">
+        <div style="font-size:12.5px;color:var(--text3,#8b949e);margin-bottom:10px">
+          ¿Viste algo malo que no está en la lista? Agregalo acá. <b>La foto es obligatoria</b>: es lo único que lo respalda.
+        </div>
+        ${EXTRAS.map(x => `
+          <div style="border:1px solid var(--border,#2a3340);border-radius:9px;padding:10px;margin-bottom:8px">
+            <div style="display:flex;align-items:start;gap:8px">
+              <span style="font-size:17px;line-height:1.2">${x.severidad === 'rojo' ? '🔴' : '🟡'}</span>
+              <div style="flex:1;min-width:0">
+                <div style="color:var(--text,#e6edf3);font-size:13.5px">${esc(x.descripcion)}</div>
+                <div style="margin-top:7px">
+                  ${x.foto_url
+                    ? `<img data-foto="${esc(x.foto_url)}" style="width:92px;height:70px;object-fit:cover;border-radius:7px">`
+                    : `<label class="btn btn-ghost" style="font-size:12px;padding:7px 12px;cursor:pointer;color:#f0a500;border-color:#f0a500">
+                         📷 Falta la foto
+                         <input type="file" accept="image/*" capture="environment" style="display:none" onchange="mecExtraFoto('${x.id}', this)">
+                       </label>`}
+                </div>
+              </div>
+              <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:#f85149" onclick="mecExtraQuitar('${x.id}')">✕</button>
+            </div>
+          </div>`).join('')}
+        ${EXTRAS.length < 10
+          ? `<button class="btn btn-ghost" style="width:100%;padding:11px;font-size:13px" onclick="mecExtraNuevo()">+ Agregar hallazgo</button>`
+          : `<div style="font-size:12px;color:#f0a500">Llegaste al tope de 10. Si de verdad hay más, avisale a gerencia: probablemente falte un punto en el checklist.</div>`}
+      </div>`
+
     const done = PUNTOS.filter(p => HALL[p.id]).length
+    const extraSinFoto = EXTRAS.filter(x => !x.foto_url).length
     html += `
       <div class="mec-bar">
-        <div class="mec-prog"><b style="color:${done === PUNTOS.length ? 'var(--green,#16a34a)' : 'var(--gold,#c8a24a)'}">${done}/${PUNTOS.length}</b> puntos</div>
+        <div class="mec-prog">
+          <b style="color:${done === PUNTOS.length ? 'var(--green,#16a34a)' : 'var(--gold,#c8a24a)'}">${done}/${PUNTOS.length}</b> puntos
+          ${EXTRAS.length ? `<div style="font-size:11.5px;color:${extraSinFoto ? '#f0a500' : 'var(--text3,#8b949e)'}">+ ${EXTRAS.length} fuera de lista${extraSinFoto ? ` · ⚠ ${extraSinFoto} sin foto` : ''}</div>` : ''}
+        </div>
         <button class="btn btn-gold" id="mec-cerrar" style="padding:12px 20px;font-weight:700" onclick="mecCerrar()">Enviar a cotizar →</button>
       </div>`
     root.innerHTML = html
@@ -694,6 +741,51 @@
     HALL[puntoId] = data
   }
 
+  // ── OTROS HALLAZGOS: acciones ────────────────────────────────────────────
+  window.mecExtraNuevo = async function () {
+    if (!INSP) return
+    const d = prompt('¿Qué encontraste?\n\nEscribilo claro: el cotizador tiene que entender qué cotizar sin ver el carro.\nEj: "Puente de dirección con juego lateral"')
+    if (d === null) return
+    if (d.trim().length < 8) { toast('Describilo mejor (mínimo 8 caracteres)', 'error'); return }
+    const grave = confirm(`"${d.trim()}"\n\n¿Qué tan urgente es?\n\nAceptar = 🔴 Cambiar ya\nCancelar = 🟡 Desgastado`)
+    try {
+      await sb().rpc('checklist_extra_agregar', {
+        p_inspeccion_id: INSP.id, p_descripcion: d.trim(),
+        p_severidad: grave ? 'rojo' : 'amarillo', p_foto_url: null
+      }).then(r => { if (r.error) throw new Error(r.error.message) })
+      await cargarExtras(); renderChecklist()
+      toast('Agregado — ahora tomale la foto', 'success')
+    } catch (e) { toast(e.message || e, 'error') }
+  }
+
+  window.mecExtraFoto = async function (extraId, input) {
+    const file = input.files?.[0]; if (!file || !INSP) return
+    SUBIENDO++; toast('Subiendo foto…')
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      // Mismo criterio que el resto: upsert:false, la foto es evidencia y no se pisa.
+      const path = `${INSP.id}/extra-${extraId}-${Date.now()}.${ext}`
+      const up = await sb().storage.from('checklist-fotos').upload(path, file, { upsert: false })
+      if (up.error) throw up.error
+      const r = await sb().rpc('checklist_extra_editar', { p_id: extraId, p_campo: 'foto_url', p_valor: path })
+      if (r.error) throw new Error(r.error.message)
+      await cargarExtras(); renderChecklist()
+      toast('Foto guardada', 'success')
+    } catch (e) {
+      toast('No se pudo subir la foto: ' + (e.message || e), 'error')
+    } finally { SUBIENDO-- }
+  }
+
+  window.mecExtraQuitar = async function (extraId) {
+    if (!confirm('¿Quitar este hallazgo?')) return
+    try {
+      const r = await sb().rpc('checklist_extra_quitar', { p_id: extraId })
+      if (r.error) throw new Error(r.error.message)
+      await cargarExtras(); renderChecklist()
+      toast('Quitado', 'success')
+    } catch (e) { toast(e.message || e, 'error') }
+  }
+
   window.mecFoto = async function (puntoId, input) {
     const file = input.files?.[0]; if (!file) return
     const h = HALL[puntoId]; if (!h) return
@@ -750,6 +842,13 @@
     const sinFoto = PUNTOS.filter(p => p.foto_obligatoria && ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad) && !HALL[p.id]?.foto_url)
     if (sinFoto.length) { toast(`Falta la foto en: ${sinFoto.map(p => p.nombre).join(', ')}`, 'error'); return }
 
+    // Hallazgos fuera de lista sin foto. El servidor también lo frena, pero es
+    // mejor avisarlo acá con el nombre de cuál falta que rebotar al enviar.
+    const exSinFoto = EXTRAS.filter(x => !x.foto_url)
+    if (exSinFoto.length) {
+      toast(`Falta la foto en: ${exSinFoto.map(x => x.descripcion.slice(0, 28)).join(', ')}`, 'error'); return
+    }
+
     // Frenos: número obligatorio, incluso en 🟢, salvo excepción registrada con motivo.
     const sinMed = PUNTOS.filter(p => p.medicion_siempre &&
       HALL[p.id]?.medicion == null && !HALL[p.id]?.medicion_estimada)
@@ -783,7 +882,7 @@
     await renderOrdenes()
   }
 
-  window.mecVolver = async function () { INSP = null; HALL = {}; VEH = null; await renderOrdenes() }
+  window.mecVolver = async function () { INSP = null; HALL = {}; VEH = null; EXTRAS = []; await renderOrdenes() }
 
   // ── 5. Mi comisión ─────────────────────────────────────────────────────────
   window.mecComision = async function () {
