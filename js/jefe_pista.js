@@ -58,9 +58,26 @@ function jpStyles() {
     #view-jefe-pista .jp-tag{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:700}
     #view-jefe-pista .jp-tag.p{background:rgba(59,130,246,.18);color:#3b82f6}
     #view-jefe-pista .jp-tag.s{background:rgba(139,92,246,.18);color:#8b5cf6}
-    #view-jefe-pista .jp-ordcard{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:#15171c;border:1px solid #2a2e37;margin-bottom:8px}
+    /* SIEMPRE en dos filas: descripción arriba, botones abajo.
+       Antes era adaptativo (los botones subían si cabían) y eso hacía saltar la
+       tarjeta cada segundo: el reloj cambia de ancho al pasar de "1" a "8", y
+       ese pixel de más bastaba para que la fila dejara de caber y todo se
+       reacomodara. Un layout que depende de si entra por poco es un layout que
+       tiembla. Con filas fijas, la tarjeta no se mueve nunca. */
+    #view-jefe-pista .jp-ordcard{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:12px;border-radius:10px;background:#15171c;border:1px solid #2a2e37;margin-bottom:8px}
+    #view-jefe-pista .jp-ordinfo{flex:1 1 100%;min-width:0}
+    #view-jefe-pista .jp-ordacts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;justify-content:flex-end}
+    /* Sin esto, "Editar con cliente" se parte letra por letra al angostarse */
+    #view-jefe-pista .jp-b{white-space:nowrap}
+    @media(max-width:760px){
+      #view-jefe-pista .jp-ordacts{justify-content:stretch}
+      #view-jefe-pista .jp-b{flex:1 1 auto;justify-content:center}
+      #view-jefe-pista .jp-clock{width:100%;margin-right:0;text-align:center}
+    }
     #view-jefe-pista .jp-empty{text-align:center;color:#8b8f98;padding:20px}
-    #view-jefe-pista .jp-clock{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}`
+    /* margin-right:auto empuja los botones a la derecha y deja el reloj a la
+       izquierda de su fila. tabular-nums ya estaba: los dígitos no cambian de ancho. */
+    #view-jefe-pista .jp-clock{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;margin-right:auto}`
   document.head.appendChild(s)
 }
 
@@ -539,19 +556,21 @@ function jpOrdenCard(p) {
   // Borde izquierdo por fase (mismos colores del cotizador): rojo=cotización, amarillo=autorización, verde=pedido/completado
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
   return `<div class="jp-ordcard" style="border-left:4px solid ${bCol}">
-    <div style="flex:1;min-width:0">
+    <div class="jp-ordinfo">
       <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nSol && nIt ? `${nSol} por cotizar · ${nIt} cotizado(s)` : (nIt && !nSol ? `${nIt} cotizado(s)` : `${nProd} ítem(s)`)}</span>${tipoBadge}</div>
       <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
     </div>
-    ${reloj}
-    ${btnCambiarTec}
-    ${btnTec}
-    ${btnEdit}
-    ${btnWA}
-    ${btnNV}
-    ${btnPdf}
-    ${btnAdd}
-    ${btnAut}
+    <div class="jp-ordacts">
+      ${reloj}
+      ${btnCambiarTec}
+      ${btnTec}
+      ${btnEdit}
+      ${btnWA}
+      ${btnNV}
+      ${btnPdf}
+      ${btnAdd}
+      ${btnAut}
+    </div>
   </div>`
 }
 
@@ -914,8 +933,15 @@ window.jpToggleChecklist = async function (prender) {
 window.jpNoVendida = async function (id) {
   const p = jpData.find(x => x.id === id)
   const { data: motivos, error } = await jpSb().from('motivos_no_venta')
-    .select('codigo,nombre').order('orden')
+    .select('codigo,nombre').eq('activo', true).order('orden')
   if (error) { window.toast?.('No se pudieron cargar los motivos: ' + error.message, 'error'); return }
+  // Lista vacía SIN error = RLS activo sin política de lectura. Supabase no
+  // avisa nada: simplemente devuelve cero filas. Sin este chequeo, el modal se
+  // abre mudo (solo Cancelar y Registrar) y el usuario no sabe qué pasó.
+  if (!motivos || !motivos.length) {
+    window.toast?.('No hay motivos configurados, o la tabla motivos_no_venta no tiene permiso de lectura. Avisale a gerencia.', 'error')
+    return
+  }
 
   let ov = document.getElementById('jp-nv-modal'); if (ov) ov.remove()
   ov = document.createElement('div')
@@ -934,8 +960,9 @@ window.jpNoVendida = async function (id) {
       </div>
       <div style="display:grid;gap:6px" id="jp-nv-lista">
         ${(motivos || []).map(m => `
-          <label style="display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #2a2e37;border-radius:8px;cursor:pointer;font-size:13px">
-            <input type="radio" name="jp-nv-m" value="${jpEsc(m.codigo)}"> ${jpEsc(m.nombre)}
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid #2a2e37;border-radius:8px;cursor:pointer;font-size:13px;line-height:1.35">
+            <input type="radio" name="jp-nv-m" value="${jpEsc(m.codigo)}" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
+            <span style="flex:1;min-width:0;white-space:normal;word-break:break-word">${jpEsc(m.nombre)}</span>
           </label>`).join('')}
       </div>
       <input id="jp-nv-nota" class="jp-inp" style="margin-top:9px" placeholder="Detalle (obligatorio si elegís «Otro»)">
