@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260714s'
+  window.__mecBuild = '20260722a'
 
   // ── INTERRUPTOR: mostrar u ocultar "Mi comisión" a los técnicos ──
   // Durante la prueba piloto se oculta para cuadrar los números internamente sin que los
@@ -44,6 +44,7 @@
   let CFG = null
   let YO = null            // fila de `usuarios` (NO es auth.uid(): el vínculo es auth_user_id)
   let INSP = null          // inspección abierta
+  let VEH = null           // datos del vehículo de la orden (marca/modelo/año/placa)
   let HALL = {}            // punto_id → { severidad, medicion, medicion_extra, foto_url, nota }
   let SUBIENDO = 0
 
@@ -201,14 +202,42 @@
 
     let html = ''
     if (abiertas?.length) {
+      // La inspección guarda la placa que tenía la proforma 'solicitado' al
+      // arrancar, y esa a veces viene vacía (la orden #55011 quedó "sin placa"
+      // aunque el dato estaba en la proforma hermana). Se completa acá con lo
+      // que tengan las proformas de esa orden, para que el mecánico reconozca
+      // el carro en la lista.
+      const vehPorOrden = {}
+      try {
+        const nums = [...new Set(abiertas.map(i => i.numero_orden).filter(Boolean))]
+        if (nums.length) {
+          const { data: pfs } = await sb().from('cotizador_proformas')
+            .select('numero_orden,placa,marca,modelo,anio_vehiculo').in('numero_orden', nums)
+          for (const f of (pfs || [])) {
+            const v = vehPorOrden[f.numero_orden] = vehPorOrden[f.numero_orden] || {}
+            for (const k of ['placa', 'marca', 'modelo', 'anio_vehiculo']) {
+              if (!v[k] && f[k] && String(f[k]).trim()) v[k] = String(f[k]).trim()
+            }
+          }
+        }
+      } catch (e) { /* si falla, se muestra lo que haya en la inspección */ }
+
       html += '<div class="mec-sis">Inspecciones sin terminar</div>'
-      html += abiertas.map(i => `
+      html += abiertas.map(i => {
+        const v = vehPorOrden[i.numero_orden] || {}
+        const carro = [v.marca, v.modelo, v.anio_vehiculo].filter(Boolean).join(' ')
+        const placa = i.placa || v.placa || ''
+        return `
         <div class="mec-card" onclick="mecAbrirInspeccion('${i.id}')">
           <div class="mec-ord">
-            <div><b>Orden #${esc(i.numero_orden || '—')}</b><div style="font-size:12px;color:var(--text3,#8b949e)">${esc(i.placa || '')}</div></div>
+            <div>
+              <b>Orden #${esc(i.numero_orden || '—')}</b>
+              ${carro ? `<div style="font-size:12.5px;color:var(--text2,#c9d1d9)">${esc(carro)}</div>` : ''}
+              <div style="font-size:12px;color:var(--text3,#8b949e)">${esc(placa || 'sin placa')}</div>
+            </div>
             <span style="color:var(--gold,#c8a24a);font-weight:700">Continuar →</span>
           </div>
-        </div>`).join('')
+        </div>` }).join('')
     }
 
     html += '<div class="mec-sis">Por inspeccionar</div>'
@@ -336,6 +365,40 @@
     await renderTrabajosAsignados(yo)
   }
 
+  // Datos del vehículo para el encabezado del checklist.
+  //
+  // Se leen de TODAS las proformas de la orden y se combinan campo por campo,
+  // quedándose con el primer valor que no esté vacío. Una orden puede tener la
+  // 'solicitado' y la 'recomendado', y no siempre la misma trae todo: en la
+  // orden #55011 la solicitada venía sin placa ni año, y esos datos estaban en
+  // la otra. Antes el checklist mostraba solo la placa de la solicitada, así
+  // que decía "sin placa" y no mostraba marca ni modelo, aunque el sistema los
+  // tuviera a un campo de distancia.
+  async function cargarVehiculo (numeroOrden) {
+    if (!numeroOrden) { VEH = null; return }
+    try {
+      const { data } = await sb().from('cotizador_proformas')
+        .select('placa,marca,modelo,anio_vehiculo,anio,cliente,kilometraje,tipo_solicitud')
+        .eq('numero_orden', numeroOrden)
+      const filas = data || []
+      const primero = (campo) => {
+        for (const f of filas) {
+          const v = f[campo]
+          if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim()
+        }
+        return ''
+      }
+      VEH = {
+        placa: primero('placa'),
+        marca: primero('marca'),
+        modelo: primero('modelo'),
+        anio: primero('anio_vehiculo') || primero('anio'),
+        cliente: primero('cliente'),
+        kilometraje: primero('kilometraje')
+      }
+    } catch (e) { VEH = null }
+  }
+
   // ── 2. Iniciar: crea la proforma 'recomendado' + la inspección ─────────────
   window.mecIniciar = async function (proformaSolicitadoId) {
     const root = $('mec-root')
@@ -366,6 +429,7 @@
       if (e2) throw e2
 
       INSP = insp; HALL = {}
+      await cargarVehiculo(insp.numero_orden)
       renderChecklist()
     } catch (e) {
       toast('Error: ' + (e.message || e), 'error')
@@ -379,6 +443,7 @@
     const { data: h } = await sb().from('checklist_hallazgos').select('*').eq('inspeccion_id', id)
     INSP = insp; HALL = {}
     for (const x of (h || [])) HALL[x.punto_id] = x
+    await cargarVehiculo(insp.numero_orden)
     renderChecklist()
   }
 
@@ -389,7 +454,12 @@
       <div class="mec-card" style="position:sticky;top:0;z-index:5">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div><b>Orden #${esc(INSP.numero_orden || '—')}</b>
-            <div style="font-size:12px;color:var(--text3,#8b949e)">${esc(INSP.placa || 'sin placa')}</div></div>
+            <div style="font-size:13px;color:var(--text2,#c9d1d9);margin-top:2px">
+              ${esc([VEH?.marca, VEH?.modelo, VEH?.anio].filter(Boolean).join(' ') || 'vehículo sin datos')}
+            </div>
+            <div style="font-size:12px;color:var(--text3,#8b949e)">
+              ${esc(INSP.placa || VEH?.placa || 'sin placa')}${VEH?.cliente ? ' · ' + esc(VEH.cliente) : ''}
+            </div></div>
           <button class="btn btn-ghost" style="font-size:12px" onclick="mecVolver()">← Salir</button>
         </div>
       </div>`
@@ -713,7 +783,7 @@
     await renderOrdenes()
   }
 
-  window.mecVolver = async function () { INSP = null; HALL = {}; await renderOrdenes() }
+  window.mecVolver = async function () { INSP = null; HALL = {}; VEH = null; await renderOrdenes() }
 
   // ── 5. Mi comisión ─────────────────────────────────────────────────────────
   window.mecComision = async function () {

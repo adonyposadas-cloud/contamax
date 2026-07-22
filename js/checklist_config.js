@@ -16,7 +16,7 @@
  * Todo cambio va por RPC (checklist_punto_editar / _crear): valida en el SERVIDOR.
  * Si la validación viviera en este JS, un fetch la saltaría.
  * ========================================================================== */
-window.__chkCfgBuild = '20260717c'
+window.__chkCfgBuild = '20260722a'
 
 ;(function () {
   const sb = () => window._sb
@@ -97,7 +97,8 @@ window.__chkCfgBuild = '20260717c'
       const cat = l.tipo === 'p' ? NOMB.p[l.producto_cat_id] : NOMB.s[l.servicio_cat_id]
       return !cat || cat.precio_base == null
     })
-    const mide = p.tipo_punto === 'medicion'
+    // Los umbrales hacen falta si el punto mide por tipo O por 'medición siempre'
+    const mide = p.tipo_punto === 'medicion' || !!p.medicion_siempre
     return `
       <div id="chk-punto-${p.id}" data-pid="${p.id}" style="background:#15171c;border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
@@ -130,11 +131,19 @@ window.__chkCfgBuild = '20260717c'
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:${mide ? '10' : '2'}px;font-size:12px">
           <label style="cursor:pointer"><input type="checkbox" ${p.foto_obligatoria ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'foto_obligatoria',this.checked)"> 📷 Foto obligatoria</label>
           <label style="cursor:pointer"><input type="checkbox" ${p.pide_medicion ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'pide_medicion',this.checked)"> 📏 Pide medición</label>
+          <label style="cursor:pointer;color:${p.medicion_siempre ? '#f0a500' : '#e6edf3'}" title="Pide el número SIEMPRE, aunque el punto salga en verde y aunque 'Pide medición' esté apagado. Se usa en frenos: el técnico ya desmontó la rueda y tiene el dato en la mano. Construye el historial de desgaste por placa.">
+            <input type="checkbox" ${p.medicion_siempre ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'medicion_siempre',this.checked)"> 📐 Medición siempre${p.medicion_siempre ? ' ⚠' : ''}
+          </label>
           <label style="cursor:pointer"><input type="checkbox" ${p.nota_obligatoria ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'nota_obligatoria',this.checked)"> 📝 Nota obligatoria</label>
           <label style="cursor:pointer;color:${sinPrecio ? '#f85149' : '#e6edf3'}" title="${sinPrecio ? 'Hay líneas de venta sin precio: la base no dejará activar comisión' : ''}">
             <input type="checkbox" ${p.paga_comision ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'paga_comision',this.checked)"> 💰 Paga comisión${sinPrecio ? ' 🔒' : ''}
           </label>
         </div>
+
+        ${(p.medicion_siempre && !p.pide_medicion) ? `
+        <div style="font-size:11.5px;color:#f0a500;margin:-4px 0 8px">
+          ⚠ Aunque «Pide medición» esté apagado, este punto <b>sigue pidiendo el número</b> por «Medición siempre».
+        </div>` : ''}
 
         ${mide ? `
         <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:#8b949e;margin-bottom:10px">
