@@ -1880,9 +1880,13 @@
     const rowHTML = ({ it, i }) => {
       const total = it.precio * it.cantidad * (1 + (it.isv || 0) / 100)
       const p = getPrioridad(it)
-      return `<div class="cot-row">
+      // Los que el cliente rechazó siguen visibles acá (para poder devolverlos si
+      // cambia de idea), pero atenuados y con etiqueta: no entran al pedido de
+      // repuestos ni al total.
+      const oc = !!it.oculto
+      return `<div class="cot-row"${oc ? ' style="opacity:.5"' : ''}>
         <div>
-          <div style="font-size:13px">${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}${esc(String(it.desc).toUpperCase())} <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
+          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:#f85149" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
@@ -1911,7 +1915,9 @@
     const d = Math.max(0, Math.min(100, Number(PF.descuento) || 0))
     const f = 1 - d / 100
     let sub = 0, isv = 0
-    PF.items.forEach(it => { const b = it.precio * it.cantidad; sub += b; isv += b * f * (it.isv || 0) / 100 })
+    // Solo lo que el cliente autorizó: los marcados como oculto quedaron fuera
+    // de la cotización acordada, así que no pueden sumar al total ni al ISV.
+    sinOcultos(PF.items).forEach(it => { const b = it.precio * it.cantidad; sub += b; isv += b * f * (it.isv || 0) / 100 })
     const descMonto = sub * d / 100
     return {
       descPct: d,
@@ -2365,7 +2371,7 @@
       const now = new Date().toISOString()
       for (const sid of PEDPF._srcs) {
         const meta = PEDPF._srcMeta[sid] || {}
-        const prods = PEDPF.items.filter(it => it._src === sid && it.tipo === 'p')
+        const prods = sinOcultos(PEDPF.items).filter(it => it._src === sid && it.tipo === 'p')
         const pendientes = prods.filter(it => it.seguimiento === 'pedido' || !it.seguimiento)
         const completo = prods.length > 0 && pendientes.length === 0
         try {
@@ -2383,7 +2389,7 @@
       return
     }
     if (!PEDPF.id) return
-    const prods = (PEDPF.items || []).filter(it => it.tipo === 'p')
+    const prods = sinOcultos(PEDPF.items).filter(it => it.tipo === 'p')
     // Pendiente = ítem pedido a proveedor y aún NO llegó, o sin decidir.
     // Los de bodega y los ya llegados NO cuentan (no están en el proceso de compra).
     const pendientes = prods.filter(it => it.seguimiento === 'pedido' || !it.seguimiento)
@@ -2410,7 +2416,7 @@
       for (const sid of PEDPF._srcs) {
         const meta = PEDPF._srcMeta[sid] || {}
         if (meta.proc_completada) continue
-        const its = PEDPF.items.filter(x => x._src === sid)
+        const its = sinOcultos(PEDPF.items).filter(x => x._src === sid)
         const solo = progresoPedidos(its).total === 0
         const ts = (solo && meta.proc_aprobada) ? meta.proc_aprobada : new Date().toISOString()
         const upd = solo ? { proc_completada: ts, proc_compra_ms: 0 } : { proc_completada: ts }
@@ -2953,8 +2959,14 @@
     startClock()
   }
 
+  // El jefe de pista poda la cotización con el cliente y marca lo rechazado con
+  // oculto:true. Esa marca vive en el JSON de items, pero el cotizador la
+  // ignoraba: pedía repuestos que el cliente NO autorizó y el total no cuadraba
+  // con el PDF que se le entregó. Este filtro es el que faltaba.
+  const sinOcultos = (arr) => (arr || []).filter(it => !it.oculto)
+
   function progresoPedidos (items) {
-    const prods = (items || []).filter(it => it.tipo !== 's')
+    const prods = sinOcultos(items).filter(it => it.tipo !== 's')
     const total = prods.length
     const pedidos = prods.filter(it => it.seguimiento === 'pedido' || it.seguimiento === 'llegado').length
     const llegados = prods.filter(it => it.seguimiento === 'llegado').length
@@ -3079,7 +3091,7 @@
     const num = numeroDe(base.vendedor, base.correlativo)
     const veh = [base.marca, base.modelo, base.anio].filter(Boolean).join(' ')
     const resp = responsableDe(base)
-    const allItems = grp.reduce((a, p) => a.concat(p.items || []), [])
+    const allItems = grp.reduce((a, p) => a.concat(sinOcultos(p.items)), [])
     const pr = progresoPedidos(allItems)
     const totalMonto = grp.reduce((a, p) => a + (Number(p.total) || 0), 0)
     const progBadge = (pr.total > 0)
@@ -3186,6 +3198,9 @@
     try {
       const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
       if (error) throw error
+      // PEDPF conserva TODOS los ítems (se escribe de vuelta al marcar
+      // seguimiento). Lo que el cliente rechazó se oculta al pintar, en
+      // renderPedidos(), conservando los índices.
       PEDPF = data
       $('ped-title').textContent = `${numeroDe(data.vendedor, data.correlativo)} — ${[data.marca, data.modelo, data.anio_vehiculo || data.anio].filter(Boolean).join(' ')} · ${data.placa || 's/placa'}`
       renderPedidos()
@@ -3209,6 +3224,10 @@
       PEDPF = { _merged: true, _srcs: data.map(d => d.id), _srcMeta: {}, id: base.id, vendedor: base.vendedor, correlativo: base.correlativo, marca: base.marca, modelo: base.modelo, placa: base.placa, items: [] }
       data.forEach(d => {
         PEDPF._srcMeta[d.id] = { descuento: Number(d.descuento) || 0, estado: d.estado, proc_aprobada: d.proc_aprobada, proc_completada: d.proc_completada, tipo: d.tipo_solicitud }
+        // OJO: acá van TODOS los ítems, incluidos los ocultos. PEDPF.items se
+        // vuelve a escribir en la base al marcar seguimiento (línea ~3368), así
+        // que si se filtrara acá, los ítems que el cliente rechazó se borrarían
+        // para siempre. El filtro va donde se MUESTRA, no donde se carga.
         ;(d.items || []).forEach(it => PEDPF.items.push(Object.assign({}, it, { _src: d.id, _srcTipo: d.tipo_solicitud })))
       })
       $('ped-title').textContent = `${numeroDe(base.vendedor, base.correlativo)} — ${[base.marca, base.modelo].filter(Boolean).join(' ')} · ${base.placa || 's/placa'} · 🔗 combinado`
@@ -3239,7 +3258,7 @@
       }
       return { sub: r2(sub), descMonto: r2(descMonto), isv: r2(isv), total: r2(sub - descMonto + isv), d: 0 }
     }
-    const items = Array.isArray(PEDPF && PEDPF.items) ? PEDPF.items : []
+    const items = sinOcultos(PEDPF && PEDPF.items)
     const d = Math.max(0, Math.min(100, Number(PEDPF && PEDPF.descuento) || 0))
     const f = 1 - d / 100
     let sub = 0, isv = 0
@@ -3257,11 +3276,15 @@
 
   function renderPedidos () {
     if (!PEDPF) return
+    // items = TODOS (los índices deben calzar con PEDPF.items, que es lo que
+    // indexa pedItem(i) y lo que se guarda de vuelta). Lo que el cliente rechazó
+    // se saca al armar las filas, más abajo, conservando el índice original.
     const items = Array.isArray(PEDPF.items) ? PEDPF.items : []
-    const pr = progresoPedidos(items)
+    const visibles = sinOcultos(items)
+    const pr = progresoPedidos(visibles)
     const pct = pr.total ? Math.round(pr.llegados / pr.total * 100) : 0
-    const totalItems = items.length
-    const facturados = items.filter(it => it.facturado).length
+    const totalItems = visibles.length
+    const facturados = visibles.filter(it => it.facturado).length
     const fpct = totalItems ? Math.round(facturados / totalItems * 100) : 0
     const fcolor = (totalItems && facturados === totalItems) ? 'var(--green,#16a34a)' : (facturados > 0 ? 'var(--amber,#f59e0b)' : 'var(--text3,#8b949e)')
     const barra = (lbl, a, b, p, color) => `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">${lbl}</span><span style="font-weight:700;color:${color}">${a}/${b} (${p}%)</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${p}%;background:${color}"></div></div></div>`
@@ -3272,7 +3295,7 @@
     const facBadge = (it) => it.facturado ? ` <span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">📋 Facturado</span>` : ''
     const dimF = (it) => it.facturado ? 'opacity:.6' : ''
     const prods = []; const servs = []
-    items.forEach((it, i) => { (it.tipo === 's' ? servs : prods).push({ it, i }) })
+    items.forEach((it, i) => { if (it.oculto) return; (it.tipo === 's' ? servs : prods).push({ it, i }) })
     const rowP = ({ it, i }) => {
       const seg = it.seguimiento || ''
       let estadoTxt = ''
@@ -4204,7 +4227,9 @@
   // Orden de trabajo: PDF interno del taller, SIN precios, con prioridad,
   // casillas para tildar y firma. Se arma desde la misma cotización.
   async function ordenTrabajoPDF (p) {
-    const items = Array.isArray(p.items) ? p.items : []
+    // El PDF es lo que se le entrega al cliente: solo lo que autorizó.
+    // Sin este filtro, el papel mostraba los ítems que él mismo había rechazado.
+    const items = sinOcultos(Array.isArray(p.items) ? p.items : [])
     if (!items.length) { toast('La cotización no tiene ítems', 'error'); return }
     await ensureJsPDF()
     await loadConfig()
@@ -4289,7 +4314,9 @@
   }
 
   async function pdfDeProforma (p, modo) {
-    const items = Array.isArray(p.items) ? p.items : []
+    // El PDF es lo que se le entrega al cliente: solo lo que autorizó.
+    // Sin este filtro, el papel mostraba los ítems que él mismo había rechazado.
+    const items = sinOcultos(Array.isArray(p.items) ? p.items : [])
     if (!items.length) { toast('La cotización no tiene ítems', 'error'); return }
     await ensureJsPDF()
     await loadConfig()

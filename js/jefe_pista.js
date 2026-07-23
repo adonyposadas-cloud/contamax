@@ -142,15 +142,26 @@ window.initJefePista = async () => {
       </div>
     </div>`
   jpRenderItems()
+  // Los técnicos van ANTES de pintar: jpCargar() dibuja los desplegables de
+  // "Sin técnico asignado", y si la lista todavía no llegó, salen vacíos y ya
+  // no se vuelven a pintar. Era eso, no la base: la consulta y los permisos
+  // estaban bien todo el tiempo.
+  await jpLoadTecnicos()
   await jpCargar()
-  jpLoadTecnicos()
   jpLoadCatalogo()
   jpStart()
 }
 
 async function jpLoadTecnicos() {
   try {
-    const { data } = await jpSb().from('tecnicos_cat').select('id,nombre').order('usos', { ascending: false }).limit(500)
+    const { data, error } = await jpSb().from('tecnicos_cat').select('id,nombre').order('usos', { ascending: false }).limit(500)
+    // El error se capturaba en el catch de abajo pero nunca se mostraba, y una
+    // lista vacía por RLS no da error: en los dos casos el desplegable quedaba
+    // con solo "— ELEGÍ TÉCNICO —" y nadie sabía por qué no podía asignar.
+    if (error) { window.toast?.('No se pudieron cargar los técnicos: ' + error.message, 'error'); return }
+    if (!data || !data.length) {
+      window.toast?.('No hay técnicos en el catálogo, o la tabla tecnicos_cat no tiene permiso de lectura. Avisale a gerencia.', 'error')
+    }
     // Se guardan id + nombre. El id es lo que se persiste (enlace duro); el nombre es
     // solo lo que se escribe. Antes se guardaba el texto y el mecánico filtraba por él:
     // un espacio de más y no veía su orden.
@@ -415,7 +426,9 @@ function jpRenderOrdenes() {
 function jpCardAsignar(p) {
   const veh = [p.marca, p.modelo].filter(Boolean).join(' ') || 'Vehículo'
   const corre = p.correlativo ? ('#' + (p.vendedor ? (p.vendedor.trim().slice(0, 2).toUpperCase() + '-') : '') + p.correlativo) : ('Orden ' + (p.numero_orden || ''))
-  const opts = (jpTecnicos || []).map(t => `<option value="${jpEsc(t.id)}">${jpEsc(t.nombre)}</option>`).join('')
+  const opts = (jpTecnicos || []).length
+    ? (jpTecnicos || []).map(t => `<option value="${jpEsc(t.id)}">${jpEsc(t.nombre)}</option>`).join('')
+    : '<option value="" disabled>— no hay técnicos cargados —</option>'
   return `<div class="jp-card" style="border-left:3px solid #f85149">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
       <div>
