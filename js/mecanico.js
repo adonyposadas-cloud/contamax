@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260722a'
+  window.__mecBuild = '20260724a'
 
   // ── INTERRUPTOR: mostrar u ocultar "Mi comisión" a los técnicos ──
   // Durante la prueba piloto se oculta para cuadrar los números internamente sin que los
@@ -481,12 +481,21 @@
     const tarjetaDesmontaje = (r) => {
       const path = INSP['foto_desmontaje_' + r]
       const lbl = r === 'del' ? 'Delantera izq.' : 'Trasera izq.'
-      return `<div class="mec-card" style="border-color:var(--gold,#c8a24a)">
-        <div style="font-weight:700;margin-bottom:4px">🔧 Desmontá la rueda ${r === 'del' ? 'delantera' : 'trasera'} izquierda</div>
-        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">Sacá foto del disco/tambor descubierto.</div>
+      const rueda = r === 'del' ? 'del_izq' : 'tras_izq'
+      // ¿Es obligatoria? Solo si algún punto de esa rueda pide medición siempre.
+      // Si no, se muestra igual (el que quiera medir que la tome) pero sin el
+      // borde dorado ni el tono imperativo: no traba el cierre.
+      const oblig = PUNTOS.some(p => p.rueda_requerida === rueda && p.medicion_siempre)
+      return `<div class="mec-card" style="border-color:${oblig ? 'var(--gold,#c8a24a)' : 'var(--border,#2a3340)'}">
+        <div style="font-weight:${oblig ? '700' : '600'};margin-bottom:4px;color:${oblig ? 'inherit' : 'var(--text2,#c9d1d9)'}">
+          🔧 ${oblig ? 'Desmontá' : 'Si desmontaste'} la rueda ${r === 'del' ? 'delantera' : 'trasera'} izquierda
+        </div>
+        <div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px">
+          ${oblig ? 'Sacá foto del disco/tambor descubierto.' : 'Podés dejar la foto del disco/tambor. Es opcional.'}
+        </div>
         <div class="mec-foto">
           ${path ? `<img data-foto="${esc(path)}" alt="">` : ''}
-          <label class="btn ${path ? 'btn-ghost' : 'btn-gold'}" style="flex:1;text-align:center;padding:11px;cursor:pointer;margin:0">
+          <label class="btn ${path || !oblig ? 'btn-ghost' : 'btn-gold'}" style="flex:1;text-align:center;padding:11px;cursor:pointer;margin:0">
             ${path ? '✓ ' + lbl : '📷 ' + lbl}
             <input type="file" accept="image/*" capture="environment" style="display:none" onchange="mecFotoDesmontaje('${r}', this)">
           </label></div>
@@ -864,8 +873,13 @@
       !String(HALL[p.id]?.nota || '').trim())
     if (infoSinNota.length) { toast(`Escribí qué falta en: ${infoSinNota.map(p => p.nombre).join(', ')}`, 'error'); return }
 
-    // Foto del freno desmontado, salvo que TODOS los puntos de esa rueda sean excepción
-    const necesita = (r) => PUNTOS.some(p => p.rueda_requerida === r && !HALL[p.id]?.medicion_estimada)
+    // Foto del freno desmontado. Se pide SOLO si el punto exige medición siempre:
+    // esa foto existe para probar que se quitó la rueda y se midió con el dato en
+    // la mano. Si no se pide la medición, la foto no prueba nada y solo traba.
+    // (El servidor aplica la misma regla en checklist_cerrar; acá se adelanta para
+    //  avisar antes de mandar, pero antes miraba solo rueda_requerida y frenaba
+    //  aunque la medición estuviera apagada.)
+    const necesita = (r) => PUNTOS.some(p => p.rueda_requerida === r && p.medicion_siempre && !HALL[p.id]?.medicion_estimada)
     if (necesita('del_izq') && !INSP.foto_desmontaje_del) { toast('Falta la foto del freno delantero izquierdo desmontado', 'error'); return }
     if (necesita('tras_izq') && !INSP.foto_desmontaje_tra) { toast('Falta la foto del freno trasero izquierdo desmontado', 'error'); return }
 
