@@ -752,12 +752,36 @@ window.jpAutorizar = async (id) => {
 
 // ── Abrir el PDF de la cotización (mismo que ve el cliente) ──
 // Reutiliza el generador del cotizador (window.cotAbrirPdfProforma).
-window.jpPdf = (id) => {
-  if (typeof window.cotAbrirPdfProforma !== 'function') {
-    window.toast?.('El generador de PDF no cargó. Recargá con Ctrl+Shift+R e intentá de nuevo.', 'error')
-    return
+// Abre el PDF OFICIAL (el mismo que se le manda al cliente). Si la orden todavía
+// no tiene uno, lo genera en el momento. Antes esto llamaba al generador del
+// cotizador, que produce otro documento distinto del que ve el cliente.
+window.jpPdf = async (id) => {
+  const sb = jpSb()
+  try {
+    const { data } = await sb.from('cotizador_proformas').select('pdf_url').eq('id', id).maybeSingle()
+    let url = data && data.pdf_url
+    if (!url) {
+      window.toast?.('Esta orden aún no tiene PDF, generándolo…')
+      const r = await window.jpGenerarPdfOficial(id, jpNombre())
+      url = r.url
+    }
+    if (url) window.open(url, '_blank')
+    else window.toast?.('No se pudo obtener el PDF', 'error')
+  } catch (e) {
+    console.error('[jpPdf]', e)
+    window.toast?.('No se pudo abrir el PDF: ' + (e.message || e), 'error')
   }
-  window.cotAbrirPdfProforma(id, 'descargar')
+}
+
+// Regenerar a mano el PDF oficial (por si alguien editó sin generar).
+window.jpRegenerarPdf = async (id) => {
+  try {
+    const r = await window.jpGenerarPdfOficial(id, jpNombre())
+    window.toast?.('PDF actualizado', 'success')
+    if (r.url) window.open(r.url, '_blank')
+  } catch (e) {
+    window.toast?.('No se pudo regenerar: ' + (e.message || e), 'error')
+  }
 }
 
 // ── Agregar ítems a una orden ya enviada ──
@@ -854,104 +878,152 @@ function jpStart() {
  *   · fotos                → URL firmada de 7 días (el bucket es privado)
  *   · umbrales             → checklist_config
  * ========================================================================== */
+// ── PDF OFICIAL DE LA COTIZACIÓN ────────────────────────────────────────────
+// Es el ÚNICO PDF que ve el cliente, y lo regenera quien la toque: el cotizador
+// al generar, o el jefe de pista al guardar la edición con el cliente.
+//
+// Antes había dos PDF que no se hablaban: el del cotizador (pdfDeProforma → se
+// descargaba en su máquina y no se subía a ningún lado) y este. El jefe de pista
+// se quedaba con el archivo congelado del momento en que él apretó el botón, y
+// los cambios posteriores del cotizador no le llegaban nunca.
+//
+// Devuelve { url, total, pf } o lanza. quien: 'COTIZADOR' | 'JEFE DE PISTA'.
+window.jpGenerarPdfOficial = async function (proformaId, quien) {
+  const sb = jpSb()
+  const { data: pf, error: e0 } = await sb.from('cotizador_proformas')
+    .select('id,cliente,placa,marca,modelo,anio_vehiculo,items,numero_orden,descuento').eq('id', proformaId).single()
+  if (e0) throw e0
+
+  // TODO lo que no esté oculto entra al PDF. Antes se exigía además
+  // hallazgo_linea_id, así que los ítems que el cotizador agregaba a mano
+  // (repuestos solicitados) desaparecían del PDF del cliente aunque se le
+  // estuvieran cobrando: el total del PDF no cuadraba con lo que iba a pagar.
+  const items = (pf.items || []).filter(it => !it.oculto)
+  if (!items.length) throw new Error('Esta cotización no tiene ítems')
+
+  const { data: insp } = await sb.from('checklist_inspecciones')
+    .select('id,foto_desmontaje_del,foto_desmontaje_tra').eq('proforma_id', proformaId).maybeSingle()
+
+  const hIds = [...new Set(items.map(it => it.hallazgo_id).filter(Boolean))]
+  const [rH, rP, rC] = await Promise.all([
+    hIds.length
+      ? sb.from('checklist_hallazgos').select('id,punto_id,severidad,medicion,foto_url,medicion_estimada,nota').in('id', hIds)
+      : Promise.resolve({ data: [] }),
+    sb.from('checklist_puntos').select('id,nombre,unidad_medicion,rueda_requerida,medicion_siempre'),
+    sb.from('checklist_config').select('*').eq('id', 1).maybeSingle()
+  ])
+  const H = {}; for (const h of (rH.data || [])) H[h.id] = h
+  const P = {}; for (const p of (rP.data || [])) P[p.id] = p
+  const CFG = rC.data || {}
+
+  const firmar = async (path) => {
+    if (!path) return ''
+    const { data } = await sb.storage.from('checklist-fotos').createSignedUrl(path, 7 * 24 * 3600)
+    return data?.signedUrl || ''
+  }
+
+  // Umbral que aplica a cada punto, para poder decir "(mínimo 3mm)"
+  const umbral = (pt) => {
+    if (!pt) return null
+    if (pt.rueda_requerida) return CFG.mm_fric_rojo          // frenos
+    if (pt.nombre && /labrado/i.test(pt.nombre)) return CFG.mm_llanta_rojo
+    return null
+  }
+
+  // Agrupar por HALLAZGO (no por ítem): el cliente entiende "fricciones delanteras",
+  // no "FRICCION DELANTERA" + "INSTALACION DE FRICCION DE DISCO DELANTERAS" por separado.
+  // Los ítems SIN hallazgo (los que agregó el cotizador o pidió el cliente) van a su
+  // propia sección: no tienen foto ni medición, pero se cobran y deben verse.
+  const grupos = {}
+  const gSolic = { hallazgo: null, punto: null, severidad: 'solicitado', lineas: [], total: 0 }
+  for (const it of items) {
+    const isv = 1 + (Number(it.isv) || 0) / 100
+    const sub = (Number(it.precio) || 0) * (Number(it.cantidad) || 0) * isv
+    if (!it.hallazgo_id) { gSolic.lineas.push(it.desc); gSolic.total += sub; continue }
+    const g = grupos[it.hallazgo_id] || (grupos[it.hallazgo_id] = {
+      hallazgo: H[it.hallazgo_id], punto: P[it.punto_id], severidad: it.severidad, lineas: [], total: 0
+    })
+    g.lineas.push(it.desc)
+    g.total += sub
+  }
+
+  const veh = [pf.marca, pf.modelo, pf.anio_vehiculo].filter(Boolean).join(' ')
+  const nombre = (pf.cliente || '').trim()
+
+  window.toast?.('Generando el PDF…')
+
+  // Preparar cada grupo con su miniatura + textos, para el PDF
+  let total = 0
+  const gruposPDF = []
+  for (const g of Object.values(grupos)) {
+    const h = g.hallazgo, pt = g.punto
+    let medicionTexto = ''
+    if (h && h.medicion != null && !h.medicion_estimada) {
+      const u = umbral(pt)
+      medicionTexto = `Medición: ${h.medicion}${pt?.unidad_medicion || ''}${u ? ` (mínimo ${u}${pt.unidad_medicion || ''})` : ''}`
+    }
+    const fotoUrl = await firmar(h && h.foto_url)
+    const mini = fotoUrl ? await jpImgAMiniatura(fotoUrl) : null
+    gruposPDF.push({
+      severidad: g.severidad, punto: pt, lineas: g.lineas, total: g.total,
+      medicionTexto, nota: (h && h.nota && String(h.nota).trim()) || '', miniatura: mini
+    })
+    total += g.total
+  }
+  // Sección de solicitados (sin foto ni medición), al final
+  if (gSolic.lineas.length) {
+    gruposPDF.push({
+      severidad: 'solicitado', punto: null, lineas: gSolic.lineas, total: gSolic.total,
+      medicionTexto: '', nota: '', miniatura: null
+    })
+    total += gSolic.total
+  }
+
+  // Miniaturas de desmontaje
+  const fdUrl = await firmar(insp?.foto_desmontaje_del)
+  const ftUrl = await firmar(insp?.foto_desmontaje_tra)
+  const desmontaje = {
+    del: fdUrl ? await jpImgAMiniatura(fdUrl, 320) : null,
+    tra: ftUrl ? await jpImgAMiniatura(ftUrl, 320) : null
+  }
+
+  // Construir y subir el PDF
+  const blob = await jpConstruirPDF({
+    nombre, veh, placa: pf.placa, numero_orden: pf.numero_orden,
+    grupos: gruposPDF, desmontaje, total
+  })
+  const nombreArch = `orden-${pf.numero_orden || pf.id}-${Date.now()}.pdf`
+  // Sin upsert: el nombre ya es único (Date.now), así que siempre es INSERT. El upsert
+  // forzaba un UPDATE que la policy del bucket rechazaba (le falta with_check).
+  const { error: eUp } = await sb.storage.from('cotizaciones-pdf').upload(nombreArch, blob, {
+    contentType: 'application/pdf'
+  })
+  if (eUp) throw new Error('No se pudo subir el PDF: ' + eUp.message)
+  const { data: pub } = sb.storage.from('cotizaciones-pdf').getPublicUrl(nombreArch)
+  const linkPDF = pub?.publicUrl || ''
+
+  // Dejar registrado cuál es el PDF vigente. Esto es lo que hace que haya UNO solo:
+  // lo genere quien lo genere, la fila queda apuntando al último.
+  try {
+    await sb.from('cotizador_proformas').update({
+      pdf_url: linkPDF,
+      pdf_generado_en: new Date().toISOString(),
+      pdf_generado_por: quien || jpNombre() || ''
+    }).eq('id', proformaId)
+  } catch (e) { console.warn('[jpGenerarPdfOficial] no se pudo guardar pdf_url', e) }
+
+  return { url: linkPDF, total, pf }
+}
+
 window.jpEnviarHallazgos = async function (proformaId) {
   const sb = jpSb()
   try {
     window.toast?.('Armando el mensaje…')
-    const { data: pf, error: e0 } = await sb.from('cotizador_proformas')
-      .select('id,cliente,placa,marca,modelo,anio_vehiculo,items,numero_orden,descuento').eq('id', proformaId).single()
-    if (e0) throw e0
-
-    const items = (pf.items || []).filter(it => it.hallazgo_linea_id && !it.oculto)
-    if (!items.length) { window.toast?.('Esta proforma no tiene hallazgos cotizados', 'error'); return }
-
-    const { data: insp } = await sb.from('checklist_inspecciones')
-      .select('id,foto_desmontaje_del,foto_desmontaje_tra').eq('proforma_id', proformaId).single()
-
-    const hIds = [...new Set(items.map(it => it.hallazgo_id).filter(Boolean))]
-    const [rH, rP, rC] = await Promise.all([
-      sb.from('checklist_hallazgos').select('id,punto_id,severidad,medicion,foto_url,medicion_estimada,nota').in('id', hIds),
-      sb.from('checklist_puntos').select('id,nombre,unidad_medicion,rueda_requerida,medicion_siempre'),
-      sb.from('checklist_config').select('*').eq('id', 1).single()
-    ])
-    const H = {}; for (const h of (rH.data || [])) H[h.id] = h
-    const P = {}; for (const p of (rP.data || [])) P[p.id] = p
-    const CFG = rC.data || {}
-
-    const firmar = async (path) => {
-      if (!path) return ''
-      const { data } = await sb.storage.from('checklist-fotos').createSignedUrl(path, 7 * 24 * 3600)
-      return data?.signedUrl || ''
-    }
-
-    // Umbral que aplica a cada punto, para poder decir "(mínimo 3mm)"
-    const umbral = (pt) => {
-      if (!pt) return null
-      if (pt.rueda_requerida) return CFG.mm_fric_rojo          // frenos
-      if (pt.nombre && /labrado/i.test(pt.nombre)) return CFG.mm_llanta_rojo
-      return null
-    }
-
-    // Agrupar por HALLAZGO (no por ítem): el cliente entiende "fricciones delanteras",
-    // no "FRICCION DELANTERA" + "INSTALACION DE FRICCION DE DISCO DELANTERAS" por separado.
-    const grupos = {}
-    for (const it of items) {
-      const g = grupos[it.hallazgo_id] || (grupos[it.hallazgo_id] = {
-        hallazgo: H[it.hallazgo_id], punto: P[it.punto_id], severidad: it.severidad, lineas: [], total: 0
-      })
-      const isv = 1 + (Number(it.isv) || 0) / 100
-      const sub = (Number(it.precio) || 0) * (Number(it.cantidad) || 0) * isv
-      g.lineas.push(it.desc)
-      g.total += sub
-    }
+    const { url: linkPDF, total, pf } = await window.jpGenerarPdfOficial(proformaId, 'JEFE DE PISTA')
 
     const fmt = v => Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const veh = [pf.marca, pf.modelo, pf.anio_vehiculo].filter(Boolean).join(' ')
     const nombre = (pf.cliente || '').trim()
-
-    window.toast?.('Generando el PDF con fotos…')
-
-    // Preparar cada grupo con su miniatura + textos, para el PDF
-    let total = 0
-    const gruposPDF = []
-    for (const g of Object.values(grupos)) {
-      const h = g.hallazgo, pt = g.punto
-      let medicionTexto = ''
-      if (h && h.medicion != null && !h.medicion_estimada) {
-        const u = umbral(pt)
-        medicionTexto = `Medición: ${h.medicion}${pt?.unidad_medicion || ''}${u ? ` (mínimo ${u}${pt.unidad_medicion || ''})` : ''}`
-      }
-      const fotoUrl = await firmar(h && h.foto_url)
-      const mini = fotoUrl ? await jpImgAMiniatura(fotoUrl) : null
-      gruposPDF.push({
-        severidad: g.severidad, punto: pt, lineas: g.lineas, total: g.total,
-        medicionTexto, nota: (h && h.nota && String(h.nota).trim()) || '', miniatura: mini
-      })
-      total += g.total
-    }
-
-    // Miniaturas de desmontaje
-    const fdUrl = await firmar(insp?.foto_desmontaje_del)
-    const ftUrl = await firmar(insp?.foto_desmontaje_tra)
-    const desmontaje = {
-      del: fdUrl ? await jpImgAMiniatura(fdUrl, 320) : null,
-      tra: ftUrl ? await jpImgAMiniatura(ftUrl, 320) : null
-    }
-
-    // Construir y subir el PDF
-    const blob = await jpConstruirPDF({
-      nombre, veh, placa: pf.placa, numero_orden: pf.numero_orden,
-      grupos: gruposPDF, desmontaje, total
-    })
-    const nombreArch = `orden-${pf.numero_orden || pf.id}-${Date.now()}.pdf`
-    // Sin upsert: el nombre ya es único (Date.now), así que siempre es INSERT. El upsert
-    // forzaba un UPDATE que la policy del bucket rechazaba (le falta with_check).
-    const { error: eUp } = await sb.storage.from('cotizaciones-pdf').upload(nombreArch, blob, {
-      contentType: 'application/pdf'
-    })
-    if (eUp) { window.toast?.('No se pudo subir el PDF: ' + eUp.message, 'error'); return }
-    const { data: pub } = sb.storage.from('cotizaciones-pdf').getPublicUrl(nombreArch)
-    const linkPDF = pub?.publicUrl || ''
 
     // Mensaje CORTO para WhatsApp: solo el link al PDF
     let msg = `${nombre ? nombre + ', a' : 'A'}quí está la revisión de su ${veh || 'vehículo'}${pf.placa ? ' ' + pf.placa : ''} (orden #${pf.numero_orden || '—'}).\n\n`
@@ -1392,14 +1464,18 @@ async function jpConstruirPDF (datos) {
     if (y + alto > 280) { doc.addPage(); y = M }
   }
 
-  for (const sev of ['rojo', 'amarillo']) {
+  // 'solicitado' = ítems que no salen del checklist (los pidió el cliente o los
+  // agregó el cotizador). No tienen foto ni severidad, pero se cobran: si no se
+  // listan, el TOTAL del PDF no cuadra con lo que el cliente va a pagar.
+  for (const sev of ['rojo', 'amarillo', 'solicitado']) {
     const gs = datos.grupos.filter(g => g.severidad === sev)
     if (!gs.length) continue
     nuevaPaginaSiHaceFalta(14)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
     // Título de sección
     if (sev === 'rojo') { doc.setTextColor(200, 30, 30); doc.text('■ URGENTE', M, y) }
-    else { doc.setTextColor(200, 150, 0); doc.text('■ RECOMENDADO', M, y) }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+    else if (sev === 'amarillo') { doc.setTextColor(200, 150, 0); doc.text('■ RECOMENDADO', M, y) }
+    else { doc.setTextColor(90, 90, 90); doc.text('■ SOLICITADO', M, y) }
     y += 7
 
     for (const g of gs) {

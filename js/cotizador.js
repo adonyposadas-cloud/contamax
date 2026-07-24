@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260714-chk7' } catch (e) {}
+  try { window.__cotBuild = '20260724-pdf1' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -2050,15 +2050,29 @@
       descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
       ganancia_default: getGanDefault(), estado: PF.estado || 'pendiente'
     }
+    // Al cambiar los ítems, el PDF oficial que hubiera queda VIEJO. Se invalida acá
+    // para que nadie mande al cliente un PDF que ya no corresponde. generarPDF()
+    // guarda primero y sube después, así que ahí se vuelve a llenar enseguida.
+    payload.pdf_url = null
+    payload.pdf_generado_en = null
+    payload.pdf_generado_por = null
     // Cotización de saldo: enlazar con la original (solo al crearla)
     if (!PF.id && PF.saldo_de_id) payload.saldo_de_id = PF.saldo_de_id
+    // Si cot_pdf_canonico_01.sql todavía no corrió, esas tres columnas no existen y
+    // PostgREST rechaza TODO el guardado. Antes que romper el cotizador, se detecta
+    // una vez y se sigue sin ellas (el PDF oficial simplemente no se invalida).
+    const sinCols = (err) => err && /pdf_url|pdf_generado/i.test(err.message || '')
+    const quitarCols = () => { _colsPdfOk = false; delete payload.pdf_url; delete payload.pdf_generado_en; delete payload.pdf_generado_por }
+    if (!_colsPdfOk) quitarCols()
     try {
       if (PF.id) {
-        const { error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)
+        let { error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)
+        if (sinCols(error)) { console.warn('[cotizador] falta cot_pdf_canonico_01.sql'); quitarCols(); ({ error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)) }
         if (error) throw error
         if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' actualizada', 'success')
       } else {
-        const { data, error } = await sb().from('cotizador_proformas').insert(payload).select('id,correlativo,estado').single()
+        let { data, error } = await sb().from('cotizador_proformas').insert(payload).select('id,correlativo,estado').single()
+        if (sinCols(error)) { console.warn('[cotizador] falta cot_pdf_canonico_01.sql'); quitarCols(); ({ data, error } = await sb().from('cotizador_proformas').insert(payload).select('id,correlativo,estado').single()) }
         if (error) throw error
         PF.id = data.id; PF.correlativo = data.correlativo; PF.estado = data.estado
         if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' guardada', 'success')
@@ -2106,12 +2120,36 @@
     return (Date.now() - new Date(row.editando_desde).getTime()) < LOCK_STALE_MS
   }
   function _fmtHace (iso) { try { return fmtDur(difMin(iso)) } catch (e) { return '' } }
+  // ── VIGILANTE del lock (antes era un "latido" ciego) ──────────────
+  // El latido refrescaba editando_desde cada 5 min sin preguntar nada, y solo lo
+  // paraba releaseLock(). Como releaseLock() solo se llamaba al hacer "Nueva" o al
+  // cambiar de pestaña, si el usuario se iba a otro módulo con la pestaña abierta
+  // el lock se AUTORRENOVABA para siempre: el vencimiento de 15 min nunca llegaba
+  // y la orden quedaba trabada para todos. Se encontraron locks de hasta 11 días.
+  //
+  // Ahora corre cada 60 s y lo primero que hace es comprobar que de verdad se siga
+  // editando ESA orden. Si no, la suelta sola — sin importar cómo se haya ido el
+  // usuario (otro módulo, otra pestaña del cotizador, otra orden).
+  let _colsPdfOk = true   // cot_pdf_canonico_01.sql aplicado (se baja solo si falta)
+  let _lockTouch = 0
+  function _editandoDeVerdad (id) {
+    if (_lockedId !== id) return false          // ya soltamos o tomamos otra
+    if (TAB !== 'nueva') return false           // no está en la pantalla de edición
+    if (!PF || PF.id !== id) return false       // tiene otra proforma cargada
+    const v = document.getElementById('view-cotizador')
+    if (v && v.offsetParent === null) return false   // la vista está oculta (se fue del módulo)
+    return true
+  }
   function _startLockHb (id) {
     _stopLockHb()
+    _lockTouch = Date.now()
     _lockHb = setInterval(async () => {
       const me = _profLock(); if (!me.id) return
+      if (!_editandoDeVerdad(id)) { await releaseLock(id); return }
+      if (Date.now() - _lockTouch < 4 * 60 * 1000) return   // renovar cada ~5 min, no cada minuto
+      _lockTouch = Date.now()
       try { await sb().from('cotizador_proformas').update({ editando_desde: new Date().toISOString() }).eq('id', id).eq('editando_por_id', me.id) } catch (e) {}
-    }, 5 * 60 * 1000)
+    }, 60 * 1000)
   }
   function _stopLockHb () { if (_lockHb) { clearInterval(_lockHb); _lockHb = null } }
   async function acquireLock (id) {
@@ -2138,6 +2176,14 @@
     if (!me.id) return
     try { await sb().from('cotizador_proformas').update({ editando_por: null, editando_por_id: null, editando_desde: null }).eq('id', id).eq('editando_por_id', me.id) } catch (e) {}
   }
+
+  // Al cerrar la pestaña o mandar el navegador a segundo plano, intento soltar el
+  // lock. Es "mejor esfuerzo": si el navegador corta la petición, el vigilante ya
+  // no renueva editando_desde, así que el lock vence solo a los 15 min y otro lo
+  // puede tomar. Antes ese vencimiento nunca llegaba.
+  try {
+    window.addEventListener('pagehide', () => { if (_lockedId) { _stopLockHb(); releaseLock(_lockedId) } })
+  } catch (e) {}
 
   async function recuperarProforma (id, opts) {
     opts = opts || {}
@@ -4209,6 +4255,23 @@
       await marcarProcInicio()       // arranca Fase 1 (autorización) en el primer PDF
       btn.textContent = 'Generando…'
       await pdfDeProforma(PF)
+      // Actualizar el PDF OFICIAL (el que ve el cliente y el jefe de pista).
+      // pdfDeProforma() solo descarga un archivo en ESTA máquina: no se sube a
+      // ningún lado. Sin esta llamada, el jefe de pista se quedaba con el PDF
+      // congelado de la última vez que él lo generó y los cambios no le llegaban.
+      if (typeof window.jpGenerarPdfOficial === 'function') {
+        try {
+          btn.textContent = 'PDF cliente…'
+          await window.jpGenerarPdfOficial(PF.id, 'COTIZADOR')
+        } catch (e) {
+          console.warn('[cotizador PDF oficial]', e)
+          toast('La cotización se guardó, pero no se pudo actualizar el PDF del cliente: ' + (e.message || e), 'error')
+        }
+      }
+      // Generar el PDF pasa la bola al jefe de pista: acá ya no estamos editando.
+      // Sin esto la orden quedaba trabada y el jefe de pista veía "🔒 En edición"
+      // con Finalizar deshabilitado, aun estando ya autorizada.
+      if (_lockedId === PF.id) await releaseLock(PF.id)
       toast('Cotización N° ' + numeroProforma() + ' guardada e impresa', 'success')
     } catch (e) {
       console.error('[cotizador PDF]', e); toast('Error al generar PDF: ' + (e.message || e), 'error')
