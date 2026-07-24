@@ -14,7 +14,18 @@ const jpNormTel = t => { let n = String(t || '').replace(/\D/g, ''); if (n && n.
 const jpProvNorm = s => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim()
 const jpNombre = () => (jpProfile().nombre || '').toUpperCase()
 const jpCrono = ms => { if (ms == null || ms < 0) ms = 0; const s = Math.floor(ms / 1000); const hh = String(Math.floor(s / 3600)).padStart(2, '0'); const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0'); const ss = String(s % 60).padStart(2, '0'); return `${hh}:${mm}:${ss}` }
-const jpColor = (ms, fase) => { const h = ms / 3600000; const lim = fase === 'cotizacion' ? [0.5, 2] : (fase === 'autorizacion' ? [2, 8] : [24, 72]); return h <= lim[0] ? '#16a34a' : (h <= lim[1] ? '#f59e0b' : '#f85149') }
+// El reloj del checklist mide otra cosa: cuánto lleva el carro esperando que el
+// mecánico lo inspeccione. Con los límites de cotización (30 min / 2 h) todo
+// salía en rojo a la hora, y ese rojo no significaba nada. Una inspección lleva
+// su tiempo: se pone ámbar a las 4 h y rojo al día.
+const jpColor = (ms, fase) => {
+  const h = ms / 3600000
+  const lim = fase === 'cotizacion' ? [0.5, 2]
+    : fase === 'autorizacion' ? [2, 8]
+      : fase === 'checklist' ? [4, 24]
+        : [24, 72]
+  return h <= lim[0] ? '#16a34a' : (h <= lim[1] ? '#f59e0b' : '#f85149')
+}
 
 let jpItems = []
 let jpTimer = null
@@ -28,8 +39,32 @@ let jpTecnicos = []
 let jpAgId = null
 let jpAgItems = []
 
+// Una 'solicitado' sin ítems ni solicitados NO tiene nada que cotizar: se creó
+// para habilitar el checklist. No espera al cotizador — espera a que el mecánico
+// inspeccione. Antes caía en "Esperando cotización" con el reloj en rojo, y le
+// marcaba atraso al cotizador por un trabajo que no existe. Peor: escondía las
+// que sí estaban atrasadas entre 14 que no lo estaban.
+// Una 'solicitado' sin ítems tiene DOS destinos posibles, y confundirlos deja
+// órdenes atrapadas en colas que no les corresponden:
+//   sin checklist → espera al mecánico
+//   con checklist → ya cumplió su función; no espera a NADIE, solo hay que cerrarla
+// Antes, al sacarlas de la cola del mecánico caían en "Esperando cotización",
+// donde tampoco había nada que cotizar: quedaban dando vueltas para siempre.
+function jpVacia(p) {
+  return p.tipo_solicitud === 'solicitado' &&
+    !(p.items || []).length && !(p.solicitados || []).length
+}
+function jpTieneChecklist(p) {
+  return !!(window._jpConChecklist && window._jpConChecklist.has(p.numero_orden))
+}
+function jpSoloChecklist(p) { return jpVacia(p) && !jpTieneChecklist(p) }
+
 function jpFase(p) {
   if (p.estado === 'finalizada') return { fase: 'completado', lbl: '✅ Completado', color: '#16a34a' }
+  if (p.proc_solicitada && !p.proc_inicio && jpVacia(p) && jpTieneChecklist(p))
+    return { fase: 'cumplida', desde: p.proc_solicitada, lbl: '✅ Checklist hecho — solo falta cerrarla', color: '#16a34a' }
+  if (p.proc_solicitada && !p.proc_inicio && jpSoloChecklist(p))
+    return { fase: 'checklist', desde: p.proc_solicitada, lbl: '🔧 Esperando el checklist', color: '#8b949e' }
   if (p.proc_solicitada && !p.proc_inicio) return { fase: 'cotizacion', desde: p.proc_solicitada, lbl: '📝 Esperando cotización', color: '#8b5cf6' }
   if (p.proc_inicio && !p.proc_aprobada) return { fase: 'autorizacion', desde: p.proc_inicio, lbl: '⏳ Esperando tu autorización', color: '#f59e0b' }
   if (p.proc_aprobada && !p.proc_completada) return { fase: 'compra', desde: p.proc_aprobada, lbl: '📦 En compra de repuestos', color: '#3b82f6' }
@@ -379,6 +414,15 @@ async function jpCargar() {
       .in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(100)
     if (!jpEsSuper()) q = q.eq('jefe_pista', jpNombre())
     const { data, error } = await q
+    // Qué órdenes ya tienen checklist cerrado. Sin esto, la solicitada vacía se
+    // queda en "Esperando el checklist" aunque el mecánico YA la inspeccionó
+    // (la prueba es que existe su 'recomendado' con ítems). Inflaba la cola con
+    // trabajo terminado y hacía imposible ver lo que de verdad falta.
+    try {
+      const { data: insp } = await jpSb().from('checklist_inspecciones')
+        .select('numero_orden').eq('estado', 'cerrada')
+      window._jpConChecklist = new Set((insp || []).map(i => i.numero_orden))
+    } catch (e) { window._jpConChecklist = new Set() }
     if (error) throw error
     jpData = data || []
     jpRenderOrdenes()
@@ -394,6 +438,8 @@ function jpRenderOrdenes() {
     { fase: 'autorizacion', titulo: '⏳ Esperando tu autorización', color: '#f59e0b' },
     { fase: 'cotizacion', titulo: '📝 Esperando cotización', color: '#8b5cf6' },
     { fase: 'compra', titulo: '📦 En compra de repuestos', color: '#3b82f6' },
+    { fase: 'checklist', titulo: '🔧 Esperando el checklist del mecánico', color: '#8b949e' },
+    { fase: 'cumplida', titulo: '✅ Checklist hecho — se pueden cerrar', color: '#16a34a' },
     { fase: 'completado', titulo: '✅ Completadas', color: '#16a34a' }
   ]
   const byFase = {}
@@ -413,7 +459,13 @@ function jpRenderOrdenes() {
   }
   GRUPOS.forEach(g => {
     const lista = byFase[g.fase] || []
-    html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span></div>`
+    // Cerrar en lote solo tiene sentido en las que esperan checklist: son las que
+    // se acumulan sin que nadie las toque. Guardar el motivo de cada cierre es lo
+    // que después permite distinguir "no arrancó el piloto" de "no la hicieron".
+    const btnLote = ((g.fase === 'checklist' || g.fase === 'cumplida') && lista.length)
+      ? `<button class="jp-b" style="margin-left:10px;font-size:11px;padding:3px 10px;border-color:#8b949e;color:#8b949e"
+                onclick="jpCerrarLote('${g.fase}')">Cerrar las ${lista.length}…</button>` : ''
+    html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span>${btnLote}</div>`
     html += lista.length ? lista.map(jpOrdenCard).join('') : '<div class="jp-empty" style="padding:4px 0;font-size:12px;color:#8b8f98">— ninguna —</div>'
   })
   // Cualquier fase no contemplada (por si acaso), al final
@@ -544,6 +596,8 @@ function jpOrdenCard(p) {
   //   · proc_cotizada  → ya tiene precio. Sin precio no hubo nada que ofrecer,
   //                      y un rechazo antes de cotizar no significa nada.
   //   · no autorizada  → si ya dijo que sí, no hay rechazo que registrar.
+  const btnCerrarChk = (f.fase === 'checklist' || f.fase === 'cumplida')
+    ? `<button class="jp-b" style="border-color:#8b949e;color:#8b949e" onclick="jpCerrarChecklist('${p.id}')" title="Cerrar esta orden dejando registro de por qué no se inspeccionó">✕ Cerrar</button>` : ''
   const btnNV = (esRec && p.proc_cotizada && !['autorizada', 'no_vendida', 'finalizada', 'anulada'].includes(p.estado))
     ? `<button class="jp-b" style="border-color:#f85149;color:#f85149" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
@@ -571,11 +625,18 @@ function jpOrdenCard(p) {
   return `<div class="jp-ordcard" style="border-left:4px solid ${bCol}">
     <div class="jp-ordinfo">
       <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nSol && nIt ? `${nSol} por cotizar · ${nIt} cotizado(s)` : (nIt && !nSol ? `${nIt} cotizado(s)` : `${nProd} ítem(s)`)}</span>${tipoBadge}</div>
-      <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${p.cliente ? ' · ' + jpEsc(p.cliente) : ''}</div>
+      <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${
+        // En "esperando el checklist" lo útil es a QUIÉN reclamarle, no el cliente:
+        // es el mecánico el que tiene el carro parado.
+        f.fase === 'checklist'
+          ? (p.mecanico ? ' · 🔧 ' + jpEsc(p.mecanico) : ' · <span style="color:#f85149">sin técnico</span>')
+          : (p.cliente ? ' · ' + jpEsc(p.cliente) : '')
+      }</div>
     </div>
     <div class="jp-ordacts">
       ${reloj}
       ${btnCambiarTec}
+      ${btnCerrarChk}
       ${btnTec}
       ${btnEdit}
       ${btnWA}
@@ -585,6 +646,98 @@ function jpOrdenCard(p) {
       ${btnAut}
     </div>
   </div>`
+}
+
+// ── CERRAR ÓRDENES QUE ESPERAN CHECKLIST ────────────────────────────────────
+// El motivo importa tanto como el cierre: define si cuenta contra el técnico.
+// Cerrar 20 órdenes como "no la hizo" cuando el piloto todavía no arrancaba
+// sería marcarle incumplimientos a gente que nunca supo que tenía trabajo.
+async function jpMotivosCierre() {
+  const { data, error } = await jpSb().from('checklist_cierre_motivos')
+    .select('codigo,nombre,cuenta_tecnico,exige_nota').eq('activo', true).order('orden')
+  if (error) { window.toast?.('No se pudieron cargar los motivos: ' + error.message, 'error'); return null }
+  if (!data || !data.length) { window.toast?.('No hay motivos configurados. Avisale a gerencia.', 'error'); return null }
+  return data
+}
+
+function jpModalCierre(titulo, sub, motivos, onOk) {
+  document.getElementById('jp-cc-modal')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'jp-cc-modal'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10050;display:flex;align-items:center;justify-content:center;padding:20px'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+  ov.innerHTML = `
+    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:470px;width:100%;padding:18px;color:#e6edf3;max-height:88vh;overflow:auto">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:4px">
+        <b style="font-size:15px">${jpEsc(titulo)}</b>
+        <button onclick="document.getElementById('jp-cc-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="color:#8b949e;font-size:12.5px;margin-bottom:13px">${jpEsc(sub)}</div>
+      <div style="display:flex;flex-direction:column;gap:7px">
+        ${motivos.map(m => `
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid #2a2e37;border-radius:8px;cursor:pointer;font-size:13px;line-height:1.35">
+            <input type="radio" name="jp-cc-m" value="${jpEsc(m.codigo)}" data-nota="${m.exige_nota ? 1 : 0}" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
+            <span style="flex:1;min-width:0">
+              ${jpEsc(m.nombre)}
+              <div style="font-size:11px;color:${m.cuenta_tecnico ? '#f0a500' : '#8b949e'};margin-top:2px">
+                ${m.cuenta_tecnico ? '⚠ Cuenta contra el técnico' : 'No cuenta contra nadie'}
+              </div>
+            </span>
+          </label>`).join('')}
+      </div>
+      <input id="jp-cc-nota" placeholder="Detalle (obligatorio si elegís «Otro»)"
+             style="width:100%;margin-top:11px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:10px 11px;font-size:13px">
+      <div id="jp-cc-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="jp-b" style="flex:1;padding:11px" onclick="document.getElementById('jp-cc-modal').remove()">Cancelar</button>
+        <button class="jp-b" id="jp-cc-ok" style="flex:1;padding:11px;border-color:#f85149;color:#f85149">Cerrar</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  ov.querySelector('#jp-cc-ok').onclick = async () => {
+    const sel = ov.querySelector('input[name="jp-cc-m"]:checked')
+    const msg = ov.querySelector('#jp-cc-msg')
+    if (!sel) { msg.style.color = '#f85149'; msg.textContent = 'Elegí el motivo'; return }
+    const nota = (ov.querySelector('#jp-cc-nota').value || '').trim()
+    if (sel.dataset.nota === '1' && !nota) { msg.style.color = '#f85149'; msg.textContent = 'Ese motivo pide que expliques cuál'; return }
+    const btn = ov.querySelector('#jp-cc-ok'); btn.disabled = true; btn.textContent = 'Cerrando…'
+    try { await onOk(sel.value, nota || null); ov.remove() }
+    catch (e) { msg.style.color = '#f85149'; msg.textContent = e.message || String(e); btn.disabled = false; btn.textContent = 'Cerrar' }
+  }
+}
+
+window.jpCerrarChecklist = async (id) => {
+  const motivos = await jpMotivosCierre(); if (!motivos) return
+  const p = (jpData || []).find(x => x.id === id) || {}
+  const veh = [p.marca, p.modelo].filter(Boolean).join(' ')
+  jpModalCierre('✕ Cerrar sin inspeccionar',
+    `${veh || 'Orden'} · ${p.placa || 's/placa'}${p.mecanico ? ' · 🔧 ' + p.mecanico : ''}`,
+    motivos, async (cod, nota) => {
+      const { data, error } = await jpSb().rpc('checklist_cierre_registrar',
+        { p_proforma_id: id, p_motivo: cod, p_nota: nota })
+      if (error) throw new Error(error.message)
+      window.toast?.(data?.cuenta_tecnico ? 'Cerrada — cuenta contra el técnico' : 'Cerrada', 'success')
+      await jpCargar()
+    })
+}
+
+window.jpCerrarLote = async (fase) => {
+  const motivos = await jpMotivosCierre(); if (!motivos) return
+  const lista = (jpData || []).filter(p => jpFase(p).fase === (fase || 'checklist'))
+  if (!lista.length) { window.toast?.('No hay órdenes que cerrar', 'error'); return }
+  const porTec = {}
+  lista.forEach(p => { const t = p.mecanico || 'sin técnico'; porTec[t] = (porTec[t] || 0) + 1 })
+  const det = Object.entries(porTec).map(([t, n]) => `${t}: ${n}`).join(' · ')
+  jpModalCierre(`✕ Cerrar ${lista.length} órdenes`,
+    `${det}\n\nEl motivo se aplica a todas. Si algunas son de un caso y otras de otro, cerralas por separado.`,
+    motivos, async (cod, nota) => {
+      const { data, error } = await jpSb().rpc('checklist_cierre_masivo',
+        { p_ids: lista.map(p => p.id), p_motivo: cod, p_nota: nota })
+      if (error) throw new Error(error.message)
+      window.toast?.(`${data.cerradas} cerradas${data.fallaron ? ` · ${data.fallaron} fallaron` : ''}`, 'success')
+      if (data.fallaron) console.warn('[cierre masivo] fallaron:', data.errores)
+      await jpCargar()
+    })
 }
 
 window.jpAutorizar = async (id) => {
