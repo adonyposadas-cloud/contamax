@@ -4,6 +4,7 @@
 //             window._currentProfile, window.toast, window.closeModal, XLSX
 // ══════════════════════════════════════════════════════════════
 (() => {
+  window.__cbBuild = '20260724a'   // verificar en consola antes de diagnosticar
   const getSb = () => window._sb
   const fmtL = (v) => 'L. ' + (Number(v) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100
@@ -272,8 +273,24 @@
           else faltantesDelGrupo.push(mk)          // estaba conciliado, hoy no está en el extracto
         }
         if (!movsB.length) continue
-        const l = libro.find(x => x._match === null && x.partida_id === partidaId &&
+        // ── BÚSQUEDA DE LA LÍNEA DEL LIBRO (2 intentos) ──
+        // grupo_total queda CONGELADO en la marca desde que se armó el grupo.
+        // Si después se corrige la partida (ej. una entrega de taxi que entró
+        // tarde y hubo que sumarla al asiento), la línea del libro cambia de
+        // monto y la tolerancia de 2 centavos ya no la encuentra: el grupo se
+        // desarma entero y los N movimientos caen sueltos a "Solo en banco",
+        // obligando a rearmarlo a mano. Por eso hay un segundo intento.
+        let l = libro.find(x => x._match === null && x.partida_id === partidaId &&
           x.tipo === movsB[0].tipo && Math.abs(x.monto - grupoTotal) <= 0.02)
+        if (!l) {
+          // Respaldo: la partida cambió de monto. Solo se acepta si hay UNA
+          // sola línea candidata de esa partida en esa dirección — con dos o
+          // más no se adivina cuál es (elegir mal en datos contables es peor
+          // que no elegir). La diferencia queda reportada como brecha.
+          const cands = libro.filter(x => x._match === null &&
+            x.partida_id === partidaId && x.tipo === movsB[0].tipo)
+          if (cands.length === 1) l = cands[0]
+        }
         if (!l) continue
 
         // ── GRUPO INCOMPLETO ──
@@ -288,6 +305,19 @@
         const sumaB = r2(movsB.reduce((s, b) => s + Number(b.monto || 0), 0))
         const brecha = r2(Number(l.monto) - sumaB)
         if (Math.abs(brecha) > 0.02) {
+          // La brecha se descompone acá, en un solo lugar, y con SIGNO.
+          //   sinBanco : marcas cuyo movimiento ya no está en el extracto.
+          //   resto > 0 → marca perdida: el movimiento está en el extracto pero
+          //               sin marca, quedó suelto en "Solo en banco". Se recupera.
+          //   resto < 0 → el extracto trae MÁS que el libro. NO es marca perdida
+          //               y no hay nada que recuperar: o la partida quedó corta
+          //               (movimiento registrado después de generar el asiento),
+          //               o se pegaron movimientos de más al grupo.
+          // Antes todo lo que no fuera sinBanco se etiquetaba "marca perdida" sin
+          // mirar el signo, y ofrecía un botón «Recuperar L. -500» imposible de
+          // completar: pedía seleccionar movimientos que sumaran negativo.
+          const sinBanco = r2(faltantesDelGrupo.reduce((s2, f) => s2 + Number(f.mov_monto || 0), 0))
+          const resto = r2(brecha - sinBanco)
           gruposIncompletos.push({
             grupo_id: gid,
             partida_id: partidaId,
@@ -295,6 +325,9 @@
             libro_monto: Number(l.monto),
             banco_suma: sumaB,
             brecha,
+            sinBanco,
+            sinMarca: resto > 0.02 ? resto : 0,
+            sobra: resto < -0.02 ? r2(-resto) : 0,
             esperados: gmarcas.length,
             encontrados: movsB.length,
             faltantes: faltantesDelGrupo
@@ -636,6 +669,15 @@
   window._cbArmarGrupo = function (gid) {
     const g = (estadoConc?.gruposIncompletos || []).find(x => x.grupo_id === gid)
     if (!g) { window.toast?.('No se encontró ese grupo', 'error'); return }
+    // Cinturón: si no hay marca perdida positiva no hay nada que recuperar, y el
+    // objetivo sería imposible de cuadrar (pedía seleccionar movimientos que
+    // sumaran negativo). Se avisa qué hacer en su lugar.
+    if (!(Number(g.sinMarca) > 0.01)) {
+      window.toast?.(Number(g.sobra) > 0.01
+        ? `Acá no falta ninguna marca: el extracto trae ${fmtL(g.sobra)} de más. Corregí la partida${g.partida_numero ? ' #' + g.partida_numero : ''} a ${fmtL(g.banco_suma)}.`
+        : 'Este grupo no tiene marcas perdidas que recuperar.', 'error')
+      return
+    }
     const mk = (estadoConc.marcas || []).find(m => m.grupo_id === gid)
     objetivoGrupo = {
       grupo_id: gid,
@@ -778,10 +820,12 @@
     // Solo lo que el banco NO trae puede explicar el descuadre. Lo que perdió su
     // marca sigue en el extracto (queda en "Solo en banco"), así que no mueve el
     // neto: contarlo hacía que el aviso dijera L. 11,713 con un descuadre de 600.
-    const sinBancoTot = r2(gi.reduce((s, g) =>
-      s + r2((g.faltantes || []).reduce((a, f) => a + Number(f.mov_monto || 0), 0)), 0))
-    const sinMarcaTot = r2(gi.reduce((s, g) => s + r2(g.brecha), 0) - sinBancoTot)
-    const banner = `<div style="padding:11px 16px;border-radius:10px;margin-bottom:12px;font-weight:700;font-size:15px;background:${cuadra ? 'rgba(22,163,74,.12)' : 'rgba(248,81,73,.12)'};border:1px solid ${cuadra ? 'var(--green)' : 'var(--red)'};color:${cuadra ? 'var(--green)' : 'var(--red)'}">${cuadra ? '✓ CUADRA — banco y libro coinciden' : `⚠ NO CUADRA — Diferencia ${fmtL(dif)}`}${faltan.length ? ` · ${faltan.length} conciliado(s) ya no está(n) en el extracto` : ''}${gi.length ? `<div style="font-weight:500;font-size:12.5px;margin-top:5px;color:var(--amber)">🧩 ${gi.length} grupo(s) incompleto(s)${sinBancoTot !== 0 ? ` · ${fmtL(sinBancoTot)} que el banco ya no trae` : ''}${sinMarcaTot !== 0 ? ` · ${fmtL(sinMarcaTot)} de marcas perdidas (el dinero está, quedó en "Solo en banco")` : ''}</div>` : ''}</div>`
+    // sinBanco / sinMarca / sobra vienen ya descompuestos desde conciliar(),
+    // con el signo resuelto por grupo (no se suman brechas de signo opuesto).
+    const sinBancoTot = r2(gi.reduce((s, g) => s + Number(g.sinBanco || 0), 0))
+    const sinMarcaTot = r2(gi.reduce((s, g) => s + Number(g.sinMarca || 0), 0))
+    const sobraTot    = r2(gi.reduce((s, g) => s + Number(g.sobra || 0), 0))
+    const banner = `<div style="padding:11px 16px;border-radius:10px;margin-bottom:12px;font-weight:700;font-size:15px;background:${cuadra ? 'rgba(22,163,74,.12)' : 'rgba(248,81,73,.12)'};border:1px solid ${cuadra ? 'var(--green)' : 'var(--red)'};color:${cuadra ? 'var(--green)' : 'var(--red)'}">${cuadra ? '✓ CUADRA — banco y libro coinciden' : `⚠ NO CUADRA — Diferencia ${fmtL(dif)}`}${faltan.length ? ` · ${faltan.length} conciliado(s) ya no está(n) en el extracto` : ''}${gi.length ? `<div style="font-weight:500;font-size:12.5px;margin-top:5px;color:var(--amber)">🧩 ${gi.length} grupo(s) incompleto(s)${sinBancoTot !== 0 ? ` · ${fmtL(sinBancoTot)} que el banco ya no trae` : ''}${sinMarcaTot !== 0 ? ` · ${fmtL(sinMarcaTot)} de marcas perdidas (el dinero está, quedó en "Solo en banco")` : ''}${sobraTot !== 0 ? ` · ${fmtL(sobraTot)} que el extracto trae de más que el libro (revisá la partida)` : ''}</div>` : ''}</div>`
     const avisoRango = e.rangoAmpliado ? `<div style="padding:9px 14px;border-radius:9px;margin-bottom:10px;background:rgba(59,130,246,.10);border:1px solid #3b82f6;color:#9ec5fe;font-size:12.5px">
       📅 El archivo trae movimientos del <strong>${e.desde}</strong> al <strong>${e.hasta}</strong>, fuera del rango que pusiste (${e.desdeForm} → ${e.hastaForm}).
       Se amplió solo para cargar el libro y las marcas de esos días — si no, las conciliaciones viejas de esas fechas aparecerían como si nunca se hubieran hecho.
@@ -823,7 +867,7 @@
     document.getElementById('cb-resultado').innerHTML = `
       ${(e.gruposIncompletos || []).length ? (() => {
         const gi = e.gruposIncompletos
-        // Un grupo incompleto tiene DOS causas posibles, y se distinguen así:
+        // Un grupo incompleto tiene TRES causas posibles, y se distinguen así:
         //
         //  a) LA MARCA EXISTE pero el movimiento no está en el extracto
         //     → el banco lo quitó o revirtió. Plata que el libro reclama y el
@@ -834,14 +878,19 @@
         //       está: el movimiento quedó suelto en "Solo en banco". No falta
         //       plata, falta volver a emparejarlo.
         //
-        //  Se separan porque mezclarlas hacía decir "explican L. 11,713" cuando
-        //  el descuadre real era L. 600: casi todo era (b), no plata perdida.
-        for (const g of gi) {
-          g.sinBanco = r2(g.faltantes.reduce((s2, f) => s2 + Number(f.mov_monto || 0), 0))
-          g.sinMarca = r2(g.brecha - g.sinBanco)
-        }
-        const totSinBanco = r2(gi.reduce((s2, g) => s2 + g.sinBanco, 0))
-        const totSinMarca = r2(gi.reduce((s2, g) => s2 + g.sinMarca, 0))
+        //  c) EL EXTRACTO TRAE MÁS QUE EL LIBRO (brecha negativa)
+        //     → no falta ninguna marca: las N están y sus N movimientos también.
+        //       La partida quedó corta. Caso típico: un depósito que se registró
+        //       DESPUÉS de generar el asiento del día. Acá no hay nada que
+        //       recuperar — hay que corregir la partida.
+        //
+        //  Se separan porque mezclar (a) y (b) hacía decir "explican L. 11,713"
+        //  con un descuadre real de L. 600; y meter (c) en (b) ofrecía un botón
+        //  «Recuperar L. -500» que no se podía completar nunca.
+        //  La descomposición se hace en conciliar(); acá solo se totaliza.
+        const totSinBanco = r2(gi.reduce((s2, g) => s2 + Number(g.sinBanco || 0), 0))
+        const totSinMarca = r2(gi.reduce((s2, g) => s2 + Number(g.sinMarca || 0), 0))
+        const totSobra    = r2(gi.reduce((s2, g) => s2 + Number(g.sobra || 0), 0))
         return `<div class="table-wrap" style="margin-bottom:14px;border:1px solid var(--amber)">
         <div style="padding:10px 14px;font-weight:700;color:var(--amber);background:var(--bg3)">
           🧩 Grupos incompletos (${gi.length})
@@ -850,28 +899,34 @@
           ${totSinBanco !== 0 ? `⚠️ <strong style="color:var(--red)">${fmtL(totSinBanco)}</strong> — el banco <strong>ya no trae</strong> esos movimientos. Esa sí es plata que el libro reclama y el extracto no muestra: si el banco los revirtió, la partida tiene de más.` : ''}
           ${totSinBanco !== 0 && totSinMarca !== 0 ? '<br>' : ''}
           ${totSinMarca !== 0 ? `🔧 <strong style="color:var(--amber)">${fmtL(totSinMarca)}</strong> — <strong>el grupo se rompió</strong>: esos movimientos están en el extracto pero perdieron su marca, y quedaron sueltos abajo en "Solo en banco". <strong>No falta plata</strong>, falta volver a emparejarlos con «🧩 Agrupar N banco → 1 libro».` : ''}
+          ${totSobra !== 0 && (totSinBanco !== 0 || totSinMarca !== 0) ? '<br>' : ''}
+          ${totSobra !== 0 ? `📌 <strong style="color:var(--red)">${fmtL(totSobra)}</strong> — <strong>el extracto trae de más que el libro</strong>. Las marcas están completas: no hay nada que recuperar acá. La partida quedó corta (típico: un depósito registrado después de generar el asiento) o se le pegaron movimientos de más al grupo. <strong>Se corrige en la partida</strong>, y al volver a conciliar el grupo cuadra solo.` : ''}
         </div>
         <table style="width:100%"><thead><tr>
           <th>Partida</th><th style="text-align:right">Dice el libro</th><th style="text-align:right">Trae el extracto</th>
-          <th style="text-align:right">Banco no lo trae</th><th style="text-align:right">Marca perdida</th><th>Movs</th><th>Qué falta</th>
+          <th style="text-align:right">Banco no lo trae</th><th style="text-align:right">Marca perdida</th>
+          <th style="text-align:right">Extracto de más</th><th>Movs</th><th>Qué falta</th>
         </tr></thead>
         <tbody>${gi.map(g => `<tr>
           <td>${g.partida_numero ? '#' + g.partida_numero : '—'}</td>
           <td style="text-align:right;font-family:var(--mono)">${fmtL(g.libro_monto)}</td>
           <td style="text-align:right;font-family:var(--mono)">${fmtL(g.banco_suma)}</td>
           <td style="text-align:right;font-family:var(--mono);color:${Math.abs(g.sinBanco) > 0.01 ? 'var(--red)' : 'var(--text3)'};font-weight:${Math.abs(g.sinBanco) > 0.01 ? '700' : '400'}">${Math.abs(g.sinBanco) > 0.01 ? fmtL(g.sinBanco) : '—'}</td>
-          <td style="text-align:right;font-family:var(--mono);color:${Math.abs(g.sinMarca) > 0.01 ? 'var(--amber)' : 'var(--text3)'}">${Math.abs(g.sinMarca) > 0.01 ? fmtL(g.sinMarca) : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${g.sinMarca > 0.01 ? 'var(--amber)' : 'var(--text3)'}">${g.sinMarca > 0.01 ? fmtL(g.sinMarca) : '—'}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${g.sobra > 0.01 ? 'var(--red)' : 'var(--text3)'};font-weight:${g.sobra > 0.01 ? '700' : '400'}">${g.sobra > 0.01 ? fmtL(g.sobra) : '—'}</td>
           <td style="font-size:12px">${g.encontrados} de ${g.esperados}</td>
           <td style="font-size:11.5px;color:var(--text3)">
             ${g.faltantes.slice(0, 3).map(m => `${m.mov_fecha} · ${fmtL(m.mov_monto)} · ${(m.mov_descripcion || '').slice(0, 24)}`).join('<br>') || '<em>—</em>'}
             ${g.faltantes.length > 3 ? `<br>… y ${g.faltantes.length - 3} más` : ''}
-            ${Math.abs(g.sinMarca) > 0.01 ? `<div style="margin-top:5px"><button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--amber);border-color:var(--amber)"
+            ${g.sinMarca > 0.01 ? `<div style="margin-top:5px"><button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--amber);border-color:var(--amber)"
               onclick="window._cbArmarGrupo('${g.grupo_id}')">🔧 Recuperar ${fmtL(g.sinMarca)}</button></div>` : ''}
+            ${g.sobra > 0.01 ? `<div style="margin-top:5px;color:var(--red)">Corregí la partida${g.partida_numero ? ' #' + g.partida_numero : ''} a <strong>${fmtL(g.banco_suma)}</strong> y volvé a conciliar.</div>` : ''}
           </td>
         </tr>`).join('')}</tbody></table>
         <div style="padding:8px 14px;font-size:12px;color:var(--text3)">
           <strong>"Banco no lo trae"</strong>: la marca existe pero el movimiento no está en el extracto. El banco lo quitó o revirtió → revisá la partida.
           <br><strong>"Marca perdida"</strong>: el movimiento está en el extracto pero sin marca, y quedó suelto en "Solo en banco". Se arregla seleccionándolo ahí y usando «🧩 Agrupar N banco → 1 libro» contra la línea de esa partida. No es plata faltante.
+          <br><strong>"Extracto de más"</strong>: las marcas están completas (mirá "Movs": suelen ser N de N) pero el extracto suma más que la línea del libro. La partida quedó corta — casi siempre un movimiento registrado después de generar el asiento. No se arregla desde acá: se corrige la partida y se vuelve a conciliar.
         </div>
       </div>` })() : ''}
       ${faltan.length ? (() => {
