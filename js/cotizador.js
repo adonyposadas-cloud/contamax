@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260724-pdf1' } catch (e) {}
+  try { window.__cotBuild = '20260725-pdf3' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -4513,6 +4513,10 @@
     doc.text(`Rango: ${cfg('rango_desde')} al ${cfg('rango_hasta')} | Fecha límite: ${fISO(cfg('fecha_limite'))}`, 14, fy)
 
     const nombre = `Proforma_${numeroDe(p.vendedor, p.correlativo).replace(/[^a-z0-9]/gi, '_')}_${(p.placa || 'proforma').replace(/[^a-z0-9]/gi, '_')}.pdf`
+    // modo 'doc': devuelve el objeto jsPDF sin guardarlo ni abrirlo. Lo usa el jefe
+    // de pista para anexarle las páginas de fotos del checklist antes de subirlo,
+    // así el PDF del cliente es ESTA misma proforma y no otro documento distinto.
+    if (modo === 'doc') return doc
     if (modo === 'abrir') {
       try { window.open(doc.output('bloburl'), '_blank') } catch (e) { doc.save(nombre) }
     } else {
@@ -4521,19 +4525,25 @@
   }
 
   // ── Expuesto para la pantalla del jefe de pista ──────────────
-  // Regenera y abre el MISMO PDF de cotización que ve el cliente,
-  // a partir del id de la orden (fila de cotizador_proformas).
-  // modo: 'descargar' (default) | 'abrir' (pestaña nueva).
+  // Regenera el MISMO PDF de cotización que ve el cliente, a partir del id de la
+  // orden (fila de cotizador_proformas).
+  // modo: 'descargar' (default) | 'abrir' (pestaña nueva) | 'doc' (devuelve el
+  //       objeto jsPDF para anexarle páginas; en este modo los errores se lanzan
+  //       en vez de mostrarse, para que quien llama decida qué hacer).
   window.cotAbrirPdfProforma = async function (id, modo) {
-    if (!id) { toast('Orden sin id', 'error'); return }
+    const crudo = modo === 'doc'
+    const fallar = (msg) => { if (crudo) throw new Error(msg); toast(msg, 'error') }
+    if (!id) return fallar('Orden sin id')
     try {
       const { data, error } = await sb().from('cotizador_proformas').select('*').eq('id', id).single()
       if (error) throw error
-      if (!data) { toast('No se encontró la cotización', 'error'); return }
-      if (!Array.isArray(data.items) || !data.items.length) { toast('Esta orden aún no tiene cotización', 'error'); return }
-      await pdfDeProforma(data, modo || 'descargar')
+      if (!data) return fallar('No se encontró la cotización')
+      if (!Array.isArray(data.items) || !data.items.length) return fallar('Esta orden aún no tiene cotización')
+      return await pdfDeProforma(data, modo || 'descargar')
     } catch (e) {
-      console.error('[cotAbrirPdfProforma]', e); toast('No se pudo generar el PDF: ' + (e.message || e), 'error')
+      console.error('[cotAbrirPdfProforma]', e)
+      if (crudo) throw e
+      toast('No se pudo generar el PDF: ' + (e.message || e), 'error')
     }
   }
 })()
