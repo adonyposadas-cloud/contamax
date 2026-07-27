@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260724a'
+  window.__mecBuild = '20260727-envio4'
 
   // ── INTERRUPTOR: mostrar u ocultar "Mi comisión" a los técnicos ──
   // Durante la prueba piloto se oculta para cuadrar los números internamente sin que los
@@ -48,6 +48,18 @@
   let EXTRAS = []          // hallazgos fuera de la lista de 34 puntos
   let HALL = {}            // punto_id → { severidad, medicion, medicion_extra, foto_url, nota }
   let SUBIENDO = 0
+
+  // ── FILTRO DE PUNTOS ──
+  // 34 puntos en un celular es demasiado scroll: el técnico se pierde, y lo que se
+  // pierde no se revisa. El filtro NO cambia qué hay que responder — solo qué se ve.
+  // El contador de abajo sigue midiendo sobre el TOTAL, para que esconder puntos
+  // nunca se parezca a haber terminado.
+  // Estados de proforma que significan "la orden sigue viva". Misma definición que
+  // usa jefe_pista.js: si cambia allá, cambia acá.
+  const PF_EN_PROCESO = ['solicitada', 'pendiente', 'autorizada']
+
+  let F_EST = 'todos'      // 'todos' | 'pend' (sin responder) | 'marcados' (🟡/🔴)
+  let F_SIS = ''           // '' = todo el carro; si no, el nombre del sistema
 
   const SEV = {
     verde:    { lbl: 'Bien',        icon: '🟢', color: '#16a34a' },
@@ -82,6 +94,22 @@
         .mec-foto img{width:54px;height:54px;object-fit:cover;border-radius:8px;border:1px solid var(--border,#2a3340)}
         .mec-bar{position:sticky;bottom:0;background:var(--bg,#0d1117);border-top:1px solid var(--border,#2a3340);
                  padding:12px 4px;margin-top:14px;display:flex;gap:10px;align-items:center}
+        /* Filtro: pegado arriba, porque se usa todo el tiempo mientras se baja */
+        .mec-filtro{position:sticky;top:0;z-index:6;background:var(--bg,#0d1117);
+                    padding:8px 0 4px;margin-bottom:6px;border-bottom:1px solid var(--border,#2a3340)}
+        /* En pantalla ancha los chips BAJAN DE LÍNEA: nada queda fuera del borde.
+           En el celular no hay ancho para eso, así que ahí sí van en una fila que
+           se desliza — y el chip activo se centra solo (centrarChipActivo). */
+        .mec-chips{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:6px}
+        @media (max-width:560px){
+          .mec-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+          .mec-chips::-webkit-scrollbar{display:none}
+        }
+        .mec-chip{flex:0 0 auto;padding:7px 11px;border-radius:999px;border:1px solid var(--border,#2a3340);
+                  background:var(--bg2,#161b22);color:var(--text2,#c9d1d9);font-size:12px;font-weight:600;
+                  cursor:pointer;white-space:nowrap;line-height:1.1}
+        .mec-chip.on{background:var(--gold,#c8a24a);border-color:var(--gold,#c8a24a);color:#1a1a1a}
+        .mec-chip b{font-weight:800;opacity:.7;margin-left:3px}
         .mec-prog{flex:1;font-size:13px;color:var(--text3,#8b949e)}
         .mec-ruedas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
       </style>
@@ -201,30 +229,23 @@
     const { data: abiertas } = await sb().from('checklist_inspecciones')
       .select('id,numero_orden,placa,estado').eq('estado', 'en_proceso').eq('mecanico_id', yo.id)
 
+    // Una inspección sin terminar de una orden YA FINALIZADA no tiene destino: el
+    // servidor rechaza agregarle hallazgos. Mostrarla es peor que no mostrarla —
+    // el técnico marca los 34 puntos y recién al apretar Enviar se entera.
+    const infoAb = await infoOrdenes((abiertas || []).map(i => i.numero_orden))
+    const abiertasVivas = (abiertas || []).filter(i => ordenAbierta(infoAb, i.numero_orden))
+
     let html = ''
-    if (abiertas?.length) {
+    if (abiertasVivas.length) {
       // La inspección guarda la placa que tenía la proforma 'solicitado' al
       // arrancar, y esa a veces viene vacía (la orden #55011 quedó "sin placa"
       // aunque el dato estaba en la proforma hermana). Se completa acá con lo
       // que tengan las proformas de esa orden, para que el mecánico reconozca
       // el carro en la lista.
-      const vehPorOrden = {}
-      try {
-        const nums = [...new Set(abiertas.map(i => i.numero_orden).filter(Boolean))]
-        if (nums.length) {
-          const { data: pfs } = await sb().from('cotizador_proformas')
-            .select('numero_orden,placa,marca,modelo,anio_vehiculo').in('numero_orden', nums)
-          for (const f of (pfs || [])) {
-            const v = vehPorOrden[f.numero_orden] = vehPorOrden[f.numero_orden] || {}
-            for (const k of ['placa', 'marca', 'modelo', 'anio_vehiculo']) {
-              if (!v[k] && f[k] && String(f[k]).trim()) v[k] = String(f[k]).trim()
-            }
-          }
-        }
-      } catch (e) { /* si falla, se muestra lo que haya en la inspección */ }
+      const vehPorOrden = infoAb.veh
 
       html += '<div class="mec-sis">Inspecciones sin terminar</div>'
-      html += abiertas.map(i => {
+      html += abiertasVivas.map(i => {
         const v = vehPorOrden[i.numero_orden] || {}
         const carro = [v.marca, v.modelo, v.anio_vehiculo].filter(Boolean).join(' ')
         const placa = i.placa || v.placa || ''
@@ -260,11 +281,82 @@
     // órdenes y tomo los que hice. Un trabajo que ya tomó otro no aparece.
     html += '<div id="mec-trabajos"></div>'
 
+    // ── CHECKLISTS TERMINADOS ── (al final: es lo secundario)
+    // Se vuelve a entrar solo para SUBIR un punto que se había dado por bueno.
+    //
+    // Se muestran ÚNICAMENTE las órdenes que siguen vivas. Un carro entregado ya
+    // no se puede tocar —el servidor rechaza agregarle hallazgos— así que dejarlo
+    // en la lista solo llena la pantalla de cosas en las que no se puede hacer
+    // nada. Filtrar por "orden activa" y no por fecha es lo correcto: un carro que
+    // duerme en el taller sigue siendo carro en el taller, y si el técnico ve algo
+    // al otro día tiene que poder reportarlo.
+    html += await htmlTerminados(yo)
+
     if (window._comisionVisible) {
       html += `<div style="margin-top:22px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="mecComision()">💰 Mi comisión</button></div>`
     }
     root.innerHTML = html
     renderTrabajosAsignados(yo)   // async, rellena #mec-trabajos cuando carga
+  }
+
+  // Completa marca/modelo/placa por número de orden. La inspección guarda lo que
+  // tenía la proforma al arrancar, y muchas veces eso viene vacío: la orden #55011
+  // quedó "sin placa" aunque el dato estaba en la proforma hermana. Se combina lo
+  // que haya en TODAS las proformas de la orden, quedándose con el primer valor no
+  // vacío de cada campo.
+  async function infoOrdenes (nums) {
+    const veh = {}, viva = new Set(), muerta = new Set()
+    const lista = [...new Set((nums || []).filter(Boolean))]
+    if (!lista.length) return { veh, viva, muerta }
+    try {
+      const { data } = await sb().from('cotizador_proformas')
+        .select('numero_orden,placa,marca,modelo,anio_vehiculo,tipo_solicitud,estado').in('numero_orden', lista)
+      for (const f of (data || [])) {
+        const v = veh[f.numero_orden] = veh[f.numero_orden] || {}
+        for (const k of ['placa', 'marca', 'modelo', 'anio_vehiculo']) {
+          if (!v[k] && f[k] && String(f[k]).trim()) v[k] = String(f[k]).trim()
+        }
+        if (PF_EN_PROCESO.includes(f.estado)) viva.add(f.numero_orden)
+        if (f.tipo_solicitud === 'recomendado' && ['finalizada', 'anulada'].includes(f.estado)) muerta.add(f.numero_orden)
+      }
+    } catch (e) { /* si falla, se muestra lo que traiga la inspección */ }
+    return { veh, viva, muerta }
+  }
+
+  // ¿Se le puede todavía agregar algo a esta orden? Es EXACTAMENTE la misma
+  // condición que aplica checklist_volcar() del lado del servidor. Tiene que
+  // vivir en un solo lugar acá también: si la pantalla ofrece una orden que el
+  // servidor va a rechazar, el técnico marca puntos al pedo y se entera al final.
+  const ordenAbierta = (info, orden) => info.viva.has(orden) && !info.muerta.has(orden)
+
+  // Los checklists ya entregados de órdenes que TODAVÍA están en el taller.
+  async function htmlTerminados (yo) {
+    const { data: cerradas } = await sb().from('checklist_inspecciones')
+      .select('id,numero_orden,placa,cerrada_at').eq('estado', 'cerrada').eq('mecanico_id', yo.id)
+      .order('cerrada_at', { ascending: false }).limit(60)
+    if (!cerradas?.length) return ''
+
+    const info = await infoOrdenes(cerradas.map(i => i.numero_orden))
+    const vis = cerradas.filter(i => ordenAbierta(info, i.numero_orden)).slice(0, 12)
+    if (!vis.length) return ''
+    const veh = info.veh
+    return '<div class="mec-sis" style="margin-top:26px">Checklists terminados — ¿viste algo más?</div>' +
+      '<div style="font-size:11.5px;color:var(--text3,#8b949e);margin:-2px 0 8px">Solo carros que siguen en el taller. Entrá si viste algo que se te pasó.</div>' +
+      vis.map(i => {
+        const v = veh[i.numero_orden] || {}
+        const carro = [v.marca, v.modelo, v.anio_vehiculo].filter(Boolean).join(' ')
+        const placa = i.placa || v.placa || ''
+        return `
+        <div class="mec-card" style="opacity:.85" onclick="mecAbrirInspeccion('${i.id}')">
+          <div class="mec-ord">
+            <div style="min-width:0">
+              <b>Orden #${esc(i.numero_orden || '—')}</b>
+              ${carro ? `<div style="font-size:12.5px;color:var(--text2,#c9d1d9)">${esc(carro)}</div>` : ''}
+              <div style="font-size:12px;color:var(--text3,#8b949e)">${esc(placa || 'sin placa')}</div>
+            </div>
+            <span style="color:var(--text3,#8b949e);font-weight:700;font-size:12.5px;white-space:nowrap">Agregar hallazgo →</span>
+          </div>
+        </div>` }).join('')
   }
 
   // Muestra los trabajos de las órdenes donde el técnico está habilitado.
@@ -437,7 +529,7 @@
       // Ya no hay proforma huérfana que limpiar: si el insert falla, no se creó nada.
       if (e2) throw e2
 
-      INSP = insp; HALL = {}; EXTRAS = []
+      INSP = insp; HALL = {}; EXTRAS = []; F_EST = 'todos'; F_SIS = ''
       await cargarVehiculo(insp.numero_orden)
       renderChecklist()
     } catch (e) {
@@ -450,18 +542,57 @@
     const { data: insp, error } = await sb().from('checklist_inspecciones').select('*').eq('id', id).single()
     if (error) { toast('Error: ' + error.message, 'error'); return }
     const { data: h } = await sb().from('checklist_hallazgos').select('*').eq('inspeccion_id', id)
-    INSP = insp; HALL = {}
+    INSP = insp; HALL = {}; F_EST = 'todos'; F_SIS = ''
     for (const x of (h || [])) HALL[x.punto_id] = x
     await cargarVehiculo(insp.numero_orden)
     await cargarExtras()
     renderChecklist()
   }
 
+  // ── FILTRO: helpers ────────────────────────────────────────────────────────
+  // Escapa un texto para meterlo DENTRO de un string JS que a su vez vive dentro
+  // de un atributo HTML (onclick="mecFiltro('sis','...')"). Un sistema con comilla
+  // rompería el atributo y el chip dejaría de responder.
+  const jsq = s => esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"))
+
+  function puntosVisibles () {
+    return PUNTOS.filter(p => {
+      if (F_SIS && p.sistema !== F_SIS) return false
+      const h = HALL[p.id]
+      if (F_EST === 'pend' && h) return false
+      if (F_EST === 'marcados' && !['amarillo', 'rojo'].includes(h?.severidad)) return false
+      if (F_EST === 'porenviar' && !(['amarillo', 'rojo'].includes(h?.severidad) && !h?.enviado_at)) return false
+      return true
+    })
+  }
+
+  // Cuando la fila de chips se desliza (celular), el chip seleccionado puede quedar
+  // fuera de la pantalla. Se mueve el scroll de la FILA, no el de la página: usar
+  // scrollIntoView() acá arrastraba la vista entera y sacaba los puntos de foco.
+  function centrarChipActivo () {
+    const filas = document.querySelectorAll('#mec-root .mec-chips')
+    for (const fila of filas) {
+      const on = fila.querySelector('.mec-chip.on')
+      if (!on || fila.scrollWidth <= fila.clientWidth) continue
+      fila.scrollLeft = Math.max(0, on.offsetLeft - (fila.clientWidth - on.offsetWidth) / 2)
+    }
+  }
+
+  window.mecFiltro = function (tipo, valor) {
+    if (tipo === 'reset') { F_EST = 'todos'; F_SIS = '' }
+    else if (tipo === 'est') F_EST = valor
+    else if (tipo === 'sis') F_SIS = valor || ''
+    renderChecklist()
+    // Al cambiar de filtro, arriba: si no, se queda a media página de una lista
+    // que ya no es la misma y parece que no pasó nada.
+    try { window.scrollTo({ top: 0, behavior: 'auto' }) } catch (e) { window.scrollTo(0, 0) }
+  }
+
   // ── 3. Los 21 puntos ───────────────────────────────────────────────────────
   function renderChecklist () {
     const root = $('mec-root'); if (!root || !INSP) return
     let html = `
-      <div class="mec-card" style="position:sticky;top:0;z-index:5">
+      <div class="mec-card">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div><b>Orden #${esc(INSP.numero_orden || '—')}</b>
             <div style="font-size:13px;color:var(--text2,#c9d1d9);margin-top:2px">
@@ -473,6 +604,17 @@
           <button class="btn btn-ghost" style="font-size:12px" onclick="mecVolver()">← Salir</button>
         </div>
       </div>`
+
+    // Este checklist ya se entregó. Se puede sumar, no reescribir.
+    if (INSP.estado === 'cerrada') {
+      html += `<div class="mec-card" style="border-color:#f0a500;background:rgba(240,165,0,.07)">
+        <div style="font-weight:700;color:#f0a500;margin-bottom:4px">Checklist ya entregado</div>
+        <div style="font-size:12.5px;color:var(--text2,#c9d1d9);line-height:1.45">
+          Podés subir un punto que habías dado por <b>Bien</b> si viste algo después, con su foto,
+          y se suma a la cotización que ya está en curso. Lo que ya reportaste no se puede cambiar.
+        </div>
+      </div>`
+    }
 
     // La foto del freno DESMONTADO acompaña a su punto de discos: la delantera aparece
     // justo antes del primer punto que requiere rueda delantera, la trasera antes del
@@ -502,24 +644,63 @@
       </div>`
     }
 
-    // ¿Cuál es el primer punto que requiere cada rueda? Ahí se inyecta su foto, una vez.
-    const primerDel = PUNTOS.find(p => p.rueda_requerida === 'del_izq')?.id
-    const primerTra = PUNTOS.find(p => p.rueda_requerida === 'tras_izq')?.id
+    // ── BARRA DE FILTRO ──────────────────────────────────────────────────────
+    // Dos filas de chips: estado (qué me falta / qué encontré) y sistema (a qué
+    // parte del carro estoy entrando). Los números son lo importante: dicen dónde
+    // está el trabajo sin tener que bajar a buscarlo.
+    const sistemas = []
+    for (const p of PUNTOS) if (p.sistema && !sistemas.includes(p.sistema)) sistemas.push(p.sistema)
+    const nPend = PUNTOS.filter(p => !HALL[p.id]).length
+    const nMarc = PUNTOS.filter(p => ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad)).length
+    const nEnv = PUNTOS.filter(p => ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad) && !HALL[p.id]?.enviado_at).length
+    const chip = (accion, txt, on) => `<button class="mec-chip${on ? ' on' : ''}" onclick="${accion}">${txt}</button>`
+    html += `<div class="mec-filtro">
+      <div class="mec-chips">
+        ${chip("mecFiltro('est','todos')", `Todos <b>${PUNTOS.length}</b>`, F_EST === 'todos')}
+        ${chip("mecFiltro('est','pend')", `Pendientes <b>${nPend}</b>`, F_EST === 'pend')}
+        ${chip("mecFiltro('est','marcados')", `Con hallazgo <b>${nMarc}</b>`, F_EST === 'marcados')}
+        ${nEnv ? chip("mecFiltro('est','porenviar')", `Por enviar <b>${nEnv}</b>`, F_EST === 'porenviar') : ''}
+      </div>
+      <div class="mec-chips">
+        ${chip("mecFiltro('sis','')", 'Todo el carro', !F_SIS)}
+        ${sistemas.map(s => {
+          const pend = PUNTOS.filter(p => p.sistema === s && !HALL[p.id]).length
+          return chip(`mecFiltro('sis','${jsq(s)}')`, `${esc(s)}${pend ? ` <b>${pend}</b>` : ' ✓'}`, F_SIS === s)
+        }).join('')}
+      </div>
+    </div>`
 
-    let sisActual = ''
-    for (const p of PUNTOS) {
-      // Insertar la tarjeta de desmontaje ANTES del primer punto de cada rueda
-      if (p.id === primerDel) html += tarjetaDesmontaje('del')
-      if (p.id === primerTra) html += tarjetaDesmontaje('tra')
-      if (p.sistema !== sisActual) { sisActual = p.sistema; html += `<div class="mec-sis">${esc(sisActual)}</div>` }
-      html += puntoHTML(p)
+    const VIS = puntosVisibles()
+
+    // ¿Cuál es el primer punto VISIBLE que requiere cada rueda? Ahí se inyecta su
+    // foto, una vez. Se calcula sobre los visibles y no sobre los 34: si el filtro
+    // esconde el punto ancla, la tarjeta de desmontaje se perdía con él.
+    const primerDel = VIS.find(p => p.rueda_requerida === 'del_izq')?.id
+    const primerTra = VIS.find(p => p.rueda_requerida === 'tras_izq')?.id
+
+    if (!VIS.length) {
+      html += `<div class="mec-card" style="text-align:center;color:var(--text3,#8b949e)">
+        Ningún punto entra en este filtro.
+        <div style="margin-top:10px"><button class="btn btn-ghost" style="padding:9px 16px" onclick="mecFiltro('reset')">Ver todos</button></div>
+      </div>`
+    } else {
+      let sisActual = ''
+      for (const p of VIS) {
+        // Insertar la tarjeta de desmontaje ANTES del primer punto de cada rueda
+        if (p.id === primerDel) html += tarjetaDesmontaje('del')
+        if (p.id === primerTra) html += tarjetaDesmontaje('tra')
+        if (p.sistema !== sisActual) { sisActual = p.sistema; html += `<div class="mec-sis">${esc(sisActual)}</div>` }
+        html += puntoHTML(p)
+      }
     }
 
     // ── OTROS HALLAZGOS ─────────────────────────────────────────────────────
     // Lo que el mecánico vio y no está en los 34 puntos: el puente de dirección
     // con juego, un cable de ABS cortado, una moldura rota. Antes se perdía —
     // y con eso, una venta.
-    html += `
+    // Con un sistema filtrado, este bloque no viene al caso: no pertenece a ningún
+    // sistema. Se muestra en "Todo el carro" (y ahí siempre, con cualquier estado).
+    if (!F_SIS) html += `
       <div class="mec-sis">Otros hallazgos</div>
       <div class="mec-pt" style="border-style:dashed">
         <div style="font-size:12.5px;color:var(--text3,#8b949e);margin-bottom:10px">
@@ -528,7 +709,7 @@
         ${EXTRAS.map(x => `
           <div style="border:1px solid var(--border,#2a3340);border-radius:9px;padding:10px;margin-bottom:8px">
             <div style="display:flex;align-items:start;gap:8px">
-              <span style="font-size:17px;line-height:1.2">${x.severidad === 'rojo' ? '🔴' : '🟡'}</span>
+              <span style="font-size:17px;line-height:1.2">${x.severidad === 'rojo' ? '🔴' : '🟡'}</span>${x.enviado_at ? '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:rgba(22,163,74,.16);color:#16a34a;align-self:flex-start">✓</span>' : ''}
               <div style="flex:1;min-width:0">
                 <div style="color:var(--text,#e6edf3);font-size:13.5px">${esc(x.descripcion)}</div>
                 <div style="margin-top:7px">
@@ -550,16 +731,29 @@
 
     const done = PUNTOS.filter(p => HALL[p.id]).length
     const extraSinFoto = EXTRAS.filter(x => !x.foto_url).length
+    // El progreso SIEMPRE es sobre los 34, filtre lo que filtre. Si además hay un
+    // filtro puesto, se avisa: para que nadie mande la orden creyendo que terminó
+    // porque en pantalla no quedaba nada.
+    const filtrando = (F_EST !== 'todos' || !!F_SIS)
+    const nPorEnviar = pendientesDeEnviar()
     html += `
       <div class="mec-bar">
         <div class="mec-prog">
           <b style="color:${done === PUNTOS.length ? 'var(--green,#16a34a)' : 'var(--gold,#c8a24a)'}">${done}/${PUNTOS.length}</b> puntos
+          ${filtrando ? `<div style="font-size:11.5px;color:var(--gold,#c8a24a)">👁 filtro activo — viendo ${VIS.length} de ${PUNTOS.length}</div>` : ''}
           ${EXTRAS.length ? `<div style="font-size:11.5px;color:${extraSinFoto ? '#f0a500' : 'var(--text3,#8b949e)'}">+ ${EXTRAS.length} fuera de lista${extraSinFoto ? ` · ⚠ ${extraSinFoto} sin foto` : ''}</div>` : ''}
         </div>
-        <button class="btn btn-gold" id="mec-cerrar" style="padding:12px 20px;font-weight:700" onclick="mecCerrar()">Enviar a cotizar →</button>
+        ${nPorEnviar
+          ? `<button class="btn btn-gold" id="mec-enviar" style="padding:12px 16px;font-weight:700" onclick="mecEnviarHallazgos()"
+                     title="Manda lo que encontraste al cotizador ahora. La inspección queda abierta.">📤 Enviar ${nPorEnviar}</button>`
+          : ''}
+        ${INSP.estado === 'cerrada'
+          ? '<span style="font-size:12px;color:var(--text3,#8b949e);white-space:nowrap">checklist entregado</span>'
+          : `<button class="btn ${nPorEnviar ? 'btn-ghost' : 'btn-gold'}" id="mec-cerrar" style="padding:12px 16px;font-weight:700" onclick="mecCerrar()">${done === PUNTOS.length ? 'Cerrar checklist →' : `Cerrar (faltan ${PUNTOS.length - done})`}</button>`}
       </div>`
     root.innerHTML = html
     pintarFotos()
+    centrarChipActivo()
   }
 
   function puntoHTML (p) {
@@ -636,14 +830,33 @@
       const r = p.umbral_rojo     != null ? `🔴 <${p.umbral_rojo}${u}` : ''
       return ` <span style="font-size:11px;color:var(--text3,#8b949e);font-weight:400">· ${[a, r].filter(Boolean).join(' · ')}</span>`
     }
+    // Lo que ya viajó lleva su ✓. Y se avisa que retocarlo ya no cambia nada
+    // allá: la línea que el cotizador tiene en la mano no se regenera, porque
+    // quizás ya la bajó a ítem y le puso precio.
+    const env = HALL[p.id]?.enviado_at
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:rgba(22,163,74,.16);color:#16a34a;margin-left:6px"
+               title="Ya está con el cotizador. Si lo cambiás ahora, el cambio no viaja.">✓ ENVIADO</span>` : ''
+    // En un checklist cerrado hay dos candados, y conviene que sean visibles ANTES
+    // de tocar: un hallazgo que ya viajó al cotizador no se toca más, y ninguno
+    // puede volver a "Bien". Si no se apagan los botones acá, el técnico los
+    // aprieta y le vuelve un error crudo de la base sin entender por qué.
+    const CERRADA = !!(INSP && INSP.estado === 'cerrada')
+    const hh = HALL[p.id] || {}
+    const congelado = CERRADA && !!hh.enviado_at
+    const bloqVerde = CERRADA && !congelado && hh.severidad && hh.severidad !== 'verde'
     return `<div class="mec-pt ${sev ? 'done' : ''}">
-      <div class="mec-pt-nom">${esc(p.nombre)}${p.pide_medicion ? ` <span style="font-size:11px;color:var(--text3,#8b949e)">(${esc(p.unidad_medicion)})</span>` : ''}${umbralHint(p)}</div>
+      <div class="mec-pt-nom">${esc(p.nombre)}${p.pide_medicion ? ` <span style="font-size:11px;color:var(--text3,#8b949e)">(${esc(p.unidad_medicion)})</span>` : ''}${umbralHint(p)}${env}</div>
       <div class="mec-sevs">
-        ${['verde', 'amarillo', 'rojo'].map(s => `
-          <button class="mec-sev ${sev === s ? 'on' : ''}" onclick="mecSev(${p.id},'${s}')"
-                  style="${sev === s ? `background:${SEV[s].color};border-color:${SEV[s].color}` : ''}">
+        ${['verde', 'amarillo', 'rojo'].map(s => {
+          const off = congelado || (s === 'verde' && bloqVerde)
+          const tit = congelado ? 'Ya está con el cotizador: no se puede cambiar'
+            : (off ? 'En un checklist entregado un hallazgo no vuelve a Bien' : '')
+          return `
+          <button class="mec-sev ${sev === s ? 'on' : ''}" ${off ? 'disabled' : ''} title="${tit}"
+                  ${off ? '' : `onclick="mecSev(${p.id},'${s}')"`}
+                  style="${sev === s ? `background:${SEV[s].color};border-color:${SEV[s].color}` : ''}${off ? ';opacity:.4;cursor:not-allowed' : ''}">
             <span style="font-size:19px">${SEV[s].icon}</span><span>${SEV[s].lbl}</span>
-          </button>`).join('')}
+          </button>` }).join('')}
       </div>
       ${extra}
       ${sev && sev !== 'verde' ? `
@@ -841,6 +1054,56 @@
     finally { SUBIENDO-- }
   }
 
+  // ── ENVÍO INCREMENTAL ──────────────────────────────────────────────────────
+  // Mandar no es cerrar. El técnico manda lo que encontró apenas lo encuentra —
+  // con su foto — y sigue revisando. Cada envío se SUMA a la misma cotización.
+  // La inspección queda abierta y los 34 puntos se siguen debiendo.
+  const pendientesDeEnviar = () =>
+    PUNTOS.filter(p => ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad) && !HALL[p.id]?.enviado_at).length +
+    EXTRAS.filter(x => !x.enviado_at).length
+
+  // Después de mandar hay que releer: el enviado_at lo pone el servidor y es lo
+  // que dibuja el ✓. Sin esto el técnico volvería a apretar Enviar sobre lo mismo.
+  async function recargarHallazgos () {
+    if (!INSP) return
+    const { data: h } = await sb().from('checklist_hallazgos').select('*').eq('inspeccion_id', INSP.id)
+    HALL = {}
+    for (const x of (h || [])) HALL[x.punto_id] = x
+    await cargarExtras()
+  }
+
+  window.mecEnviarHallazgos = async function () {
+    if (!INSP) return
+    if (SUBIENDO > 0) { toast('Esperá a que termine de subir la foto', 'error'); return }
+
+    // Adelantar el aviso de foto faltante con el NOMBRE del punto. El servidor
+    // también lo frena, pero devuelve un número: "falta la foto en 1 hallazgo"
+    // no le dice al técnico en cuál de los 34.
+    const sinFoto = PUNTOS.filter(p => p.foto_obligatoria && !HALL[p.id]?.enviado_at &&
+      ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad) && !HALL[p.id]?.foto_url)
+    if (sinFoto.length) { toast(`Falta la foto en: ${sinFoto.map(p => p.nombre).join(', ')}`, 'error'); return }
+    const exSinFoto = EXTRAS.filter(x => !x.enviado_at && !x.foto_url)
+    if (exSinFoto.length) { toast(`Falta la foto en: ${exSinFoto.map(x => x.descripcion.slice(0, 28)).join(', ')}`, 'error'); return }
+    const infoSinNota = PUNTOS.filter(p => esInformativo(p) && !HALL[p.id]?.enviado_at &&
+      ['amarillo', 'rojo'].includes(HALL[p.id]?.severidad) && !String(HALL[p.id]?.nota || '').trim())
+    if (infoSinNota.length) { toast(`Escribí qué falta en: ${infoSinNota.map(p => p.nombre).join(', ')}`, 'error'); return }
+
+    const btn = $('mec-enviar')
+    if (btn) { btn.disabled = true; btn.textContent = 'Enviando…' }
+    const { data, error } = await sb().rpc('checklist_enviar_hallazgos', { p_inspeccion_id: INSP.id })
+    if (error) {
+      toast(error.message, 'error')
+      if (btn) { btn.disabled = false }
+      renderChecklist()
+      return
+    }
+    const n = (data && data.lineas) || 0
+    toast(n ? `Enviado — ${n} ítem(s) ya están con el cotizador` : 'No había nada nuevo que mandar',
+      n ? 'success' : 'error')
+    await recargarHallazgos()
+    renderChecklist()
+  }
+
   // ── 4. Cerrar ──────────────────────────────────────────────────────────────
   // La validación de verdad vive en checklist_cerrar() (servidor). Acá solo se
   // adelanta el mensaje para no hacerlo ir y volver.
@@ -887,16 +1150,16 @@
     const { data, error } = await sb().rpc('checklist_cerrar', { p_inspeccion_id: INSP.id })
     if (error) {
       toast(error.message, 'error')
-      if (btn) { btn.disabled = false; btn.textContent = 'Enviar a cotizar →' }
+      if (btn) { btn.disabled = false; btn.textContent = 'Cerrar checklist →' }
       return
     }
     const n = (data && data.lineas) || 0
     toast(n ? `Enviado — ${n} ítem(s) para cotizar` : 'Enviado — el carro está bien', 'success')
-    INSP = null; HALL = {}
+    INSP = null; HALL = {}; F_EST = 'todos'; F_SIS = ''
     await renderOrdenes()
   }
 
-  window.mecVolver = async function () { INSP = null; HALL = {}; VEH = null; EXTRAS = []; await renderOrdenes() }
+  window.mecVolver = async function () { INSP = null; HALL = {}; VEH = null; EXTRAS = []; F_EST = 'todos'; F_SIS = ''; await renderOrdenes() }
 
   // ── 5. Mi comisión ─────────────────────────────────────────────────────────
   window.mecComision = async function () {

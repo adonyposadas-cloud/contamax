@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260725-pdf3' } catch (e) {}
+  try { window.__cotBuild = '20260727-hist1' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -360,7 +360,7 @@
     <div id="cot-panel-cotizacion" class="cot-panel" style="display:none">
       <div class="form-card">
         <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-          <input id="cot-hist-q" class="cot-in" placeholder="🔍 Buscar por placa, cliente o N°..." style="flex:1;min-width:220px;text-transform:uppercase">
+          <input id="cot-hist-q" class="cot-in" placeholder="🔍 Buscar por placa, cliente, N° orden o N° cotización..." style="flex:1;min-width:220px;text-transform:uppercase">
           <div style="display:flex;gap:6px" id="cot-hist-filtros">
             <button class="cot-chip on" data-estado="">Todas</button>
             <button class="cot-chip" data-estado="pendiente">Pendientes</button>
@@ -2014,6 +2014,54 @@
 
   function totales () { return calcTot() }
 
+  // ── MERGE DE SOLICITADOS ────────────────────────────────────────────────────
+  // `solicitados` es una columna JSONB y hasta acá se pisaba ENTERA en cada
+  // guardado. Si mientras esta proforma estaba abierta el técnico mandó un hallazgo
+  // nuevo desde el checklist —o el jefe de pista agregó un ítem— el guardado lo
+  // BORRABA. Sin error y sin aviso: el técnico veía "enviado", acá nunca aparecía,
+  // y el cliente nunca lo compraba.
+  //
+  // Ahora se re-lee la base antes de escribir y se hace merge:
+  //   · lo que ya conocíamos → manda la copia local (así no se pierde `agregado:true`)
+  //   · lo que está en la base y NO en memoria → se agrega al final
+  // Se agrega al FINAL a propósito: renderSolicitados() usa el índice del arreglo
+  // para sus botones, y meterlos en el medio correría esos índices.
+  async function mergeSolicitados (id, locales) {
+    const loc = Array.isArray(locales) ? locales.slice() : []
+    try {
+      const { data, error } = await sb().from('cotizador_proformas')
+        .select('solicitados').eq('id', id).single()
+      if (error || !data) return loc
+      const frescos = Array.isArray(data.solicitados) ? data.solicitados : []
+      if (!frescos.length) return loc
+      // Identidad: el hallazgo_linea_id es el ancla dura de lo que viene del
+      // checklist, y el extra_id la de los hallazgos fuera de lista (esos NO
+      // traen hallazgo_linea_id: vienen con origen:'extra'). Los solicitados que
+      // escribe a mano el jefe de pista no traen ninguno de los dos: para esos,
+      // lo único estable es tipo+desc+cantidad.
+      const clave = (s) => (s && s.hallazgo_linea_id)
+        ? 'H:' + s.hallazgo_linea_id
+        : (s && s.extra_id)
+          ? 'X:' + s.extra_id
+          : 'T:' + String((s && s.tipo) || '') + '|' +
+                   String((s && s.desc) || '').trim().toUpperCase() + '|' +
+                   (Number(s && s.cantidad) || 1)
+      const conocidos = new Set(loc.map(clave))
+      let nuevos = 0
+      for (const f of frescos) {
+        const k = clave(f)
+        if (conocidos.has(k)) continue
+        conocidos.add(k); loc.push(f); nuevos++
+      }
+      if (nuevos) toast(`Llegaron ${nuevos} ítem(s) nuevo(s) para cotizar`, 'success')
+      return loc
+    } catch (e) {
+      // Ante la duda no se inventa nada: se devuelve lo local y se guarda como antes.
+      console.error('[cotizador merge solicitados]', e)
+      return loc
+    }
+  }
+
   async function guardarProforma (opts) {
     opts = opts || {}
     if (!PF.cliente && !PF.placa) { toast('Ingresá al menos cliente o placa', 'error'); return false }
@@ -2041,6 +2089,11 @@
       console.error('[cotizador chk orden]', e); toast('No se pudo validar la orden', 'error')
       restore(); return false
     }
+    // Antes de armar el payload: recuperar lo que haya entrado a `solicitados`
+    // mientras esta proforma estaba abierta. Va acá y no después porque el payload
+    // ya se lleva PF.solicitados adentro.
+    if (PF.id) PF.solicitados = await mergeSolicitados(PF.id, PF.solicitados)
+
     const payload = {
       vendedor: PF.vendedor || '', vendedor_id: prof ? prof.id : null,
       cliente: PF.cliente || '', placa: (PF.placa || '').toUpperCase(),
@@ -2078,6 +2131,9 @@
         if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' guardada', 'success')
       }
       setNumLabel()
+      // Si el merge trajo algo nuevo, hay que repintar el panel: si no, el ítem
+      // quedó guardado pero invisible hasta recargar la pantalla.
+      renderSolicitados()
       restore(); return true
     } catch (e) {
       console.error('[cotizador guardar]', e)
@@ -3558,24 +3614,51 @@
     } catch (e) { PROVS = [] }
   }
 
+  // Ver u ocultar las cotizaciones vacías del historial. Arranca ocultándolas:
+  // son ruido puro y son la mayoría de los L. 0.00.
+  let _histVerVacias = false
+  window._cotVerVacias = () => { _histVerVacias = !_histVerVacias; loadHistorial() }
+
   async function loadHistorial () {
     const list = $('cot-hist-list')
     const q = ($('cot-hist-q').value || '').trim()
     try {
+      // Se traen items y solicitados para poder distinguir una cotización de
+      // verdad de una cáscara vacía (ver más abajo). Y se pide MÁS de lo que se
+      // va a mostrar, porque el descarte es de este lado: con limit(100) a secas,
+      // 100 cáscaras dejaban la pantalla en blanco.
       let query = sb().from('cotizador_proformas')
-        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,proc_inicio,proc_aprobada,proc_completada')
-        .order('created_at', { ascending: false }).limit(100)
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,proc_inicio,proc_aprobada,proc_completada,items,solicitados')
+        .order('created_at', { ascending: false }).limit(300)
       if (HIST_FILTRO) query = query.eq('estado', HIST_FILTRO)
       if (q) {
         const s = escLike(q).replace(/[,()]/g, ' ')
-        query = query.or(`placa.ilike.%${s}%,cliente.ilike.%${s}%,correlativo.eq.${/^\d+$/.test(q) ? q : 0}`)
+        // numero_orden es su propia columna: sin esto, buscar "55096" no encontraba
+        // nada aunque la orden existiera, porque solo se miraba placa, cliente y
+        // correlativo (que es el N° de la cotización, no el de la orden).
+        query = query.or(`placa.ilike.%${s}%,cliente.ilike.%${s}%,numero_orden.ilike.%${s}%,correlativo.eq.${/^\d+$/.test(q) ? q : 0}`)
       }
-      const { data, error } = await query
+      const { data: crudo, error } = await query
       if (error) throw error
+
+      // ── CÁSCARAS ──
+      // Una proforma sin ítems Y sin solicitados no es una cotización: es el
+      // registro que se creó solo para habilitar el checklist, o una que quedó
+      // abandonada. No tiene nada que ver ni nada que cobrar, y son las que
+      // llenan la lista de L. 0.00. Se ocultan, pero se cuentan y se pueden ver.
+      const vacia = (p) => !(p.items || []).length && !(p.solicitados || []).length
+      const todas = crudo || []
+      const ocultas = todas.filter(vacia).length
+      const data = (_histVerVacias ? todas : todas.filter(p => !vacia(p))).slice(0, 100)
       // Cruce con órdenes del taller para traer factura y monto facturado
       const ordMap = await mapaOrdenes(data || [])
-      list.innerHTML = (data && data.length) ? data.map(p => filaHist(p, false, ordMap[String(p.numero_orden || '').trim()])).join('')
-        : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones</div>'
+      const pie = ocultas
+        ? `<div onclick="window._cotVerVacias()" style="text-align:center;color:var(--text3,#8b949e);padding:12px;font-size:12px;cursor:pointer">
+             ${_histVerVacias ? '▾' : '▸'} ${ocultas} cotización(es) vacía(s) ${_histVerVacias ? 'visibles' : 'ocultas'} — sin ítems ni solicitados
+           </div>` : ''
+      list.innerHTML = ((data && data.length)
+        ? data.map(p => filaHist(p, false, ordMap[String(p.numero_orden || '').trim()])).join('')
+        : '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Sin cotizaciones</div>') + pie
       startClock()
     } catch (e) {
       console.error('[cotizador historial]', e)
