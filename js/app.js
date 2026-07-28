@@ -1,3 +1,5 @@
+// CONTAMAX · app.js
+try { window.__appBuild = '20260728-billetes2' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -4037,9 +4039,15 @@ window.loadCaja = loadCaja
 async function loadCajaCambios() {
   cajaCambios = []
   try {
-    const { data: conteosRaw } = await sb.from('conteo_billetes')
-      .select('*').is('partida_id', null).not('cambio_grupo', 'is', null)
-      .order('created_at', { ascending: false })
+    // Sin partida y con cambio_grupo: son los cambios de denominación. No tiene
+    // tope natural, así que se pagina. El .order('id') es el desempate estable;
+    // created_at solo no alcanza porque puede repetirse entre filas del mismo cambio.
+    let conteosRaw = []
+    try {
+      conteosRaw = await _fetchAllPag(() => sb.from('conteo_billetes')
+        .select('*').is('partida_id', null).not('cambio_grupo', 'is', null)
+        .order('created_at', { ascending: false }).order('id'))
+    } catch (e) { console.error('[cambios billetes]', e) }
     const { data: usdRaw } = await sb.from('caja_usd')
       .select('*').not('cambio_grupo', 'is', null)
       .order('created_at', { ascending: false })
@@ -5618,15 +5626,37 @@ async function cajaStockDenom(cuentaCodigo, excludePartidaId) {
   DENOMINACIONES.forEach(d => stock[d] = 0)
   if (!cuentaCodigo) return stock
   const esChica = String(cuentaCodigo).startsWith('110101')
-  const { data } = await sb.from('conteo_billetes')
-    .select('tipo, partida_id, cuenta_codigo, den_500,den_200,den_100,den_50,den_20,den_10,den_5,den_2,den_1, partida:partidas_contables(estado)')
-  for (const c of (data || [])) {
+
+  // Esta consulta traía la tabla ENTERA sin paginar. PostgREST corta en 1000 filas
+  // y no devuelve error: el día que conteo_billetes pasó las mil, el modal empezó a
+  // mostrar menos billetes de los que hay en la caja, sin que nada fallara. Se cae
+  // siempre lo último insertado, o sea el conteo más reciente.
+  //
+  // El .order('id') no es adorno: sin un orden estable, paginar con .range() puede
+  // saltarse filas o repetirlas entre páginas.
+  //
+  // Y ahora se filtra por cuenta en el SERVIDOR. Es exactamente el mismo criterio
+  // que se aplicaba acá abajo (caja general incluía las filas sin cuenta, porque
+  // null !== '110101-001'), pero sin arrastrar toda la tabla en cada apertura.
+  let data = []
+  try {
+    data = await _fetchAllPag(() => {
+      const q = sb.from('conteo_billetes')
+        .select('tipo, partida_id, cuenta_codigo, den_500,den_200,den_100,den_50,den_20,den_10,den_5,den_2,den_1, partida:partidas_contables(estado)')
+        .order('id')
+      return esChica
+        ? q.eq('cuenta_codigo', cuentaCodigo)                        // cada caja chica = su propia cuenta
+        : q.or('cuenta_codigo.is.null,cuenta_codigo.neq.110101-001') // general = todo lo que no es caja chica
+    })
+  } catch (e) {
+    // Si falla, mejor no limitar nada que limitar con un número inventado.
+    console.error('[cajaStockDenom]', e)
+    return stock
+  }
+
+  for (const c of data) {
     if (excludePartidaId && c.partida_id === excludePartidaId) continue
     if (!(c.partida?.estado === 'aprobada' || c.partida_id === null)) continue
-    const enGrupo = esChica
-      ? (c.cuenta_codigo === cuentaCodigo)      // cada caja chica = su propia cuenta
-      : (c.cuenta_codigo !== '110101-001')      // caja general = todo lo que no es caja chica (igual que el arqueo)
-    if (!enGrupo) continue
     const signo = c.tipo === 'ingreso' ? 1 : (c.tipo === 'egreso' ? -1 : 0)
     DENOMINACIONES.forEach(d => { stock[d] += signo * (c[`den_${d}`] || 0) })
   }
@@ -5858,7 +5888,7 @@ window.aplicarBilletes = () => {
 window.openCajaDebe = (lineaId) => {
   const l = partidaLineas.find(x => x.id === lineaId)
   const existing = l?.billetes || null
-  openBilletes('💵 Ingreso a Caja General', 'Contá los billetes que entran a caja', (monto, detalle) => {
+  openBilletes(`💵 Ingreso a ${nombreCaja(l?.cuenta_codigo)}`, 'Contá los billetes que entran a caja', (monto, detalle) => {
     if (l) {
       const montoAnterior = l.monto || 0
       if (montoAnterior > 0 && Math.abs(montoAnterior - monto) > 0.01) {
@@ -5871,10 +5901,25 @@ window.openCajaDebe = (lineaId) => {
   }, existing, l?.monto || 0)
 }
 
+// El título del modal decía "Caja General" fijo, estuviera donde estuviera. Nancy
+// contaba billetes de caja chica bajo un cartel que decía otra cosa — y como el
+// modal SÍ trabaja con la cuenta correcta, el cartel era lo único mentiroso.
+// Se toma el nombre del catálogo de cuentas cuando está cargado; si no, se deduce
+// del código, que es estable: 110101-xxx es caja chica y 110102-xxx la general.
+function nombreCaja(cuentaCodigo) {
+  const c = String(cuentaCodigo || '').trim()
+  if (!c) return 'Caja'
+  const cta = (cuentasDetalle || []).find(x => x.codigo === c)
+  if (cta?.nombre) return String(cta.nombre).replace(/\s+MN$/i, '').trim()
+  if (c.startsWith('110101')) return 'Caja Chica'
+  if (c.startsWith('110102')) return 'Caja General'
+  return 'Caja ' + c
+}
+
 window.openCajaHaber = (lineaId) => {
   const l = partidaLineas.find(x => x.id === lineaId)
   const existing = l?.billetes || null
-  openBilletes('💵 Egreso de Caja General', 'Contá los billetes que salen de caja', (monto, detalle) => {
+  openBilletes(`💵 Egreso de ${nombreCaja(l?.cuenta_codigo)}`, 'Contá los billetes que salen de caja', (monto, detalle) => {
     if (l) {
       const montoAnterior = l.monto || 0
       if (montoAnterior > 0 && Math.abs(montoAnterior - monto) > 0.01) {
@@ -5890,15 +5935,19 @@ window.openCajaHaber = (lineaId) => {
 // ── ARQUEO DE CAJA ──
 window.verArqueo = async () => {
   // Cargar conteos de billetes — solo caja general (excluir caja chica 110101-001)
-  const { data: allConteos, error } = await sb.from('conteo_billetes').select('*, partida:partidas_contables(estado)')
-  if (error) { toast('Error al cargar arqueo: ' + error.message, 'error'); return }
+  // Se pagina y se excluye caja chica en el SERVIDOR. Antes pedía la tabla entera
+  // y recién después filtraba: al pasar conteo_billetes las 1000 filas, PostgREST
+  // devolvía solo las primeras mil —sin error— y el arqueo quedaba corto.
+  let allConteos = []
+  try {
+    allConteos = await _fetchAllPag(() => sb.from('conteo_billetes')
+      .select('*, partida:partidas_contables(estado)')
+      .or('cuenta_codigo.is.null,cuenta_codigo.neq.110101-001')
+      .order('id'))
+  } catch (e) { toast('Error al cargar arqueo: ' + (e.message || e), 'error'); return }
 
-  // Filtrar: conteos de partidas aprobadas + cambios de denominaciones (sin partida),
-  // excluyendo siempre los de caja chica (110101-001)
-  const conteos = (allConteos || []).filter(c =>
-    (c.partida?.estado === 'aprobada' || c.partida_id === null) &&
-    c.cuenta_codigo !== '110101-001'
-  )
+  // Conteos de partidas aprobadas + cambios de denominaciones (sin partida)
+  const conteos = allConteos.filter(c => c.partida?.estado === 'aprobada' || c.partida_id === null)
 
   const denoms = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   const tbody = document.getElementById('tbody-arqueo')
@@ -6185,8 +6234,15 @@ async function loadCajaExtras() {
   const { data: tcData } = await sb.from('caja_tc_promedio').select('*').limit(1).single()
   if (tcData) tcPromedio = tcData
 
-  // Cheques: calcular desde conteo_billetes (den_cheques)
-  const { data: allConteos } = await sb.from('conteo_billetes').select('tipo, den_cheques')
+  // Cheques: calcular desde conteo_billetes (den_cheques).
+  // Paginado: acá se suman TODAS las filas de la tabla, así que era el primer
+  // cálculo en romperse al cruzar las 1000 — y en silencio, dando un saldo de
+  // cheques menor al real.
+  let allConteos = []
+  try {
+    allConteos = await _fetchAllPag(() => sb.from('conteo_billetes')
+      .select('tipo, den_cheques').order('id'))
+  } catch (e) { console.error('[saldo cheques]', e) }
   let chequesIng = 0, chequesEgr = 0
   ;(allConteos || []).forEach(c => {
     const val = parseFloat(c.den_cheques) || 0
@@ -10507,9 +10563,15 @@ window.verArqueoCajaChica = async () => {
   const denoms = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   
   // Get all conteos for caja chica account (by cuenta_codigo or by partida that touches caja chica)
-  const { data: conteosDirect } = await sb.from('conteo_billetes')
-    .select('*, partida:partidas_contables(estado)')
-    .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+  // Hoy son ~550 filas y crecen todos los días: es la próxima en cruzar las 1000 y
+  // romperse igual que se rompió el modal de egresos. Se pagina desde ya.
+  let conteosDirect = []
+  try {
+    conteosDirect = await _fetchAllPag(() => sb.from('conteo_billetes')
+      .select('*, partida:partidas_contables(estado)')
+      .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+      .order('id'))
+  } catch (e) { toast('Error al cargar arqueo: ' + (e.message || e), 'error'); return }
 
   // Also get conteos without cuenta_codigo — check if their partida has a caja chica line
   const { data: conteosNull } = await sb.from('conteo_billetes')

@@ -2,7 +2,7 @@
 // Crea "solicitudes de cotización" (info general + nombres de productos/servicios,
 // sin precios) que arrancan la fase de cotización y le tiran la bola al cotizador.
 // Depende de: window._sb, window._currentProfile, window.toast
-window.__jpBuild = '20260725-pdf3'   // verificar en consola antes de diagnosticar
+window.__jpBuild = '20260728-anexo'   // verificar en consola antes de diagnosticar
 const jpSb = () => window._sb
 const jpProfile = () => { try { return window._currentProfile?.() || {} } catch (e) { return {} } }
 const jpEsSuper = () => { const p = jpProfile(); return (p._rolReal || p.rol) === 'super_admin' }
@@ -914,7 +914,7 @@ window.jpGenerarPdfOficial = async function (proformaId, quien) {
   const hIds = [...new Set(items.map(it => it.hallazgo_id).filter(Boolean))]
   if (hIds.length) {
     try {
-      await jpAnexarFotos(doc, proformaId, items, hIds)
+      await jpAnexarFotos(doc, proformaId, items, hIds, pf.descuento)
     } catch (e) {
       // El anexo es un extra: si falla (foto borrada, sin permiso), igual se sube
       // la proforma. Peor sería quedarse sin PDF por una miniatura.
@@ -951,7 +951,7 @@ window.jpGenerarPdfOficial = async function (proformaId, quien) {
 // Anexa al final de la proforma las páginas de fotos del checklist: por cada
 // hallazgo, su foto, la medición contra el mínimo y la nota del técnico. Es lo
 // que le vende el trabajo al cliente y la proforma sola no muestra.
-async function jpAnexarFotos (doc, proformaId, items, hIds) {
+async function jpAnexarFotos (doc, proformaId, items, hIds, descuento) {
   const sb = jpSb()
   const { data: insp } = await sb.from('checklist_inspecciones')
     .select('id,foto_desmontaje_del,foto_desmontaje_tra').eq('proforma_id', proformaId).maybeSingle()
@@ -978,13 +978,27 @@ async function jpAnexarFotos (doc, proformaId, items, hIds) {
 
   // Agrupar por HALLAZGO: el cliente entiende "fricciones delanteras", no
   // "FRICCION DELANTERA" + "INSTALACION DE FRICCION..." por separado.
+  //
+  // Y se suma el repuesto CON su mano de obra: la pregunta del cliente frente a
+  // la foto no es cuánto vale la banda, es cuánto le cuesta resolverlo.
+  //
+  // La cuenta es la misma que hace pdfDeProforma() para sus totales —base por
+  // línea, descuento global, ISV encima— porque van en el MISMO documento. Si
+  // acá se calculara distinto, el cliente sumaría el anexo, no le daría el total
+  // de la página 1, y perderíamos la venta discutiendo aritmética.
+  const dPct = Math.max(0, Math.min(100, Number(descuento) || 0))
+  const fmtL = v => Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
   const grupos = {}
   for (const it of items) {
     if (!it.hallazgo_id) continue
     const g = grupos[it.hallazgo_id] || (grupos[it.hallazgo_id] = {
-      hallazgo: H[it.hallazgo_id], punto: P[it.punto_id], severidad: it.severidad, lineas: []
+      hallazgo: H[it.hallazgo_id], punto: P[it.punto_id], severidad: it.severidad, lineas: [], total: 0
     })
     g.lineas.push(it.desc)
+    const base = (Number(it.precio) || 0) * (Number(it.cantidad) || 0)
+    const conDesc = base * (1 - dPct / 100)
+    g.total += conDesc + conDesc * (Number(it.isv) || 0) / 100
   }
   const gs = Object.values(grupos)
   if (!gs.length) return
@@ -998,7 +1012,8 @@ async function jpAnexarFotos (doc, proformaId, items, hIds) {
   doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(30)
   doc.text('EVIDENCIA DE LA REVISIÓN', M, y); y += 5
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110)
-  doc.text('Fotos y mediciones tomadas por el técnico durante la inspección.', M, y); y += 6
+  doc.text('Fotos y mediciones tomadas por el técnico durante la inspección.', M, y); y += 4
+  doc.text('El monto de cada hallazgo incluye repuesto, mano de obra e ISV.', M, y); y += 6
   doc.setDrawColor(200); doc.line(M, y, W - M, y); y += 7
 
   const saltar = (alto) => { if (y + alto > 275) { doc.addPage(); y = M + 6 } }
@@ -1022,8 +1037,20 @@ async function jpAnexarFotos (doc, proformaId, items, hIds) {
     else if (g.severidad === 'amarillo') doc.setTextColor(190, 140, 0)
     else doc.setTextColor(30)
     let ty = y + 4
-    doc.text((g.severidad === 'rojo' ? 'URGENTE · ' : g.severidad === 'amarillo' ? 'RECOMENDADO · ' : '') +
-      (pt ? pt.nombre : (g.lineas[0] || '')), textoX, ty); ty += 5
+    // El precio va alineado a la derecha, en la misma línea del título: después de
+    // ver la foto, es lo único que el cliente busca. Se le reserva ancho fijo para
+    // que un nombre largo no se le monte encima.
+    const montoTxt = g.total > 0 ? `L ${fmtL(g.total)}` : ''
+    const anchoTit = textoW - (montoTxt ? 28 : 0)
+    const titulo = (g.severidad === 'rojo' ? 'URGENTE · ' : g.severidad === 'amarillo' ? 'RECOMENDADO · ' : '') +
+      (pt ? pt.nombre : (g.lineas[0] || ''))
+    const tl = doc.splitTextToSize(titulo, anchoTit)
+    doc.text(tl, textoX, ty)
+    if (montoTxt) {
+      doc.setTextColor(30); doc.setFontSize(10.5)
+      doc.text(montoTxt, W - M, ty, { align: 'right' })
+    }
+    ty += tl.length * 4.6 + 0.4
 
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90)
     if (h && h.medicion != null && !h.medicion_estimada) {
