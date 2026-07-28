@@ -16,7 +16,7 @@
  * ========================================================================== */
 ;(function () {
   'use strict'
-  window.__mecBuild = '20260727-envio4'
+  window.__mecBuild = '20260728-envio5'
 
   // ── INTERRUPTOR: mostrar u ocultar "Mi comisión" a los técnicos ──
   // Durante la prueba piloto se oculta para cuadrar los números internamente sin que los
@@ -232,8 +232,18 @@
     // Una inspección sin terminar de una orden YA FINALIZADA no tiene destino: el
     // servidor rechaza agregarle hallazgos. Mostrarla es peor que no mostrarla —
     // el técnico marca los 34 puntos y recién al apretar Enviar se entera.
+    //
+    // Pero acá se mira SOLO si la recomendada murió, no si la orden sigue viva.
+    // Son cosas distintas y confundirlas costaba caro: cuando el cotizador cierra
+    // la proforma cáscara para ordenar su pantalla, esa orden se queda sin ninguna
+    // proforma en proceso — y si el técnico todavía no reportó nada, la recomendada
+    // ni existe. Con la condición de "orden viva", la inspección desaparecía de
+    // esta lista con el carro todavía en el elevador.
+    //
+    // Que la recomendada esté finalizada o anulada sí es señal firme de que no hay
+    // nada más que hacer, y es exactamente lo que rechaza checklist_volcar().
     const infoAb = await infoOrdenes((abiertas || []).map(i => i.numero_orden))
-    const abiertasVivas = (abiertas || []).filter(i => ordenAbierta(infoAb, i.numero_orden))
+    const abiertasVivas = (abiertas || []).filter(i => !infoAb.muerta.has(i.numero_orden))
 
     let html = ''
     if (abiertasVivas.length) {
@@ -323,10 +333,12 @@
     return { veh, viva, muerta }
   }
 
-  // ¿Se le puede todavía agregar algo a esta orden? Es EXACTAMENTE la misma
-  // condición que aplica checklist_volcar() del lado del servidor. Tiene que
-  // vivir en un solo lugar acá también: si la pantalla ofrece una orden que el
-  // servidor va a rechazar, el técnico marca puntos al pedo y se entera al final.
+  // Para los checklists YA ENTREGADOS el criterio es más estricto: además de que
+  // la recomendada no esté muerta, la orden tiene que seguir viva. Ahí sí importa
+  // que el carro siga en el taller — un checklist cerrado de un carro entregado no
+  // es candidato a nada, y dejarlo en la lista solo llena la pantalla.
+  //
+  // Para las inspecciones EN CURSO no se usa esta condición: ver arriba por qué.
   const ordenAbierta = (info, orden) => info.viva.has(orden) && !info.muerta.has(orden)
 
   // Los checklists ya entregados de órdenes que TODAVÍA están en el taller.

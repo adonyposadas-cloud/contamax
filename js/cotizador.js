@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260727-hist1' } catch (e) {}
+  try { window.__cotBuild = '20260728-mostrador2' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -2094,6 +2094,25 @@
     // ya se lleva PF.solicitados adentro.
     if (PF.id) PF.solicitados = await mergeSolicitados(PF.id, PF.solicitados)
 
+    // ── MOSTRADOR ──
+    // Una cotización sin número de orden casi siempre es alguien que se acercó al
+    // mostrador y se fue: el carro nunca entró al taller. Esas no tienen jefe de
+    // pista, ni técnico, ni nadie esperando — y si caen en la cola normal se
+    // quedan con el cronómetro corriendo, ensuciando el tiempo de autorización.
+    //
+    // Se PREGUNTA en vez de deducirlo solo. Si el cotizador simplemente se olvidó
+    // de escribir la orden, marcarla como mostrador en silencio la sacaría de la
+    // cola del jefe de pista y nadie la perseguiría nunca. Preguntar cuesta un
+    // clic y de paso le recuerda que le falta el número.
+    if (!PF.id && !orden && (PF.tipo_solicitud || 'solicitado') === 'solicitado') {
+      PF.tipo_solicitud = confirm(
+        'Esta cotización no tiene número de orden.\n\n' +
+        '¿Es un cliente de MOSTRADOR (el carro no entró al taller)?\n\n' +
+        'Aceptar  →  mostrador: no entra a la cola del jefe de pista y vence a los 30 días.\n' +
+        'Cancelar →  cotización normal: se guarda sin orden y podés agregársela después.'
+      ) ? 'mostrador' : 'solicitado'
+    }
+
     const payload = {
       vendedor: PF.vendedor || '', vendedor_id: prof ? prof.id : null,
       cliente: PF.cliente || '', placa: (PF.placa || '').toUpperCase(),
@@ -2952,7 +2971,7 @@
         P().select('*', { count: 'exact', head: true }).eq('estado', 'autorizada'),
         P().select('total').gte('created_at', desdeHoy),
         P().select('total').eq('estado', 'autorizada').gte('updated_at', desdeHoy),
-        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,anio_vehiculo,mecanico,total,estado,tipo_solicitud,numero_orden,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde').in('estado', ['solicitada', 'pendiente', 'autorizada']).order('created_at', { ascending: false }).limit(60)
+        P().select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,anio_vehiculo,mecanico,total,estado,tipo_solicitud,numero_orden,created_at,items,proc_inicio,proc_aprobada,proc_completada,proc_solicitada,jefe_pista,proc_cotiz_ms,proc_autor_ms,proc_compra_ms,solicitados,editando_por,editando_por_id,editando_desde,archivada_at').in('estado', ['solicitada', 'pendiente', 'autorizada']).is('archivada_at', null).order('created_at', { ascending: false }).limit(60)
       ])
       const sum = (r) => (r.data || []).reduce((a, x) => a + (Number(x.total) || 0), 0)
       const st = [
@@ -2965,6 +2984,12 @@
       stats.innerHTML = st.map(s => `<div class="cot-stat"><div class="n">${s[0]}</div><div class="l">${s[1]}</div></div>`).join('')
       _dashRows = pend.data || []
       pintarDashLista()
+      // Las de mostrador que pasaron los 30 días se archivan solas acá. No hace
+      // falta un cron: si nadie mira el tablero, tampoco le estorban a nadie.
+      // Va sin await para no demorar el pintado, y si falla no rompe nada.
+      sb().rpc('cot_mostrador_archivar', { p_dias: 30 })
+        .then(r => { if (r?.data > 0) { toast(`Se archivaron ${r.data} cotización(es) de mostrador vencidas`); loadDashboard() } })
+        .catch(e => console.warn('[archivar mostrador]', e))
       loadPedidosRapidos()
     } catch (e) {
       console.error('[cotizador dashboard]', e)
@@ -3003,6 +3028,11 @@
   let _dashRows = []
   let _verChecklist = false
   window._cotVerChecklist = () => { _verChecklist = !_verChecklist; pintarDashLista() }
+  // Mostrador arranca cerrada: hasta que el cliente vuelva no hay nada que hacer
+  // con ellas, y a los 30 días se archivan solas. Cerrada y no escondida a
+  // propósito — el contador de al lado sigue diciendo cuántas hay esperando.
+  let _verMostrador = false
+  window._cotVerMostrador = () => { _verMostrador = !_verMostrador; pintarDashLista() }
 
   function pintarDashLista () {
     const list = document.getElementById('cot-dash-list'); if (!list) return
@@ -3013,23 +3043,29 @@
     const reales = todas.filter(p => !soloParaChecklist(p))
 
     const q = _dashQ
-    const grupos = { cotizacion: [], autorizacion: [], compra: [] }
+    const grupos = { cotizacion: [], autorizacion: [], compra: [], mostrador: [] }
     reales.filter(p => coincide(p, q)).forEach(p => { grupos[grupoDe(p)].push(p) })
     const chkVis = chk.filter(p => coincide(p, q))
 
     const secDef = [
-      ['cotizacion', '📝 En cotización'],
-      ['autorizacion', '⏱ Esperando autorización'],
-      ['compra', '📦 Pedido de repuestos']
+      ['cotizacion', '📝 En cotización', false],
+      ['autorizacion', '⏱ Esperando autorización', false],
+      ['compra', '📦 Pedido de repuestos', false],
+      ['mostrador', '🏪 Mostrador — esperando que el cliente vuelva', true]
     ]
-    const grupHTML = secDef.map(([key, titulo]) => {
+    const grupHTML = secDef.map(([key, titulo, plegable]) => {
       const arr = grupos[key]
-      const cuerpo = arr.length ? cuerpoSeccion(key, arr)
-        : `<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ${q ? 'ninguna coincide' : 'ninguna'} —</div>`
+      // Si no hay ninguna de mostrador, la sección no aparece: un título con
+      // "— ninguna —" ocupa el mismo lugar que estorbaba.
+      if (plegable && !arr.length) return ''
+      const abierta = !plegable || _verMostrador
+      const cuerpo = !abierta ? '' : (arr.length ? cuerpoSeccion(key, arr)
+        : `<div style="font-size:11px;color:var(--text3,#8b949e);padding:6px 2px">— ${q ? 'ninguna coincide' : 'ninguna'} —</div>`)
       return `<div style="margin-bottom:14px">
-        <div style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37)">
-          <span style="font-size:12px;font-weight:800;color:var(--gold,#c8a24a);text-transform:uppercase;letter-spacing:.5px">${titulo}</span>
+        <div ${plegable ? 'onclick="window._cotVerMostrador()"' : ''} style="display:flex;align-items:baseline;gap:8px;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border,#2a2e37)${plegable ? ';cursor:pointer' : ''}">
+          <span style="font-size:12px;font-weight:800;color:${plegable ? 'var(--text3,#8b949e)' : 'var(--gold,#c8a24a)'};text-transform:uppercase;letter-spacing:.5px">${plegable ? (abierta ? '▾ ' : '▸ ') : ''}${titulo}</span>
           <span style="font-size:11px;color:var(--text3,#8b949e)">${arr.length}</span>
+          ${plegable ? '<span style="font-size:11px;color:var(--text3,#8b949e);margin-left:auto">se archivan solas a los 30 días</span>' : ''}
         </div>${cuerpo}</div>`
     }).join('')
 
@@ -3083,6 +3119,10 @@
 
   // Grupo de trabajo según la fase del proceso (para el tablero de Inicio).
   function grupoDe (p) {
+    // El mostrador se decide primero y no mira la fase: no hay carro, no hay
+    // orden y no hay a quién esperar. Si cayera en 'autorizacion' volvería a
+    // arrancarle el cronómetro y a ensuciar el tiempo de autorización.
+    if (p.tipo_solicitud === 'mostrador') return 'mostrador'
     const f = _procFase(p).fase
     if (f === 'cotizacion') return 'cotizacion'
     if (f === 'autorizacion') return 'autorizacion'
@@ -3097,12 +3137,35 @@
     // El técnico va SIEMPRE que se conozca: es quien tiene el carro en el elevador y a
     // quien hay que entregarle el repuesto. En fase de compra es la información crítica.
     const tec = (p.mecanico || '').trim()
-    if (g === 'autorizacion') return { rol: 'Autoriza', nombre: p.jefe_pista || '—', tecnico: tec }
+    // En mostrador no hay jefe de pista que autorice: el responsable es quien la
+    // cotizó, que es el único que sabe qué se habló en el mostrador.
+    if (g === 'mostrador') return { rol: 'Cotizó', nombre: p.vendedor || '—', tecnico: '' }
+    if (g === 'autorizacion') return { rol: 'Autoriza', nombre: p.jefe_pista || p.vendedor || '—', tecnico: tec }
     if (g === 'compra') return { rol: 'Pide repuestos', nombre: p.vendedor || '—', tecnico: tec }
     return { rol: 'Cotiza', nombre: p.vendedor || '—', tecnico: tec }
   }
   const tecnicoTag = (resp) => resp && resp.tecnico
     ? ` · <span style="color:var(--text3,#8b949e)">🔧 Técnico: <b style="color:var(--text,#e6edf3)">${esc(resp.tecnico)}</b></span>` : ''
+
+  // En mostrador el reloj no mide una demora de nadie: mide cuánto le queda de
+  // vida a la cotización antes de archivarse sola a los 30 días.
+  function diasMostrador (p) {
+    const dias = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000)
+    const quedan = 30 - dias
+    const col = quedan <= 0 ? 'var(--text3,#8b949e)' : quedan <= 7 ? 'var(--amber,#f59e0b)' : 'var(--text3,#8b949e)'
+    return `<span style="color:${col}">🗓 ${quedan > 0 ? `vence en ${quedan} día${quedan === 1 ? '' : 's'}` : 'vencida'}</span>`
+  }
+
+  window._cotMostradorVolvio = async function (id) {
+    const orden = (prompt('El cliente volvió y el carro entró al taller.\n\nNúmero de orden de trabajo:') || '').trim()
+    if (!orden) return
+    const { error } = await sb().from('cotizador_proformas')
+      .update({ tipo_solicitud: 'solicitado', numero_orden: orden, archivada_at: null })
+      .eq('id', id)
+    if (error) { toast(error.message, 'error'); return }
+    toast(`Pasó a la cola normal con la orden #${orden}`, 'success')
+    await loadDashboard()
+  }
 
   function filaDash (p) {
     const num = numeroDe(p.vendedor, p.correlativo)
@@ -3111,12 +3174,16 @@
     const resp = responsableDe(p)
     // Borde izquierdo por fase (como las tarjetas de caja): rojo=cotización, amarillo=autorización, verde=pedido
     const _g = grupoDe(p)
-    const borderCol = _g === 'cotizacion' ? 'var(--red,#f85149)' : _g === 'autorizacion' ? 'var(--amber,#f59e0b)' : 'var(--green,#16a34a)'
+    const borderCol = _g === 'mostrador' ? 'var(--text3,#8b949e)'
+      : _g === 'cotizacion' ? 'var(--red,#f85149)' : _g === 'autorizacion' ? 'var(--amber,#f59e0b)' : 'var(--green,#16a34a)'
     const _me = _profLock()
     const lockOtro = !!(p.editando_por_id && p.editando_por_id !== _me.id && _lockFresco(p))
     const lockBadge = lockOtro ? ` <span style="font-size:10px;font-weight:700;color:var(--amber,#f59e0b);border:1px solid var(--amber,#f59e0b);padding:1px 6px;border-radius:8px">🔒 ${esc(p.editando_por || 'en edición')}</span>` : ''
     const esRec = p.tipo_solicitud === 'recomendado'
-    const tipoBadge = ` <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
+    const esMost = p.tipo_solicitud === 'mostrador'
+    const tipoCol = esMost ? '#8b949e' : (esRec ? '#f59e0b' : '#3b82f6')
+    const tipoTxt = esMost ? '🏪 Mostrador' : (esRec ? '💡 Recomendado' : '🔧 Solicitado')
+    const tipoBadge = ` <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${tipoCol};color:${tipoCol}">${tipoTxt}</span>`
     const pr = progresoPedidos(p.items)
     const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
     const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
@@ -3130,6 +3197,10 @@
     if (esAut) {
       const completo = pr.total === 0 || pr.llegados === pr.total
       accion = editar + ` <button class="btn btn-ghost" data-dashact="finalizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:${completo ? 'var(--green,#16a34a)' : 'var(--text3,#8b949e)'}${completo ? '' : ';opacity:.45;cursor:not-allowed'}"${completo ? '' : ` disabled title="Faltan productos por llegar (${pr.llegados}/${pr.total})"`}>Finalizar</button>`
+    } else if (esMost) {
+      // Mostrador: lo único que puede pasar es que el cliente vuelva. Ahí se le
+      // pone la orden y entra al flujo normal como cualquier solicitada.
+      accion = editar + ` <button class="btn btn-ghost" data-dashact="mostrador-volvio" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)" title="El carro entró al taller: le asigna número de orden y pasa a la cola normal">🚗 El cliente volvió</button>`
     } else if (soloParaChecklist(p)) {
       // No tiene nada que cotizar: se creó para habilitar el checklist. Lo único
       // sensato es cerrarla cuando el carro ya siguió su curso por la recomendada.
@@ -3141,7 +3212,7 @@
     return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'};border-left:4px solid ${borderCol}">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${tipoBadge}${badge}${badgeNuevo}${lockBadge}</div>
-        <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${clockCardHTML(p) ? ' · ' + clockCardHTML(p) : ''}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${esMost ? ' · ' + diasMostrador(p) : (clockCardHTML(p) ? ' · ' + clockCardHTML(p) : '')}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e);margin-top:1px">👤 ${esc(resp.rol)}: <b style="color:var(--text,#e6edf3)">${esc(resp.nombre)}</b>${tecnicoTag(resp)}</div>
       </div>
       <div data-stop style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${accion}</div>
@@ -3245,6 +3316,7 @@
 
   async function dashAccion (act, id) {
     if (act === 'editar') { if (await recuperarProforma(id) !== false) switchTab('nueva'); return }
+    if (act === 'mostrador-volvio') return window._cotMostradorVolvio(id)
     if (act === 'cerrar-chk') {
       // Antes de cerrar, mirar si la recomendada de esa orden ya siguió su curso.
       // Si está autorizada o facturada, esta solicitada ya cumplió su función.

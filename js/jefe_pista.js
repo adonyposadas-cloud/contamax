@@ -2,7 +2,7 @@
 // Crea "solicitudes de cotización" (info general + nombres de productos/servicios,
 // sin precios) que arrancan la fase de cotización y le tiran la bola al cotizador.
 // Depende de: window._sb, window._currentProfile, window.toast
-window.__jpBuild = '20260728-anexo'   // verificar en consola antes de diagnosticar
+window.__jpBuild = '20260728-chktec'   // verificar en consola antes de diagnosticar
 const jpSb = () => window._sb
 const jpProfile = () => { try { return window._currentProfile?.() || {} } catch (e) { return {} } }
 const jpEsSuper = () => { const p = jpProfile(); return (p._rolReal || p.rol) === 'super_admin' }
@@ -421,9 +421,29 @@ async function jpCargar() {
     // trabajo terminado y hacía imposible ver lo que de verdad falta.
     try {
       const { data: insp } = await jpSb().from('checklist_inspecciones')
-        .select('numero_orden').eq('estado', 'cerrada')
+        .select('numero_orden,mecanico_id,cerrada_at').eq('estado', 'cerrada')
+        .order('cerrada_at', { ascending: false })
       window._jpConChecklist = new Set((insp || []).map(i => i.numero_orden))
-    } catch (e) { window._jpConChecklist = new Set() }
+
+      // Quién la inspeccionó DE VERDAD. Se lee de la inspección y no del campo
+      // 'mecanico' de la proforma a propósito: ese dice a quién se le ASIGNÓ el
+      // carro, y no siempre es el que terminó haciéndola. Para reclamar sirve el
+      // asignado; para reconocer el trabajo hecho sirve este.
+      // mecanico_id apunta a usuarios.id (no a tecnicos_cat ni a auth.uid()).
+      window._jpChkTec = {}
+      const ids = [...new Set((insp || []).map(i => i.mecanico_id).filter(Boolean))]
+      if (ids.length) {
+        const { data: us } = await jpSb().from('usuarios').select('id,nombre').in('id', ids)
+        const nom = {}; for (const u of (us || [])) nom[u.id] = u.nombre
+        // Las inspecciones vienen de la más reciente a la más vieja: con el chequeo
+        // de "si ya tiene, no lo pises" queda la ÚLTIMA de cada orden, que es la
+        // que corresponde si el carro se inspeccionó más de una vez.
+        for (const i of (insp || [])) {
+          if (!i.numero_orden || window._jpChkTec[i.numero_orden]) continue
+          if (nom[i.mecanico_id]) window._jpChkTec[i.numero_orden] = nom[i.mecanico_id]
+        }
+      }
+    } catch (e) { window._jpConChecklist = new Set(); window._jpChkTec = {} }
     if (error) throw error
     jpData = data || []
     jpRenderOrdenes()
@@ -584,7 +604,7 @@ function jpOrdenCard(p) {
   // PDF disponible una vez que el cotizador emitió la cotización (proc_inicio
   // se setea al generar el PDF, que es lo que pasa la orden a autorización).
   const btnPdf = p.proc_inicio
-    ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Abrir la cotización en PDF para enviarla al cliente">📄 PDF</button>` : ''
+    ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Solo abre el PDF para revisarlo. No lo manda a nadie.">👁 Ver PDF</button>` : ''
   const esRec = p.tipo_solicitud === 'recomendado'
   // El guion de venta. Solo aparece en la 'recomendado' del checklist y solo cuando el
   // vendedor ya le puso precio a los hallazgos: sin precio no hay nada que ofrecer.
@@ -602,7 +622,7 @@ function jpOrdenCard(p) {
   const btnNV = (esRec && p.proc_cotizada && !['autorizada', 'no_vendida', 'finalizada', 'anulada'].includes(p.estado))
     ? `<button class="jp-b" style="border-color:#f85149;color:#f85149" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
-    ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Armar el mensaje de WhatsApp con fotos, mediciones y precios">📲 Enviar hallazgos</button>` : ''
+    ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Arma el WhatsApp al cliente con el mismo PDF, su teléfono y el total ya escritos">📲 Enviar al cliente</button>` : ''
   // Habilitar técnicos en la orden (Fase 2). Aparece cuando ya hay trabajo autorizado:
   // sin trabajo que ejecutar, no hay a quién asignar. La comisión de ejecución (80%)
   // sale de acá.
@@ -631,7 +651,14 @@ function jpOrdenCard(p) {
         // es el mecánico el que tiene el carro parado.
         f.fase === 'checklist'
           ? (p.mecanico ? ' · 🔧 ' + jpEsc(p.mecanico) : ' · <span style="color:#f85149">sin técnico</span>')
-          : (p.cliente ? ' · ' + jpEsc(p.cliente) : '')
+          // Checklist hecho: lo que importa ya no es a quién reclamarle, sino
+          // quién lo hizo. Se cae al técnico asignado si la inspección no guardó
+          // usuario (inspecciones viejas, de antes de la atribución por id).
+          : f.fase === 'cumplida'
+            ? ((window._jpChkTec && window._jpChkTec[p.numero_orden]) || p.mecanico
+                ? ' · 🔧 ' + jpEsc((window._jpChkTec && window._jpChkTec[p.numero_orden]) || p.mecanico)
+                : '') + (p.cliente ? ' · ' + jpEsc(p.cliente) : '')
+            : (p.cliente ? ' · ' + jpEsc(p.cliente) : '')
       }</div>
     </div>
     <div class="jp-ordacts">
