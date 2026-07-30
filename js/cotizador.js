@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260728-mostrador2' } catch (e) {}
+  try { window.__cotBuild = '20260730-log' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -3718,7 +3718,10 @@
       // registro que se creó solo para habilitar el checklist, o una que quedó
       // abandonada. No tiene nada que ver ni nada que cobrar, y son las que
       // llenan la lista de L. 0.00. Se ocultan, pero se cuentan y se pueden ver.
-      const vacia = (p) => !(p.items || []).length && !(p.solicitados || []).length
+      // Igual que en Seguimiento: con monto cargado no se oculta, aunque los
+      // arreglos vengan vacíos. Acá el riesgo es menor porque hay un contador para
+      // desplegarlas, pero el criterio tiene que ser el mismo en las dos pantallas.
+      const vacia = (p) => !(p.items || []).length && !(p.solicitados || []).length && !(Number(p.total) > 0)
       const todas = crudo || []
       const ocultas = todas.filter(vacia).length
       const data = (_histVerVacias ? todas : todas.filter(p => !vacia(p))).slice(0, 100)
@@ -3792,7 +3795,7 @@
     list.innerHTML = '<div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div>'
     try {
       const { data, error } = await sb().from('cotizador_proformas')
-        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,saldo_de_id,proc_inicio,proc_aprobada,proc_completada')
+        .select('id,correlativo,vendedor,cliente,placa,marca,modelo,anio,total,estado,created_at,numero_orden,saldo_de_id,proc_inicio,proc_aprobada,proc_completada,tipo_solicitud,items,solicitados')
         .order('created_at', { ascending: false }).limit(400)
       if (error) throw error
       // Mapa: original → cotización nueva que se llevó su saldo
@@ -3802,7 +3805,23 @@
       })
       const ordMap = await mapaOrdenes(data || [])
       const snapMap = await mapaPresentaciones(data || [])
-      SEG_DATA = (data || []).map(p => {
+      // ── FUERA LAS CÁSCARAS ──
+      // La proforma que el jefe de pista crea solo para habilitar el checklist no
+      // tiene ítems ni solicitados: no hay nada que facturar ni que cobrar, y nunca
+      // va a haberlo (lo que el técnico encuentre va a la 'recomendado', que es otra
+      // proforma). Se reconocen en pantalla porque salen sin prefijo de vendedor y
+      // en L 0.00 — eran la MITAD de esta lista, y le sumaban cero al monto
+      // pendiente mientras inflaban los contadores de "sin cerrar" y "sin facturar".
+      //
+      // Mismo criterio que usa el tablero y el historial: soloParaChecklist().
+      // El total > 0 manda sobre todo lo demás. Aparecieron dos cotizaciones
+      // (JC-1246 y JC-1222) con total cargado y los arreglos items/solicitados
+      // vacíos: la regla de "cáscara" las tomó por vacías y las escondió, y con
+      // ellas L 4,778.66 de cobro pendiente. Una cotización con plata no se oculta
+      // por ningún motivo — si su monto no cuadra con sus ítems, eso es un problema
+      // que hay que VER, no tapar.
+      const esCascara = (p) => soloParaChecklist(p) && !(Number(p.total) > 0)
+      SEG_DATA = (data || []).filter(p => !esCascara(p)).map(p => {
         const cl = clasificar(p, ordMap[String(p.numero_orden || '').trim()], snapMap[p.id])
         return Object.assign({}, p, cl)
       })
@@ -4274,9 +4293,39 @@
       toast('Cotización autorizada', 'success'); loadHistorial(); return
     }
     if (act === 'eliminar') {
-      if (!confirm('¿Eliminar esta cotización? No se puede deshacer.')) return
+      // Se leen los datos ANTES de borrar: después ya no hay de dónde sacarlos, y
+      // el log sin identificación no sirve para nada. Es lo que faltó cuando hubo
+      // que reconstruir a mano qué se había borrado.
+      let d = null
+      try {
+        const r = await sb().from('cotizador_proformas')
+          .select('correlativo,vendedor,cliente,placa,marca,modelo,total,estado,tipo_solicitud,numero_orden')
+          .eq('id', id).maybeSingle()
+        d = r.data || null
+      } catch (e) { console.warn('[eliminar] no se pudo leer antes de borrar', e) }
+
+      const etiqueta = d
+        ? `${numeroDe(d.vendedor, d.correlativo)} · ${d.cliente || 's/cliente'} · ${d.placa || 's/placa'} · L ${fmt(d.total)}`
+        : 'cotización ' + id
+
+      // El confirm ahora dice QUÉ se va a borrar. Un "¿Eliminar esta cotización?"
+      // a secas no le da al que aprieta ninguna forma de darse cuenta de que se
+      // equivocó de fila.
+      if (!confirm(`¿Eliminar ${etiqueta}?\n\nSe borra también su inspección, hallazgos y fotos. No se puede deshacer.`)) return
+
       const { error } = await sb().from('cotizador_proformas').delete().eq('id', id)
       if (error) { toast('Error al eliminar', 'error'); return }
+
+      // El log va DESPUÉS del borrado exitoso: si falla, no se registra algo que
+      // no pasó. Y nunca tumba la operación — que el log falle no es motivo para
+      // dejar la pantalla en un estado raro.
+      try {
+        await window.logActividad?.('proforma_eliminada', 'cotizador',
+          etiqueta + (d?.numero_orden ? ` · orden ${d.numero_orden}` : '') +
+          (d?.estado ? ` · estaba en ${d.estado}` : '') +
+          (d?.tipo_solicitud ? ` · ${d.tipo_solicitud}` : ''), id)
+      } catch (e) { console.warn('[eliminar] no se pudo registrar en la bitácora', e) }
+
       toast('Cotización eliminada', 'success'); loadHistorial(); return
     }
     if (act === 'pdf' || act === 'ot') {

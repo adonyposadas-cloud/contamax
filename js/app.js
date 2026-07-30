@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260728-billetes2' } catch (e) {}
+try { window.__appBuild = '20260730-log' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -53,7 +53,10 @@ window.logActividad = async (accion, modulo, detalle, referencia_id) => {
     await sb.from('actividad_log').insert({
       usuario_id: p?.id || null,
       usuario_nombre: p?.nombre || 'desconocido',
-      usuario_rol: p?.rol || '',
+      // El rol REAL, no el aliasado. app.js pone rol='super_admin' a los 'admin' para
+      // que los chequeos de permisos los acepten, pero en una bitácora eso sería
+      // registrar a alguien con un cargo que no tiene.
+      usuario_rol: p?._rolReal || p?.rol || '',
       accion,
       modulo: modulo || null,
       detalle: detalle || null,

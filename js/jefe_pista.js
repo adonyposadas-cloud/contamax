@@ -2,10 +2,20 @@
 // Crea "solicitudes de cotización" (info general + nombres de productos/servicios,
 // sin precios) que arrancan la fase de cotización y le tiran la bola al cotizador.
 // Depende de: window._sb, window._currentProfile, window.toast
-window.__jpBuild = '20260728-chktec'   // verificar en consola antes de diagnosticar
+window.__jpBuild = '20260729-admin3'   // verificar en consola antes de diagnosticar
 const jpSb = () => window._sb
 const jpProfile = () => { try { return window._currentProfile?.() || {} } catch (e) { return {} } }
-const jpEsSuper = () => { const p = jpProfile(); return (p._rolReal || p.rol) === 'super_admin' }
+// Poder de super_admin DENTRO de esta pestaña. Usa p.rol, que app.js ya deja en
+// 'super_admin' cuando el usuario es 'admin' — o sea que admin entra a propósito.
+//
+// Esto es una decisión, no un descuido: en el Cotizador admin y super_admin tienen
+// el mismo poder. Lo que limita a un admin es su lista de módulos habilitados, no
+// el rol: si llegó hasta esta pantalla es porque alguien le marcó Jefe de Pista.
+//
+// Para lo que SÍ tiene que distinguirlos está jpEsSuperReal(), que mira el rol de
+// verdad. Hoy no se usa; queda para cuando haga falta cerrar algo solo al dueño.
+const jpEsSuper = () => jpProfile().rol === 'super_admin'
+const jpEsSuperReal = () => { const p = jpProfile(); return (p._rolReal || p.rol) === 'super_admin' }
 const jpEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 // Teléfono → formato wa.me (solo dígitos; 8 dígitos = celular HN, se antepone 504).
 // Misma lógica que normTel() del cotizador, para que ambos armen el mismo número.
@@ -420,29 +430,24 @@ async function jpCargar() {
     // (la prueba es que existe su 'recomendado' con ítems). Inflaba la cola con
     // trabajo terminado y hacía imposible ver lo que de verdad falta.
     try {
-      const { data: insp } = await jpSb().from('checklist_inspecciones')
-        .select('numero_orden,mecanico_id,cerrada_at').eq('estado', 'cerrada')
-        .order('cerrada_at', { ascending: false })
-      window._jpConChecklist = new Set((insp || []).map(i => i.numero_orden))
-
-      // Quién la inspeccionó DE VERDAD. Se lee de la inspección y no del campo
-      // 'mecanico' de la proforma a propósito: ese dice a quién se le ASIGNÓ el
-      // carro, y no siempre es el que terminó haciéndola. Para reclamar sirve el
-      // asignado; para reconocer el trabajo hecho sirve este.
-      // mecanico_id apunta a usuarios.id (no a tecnicos_cat ni a auth.uid()).
+      // Una sola llamada resuelve las dos cosas: qué órdenes ya tienen checklist
+      // cerrado, y quién lo cerró.
+      //
+      // Va por RPC y no leyendo usuarios desde el navegador porque la policy
+      // usuarios_select solo deja ver otras filas a un super_admin REAL — mi_rol()
+      // lee el rol de la base y no conoce el alias admin→super_admin de app.js.
+      // Leyéndolo de acá, un admin o un jefe de pista no veían ningún nombre y el
+      // código caía al técnico asignado, mostrando a otra persona sin avisar.
+      //
+      // La RPC es SECURITY DEFINER y devuelve solo orden + nombre + hora de cierre.
+      // El nombre sale de la INSPECCIÓN, no del campo 'mecanico' de la proforma:
+      // ese dice a quién se le ASIGNÓ el carro, y no siempre es quien lo hizo. Para
+      // reclamar sirve el asignado; para reconocer trabajo hecho sirve este.
+      const { data: chk, error: eChk } = await jpSb().rpc('checklist_tecnicos_por_orden')
+      if (eChk) throw eChk
+      window._jpConChecklist = new Set((chk || []).map(r => r.numero_orden))
       window._jpChkTec = {}
-      const ids = [...new Set((insp || []).map(i => i.mecanico_id).filter(Boolean))]
-      if (ids.length) {
-        const { data: us } = await jpSb().from('usuarios').select('id,nombre').in('id', ids)
-        const nom = {}; for (const u of (us || [])) nom[u.id] = u.nombre
-        // Las inspecciones vienen de la más reciente a la más vieja: con el chequeo
-        // de "si ya tiene, no lo pises" queda la ÚLTIMA de cada orden, que es la
-        // que corresponde si el carro se inspeccionó más de una vez.
-        for (const i of (insp || [])) {
-          if (!i.numero_orden || window._jpChkTec[i.numero_orden]) continue
-          if (nom[i.mecanico_id]) window._jpChkTec[i.numero_orden] = nom[i.mecanico_id]
-        }
-      }
+      for (const r of (chk || [])) if (r.tecnico) window._jpChkTec[r.numero_orden] = r.tecnico
     } catch (e) { window._jpConChecklist = new Set(); window._jpChkTec = {} }
     if (error) throw error
     jpData = data || []
@@ -821,10 +826,10 @@ window.jpAbrirAgregar = async (id) => {
   try {
     const { data: est } = await jpSb().rpc('checklist_estado_orden', { p_proforma_id: id })
     if (est && !est.ok) {
-      const pr = (window._currentProfile ? window._currentProfile() : null) || {}
-      const esSuper = (pr._rolReal || pr.rol) === 'super_admin'
-      if (!esSuper) { window.toast?.('🔒 ' + est.motivo, 'error'); return }
-      const motivo = prompt(`🔒 ${est.motivo}\n\nSolo un super_admin puede saltarlo. Escribí el motivo (queda registrado):`)
+      // Mismo criterio que el resto de la pestaña: pasa por jpEsSuper() y no por
+      // un chequeo suelto, para que no vuelvan a separarse con el tiempo.
+      if (!jpEsSuper()) { window.toast?.('🔒 ' + est.motivo, 'error'); return }
+      const motivo = prompt(`🔒 ${est.motivo}\n\nEsto queda registrado con tu nombre. Escribí el motivo:`)
       if (!motivo || !motivo.trim()) { window.toast?.('Cancelado', 'error'); return }
       const { error } = await jpSb().rpc('checklist_saltar', { p_proforma_id: id, p_motivo: motivo.trim() })
       if (error) { window.toast?.(error.message, 'error'); return }
@@ -1352,9 +1357,13 @@ window.jpAbrirTecnicos = async function (numeroOrden) {
         // su tecnico_id es lo que se habilita. Se pone por default: casi siempre también
         // ejecuta algo, y si no aparece solo, hay que agregarlo a mano cada vez (y olvidarlo
         // significa que NO puede tomar los trabajos que sí hizo).
+        // Vía RPC y no leyendo usuarios: la policy usuarios_select solo deja ver
+        // otras filas a un super_admin REAL, así que un admin o el propio jefe de
+        // pista recibían null — y el que encontró el trabajo quedaba sin habilitar
+        // para tomarlo, con lo que eso significa en el reparto de la comisión.
         if (insp.mecanico_id) {
-          const { data: u } = await sb.from('usuarios').select('tecnico_id').eq('id', insp.mecanico_id).maybeSingle()
-          tecnicoQueRevisó = u?.tecnico_id || null
+          const { data: tid } = await sb.rpc('checklist_tecnico_que_reviso', { p_proforma_id: pf.id })
+          tecnicoQueRevisó = tid || null
         }
         const { data: halls } = await sb.from('checklist_hallazgos').select('id').eq('inspeccion_id', insp.id)
         const hIds = (halls || []).map(h => h.id)
