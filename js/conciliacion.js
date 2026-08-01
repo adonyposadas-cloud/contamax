@@ -4,7 +4,7 @@
 //             window._currentProfile, window.toast, window.closeModal, XLSX
 // ══════════════════════════════════════════════════════════════
 (() => {
-  window.__cbBuild = '20260724a'   // verificar en consola antes de diagnosticar
+  window.__cbBuild = '20260801-orden'   // verificar en consola antes de diagnosticar
   const getSb = () => window._sb
   const fmtL = (v) => 'L. ' + (Number(v) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100
@@ -135,6 +135,28 @@
   }
   const _esReverso = (desc) => /^\s*REV(?:\b|ERS)/i.test(String(desc || ''))
 
+  // La referencia que guarda la marca viene escrita como «... ref 406089714 ...».
+  // Se lee ESE número y no "el más largo de la descripción": en los DEP_ATM la
+  // descripción trae el número de CUENTA (0801197810423, 13 dígitos), que le gana
+  // por longitud a la referencia real y es idéntico en todos los depósitos de esa
+  // cuenta. Con el criterio de "el más largo", cualquier DEP_ATM podía emparejarse
+  // con cualquier otro.
+  // Al guardar una marca se antepone «ref NNNNN · » a la descripción del banco.
+  // Antes se guardaba la descripción cruda ("DEP.RAPIBAC 026866") y la referencia
+  // se perdía: esas marcas solo se podían volver a ubicar por fecha+monto, que con
+  // 25 depósitos de L 500 en un mes es una lotería. La columna Referencia del
+  // extracto es el único identificador único que hay, y hay que conservarlo.
+  const _descMarca = (mov) => {
+    const d = String(mov?.descripcion || '').slice(0, 140)
+    const r = String(mov?.referencia || '').trim()
+    return r && !/\bref\b/i.test(d) ? `ref ${r} · ${d}`.slice(0, 160) : d.slice(0, 160)
+  }
+
+  const _refMarca = (desc) => {
+    const m = String(desc || '').match(/\bref\.?\s*:?\s*(\d{4,})/i)
+    return m ? m[1] : null
+  }
+
   function preNetearReversos(movs) {
     const out = movs.map(m => ({ ...m }))
     const usado = new Array(out.length).fill(false)
@@ -259,19 +281,65 @@
         if (!mk.grupo_id) continue
         ;(grupos[mk.grupo_id] = grupos[mk.grupo_id] || []).push(mk)
       }
-      for (const gid of Object.keys(grupos)) {
+      // ── DOS VUELTAS, y el orden es lo que importa ──
+      //
+      // Antes se resolvía grupo por grupo, y dentro de cada uno mezclando los dos
+      // criterios. Eso hacía que un grupo con marcas SIN referencia —que cruzan por
+      // fecha+monto y se llevan el primero que encuentran— le robara el depósito a
+      // otro grupo que lo tenía identificado por referencia exacta. El robado
+      // aparecía como "el banco no lo trae" con el movimiento ahí, a la vista.
+      //
+      // Ahora primero cobran todas las coincidencias EXACTAS por referencia, de
+      // todos los grupos. Recién después, las que no tienen referencia se reparten
+      // lo que quedó libre. Lo seguro va antes que lo aproximado.
+      // ── ORDEN DE PROCESO ESTABLE ──
+      // Object.keys() devuelve los grupos en orden de inserción, que cambia entre
+      // corridas. Como la línea del libro se consume (el primero que la reclama se
+      // la lleva), ese orden decidía CUÁL grupo se quedaba sin línea: en una corrida
+      // caía #2522 y en la siguiente #2978, sin que nadie tocara nada. Ordenando por
+      // grupo_id el resultado es siempre el mismo.
+      //
+      // Esto NO arregla que dos grupos compitan por la misma línea —eso es un dato
+      // duplicado y hay que resolverlo a mano— pero al menos deja de moverse solo,
+      // que es lo que hace imposible saber si un arreglo funcionó.
+      const gids = Object.keys(grupos).sort()
+      const asignados = {}, faltantesPorG = {}
+      for (const gid of gids) { asignados[gid] = []; faltantesPorG[gid] = [] }
+
+      const pendientes = []
+      for (const gid of gids) {
+        for (const mk of grupos[gid]) {
+          const refMk = _refMarca(mk.mov_descripcion)
+          let b = null
+          if (refMk) {
+            // Solo contra la columna Referencia del extracto: sacarla de la
+            // descripción del banco traería el número de cuenta de los DEP_ATM,
+            // que es igual en todos y emparejaría cualquiera con cualquiera.
+            b = banco.find(x => x._match === null && !x._tomado &&
+              String(x.referencia || '').trim() === refMk &&
+              Math.abs(x.monto - Number(mk.mov_monto)) <= 0.01)
+          }
+          if (b) { b._tomado = true; asignados[gid].push(b) }
+          else pendientes.push({ gid, mk })
+        }
+      }
+
+      for (const { gid, mk } of pendientes) {
+        const b = banco.find(x => x._match === null && !x._tomado &&
+          x.fecha === mk.mov_fecha && Math.abs(x.monto - Number(mk.mov_monto)) <= 0.01 &&
+          x.tipo === mk.mov_tipo)
+        if (b) { b._tomado = true; asignados[gid].push(b) }
+        else faltantesPorG[gid].push(mk)   // estaba conciliado, hoy no está en el extracto
+      }
+      for (const b of banco) delete b._tomado
+
+      for (const gid of gids) {
         const gmarcas = grupos[gid]
         const partidaId = gmarcas[0].partida_id
         const grupoTotal = Number(gmarcas[0].grupo_total) ||
           r2(gmarcas.reduce((s, mk) => s + Number(mk.mov_monto || 0), 0))
-        const movsB = []
-        const faltantesDelGrupo = []
-        for (const mk of gmarcas) {
-          const b = banco.find(x => x._match === null && !movsB.includes(x) &&
-            x.fecha === mk.mov_fecha && Math.abs(x.monto - Number(mk.mov_monto)) <= 0.01 && x.tipo === mk.mov_tipo)
-          if (b) movsB.push(b)
-          else faltantesDelGrupo.push(mk)          // estaba conciliado, hoy no está en el extracto
-        }
+        const movsB = asignados[gid]
+        const faltantesDelGrupo = faltantesPorG[gid]
         if (!movsB.length) continue
         // ── BÚSQUEDA DE LA LÍNEA DEL LIBRO (2 intentos) ──
         // grupo_total queda CONGELADO en la marca desde que se armó el grupo.
@@ -291,7 +359,16 @@
             x.partida_id === partidaId && x.tipo === movsB[0].tipo)
           if (cands.length === 1) l = cands[0]
         }
-        if (!l) continue
+        if (!l) {
+          // Se agotaron los dos intentos: otro grupo ya se llevó la única línea de
+          // esta partida. Los N movimientos van a caer sueltos en "Solo en banco" y
+          // el grupo desaparece de la vista sin explicación. Queda en consola para
+          // que el descuadre tenga un nombre.
+          console.warn(`[conciliación] la partida ${gmarcas[0].partida_numero || partidaId} ` +
+            `tiene un grupo (${gid.slice(0, 8)}, ${movsB.length} movs, ${grupoTotal}) sin línea de libro libre. ` +
+            `Casi seguro hay dos grupos para la misma partida.`)
+          continue
+        }
 
         // ── GRUPO INCOMPLETO ──
         // El grupo se cruza contra la línea del libro por su total ORIGINAL,
@@ -449,6 +526,13 @@
           <div class="fld"><label>Desde</label><input type="date" id="cb-desde" value="${localDateStr(ini)}"></div>
           <div class="fld"><label>Hasta</label><input type="date" id="cb-hasta" value="${localDateStr(hoy)}"></div>
           <div class="fld" style="width:120px"><label>Tolerancia (días)</label><input type="number" id="cb-tol" value="3" min="0" max="15"></div>
+          <div class="fld" style="width:auto"><label>&nbsp;</label>
+            <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;padding:8px 2px;white-space:nowrap"
+                   title="Al conciliar, vuelve a armar solos los grupos de depósitos de taxis. Apagalo si vas a desagrupar una partida y rearmarla a mano: si queda prendido, la vuelve a agrupar en el siguiente Conciliar.">
+              <input type="checkbox" id="cb-sync-taxis" checked>
+              <span>🚕 Rearmar grupos de taxis</span>
+            </label>
+          </div>
         </div>
         <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin-top:12px">
           <div class="fld" style="flex:1;min-width:240px">
@@ -513,8 +597,17 @@
       const libroMovs = await cargarLibro(cuentaCod, desdeEf, hastaEf)
       // 2b) Materializar las marcas de taxis (depósitos ya conciliados en Taxis)
       //     para que el PASO 0a agrupe esos depósitos contra la partida [IMP-TAXI].
-      try { await getSb().rpc('tx_marcas_taxis_sync', { p_cuenta: cuentaCod, p_desde: desdeEf, p_hasta: hastaEf }) }
-      catch (e) { console.warn('No se sincronizaron marcas de taxis:', e?.message || e) }
+      //
+      // AHORA ES OPCIONAL, y ésa es la razón: esta RPC vuelve a crear las marcas en
+      // CADA conciliación. Si alguien desagrupaba una partida a propósito para
+      // rearmarla a mano, el siguiente «Conciliar» se la volvía a agrupar sola y
+      // parecía que el botón de desagrupar no hacía nada. No se puede quitar —es lo
+      // que cruza cientos de depósitos de taxis— pero sí tiene que poder apagarse.
+      const syncTaxis = document.getElementById('cb-sync-taxis')?.checked !== false
+      if (syncTaxis) {
+        try { await getSb().rpc('tx_marcas_taxis_sync', { p_cuenta: cuentaCod, p_desde: desdeEf, p_hasta: hastaEf }) }
+        catch (e) { console.warn('No se sincronizaron marcas de taxis:', e?.message || e) }
+      }
       const marcas = await cargarMarcas(cuentaCod, desdeEf, hastaEf)
 
       // 3) Cruzar (marcas primero, luego monto+fecha)
@@ -540,8 +633,21 @@
     const out = []; const vistos = new Set()
     for (const mk of marcas) {
       if (!mk.mov_fecha || mk.mov_monto == null) continue
-      const existe = (bancoMovs || []).some(b => b.fecha === mk.mov_fecha &&
-        Math.abs(b.monto - Number(mk.mov_monto)) <= 0.01 && b.tipo === mk.mov_tipo)
+      // Esta lista le dice al usuario "el banco revirtió esto". Equivocarse acá es
+      // caro: manda a revisar una partida que está bien. Por eso se prueba primero
+      // por referencia —única, sobrevive a que el banco corra la fecha un día— y si
+      // no aparece, se prueba igual por fecha+monto. Solo se reporta como faltante
+      // lo que no aparece por NINGUNO de los dos caminos.
+      const refMk = _refMarca(mk.mov_descripcion)
+      let existe = false
+      if (refMk) {
+        existe = (bancoMovs || []).some(b => String(b.referencia || '').trim() === refMk &&
+          Math.abs(b.monto - Number(mk.mov_monto)) <= 0.01)
+      }
+      if (!existe) {
+        existe = (bancoMovs || []).some(b => b.fecha === mk.mov_fecha &&
+          Math.abs(b.monto - Number(mk.mov_monto)) <= 0.01 && b.tipo === mk.mov_tipo)
+      }
       if (existe) continue
       const key = `${mk.mov_fecha}|${mk.mov_monto}|${mk.mov_tipo}|${mk.partida_id || ''}`
       if (vistos.has(key)) continue
@@ -582,11 +688,47 @@
 
   async function borrarMarcas(ids) {
     const sb = getSb()
-    const { error } = await sb.from('conciliacion_marcas').delete().in('id', ids)
+    // El .select() no es decorativo: sin él, un DELETE que la RLS filtra entera
+    // vuelve SIN error y con cero filas borradas. Se mostraba "desconciliado" y no
+    // se había borrado nada. Mejor fallar fuerte que mentir en verde.
+    const { data, error } = await sb.from('conciliacion_marcas').delete().in('id', ids).select('id')
     if (error) throw new Error(error.message)
+    const n = (data || []).length
+    if (!n) throw new Error('No se borró ninguna marca. Puede ser un permiso de la base: avisá antes de seguir.')
+    const borradas = new Set(data.map(d => d.id))
     if (estadoConc && Array.isArray(estadoConc.marcas)) {
-      estadoConc.marcas = estadoConc.marcas.filter(m => !ids.includes(m.id))
+      estadoConc.marcas = estadoConc.marcas.filter(m => !borradas.has(m.id))
     }
+    // Recalcular con las marcas que quedaron. Antes solo se filtraba el arreglo de
+    // marcas, pero gruposIncompletos venía del cruce anterior y renderResultado()
+    // pintaba esa lista vieja: la partida desagrupada seguía apareciendo.
+    recalcularLocal()
+    if (n < ids.length) {
+      console.warn(`[conciliación] se pidieron ${ids.length} marcas y se borraron ${n}`)
+    }
+  }
+
+  // Vuelve a cruzar con lo que ya está en memoria, sin releer el archivo ni la base.
+  //
+  // Va sobre COPIAS LIMPIAS, y esto es lo importante: conciliar() escribe _match e
+  // _i sobre los objetos que recibe. Los arreglos guardados en estadoConc ya vienen
+  // marcados de la corrida anterior, así que recalcular sobre ellos cruzaba sobre
+  // datos sucios — movimientos que ya figuraban emparejados no volvían a ofrecerse,
+  // y grupos sanos aparecían desarmados. Se veía como si desagrupar una partida
+  // hubiera roto los días que ya estaban hechos a mano.
+  //
+  // Limpiar las banderas y dejar que conciliar() las reponga desde cero es lo único
+  // que garantiza que el resultado sea igual al de apretar «Conciliar».
+  function recalcularLocal() {
+    if (!estadoConc || !Array.isArray(estadoConc.banco) || !Array.isArray(estadoConc.libro)) return
+    const limpiar = (arr) => arr.map(m => {
+      const c = { ...m }
+      delete c._match; delete c._i; delete c._tomado
+      return c
+    })
+    const res = conciliar(limpiar(estadoConc.banco), limpiar(estadoConc.libro),
+                          estadoConc.tol, estadoConc.marcas)
+    Object.assign(estadoConc, res)
   }
 
   function resumenGrupo(marcas) {
@@ -665,6 +807,38 @@
   //  no tener que sumar doce depósitos a ojo.
   // ──────────────────────────────────────────────────────────
   let objetivoGrupo = null
+
+  // ──────────────────────────────────────────────────────────
+  //  DESAGRUPAR una partida entera
+  //
+  //  Cuando un grupo no cuadra, la vía corta es romperlo y volver a armarlo a
+  //  mano. Es más trabajo que un botón de "reparar", pero deja ver qué movimiento
+  //  entra en qué partida — y en una conciliación eso vale más que la rapidez.
+  //  Un grupo se deshace ENTERO: si quedara la mitad, esa mitad seguiría cuadrando
+  //  contra una línea del libro que ya no le corresponde.
+  // ──────────────────────────────────────────────────────────
+  window._cbDesagruparPartida = async function (gid) {
+    const g = (estadoConc?.gruposIncompletos || []).find(x => x.grupo_id === gid)
+    const mk = (estadoConc?.marcas || []).find(m => (m.grupo_id || m.id) === gid)
+    if (!mk) { window.toast?.('No se encontraron las marcas de ese grupo', 'error'); return }
+    try {
+      // Se reusa marcasDelGrupo() y no un filtro propio: es el mismo camino que ya
+      // usa Desconciliar, y resuelve bien el caso de la marca suelta sin grupo_id.
+      const grupo = await marcasDelGrupo(mk)
+      const r = resumenGrupo(grupo)
+      const msg =
+        `¿Desagrupar la partida ${g?.partida_numero ? '#' + g.partida_numero : '(sin número)'}?\n\n` +
+        `${grupo.length} movimiento(s) del banco · ${fmtL(r.suma)}\n` +
+        `El libro dice ${fmtL(g?.libro_monto ?? r.suma)}\n\n` +
+        `Vuelven todos a "Solo en banco" para que los armes a mano con\n` +
+        `«🧩 Agrupar N banco → 1 libro».\n\n` +
+        `La partida y la contabilidad NO se tocan.\n\n¿Continuar?`
+      if (!confirm(msg)) return
+      await borrarMarcas(grupo.map(m => m.id))
+      window.toast?.(`Desagrupado · ${grupo.length} movimiento(s) volvieron a "Solo en banco"`, 'success')
+      renderResultado()
+    } catch (e) { window.toast?.('Error: ' + e.message, 'error') }
+  }
 
   window._cbArmarGrupo = function (gid) {
     const g = (estadoConc?.gruposIncompletos || []).find(x => x.grupo_id === gid)
@@ -797,7 +971,7 @@
       const filas = nuevos.map(m => ({
         cuenta_codigo: o.cuenta_codigo, banco: o.banco,
         mov_fecha: m.fecha, mov_monto: m.monto, mov_tipo: m.tipo,
-        mov_descripcion: (m.descripcion || '').slice(0, 120),
+        mov_descripcion: _descMarca(m),
         partida_id: o.partida_id, partida_numero: o.partida_numero,
         origen: 'grupo', grupo_id: o.grupo_id, grupo_total: o.grupo_total
       }))
@@ -905,7 +1079,7 @@
         <table style="width:100%"><thead><tr>
           <th>Partida</th><th style="text-align:right">Dice el libro</th><th style="text-align:right">Trae el extracto</th>
           <th style="text-align:right">Banco no lo trae</th><th style="text-align:right">Marca perdida</th>
-          <th style="text-align:right">Extracto de más</th><th>Movs</th><th>Qué falta</th>
+          <th style="text-align:right">Extracto de más</th><th>Movs</th><th>Qué falta</th><th></th>
         </tr></thead>
         <tbody>${gi.map(g => `<tr>
           <td>${g.partida_numero ? '#' + g.partida_numero : '—'}</td>
@@ -918,14 +1092,19 @@
           <td style="font-size:11.5px;color:var(--text3)">
             ${g.faltantes.slice(0, 3).map(m => `${m.mov_fecha} · ${fmtL(m.mov_monto)} · ${(m.mov_descripcion || '').slice(0, 24)}`).join('<br>') || '<em>—</em>'}
             ${g.faltantes.length > 3 ? `<br>… y ${g.faltantes.length - 3} más` : ''}
-            ${g.sinMarca > 0.01 ? `<div style="margin-top:5px"><button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--amber);border-color:var(--amber)"
-              onclick="window._cbArmarGrupo('${g.grupo_id}')">🔧 Recuperar ${fmtL(g.sinMarca)}</button></div>` : ''}
             ${g.sobra > 0.01 ? `<div style="margin-top:5px;color:var(--red)">Corregí la partida${g.partida_numero ? ' #' + g.partida_numero : ''} a <strong>${fmtL(g.banco_suma)}</strong> y volvé a conciliar.</div>` : ''}
+          </td>
+          <td style="text-align:right;white-space:nowrap">
+            ${g.sobra > 0.01 && Math.abs(g.sinBanco) <= 0.01 && g.sinMarca <= 0.01 ? '' : `
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11.5px;color:var(--amber);border-color:var(--amber)"
+              title="Deshace este grupo entero. Los movimientos vuelven a 'Solo en banco' y los volvés a armar a mano con Agrupar."
+              onclick="window._cbDesagruparPartida('${g.grupo_id}')">✂ Desagrupar</button>`}
           </td>
         </tr>`).join('')}</tbody></table>
         <div style="padding:8px 14px;font-size:12px;color:var(--text3)">
           <strong>"Banco no lo trae"</strong>: la marca existe pero el movimiento no está en el extracto. El banco lo quitó o revirtió → revisá la partida.
-          <br><strong>"Marca perdida"</strong>: el movimiento está en el extracto pero sin marca, y quedó suelto en "Solo en banco". Se arregla seleccionándolo ahí y usando «🧩 Agrupar N banco → 1 libro» contra la línea de esa partida. No es plata faltante.
+          <br><strong>"Marca perdida"</strong>: el movimiento está en el extracto pero sin marca, y quedó suelto en "Solo en banco". <strong>No es plata faltante.</strong>
+          <br><strong>Cómo se arregla cualquiera de las tres</strong>: <strong>✂ Desagrupar</strong> esa partida, y volver a armarla con «🧩 Agrupar N banco → 1 libro» seleccionando los movimientos que de verdad le corresponden.
           <br><strong>"Extracto de más"</strong>: las marcas están completas (mirá "Movs": suelen ser N de N) pero el extracto suma más que la línea del libro. La partida quedó corta — casi siempre un movimiento registrado después de generar el asiento. No se arregla desde acá: se corrige la partida y se vuelve a conciliar.
         </div>
       </div>` })() : ''}
@@ -1099,7 +1278,7 @@
       const { error } = await sb.from('conciliacion_marcas').insert({
         cuenta_codigo: estadoConc.cuenta, banco: estadoConc.bancoId,
         mov_fecha: b.fecha, mov_monto: b.monto, mov_tipo: b.tipo,
-        mov_descripcion: (b.descripcion || '').slice(0, 160),
+        mov_descripcion: _descMarca(b),
         partida_id: l.partida_id, partida_numero: l.numero_partida || null, origen: 'manual'
       })
       if (error) console.warn('No se guardó la marca manual:', error.message)
@@ -1209,7 +1388,7 @@
     const filas = movsB.map(b => ({
       cuenta_codigo: estadoConc.cuenta, banco: estadoConc.bancoId,
       mov_fecha: b.fecha, mov_monto: b.monto, mov_tipo: b.tipo,
-      mov_descripcion: (b.descripcion || '').slice(0, 160),
+      mov_descripcion: _descMarca(b),
       partida_id: l.partida_id, partida_numero: l.numero_partida || null,
       grupo_id: gid, grupo_total: l.monto, origen: 'grupo'
     }))
@@ -1374,7 +1553,7 @@
       const marcas = asignaciones.map(a => ({
         cuenta_codigo: estadoConc.cuenta, banco: estadoConc.bancoId,
         mov_fecha: a.mov.fecha, mov_monto: a.mov.monto, mov_tipo: a.mov.tipo,
-        mov_descripcion: (a.mov.descripcion || '').slice(0, 160),
+        mov_descripcion: _descMarca(a.mov),
         partida_id: partida.id, partida_numero: num, origen: 'partida'
       }))
       const { error: mErr } = await sb.from('conciliacion_marcas').insert(marcas)
