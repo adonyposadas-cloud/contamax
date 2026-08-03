@@ -2,7 +2,7 @@
 // Lista las entregas que entran por el formulario público (origen motorista/caja),
 // muestra su comprobante y permite Aprobar / Rechazar. Rechazar revierte el saldo.
 // Eliminar (duplicados) usa el PIN de 'super' del módulo taxis.
-// Depende  de: window._sb, window.toast
+// Depende de: window._sb, window.toast
 // NO toca la contabilidad — las partidas se siguen generando en "Partidas Taxis".
 
 const rtxSb = () => window._sb
@@ -27,7 +27,12 @@ let rtxUltUnidad = {}  // identidad → última unidad aprobada anterior (para d
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 
 // Marcador de build — verificar en consola con window.__rtxBuild
-window.__rtxBuild = '20260803-teclado-search'
+window.__rtxBuild = '20260803-teclado-search-hist'
+
+// Estados que representan dinero realmente recibido. Debe coincidir con
+// FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js.
+// 'Programado' = entregas legacy anteriores al 2026-06-25 (flujo viejo, origen NULL).
+const RTX_ESTADOS_VALIDOS = ['Aprobada', 'Programado']
 
 // Teclado numérico en el buscador de Solicitudes (aquí casi siempre se busca por
 // unidad o identidad; los nombres se buscan en la pestaña Motoristas).
@@ -2359,7 +2364,12 @@ function rtxHistResultPintar() {
   if (!cont) return
   const data = rtxHistData || []
   if (!data.length) { cont.innerHTML = '<div class="rtx-hist-info">No hay entregas para esa unidad y rango de fechas.</div>'; return }
-  const total = data.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  // El Historial es vista de auditoría: se muestran TODAS las tarjetas (incluidas
+  // las rechazadas/pendientes), pero los totales solo cuentan el dinero válido.
+  const validas = data.filter(e => RTX_ESTADOS_VALIDOS.includes(e.estado))
+  const excluidas = data.filter(e => !RTX_ESTADOS_VALIDOS.includes(e.estado))
+  const total = validas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+  const totalExcl = excluidas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
   const uni = (rtxHistUnidad || '').trim()
   const estClass = e => e.estado === 'Aprobada' ? 'ok' : (e.estado === 'Rechazada' ? 'bad' : 'pend')
   const cards = data.map(e => {
@@ -2389,9 +2399,10 @@ function rtxHistResultPintar() {
     </div>`
   }).join('')
   cont.innerHTML = `
-    <div class="rtx-hist-stats">
-      <div><b style="color:#3fb950">L. ${rtxFmt(total)}</b><span>Total</span></div>
-      <div><b>${data.length}</b><span>Entregas</span></div>
+    <div class="rtx-hist-stats"${excluidas.length ? ' style="grid-template-columns:repeat(4,1fr)"' : ''}>
+      <div><b style="color:#3fb950">L. ${rtxFmt(total)}</b><span>Total válido</span></div>
+      <div><b>${validas.length}</b><span>Entregas</span></div>
+      ${excluidas.length ? `<div><b style="color:#f85149">L. ${rtxFmt(totalExcl)}</b><span>${excluidas.length} no aprobada${excluidas.length === 1 ? '' : 's'}</span></div>` : ''}
       <div><b>${uni ? '#' + uni : 'Todas'}</b><span>Unidad</span></div>
     </div>
     ${cards}`
