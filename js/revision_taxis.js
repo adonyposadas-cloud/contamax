@@ -2,7 +2,7 @@
 // Lista las entregas que entran por el formulario público (origen motorista/caja),
 // muestra su comprobante y permite Aprobar / Rechazar. Rechazar revierte el saldo.
 // Eliminar (duplicados) usa el PIN de 'super' del módulo taxis.
-// Depende de: window._sb, window.toast
+// Depende  de: window._sb, window.toast
 // NO toca la contabilidad — las partidas se siguen generando en "Partidas Taxis".
 
 const rtxSb = () => window._sb
