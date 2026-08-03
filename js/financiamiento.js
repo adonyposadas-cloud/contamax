@@ -7,6 +7,19 @@ const FIRMA_ADONY_B64 = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHY
 const getSb = () => window._sb
 const getFmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Marcador de build — verificar en consola con window.__finBuild
+window.__finBuild = '20260803-estado-entregas-v2'
+
+// ── Estados de entregas_taxis ──
+// Hubo un cambio de flujo el 2026-06-25:
+//   · Antes  → origen NULL, estado 'Programado'. Son entregas REALES anteriores a
+//              la pantalla de Revisión. Cuentan como dinero recibido.
+//   · Desde  → origen 'caja'/'motorista' con 'Aprobada' / 'Rechazada' / 'Pendiente'.
+// Válidas (suman al recibo): 'Aprobada' (flujo nuevo) y 'Programado' (legacy).
+// Excluidas: 'Rechazada' (depósito invalidado) y 'Pendiente' (sin revisar aún).
+const FIN_ESTADOS_ENTREGA_VALIDA = ['Aprobada', 'Programado']
+const FIN_ESTADOS_ENTREGA_CARGA  = ['Aprobada', 'Programado', 'Rechazada', 'Pendiente']
+
 let allPrestamos = []
 let filteredPrestamos = []
 let finSort = { campo: null, dir: -1 }  // dir -1 = mayor→menor (primer click), 1 = menor→mayor
@@ -235,11 +248,18 @@ window.abrirLiquidacion = async (ref) => {
   const numReciboSig = (lastRec?.[0]?.numero_recibo || p.num_recibos || 0) + 1
   const fechaUltimoPago = lastRec?.[0]?.fecha || p.fecha_inicio || p.created_at?.split('T')[0] || new Date().toISOString().split('T')[0]
 
-  // Cargar entregas NO usadas en recibo anterior
-  const { data: entregas } = await getSb().from('entregas_taxis')
+  // Cargar entregas NO usadas en recibo anterior.
+  // Solo cuentan las válidas (ver FIN_ESTADOS_ENTREGA_VALIDA). Se traen también
+  // 'Rechazada' y 'Pendiente' únicamente para avisar al usuario que fueron
+  // descartadas — nunca suman al recibo ni se marcan como usadas.
+  const { data: entregasRaw } = await getSb().from('entregas_taxis')
     .select('*').eq('unidad', registro)
     .or('usado_en_recibo.eq.false,usado_en_recibo.is.null')
+    .in('estado', FIN_ESTADOS_ENTREGA_CARGA)
     .order('fecha_deposito')
+
+  const entregas = (entregasRaw || []).filter(e => FIN_ESTADOS_ENTREGA_VALIDA.includes(e.estado))
+  const entregasDescartadas = (entregasRaw || []).filter(e => !FIN_ESTADOS_ENTREGA_VALIDA.includes(e.estado))
 
   // ── Buscar abonos vía partidas contables (créditos que mencionan el código de unidad) ──
   const codigoStr = String(codigo).trim()
@@ -325,9 +345,10 @@ window.abrirLiquidacion = async (ref) => {
     arrendadorNombre: p.arrendador_nombre || '', arrendadorDni: p.arrendador_dni || '',
     // Listas COMPLETAS (sin filtrar por fecha) — el rango se aplica en recalcularLiquidacion()
     entregasTodas: entregas || [],
+    entregasDescartadasTodas: entregasDescartadas || [],
     abonosTodos: abonosValidos,
     // Listas filtradas al rango [fechaUltimoPago, fechaRecibo] (se llenan abajo)
-    entregas: [], abonosPartida: [],
+    entregas: [], abonosPartida: [], entregasDescartadas: [],
     facturasTodas: facturas || [],
     facturas: [],
     cargosTodos: cargosValidos,
@@ -373,6 +394,8 @@ function recalcularLiquidacion() {
   }
 
   d.entregas = (d.entregasTodas || []).filter(e => enRango(e.fecha_deposito))
+  // Solo informativas: NO suman a totalEntregas ni se marcan como usadas
+  d.entregasDescartadas = (d.entregasDescartadasTodas || []).filter(e => enRango(e.fecha_deposito))
   d.abonosPartida = (d.abonosTodos || []).filter(a => enRango(a.partida?.fecha_partida))
   d.totalAbonosPartida = d.abonosPartida.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
   d.totalEntregas = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0) + d.totalAbonosPartida
@@ -510,6 +533,14 @@ function renderLiquidacion() {
     <details style="margin-bottom:8px">
       <summary style="cursor:pointer;color:var(--text2);font-size:13px;padding:8px 0">📥 Entregas incluidas (${d.entregas.length + d.abonosPartida.length}) — L. ${getFmt(d.totalEntregas)} <span style="font-size:11px;color:var(--text3)">· rango ${d.fechaUltimoPago} → ${d.fechaRecibo || 'hoy'}</span></summary>
       ${(() => { const fuera = ((d.entregasTodas?.length || 0) + (d.abonosTodos?.length || 0)) - (d.entregas.length + d.abonosPartida.length); return fuera > 0 ? `<div style="font-size:11px;color:var(--gold);padding:4px 0">⚠️ ${fuera} ingreso(s) pendiente(s) quedaron fuera del rango de fechas y NO se incluyen en este recibo</div>` : '' })()}
+      ${(() => {
+        const desc = d.entregasDescartadas || []
+        if (!desc.length) return ''
+        const tot = desc.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+        const filas = desc.map(e => `<tr><td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${e.fecha_deposito}</td><td style="font-size:11px;color:var(--text3)">${e.estado}</td><td style="font-size:11px;color:var(--text3)">${e.banco || '—'}</td><td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--text3);text-decoration:line-through">L. ${getFmt(e.monto)}</td></tr>`).join('')
+        return `<div style="font-size:11px;color:var(--red);padding:6px 0">🚫 ${desc.length} entrega(s) NO aprobada(s) por L. ${getFmt(tot)} fueron excluidas de este recibo:
+          <table style="width:100%;margin-top:4px"><tbody>${filas}</tbody></table></div>`
+      })()}
       <div style="max-height:200px;overflow-y:auto;margin-top:8px">
         <table style="width:100%"><thead><tr><th>Fecha</th><th>Origen</th><th>Detalle</th><th style="text-align:right">Monto</th></tr></thead>
         <tbody>${d.entregas.map(e => `<tr><td style="font-family:var(--mono);font-size:12px">${e.fecha_deposito}</td><td style="font-size:11px"><span class="badge badge-green">Entrega</span></td><td style="font-size:12px">${e.banco || '—'}</td><td style="text-align:right;font-family:var(--mono);color:var(--green)">L. ${getFmt(e.monto)}</td></tr>`).join('')}

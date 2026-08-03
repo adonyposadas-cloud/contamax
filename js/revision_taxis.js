@@ -25,6 +25,14 @@ let rtxTelIdent = {}   // identidad → teléfono (tx_motoristas)
 let rtxTelUni = {}     // unidad → teléfono (tx_directorio)
 let rtxUltUnidad = {}  // identidad → última unidad aprobada anterior (para detectar cambio)
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
+
+// Marcador de build — verificar en consola con window.__rtxBuild
+window.__rtxBuild = '20260803-teclado-search'
+
+// Teclado numérico en el buscador de Solicitudes (aquí casi siempre se busca por
+// unidad o identidad; los nombres se buscan en la pestaña Motoristas).
+// Poner en false si se necesita buscar por nombre desde esta pestaña en móvil.
+const RTX_SEARCH_NUMERICO = true
 let rtxFEstado = 'todas'
 let rtxFMedio = 'todas'
 let rtxFechaSol = ''   // día seleccionado en Solicitudes (yyyy-mm-dd)
@@ -175,11 +183,6 @@ function rtxRender() {
   cont.classList.remove('hidden')
   if (!rtxEntregas.length) { cont.innerHTML = '<div class="rtx-empty">No hay entregas con esos filtros.</div>'; return }
 
-  // preservar foco/cursor del buscador entre renders
-  const oldS = document.getElementById('rtx-search')
-  const hadFocus = oldS && document.activeElement === oldS
-  const caret = oldS ? oldS.selectionStart : null
-
   // Resumen por estado
   const por = { Pendiente: { n: 0, t: 0 }, Aprobada: { n: 0, t: 0 }, Rechazada: { n: 0, t: 0 } }
   rtxEntregas.forEach(e => { const k = e.estado || 'Pendiente'; (por[k] = por[k] || { n: 0, t: 0 }); por[k].n++; por[k].t += parseFloat(e.monto) || 0 })
@@ -206,7 +209,7 @@ function rtxRender() {
   const chipsMedio = `<div class="rtx-chips">
     ${chipM('todas', 'Todas', totalAll)}${Object.keys(medios).sort().map(m => chipM(m, m, medios[m])).join('')}
   </div>`
-  const search = `<input id="rtx-search" class="rtx-search" type="text" placeholder="Buscar por unidad, nombre o identidad…" value="${rtxFBusqueda.replace(/"/g, '&quot;')}" oninput="rtxBuscar(this.value)" autocomplete="off">`
+  const search = `<input id="rtx-search" class="rtx-search" type="text"${RTX_SEARCH_NUMERICO ? ' inputmode="numeric"' : ''} placeholder="${RTX_SEARCH_NUMERICO ? 'Buscar por unidad o identidad…' : 'Buscar por unidad, nombre o identidad…'}" value="${rtxFBusqueda.replace(/"/g, '&quot;')}" oninput="rtxBuscar(this.value)" autocomplete="off">`
 
   // Aplicar filtros client-side
   const q = rtxFBusqueda.trim().toLowerCase()
@@ -288,13 +291,24 @@ function rtxRender() {
   const lista = filtradas.length
     ? `<div class="rtx-list">${cards}</div>`
     : '<div class="rtx-empty">Sin resultados para este filtro.</div>'
-  cont.innerHTML = resumen + search + chipsEstado + chipsMedio + lista
 
-  // restaurar foco/cursor del buscador
-  if (hadFocus) {
-    const ne = document.getElementById('rtx-search')
-    if (ne) { ne.focus(); if (caret != null) { try { ne.setSelectionRange(caret, caret) } catch (e) {} } }
+  // El <input> de búsqueda NO se vuelve a crear en cada tecla. Si se recrea, el
+  // navegador móvil reabre el teclado en su capa por defecto (letras) y obliga a
+  // volver a elegir la capa numérica en cada dígito. Se monta una sola vez y a
+  // partir de ahí solo se repintan las zonas dinámicas.
+  const yaMontado = document.getElementById('rtx-search')
+  if (!yaMontado) {
+    cont.innerHTML = `<div id="rtx-resumen"></div>${search}<div id="rtx-dyn"></div>`
   }
+  const elResumen = document.getElementById('rtx-resumen')
+  const elDyn = document.getElementById('rtx-dyn')
+  if (elResumen) elResumen.innerHTML = resumen
+  if (elDyn) elDyn.innerHTML = chipsEstado + chipsMedio + lista
+
+  // El valor del input solo se fuerza cuando el usuario NO está escribiendo
+  // (ej. limpieza programática); si se sobrescribe mientras teclea, se pierde el cursor.
+  const elS = document.getElementById('rtx-search')
+  if (elS && document.activeElement !== elS && elS.value !== rtxFBusqueda) elS.value = rtxFBusqueda
 }
 
 // Registra la acción en "Actividad de usuarios" (módulo 'taxis')
