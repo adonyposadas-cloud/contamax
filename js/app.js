@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260730-log' } catch (e) {}
+try { window.__appBuild = '20260805-conteo' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -2625,6 +2625,14 @@ window.editarPartida = async (id) => {
       && c.cuenta_codigo === l.cuenta_codigo
       && Math.abs((parseFloat(c.total_monto) || 0) - m) < 0.01)
     if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && c.cuenta_codigo === l.cuenta_codigo)
+    // Conteos legados: los que se guardaron desde la pantalla de Caja General al
+    // aprobar la partida nunca escribieron cuenta_codigo (la columna se agregó
+    // después). Quedaban en NULL, ningún filtro de arriba los encontraba, la línea
+    // de caja se cargaba SIN billetes y al guardar cualquier otro cambio de la
+    // partida el conteo se borraba en silencio. Se emparejan por tipo + monto.
+    if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && !c.cuenta_codigo
+      && Math.abs((parseFloat(c.total_monto) || 0) - m) < 0.01)
+    if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && !c.cuenta_codigo)
     if (i < 0) return null
     return conteosPool.splice(i, 1)[0]
   }
@@ -3452,15 +3460,45 @@ window.guardarPartida = async (estado) => {
   // Guardar conteo de billetes si existe
   const lineasConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
 
-  // El borrado de los conteos viejos va SIEMPRE, aunque ya no quede ninguna
-  // línea de caja. Antes estaba dentro del if de abajo, y eso dejaba huérfanos:
-  // si a una partida se le cambiaba la cuenta de Caja General por otra (pasó con
-  // la #2388, Caja General → Gastos Personales), la partida quedaba sin líneas
-  // con billetes, el if no entraba, y el conteo anterior seguía vivo en la base.
-  // Contablemente todo cuadraba, así que nada avisaba: el descuadre solo aparecía
-  // en el arqueo de caja, por el monto exacto de la línea que se había cambiado.
-  const { error: delErr } = await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
-  if (delErr) console.warn('[CONTEO] Error borrando conteos anteriores:', delErr)
+  // ── BORRADO SELECTIVO DE CONTEOS ANTERIORES ──
+  // Antes esto era un DELETE a ciegas por partida_id, seguido de un INSERT que
+  // solo corría si alguna línea traía billetes en memoria. Cualquier motivo que
+  // dejara la línea de caja sin `billetes` —por ejemplo un conteo viejo sin
+  // cuenta_codigo que el emparejador no encontraba— destruía el conteo real de
+  // la partida al guardar un cambio en OTRA línea, sin un solo aviso.
+  //
+  // Ahora: se borra lo que ya no corresponde y se conserva lo que sigue siendo
+  // válido. Un conteo previo se conserva si queda una línea de caja del mismo
+  // tipo y por el mismo monto que no trae conteo nuevo: el dinero contado no
+  // cambió, así que el conteo sigue siendo cierto. Si la cuenta de caja se
+  // cambió por otra (caso #2388), no hay línea que lo sostenga y se borra.
+  let conteosPrevios = []
+  if (editingPartidaId) {
+    const { data: cp, error: cpErr } = await sb.from('conteo_billetes').select('*').eq('partida_id', partidaId)
+    if (cpErr) console.warn('[CONTEO] Error leyendo conteos anteriores:', cpErr)
+    conteosPrevios = cp || []
+  }
+
+  const lineasCaja = lineasValidas.filter(l => esCuentaCaja(l.cuenta_codigo))
+  const idsPreservar = []
+  if (conteosPrevios.length) {
+    for (const l of lineasCaja.filter(l => !l.billetes)) {
+      const tipoEsp = l.tipo === 'debito' ? 'ingreso' : 'egreso'
+      const c = conteosPrevios.find(x => x.tipo === tipoEsp
+        && !idsPreservar.includes(x.id)
+        && Math.abs((parseFloat(x.total_monto) || 0) - (l.monto || 0)) < 0.01)
+      if (c) {
+        idsPreservar.push(c.id)
+        console.warn('[CONTEO] Conservado conteo previo no cargado en el formulario:', c.id, l.cuenta_codigo, l.monto)
+      }
+    }
+  }
+
+  const idsBorrar = conteosPrevios.filter(c => !idsPreservar.includes(c.id)).map(c => c.id)
+  if (idsBorrar.length) {
+    const { error: delErr } = await sb.from('conteo_billetes').delete().in('id', idsBorrar)
+    if (delErr) console.warn('[CONTEO] Error borrando conteos anteriores:', delErr)
+  }
 
   if (lineasConBilletes.length > 0) {
     const conteos = lineasConBilletes.map(l => ({
@@ -4419,9 +4457,14 @@ window.aprobarCaja = async (id) => {
       // Guardar conteo de billetes (borrar anterior si existe)
       const tipoConteo = partida?.caja_tipo === 'ingreso' ? 'ingreso' : 'egreso'
       await sb.from('conteo_billetes').delete().eq('partida_id', id)
+      // La cuenta de caja TIENE que quedar grabada. Sin ella el conteo no se puede
+      // volver a emparejar con su línea al editar la partida, y se pierde.
+      const _lineaCaja = (partida?.caja_lineas || [])
+        .find(l => (l.tipo === 'debito' ? 'ingreso' : 'egreso') === tipoConteo)
       const conteoBilletes = {
         partida_id: id,
         tipo: tipoConteo,
+        cuenta_codigo: _lineaCaja?.cuenta_codigo || null,
         den_500: detalle[500] || 0,
         den_200: detalle[200] || 0,
         den_100: detalle[100] || 0,
