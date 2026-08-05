@@ -1724,3 +1724,504 @@ window.exportRentabilidadXlsx = function () {
   window.XLSX.writeFile(wb, `Rentabilidad_Unidades_${desde}_${hasta}.xlsx`)
   window.toast?.('Excel exportado ✓', 'success')
 }
+
+// ══════════════════════════════════════════════
+// ── SALDOS DE CUENTAS · saldo al día, sin detalle
+// ── Consulta rápida: "¿cuánto tengo en bancos hoy?"
+// ── La suma se hace en el servidor (RPC saldos_por_cuenta).
+// ══════════════════════════════════════════════
+
+let scData = null
+
+const _SC_GRUPOS = {
+  bancos:           { label: 'Bancos y chequeras', test: c => c.startsWith('110103') || c.startsWith('110104') },
+  disponibilidades: { label: 'Disponibilidades (caja + bancos)', test: c => c.startsWith('1101') },
+  activo:           { label: 'Activo', test: c => c.startsWith('1') },
+  pasivo:           { label: 'Pasivo', test: c => c.startsWith('2') },
+  patrimonio:       { label: 'Patrimonio', test: c => c.startsWith('3') },
+  todas:            { label: 'Todas las cuentas', test: () => true },
+}
+
+function ensureSaldosView() {
+  if (document.getElementById('view-saldos-cuentas')) return
+  const anyView = document.querySelector('.view')
+  if (!anyView || !anyView.parentNode) return
+  const v = document.createElement('div')
+  v.className = 'view'
+  v.id = 'view-saldos-cuentas'
+  anyView.parentNode.appendChild(v)
+}
+
+window.initSaldosCuentas = function () {
+  ensureSaldosView()
+  const view = document.getElementById('view-saldos-cuentas')
+  if (!view) return
+  if (!view.classList.contains('active')) {
+    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'))
+    view.classList.add('active')
+  }
+  scData = null
+  const hoy = new Date().toLocaleDateString('en-CA')
+
+  view.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">💰 Saldos de cuentas</div>
+        <div class="page-sub">Saldo a una fecha de corte · sin movimientos</div>
+      </div>
+      <button class="btn btn-ghost" id="btn-sc-xlsx" style="display:none" onclick="exportarSaldosXLSX()">📊 Exportar Excel</button>
+    </div>
+
+    <div class="form-card" style="margin-bottom:16px">
+      <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap">
+        <div class="fld"><label>Fecha de corte</label><input type="date" id="sc-fecha" value="${hoy}"></div>
+        <div class="fld" style="min-width:220px">
+          <label>Grupo</label>
+          <select id="sc-grupo">
+            ${Object.entries(_SC_GRUPOS).map(([k, g]) => `<option value="${k}">${g.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fld" style="min-width:180px">
+          <label>Centro de costo</label>
+          <select id="sc-centro">
+            <option value="">Todos</option>
+            ${getEmpresasReporte().map(e => `<option value="${e.id}">${e.nombre}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fld" style="min-width:130px">
+          <label>Libro</label>
+          <select id="sc-libro">
+            <option value="todos">Todos</option>
+            <option value="fiscal">Fiscal</option>
+            <option value="interno">Interno</option>
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);padding-bottom:8px">
+          <input type="checkbox" id="sc-cero"> Mostrar cuentas en cero
+        </label>
+        <button class="btn btn-gold" id="btn-sc" onclick="generarSaldosCuentas()">Consultar →</button>
+      </div>
+    </div>
+
+    <div id="sc-resumen" style="margin-bottom:16px"></div>
+    <div class="table-wrap" id="sc-tabla"></div>`
+}
+
+window.generarSaldosCuentas = async () => {
+  const fecha    = document.getElementById('sc-fecha').value
+  const grupoKey = document.getElementById('sc-grupo').value
+  const centroId = document.getElementById('sc-centro').value
+  const libro    = document.getElementById('sc-libro').value
+  const verCero  = document.getElementById('sc-cero').checked
+
+  if (!fecha) { window.toast?.('Selecciona la fecha de corte', 'error'); return }
+
+  const btn = document.getElementById('btn-sc')
+  btn.disabled = true; btn.textContent = 'Consultando...'
+
+  let filas
+  try {
+    const { data, error } = await getSb().rpc('saldos_por_cuenta', {
+      p_fecha_corte: fecha,
+      p_libro: libro
+    })
+    if (error) throw error
+    filas = data || []
+  } catch (e) {
+    window.toast?.('Error: ' + e.message, 'error')
+    btn.disabled = false; btn.textContent = 'Consultar →'
+    return
+  }
+
+  // ── Filtro por centro de costo ──
+  if (centroId) filas = filas.filter(f => f.centro_id === centroId)
+
+  // ── Consolidación de centros marcados (mismo criterio que Balance comprobación) ──
+  const mapCons = getCentrosConsolidacion()
+  if (!centroId && mapCons.size) {
+    filas = filas.map(f => {
+      const dest = f.centro_id && mapCons.get(f.centro_id)
+      if (!dest) return f
+      const cat = getCatalogo().find(x => x.codigo === dest)
+      return { ...f, codigo: dest, nombre: cat?.nombre || dest, centro_id: null }
+    })
+  }
+
+  // ── Privacidad: los centros privados se consolidan en una sola línea ──
+  const idsPriv = getIdsPrivados()
+  const esAdmin = esSuperAdmin()
+  const consolidarPriv = !esAdmin && !centroId
+  let normales = filas
+  let privadas = []
+  if (consolidarPriv) {
+    normales = filas.filter(f => !f.centro_id || !idsPriv.has(f.centro_id))
+    privadas = filas.filter(f => f.centro_id && idsPriv.has(f.centro_id))
+  }
+
+  // ── Agrupar por cuenta ──
+  const porCuenta = {}
+  normales.forEach(f => {
+    if (!porCuenta[f.codigo]) porCuenta[f.codigo] = { codigo: f.codigo, nombre: f.nombre, debe: 0, haber: 0 }
+    porCuenta[f.codigo].debe  += parseFloat(f.debe)  || 0
+    porCuenta[f.codigo].haber += parseFloat(f.haber) || 0
+  })
+
+  const test = (_SC_GRUPOS[grupoKey] || _SC_GRUPOS.todas).test
+  let cuentas = Object.values(porCuenta)
+    .filter(c => test(c.codigo || ''))
+    .map(c => {
+      const cat = getCatalogo().find(x => x.codigo === c.codigo)
+      const neto = Math.round((c.debe - c.haber) * 100) / 100
+      const naturaleza = cat?.naturaleza || (String(c.codigo).startsWith('1') ? 'deudora' : 'acreedora')
+      return {
+        codigo: c.codigo,
+        nombre: cat?.nombre || c.nombre || c.codigo,
+        naturaleza,
+        // Se presenta en la naturaleza de la cuenta: un pasivo con saldo
+        // acreedor se muestra positivo, que es como lo lee un contador.
+        saldo: naturaleza === 'acreedora' ? -neto : neto,
+        _sensible: window.esCuentaSensible?.(c.codigo) && !window.puedeVerSensibles?.(),
+      }
+    })
+
+  if (!verCero) cuentas = cuentas.filter(c => Math.abs(c.saldo) >= 0.005)
+  cuentas.sort((a, b) => String(a.codigo).localeCompare(String(b.codigo)))
+
+  // ── Línea consolidada de centros privados ──
+  if (consolidarPriv && privadas.length) {
+    const neto = privadas.reduce((s, f) => s + (parseFloat(f.debe) || 0) - (parseFloat(f.haber) || 0), 0)
+    if (Math.abs(neto) >= 0.005) {
+      cuentas.push({ codigo: '🔒', nombre: 'Centros privados (consolidado)', naturaleza: '—',
+                     saldo: Math.round(neto * 100) / 100, _privado: true })
+    }
+  }
+
+  const total = cuentas.reduce((s, c) => s + (c._sensible ? 0 : c.saldo), 0)
+  const grupoLabel = (_SC_GRUPOS[grupoKey] || _SC_GRUPOS.todas).label
+  scData = { cuentas, fecha, grupoLabel, total }
+
+  document.getElementById('sc-resumen').innerHTML = `
+    <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">${grupoLabel}</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Saldo al ${fecha} · ${cuentas.length} cuenta${cuentas.length === 1 ? '' : 's'} · solo partidas aprobadas</div>
+      <div class="stat-card" style="display:inline-block;min-width:220px">
+        <div class="stat-num" style="color:var(--gold);font-size:20px">L. ${fmtL(total)}</div>
+        <div class="stat-label">Total del grupo</div>
+      </div>
+    </div>`
+
+  document.getElementById('sc-tabla').innerHTML = `
+    <table>
+      <thead><tr>
+        <th style="width:130px">Código</th><th>Cuenta</th>
+        <th style="text-align:right;width:170px">Saldo</th>
+      </tr></thead>
+      <tbody>${cuentas.map(c => {
+        const val = c._sensible ? '🔒' : fmtL(c.saldo)
+        const color = c._sensible ? 'var(--text3)' : (c.saldo < 0 ? 'var(--red)' : 'var(--text)')
+        const rowStyle = c._privado ? ' style="background:rgba(239,68,68,0.04);border-left:3px solid var(--red)"' : ''
+        return `<tr${rowStyle}>
+          <td style="font-family:var(--mono);color:var(--gold);font-size:12px">${c.codigo}</td>
+          <td>${c.nombre}${c._sensible ? ' <span style="font-size:10px;color:var(--text3)">(restringido)</span>' : ''}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${color}">${val}</td>
+        </tr>`
+      }).join('')}</tbody>
+      <tfoot><tr style="background:var(--bg3);font-weight:600">
+        <td colspan="2" style="text-align:right">TOTAL</td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--gold)">L. ${fmtL(total)}</td>
+      </tr></tfoot>
+    </table>`
+
+  document.getElementById('btn-sc-xlsx').style.display = ''
+  btn.disabled = false; btn.textContent = 'Consultar →'
+}
+
+window.exportarSaldosXLSX = () => {
+  if (!scData) return
+  const { cuentas, fecha, grupoLabel, total } = scData
+  const rows = [
+    ['SALDOS DE CUENTAS — CONTAMAX'],
+    [grupoLabel],
+    [`Saldo al ${fecha} · solo partidas aprobadas`],
+    [],
+    ['Código', 'Cuenta', 'Saldo'],
+    ...cuentas.map(c => [c.codigo, c.nombre, c._sensible ? 'restringido' : c.saldo]),
+    [],
+    ['', 'TOTAL', total]
+  ]
+  const ws = window.XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = [{ wch: 16 }, { wch: 46 }, { wch: 16 }]
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Saldos')
+  window.XLSX.writeFile(wb, `Saldos_Cuentas_${fecha}.xlsx`)
+  window.toast?.('Excel exportado ✓', 'success')
+}
+
+
+// ══════════════════════════════════════════════
+// ── BALANCE GENERAL · situación financiera a una fecha
+// ──
+// ── Tecnimax nunca ha hecho partida de cierre anual, así que las
+// ── cuentas de resultado (4/5/6/7) acumulan desde el primer día del
+// ── sistema. Para que el balance signifique algo, el resultado se
+// ── parte en dos: lo anterior al ejercicio en curso va a "Resultados
+// ── acumulados" y lo del año en curso a "Resultado del ejercicio".
+// ── Las dos piezas viven en Patrimonio, así que el balance cuadra
+// ── igual, pero se puede leer.
+// ──
+// ── Clasificación por primer dígito, igual que Estado de Resultados:
+// ── 1 activo · 2 pasivo · 3 patrimonio · 4+ resultado.
+// ══════════════════════════════════════════════
+
+let bgData = null
+
+// Agrupa las filas del RPC por cuenta, aplicando consolidación de centros
+// y privacidad con el mismo criterio que Balance de comprobación.
+function _bgAgrupar(filas, centroId) {
+  if (centroId) filas = filas.filter(f => f.centro_id === centroId)
+
+  const mapCons = getCentrosConsolidacion()
+  if (!centroId && mapCons.size) {
+    filas = filas.map(f => {
+      const dest = f.centro_id && mapCons.get(f.centro_id)
+      if (!dest) return f
+      const cat = getCatalogo().find(x => x.codigo === dest)
+      return { ...f, codigo: dest, nombre: cat?.nombre || dest, centro_id: null }
+    })
+  }
+
+  const idsPriv = getIdsPrivados()
+  const consolidarPriv = !esSuperAdmin() && !centroId
+  const normales = consolidarPriv ? filas.filter(f => !f.centro_id || !idsPriv.has(f.centro_id)) : filas
+  const privadas = consolidarPriv ? filas.filter(f =>  f.centro_id && idsPriv.has(f.centro_id))  : []
+
+  const porCuenta = {}
+  normales.forEach(f => {
+    if (!porCuenta[f.codigo]) porCuenta[f.codigo] = { codigo: f.codigo, nombre: f.nombre, neto: 0 }
+    porCuenta[f.codigo].neto += (parseFloat(f.debe) || 0) - (parseFloat(f.haber) || 0)
+  })
+  const netoPrivado = privadas.reduce((s, f) => s + (parseFloat(f.debe) || 0) - (parseFloat(f.haber) || 0), 0)
+
+  return { porCuenta, netoPrivado }
+}
+
+const _bgResultado = (porCuenta) => Object.values(porCuenta)
+  .filter(c => /^[4-9]/.test(String(c.codigo)))
+  .reduce((s, c) => s + c.neto, 0)
+
+window.initBalanceGeneral = function () {
+  if (!document.getElementById('view-balance-general')) {
+    const anyView = document.querySelector('.view')
+    if (anyView && anyView.parentNode) {
+      const v = document.createElement('div')
+      v.className = 'view'; v.id = 'view-balance-general'
+      anyView.parentNode.appendChild(v)
+    }
+  }
+  const view = document.getElementById('view-balance-general')
+  if (!view) return
+  if (!view.classList.contains('active')) {
+    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'))
+    view.classList.add('active')
+  }
+  bgData = null
+  const hoy = new Date().toLocaleDateString('en-CA')
+
+  view.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">📗 Balance general</div>
+        <div class="page-sub">Situación financiera a una fecha de corte</div>
+      </div>
+      <button class="btn btn-ghost" id="btn-bg-xlsx" style="display:none" onclick="exportarBalanceGeneralXLSX()">📊 Exportar Excel</button>
+    </div>
+
+    <div class="form-card" style="margin-bottom:16px">
+      <div style="display:flex;gap:14px;align-items:end;flex-wrap:wrap">
+        <div class="fld"><label>Fecha de corte</label><input type="date" id="bg-fecha" value="${hoy}"></div>
+        <div class="fld"><label>Inicio del ejercicio</label><input type="date" id="bg-inicio" value="${hoy.slice(0, 4)}-01-01"></div>
+        <div class="fld" style="min-width:180px">
+          <label>Centro de costo</label>
+          <select id="bg-centro">
+            <option value="">Todos</option>
+            ${getEmpresasReporte().map(e => `<option value="${e.id}">${e.nombre}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fld" style="min-width:130px">
+          <label>Libro</label>
+          <select id="bg-libro">
+            <option value="todos">Todos</option>
+            <option value="fiscal">Fiscal</option>
+            <option value="interno">Interno</option>
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);padding-bottom:8px">
+          <input type="checkbox" id="bg-detalle" checked> Detalle por cuenta
+        </label>
+        <button class="btn btn-gold" id="btn-bg" onclick="generarBalanceGeneral()">Consultar →</button>
+      </div>
+    </div>
+
+    <div id="bg-resumen" style="margin-bottom:16px"></div>
+    <div class="table-wrap" id="bg-tabla"></div>`
+}
+
+window.generarBalanceGeneral = async () => {
+  const fecha    = document.getElementById('bg-fecha').value
+  const inicio   = document.getElementById('bg-inicio').value
+  const centroId = document.getElementById('bg-centro').value
+  const libro    = document.getElementById('bg-libro').value
+  const detalle  = document.getElementById('bg-detalle').checked
+
+  if (!fecha || !inicio) { window.toast?.('Indicá la fecha de corte y el inicio del ejercicio', 'error'); return }
+  if (inicio > fecha)    { window.toast?.('El inicio del ejercicio no puede ser posterior al corte', 'error'); return }
+
+  const btn = document.getElementById('btn-bg')
+  btn.disabled = true; btn.textContent = 'Consultando...'
+
+  // Día anterior al inicio del ejercicio, para separar el resultado acumulado
+  const dPrev = new Date(inicio + 'T00:00:00')
+  dPrev.setDate(dPrev.getDate() - 1)
+  const fechaPrev = dPrev.toLocaleDateString('en-CA')
+
+  let filasCorte, filasPrev
+  try {
+    const [rCorte, rPrev] = await Promise.all([
+      getSb().rpc('saldos_por_cuenta', { p_fecha_corte: fecha,      p_libro: libro }),
+      getSb().rpc('saldos_por_cuenta', { p_fecha_corte: fechaPrev,  p_libro: libro }),
+    ])
+    if (rCorte.error) throw rCorte.error
+    if (rPrev.error)  throw rPrev.error
+    filasCorte = rCorte.data || []
+    filasPrev  = rPrev.data  || []
+  } catch (e) {
+    window.toast?.('Error: ' + e.message, 'error')
+    btn.disabled = false; btn.textContent = 'Consultar →'
+    return
+  }
+
+  const { porCuenta, netoPrivado } = _bgAgrupar(filasCorte, centroId)
+  const { porCuenta: porCuentaPrev } = _bgAgrupar(filasPrev, centroId)
+
+  // Resultado: el neto de las cuentas 4+ es deudor, así que se invierte.
+  const resultadoTotal     = -_bgResultado(porCuenta)
+  const resultadoAcumulado = -_bgResultado(porCuentaPrev)
+  const resultadoEjercicio = Math.round((resultadoTotal - resultadoAcumulado) * 100) / 100
+
+  const r2 = (n) => Math.round(n * 100) / 100
+  const oculta = (cod) => window.esCuentaSensible?.(cod) && !window.puedeVerSensibles?.()
+
+  // Secciones: el activo se presenta en saldo deudor; pasivo y patrimonio en acreedor.
+  const armar = (digito) => Object.values(porCuenta)
+    .filter(c => String(c.codigo).startsWith(digito))
+    .map(c => ({
+      codigo: c.codigo,
+      nombre: getCatalogo().find(x => x.codigo === c.codigo)?.nombre || c.nombre || c.codigo,
+      saldo: r2(digito === '1' ? c.neto : -c.neto),
+      _sensible: oculta(c.codigo),
+    }))
+    .filter(c => Math.abs(c.saldo) >= 0.005)
+    .sort((a, b) => String(a.codigo).localeCompare(String(b.codigo)))
+
+  const activo     = armar('1')
+  const pasivo     = armar('2')
+  const patrimonio = armar('3')
+
+  // Los centros privados consolidados entran como una sola línea del activo,
+  // que es donde su neto deudor pertenece sin revelar la cuenta.
+  if (Math.abs(netoPrivado) >= 0.005) {
+    activo.push({ codigo: '🔒', nombre: 'Centros privados (consolidado)', saldo: r2(netoPrivado), _privado: true })
+  }
+
+  patrimonio.push({ codigo: '—', nombre: 'Resultados acumulados de ejercicios anteriores', saldo: r2(resultadoAcumulado), _calc: true })
+  patrimonio.push({ codigo: '—', nombre: `Resultado del ejercicio (${inicio} al ${fecha})`,   saldo: resultadoEjercicio,  _calc: true })
+
+  const sum = (arr) => r2(arr.reduce((s, c) => s + (c._sensible ? 0 : c.saldo), 0))
+  const totActivo     = sum(activo)
+  const totPasivo     = sum(pasivo)
+  const totPatrimonio = sum(patrimonio)
+  const descuadre     = r2(totActivo - totPasivo - totPatrimonio)
+
+  bgData = { fecha, inicio, activo, pasivo, patrimonio, totActivo, totPasivo, totPatrimonio, descuadre }
+
+  const cuadra = Math.abs(descuadre) < 0.005
+  document.getElementById('bg-resumen').innerHTML = `
+    <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid ${cuadra ? 'var(--gold)' : 'var(--red)'}">
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Balance general al ${fecha}</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">Ejercicio desde ${inicio} · solo partidas aprobadas</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div class="stat-card"><div class="stat-num" style="font-size:16px;color:var(--green)">L. ${fmtL(totActivo)}</div><div class="stat-label">Activo</div></div>
+        <div class="stat-card"><div class="stat-num" style="font-size:16px;color:var(--red)">L. ${fmtL(totPasivo)}</div><div class="stat-label">Pasivo</div></div>
+        <div class="stat-card"><div class="stat-num" style="font-size:16px;color:var(--gold)">L. ${fmtL(totPatrimonio)}</div><div class="stat-label">Patrimonio</div></div>
+        <div class="stat-card"><div class="stat-num" style="font-size:16px;color:${cuadra ? 'var(--green)' : 'var(--red)'}">${cuadra ? 'Cuadra ✓' : 'L. ' + fmtL(descuadre)}</div><div class="stat-label">${cuadra ? 'Activo = Pasivo + Patrimonio' : 'DESCUADRE'}</div></div>
+      </div>
+    </div>`
+
+  const filaSeccion = (titulo, total) => `
+    <tr style="background:var(--bg3);font-weight:600">
+      <td colspan="2" style="color:var(--gold)">${titulo}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--gold)">L. ${fmtL(total)}</td>
+    </tr>`
+
+  const filasCuentas = (arr) => !detalle ? '' : arr.map(c => {
+    const val = c._sensible ? '🔒' : fmtL(c.saldo)
+    const estilo = c._privado ? ' style="background:rgba(239,68,68,0.04);border-left:3px solid var(--red)"'
+                 : c._calc    ? ' style="font-style:italic"' : ''
+    return `<tr${estilo}>
+      <td style="font-family:var(--mono);color:var(--text3);font-size:12px;padding-left:18px">${c.codigo}</td>
+      <td>${c.nombre}${c._sensible ? ' <span style="font-size:10px;color:var(--text3)">(restringido)</span>' : ''}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${c.saldo < 0 ? 'var(--red)' : 'var(--text)'}">${val}</td>
+    </tr>`
+  }).join('')
+
+  document.getElementById('bg-tabla').innerHTML = `
+    <table>
+      <thead><tr><th style="width:130px">Código</th><th>Cuenta</th><th style="text-align:right;width:180px">Saldo</th></tr></thead>
+      <tbody>
+        ${filaSeccion('ACTIVO', totActivo)}
+        ${filasCuentas(activo)}
+        ${filaSeccion('PASIVO', totPasivo)}
+        ${filasCuentas(pasivo)}
+        ${filaSeccion('PATRIMONIO', totPatrimonio)}
+        ${filasCuentas(patrimonio)}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--bg3);font-weight:600">
+          <td colspan="2" style="text-align:right">PASIVO + PATRIMONIO</td>
+          <td style="text-align:right;font-family:var(--mono)">L. ${fmtL(r2(totPasivo + totPatrimonio))}</td>
+        </tr>
+        <tr style="background:var(--bg3);font-weight:600">
+          <td colspan="2" style="text-align:right">TOTAL ACTIVO</td>
+          <td style="text-align:right;font-family:var(--mono);color:${cuadra ? 'var(--green)' : 'var(--red)'}">L. ${fmtL(totActivo)}</td>
+        </tr>
+      </tfoot>
+    </table>`
+
+  document.getElementById('btn-bg-xlsx').style.display = ''
+  btn.disabled = false; btn.textContent = 'Consultar →'
+}
+
+window.exportarBalanceGeneralXLSX = () => {
+  if (!bgData) return
+  const { fecha, inicio, activo, pasivo, patrimonio, totActivo, totPasivo, totPatrimonio, descuadre } = bgData
+  const bloque = (titulo, arr, total) => [
+    [titulo], ...arr.map(c => [c.codigo, c.nombre, c._sensible ? 'restringido' : c.saldo]), ['', `TOTAL ${titulo}`, total], []
+  ]
+  const rows = [
+    ['BALANCE GENERAL — CONTAMAX'],
+    [`Al ${fecha} · ejercicio desde ${inicio} · solo partidas aprobadas`],
+    [],
+    ['Código', 'Cuenta', 'Saldo'],
+    ...bloque('ACTIVO', activo, totActivo),
+    ...bloque('PASIVO', pasivo, totPasivo),
+    ...bloque('PATRIMONIO', patrimonio, totPatrimonio),
+    ['', 'PASIVO + PATRIMONIO', Math.round((totPasivo + totPatrimonio) * 100) / 100],
+    ['', 'DESCUADRE', descuadre],
+  ]
+  const ws = window.XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = [{ wch: 16 }, { wch: 52 }, { wch: 18 }]
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Balance general')
+  window.XLSX.writeFile(wb, `Balance_General_${fecha}.xlsx`)
+  window.toast?.('Excel exportado ✓', 'success')
+}

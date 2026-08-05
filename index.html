@@ -245,6 +245,12 @@
           <div class="nav-item" id="nav-balance-comp" onclick="showView('balance-comp','Balance de comprobación')">
             <span class="nav-dot"></span>Balance comprobación
           </div>
+          <div class="nav-item" id="nav-saldos-cuentas" onclick="showView('saldos-cuentas','Saldos de cuentas');initSaldosCuentas()">
+            <span class="nav-dot"></span>Saldos de cuentas
+          </div>
+          <div class="nav-item" id="nav-balance-general" onclick="showView('balance-general','Balance general');initBalanceGeneral()">
+            <span class="nav-dot"></span>Balance general
+          </div>
           <div class="nav-item" id="nav-estado-resultados" onclick="showView('estado-resultados','Estado de resultados')">
             <span class="nav-dot"></span>Estado de resultados
           </div>
@@ -3591,8 +3597,8 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260715f"></script>
-<script type="module" src="js/reportes.js?v=20260706a"></script>
+<script type="module" src="js/app.js?v=20260805a"></script>
+<script type="module" src="js/reportes.js?v=20260805b"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
 <script defer src="js/proveedores.js?v=20260613c"></script>
