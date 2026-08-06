@@ -10,6 +10,7 @@ const cpFmt = n => (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractio
 let cpCuenta = null
 let cpMovs = { debe: [], haber: [] }
 let cpSel = { debe: null, haber: null }
+let cpCtx = null
 
 window.initConciliaPuente = async () => {
   cpSel = { debe: null, haber: null }
@@ -51,10 +52,22 @@ window.cpConsultar = async () => {
   const btn = document.getElementById('cp-btn-consultar')
   if (btn) { btn.disabled = true; btn.textContent = 'Consultando…' }
 
-  const { data: lineas, error } = await cpSb().from('lineas_partida')
-    .select('id, monto, tipo, descripcion, conciliado_puente, grupo_conciliacion, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado)')
-    .eq('cuenta_id', cuentaId)
-    .order('id', { ascending: true }).limit(5000)
+  // PostgREST corta en 1000 filas aunque se pida .limit(5000): el corte es
+  // silencioso y el resultado se veía completo. Se lee por páginas hasta agotar.
+  let lineas = [], error = null
+  try {
+    const PAGE = 1000
+    for (let desde = 0; ; desde += PAGE) {
+      const { data, error: e } = await cpSb().from('lineas_partida')
+        .select('id, monto, tipo, descripcion, conciliado_puente, grupo_conciliacion, partida:partidas_contables(id, fecha_partida, numero_partida, descripcion, estado)')
+        .eq('cuenta_id', cuentaId)
+        .order('id', { ascending: true })
+        .range(desde, desde + PAGE - 1)
+      if (e) throw e
+      lineas = lineas.concat(data || [])
+      if (!data || data.length < PAGE) break
+    }
+  } catch (e) { error = e }
   if (btn) { btn.disabled = false; btn.textContent = 'Consultar →' }
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
 
@@ -73,6 +86,7 @@ window.cpConsultar = async () => {
   })
   cpMovs.debe = filtradas.filter(l => l.tipo === 'debito').map(mapMov)
   cpMovs.haber = filtradas.filter(l => l.tipo === 'credito').map(mapMov)
+  cpCtx = { fechaIni, fechaFin, verConciliados: !!verConciliados }
   cpSel = { debe: null, haber: null }
 
   cpRender()
@@ -130,6 +144,7 @@ function cpRender() {
         <span>Débitos abiertos: <strong>${cpMovs.debe.filter(pend).length}</strong> · L. ${cpFmt(totD)}</span>
         <span>Créditos abiertos: <strong>${cpMovs.haber.filter(pend).length}</strong> · L. ${cpFmt(totH)}</span>
         <span>Pendiente neto: <strong style="color:${Math.abs(totD - totH) < 0.01 ? 'var(--green)' : 'var(--amber)'}">L. ${cpFmt(totD - totH)}</strong></span>
+        <button class="btn btn-ghost" onclick="cpExportarXLSX()" style="padding:5px 12px;font-size:12px">📊 Exportar Excel</button>
       </div>`
   }
 
@@ -307,4 +322,69 @@ window.cpDesconciliar = async (grupo) => {
   ;[...cpMovs.debe, ...cpMovs.haber].forEach(m => { if (m.grupo === grupo) { m.conciliado = false; m.grupo = null } })
   window.toast?.('Conciliación deshecha', 'success')
   cpRender()
+}
+// ══════════════════════════════════════════════
+// ── EXPORTAR A EXCEL
+// ── Exporta exactamente lo que hay en pantalla: mismo rango de fechas
+// ── y mismo criterio de "ver conciliados". No vuelve a consultar.
+// ══════════════════════════════════════════════
+window.cpExportarXLSX = () => {
+  if (!cpCuenta || (!cpMovs.debe.length && !cpMovs.haber.length)) {
+    window.toast?.('No hay movimientos para exportar', 'error'); return
+  }
+  if (!window.XLSX) { window.toast?.('No se pudo cargar el generador de Excel', 'error'); return }
+
+  const ctx = cpCtx || {}
+  const pend = m => !m.conciliado
+  const totD = cpMovs.debe.filter(pend).reduce((s, m) => s + m.monto, 0)
+  const totH = cpMovs.haber.filter(pend).reduce((s, m) => s + m.monto, 0)
+  const r2 = n => Math.round(n * 100) / 100
+
+  const encabezado = (titulo, movs) => {
+    const abiertos = movs.filter(pend)
+    return [
+      ['CONCILIACIÓN DE CUENTAS PUENTE — CONTAMAX'],
+      [`${cpCuenta.codigo} — ${cpCuenta.nombre}`],
+      [`Período: ${ctx.fechaIni || '—'} al ${ctx.fechaFin || '—'}`],
+      [ctx.verConciliados ? 'Incluye movimientos ya conciliados' : 'Solo movimientos pendientes'],
+      [],
+      [titulo],
+      ['Fecha', 'Partida', 'Descripción', 'Monto', 'Estado'],
+      ...movs.map(m => [
+        m.fecha, m.numPartida, m.descripcion, m.monto,
+        m.conciliado ? 'Conciliado' : 'Pendiente'
+      ]),
+      [],
+      ['', '', `Abiertos (${abiertos.length})`, r2(abiertos.reduce((s, m) => s + m.monto, 0))],
+      ['', '', `Total exportado (${movs.length})`, r2(movs.reduce((s, m) => s + m.monto, 0))],
+    ]
+  }
+
+  const cols = [{ wch: 12 }, { wch: 10 }, { wch: 62 }, { wch: 14 }, { wch: 12 }]
+  const wb = window.XLSX.utils.book_new()
+
+  const hD = window.XLSX.utils.aoa_to_sheet(encabezado('CARGOS (DEBE)', cpMovs.debe))
+  hD['!cols'] = cols
+  window.XLSX.utils.book_append_sheet(wb, hD, 'Cargos (DEBE)')
+
+  const hH = window.XLSX.utils.aoa_to_sheet(encabezado('ABONOS (HABER)', cpMovs.haber))
+  hH['!cols'] = cols
+  window.XLSX.utils.book_append_sheet(wb, hH, 'Abonos (HABER)')
+
+  const hR = window.XLSX.utils.aoa_to_sheet([
+    ['RESUMEN'],
+    [`${cpCuenta.codigo} — ${cpCuenta.nombre}`],
+    [`Período: ${ctx.fechaIni || '—'} al ${ctx.fechaFin || '—'}`],
+    [],
+    ['Concepto', 'Cantidad', 'Monto'],
+    ['Débitos abiertos',  cpMovs.debe.filter(pend).length,  r2(totD)],
+    ['Créditos abiertos', cpMovs.haber.filter(pend).length, r2(totH)],
+    ['Pendiente neto',    '',                               r2(totD - totH)],
+  ])
+  hR['!cols'] = [{ wch: 24 }, { wch: 12 }, { wch: 16 }]
+  window.XLSX.utils.book_append_sheet(wb, hR, 'Resumen')
+
+  const nom = `Conciliacion_Puente_${cpCuenta.codigo}_${ctx.fechaIni || ''}_${ctx.fechaFin || ''}.xlsx`
+  window.XLSX.writeFile(wb, nom.replace(/[^\w.\-]/g, '_'))
+  window.toast?.('Excel exportado ✓', 'success')
 }
