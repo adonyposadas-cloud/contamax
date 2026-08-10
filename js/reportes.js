@@ -1801,6 +1801,15 @@ window.initSaldosCuentas = function () {
         </label>
         <button class="btn btn-gold" id="btn-sc" onclick="generarSaldosCuentas()">Consultar →</button>
       </div>
+      <div id="sc-buscar-zona" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--bg3)">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="sc-buscar" placeholder="Buscar por código o nombre de cuenta..."
+                 oninput="filtrarSaldosCuentas()" style="flex:1;min-width:260px">
+          <button class="btn btn-ghost" onclick="document.getElementById('sc-buscar').value='';filtrarSaldosCuentas()"
+                  style="padding:6px 14px;font-size:12px">Limpiar</button>
+          <span id="sc-buscar-info" style="font-size:12px;color:var(--text3)"></span>
+        </div>
+      </div>
     </div>
 
     <div id="sc-resumen" style="margin-bottom:16px"></div>
@@ -1910,7 +1919,26 @@ window.generarSaldosCuentas = async () => {
       </div>
     </div>`
 
-  document.getElementById('sc-tabla').innerHTML = `
+  const buscador = document.getElementById('sc-buscar')
+  if (buscador) buscador.value = ''
+  document.getElementById('sc-buscar-zona').style.display = ''
+  _scPintarTabla(cuentas, total)
+
+  document.getElementById('btn-sc-xlsx').style.display = ''
+  btn.disabled = false; btn.textContent = 'Consultar →'
+}
+
+// Pinta la tabla. Se llama al consultar y en cada tecla del buscador.
+// El TOTAL siempre es el del grupo completo, no el de lo filtrado: el
+// buscador sirve para encontrar una cuenta, no para recalcular saldos.
+function _scPintarTabla(cuentas, totalGrupo, filtrado) {
+  const cont = document.getElementById('sc-tabla')
+  if (!cont) return
+  if (!cuentas.length) {
+    cont.innerHTML = `<div style="padding:28px;text-align:center;color:var(--text3)">Ninguna cuenta coincide con la búsqueda</div>`
+    return
+  }
+  cont.innerHTML = `
     <table>
       <thead><tr>
         <th style="width:130px">Código</th><th>Cuenta</th>
@@ -1926,14 +1954,43 @@ window.generarSaldosCuentas = async () => {
           <td style="text-align:right;font-family:var(--mono);color:${color}">${val}</td>
         </tr>`
       }).join('')}</tbody>
-      <tfoot><tr style="background:var(--bg3);font-weight:600">
-        <td colspan="2" style="text-align:right">TOTAL</td>
-        <td style="text-align:right;font-family:var(--mono);color:var(--gold)">L. ${fmtL(total)}</td>
-      </tr></tfoot>
+      <tfoot>
+        ${filtrado ? `<tr style="background:var(--bg3);font-weight:600">
+          <td colspan="2" style="text-align:right">TOTAL FILTRADO (${cuentas.length} de ${filtrado.deTotal})</td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--gold)">L. ${fmtL(filtrado.suma)}</td>
+        </tr>` : ''}
+        <tr style="background:var(--bg3);${filtrado ? 'opacity:.65' : 'font-weight:600'}">
+          <td colspan="2" style="text-align:right">TOTAL DEL GRUPO</td>
+          <td style="text-align:right;font-family:var(--mono);color:${filtrado ? 'var(--text3)' : 'var(--gold)'}">L. ${fmtL(totalGrupo)}</td>
+        </tr>
+      </tfoot>
     </table>`
+}
 
-  document.getElementById('btn-sc-xlsx').style.display = ''
-  btn.disabled = false; btn.textContent = 'Consultar →'
+window.filtrarSaldosCuentas = () => {
+  if (!scData) return
+  const q = (document.getElementById('sc-buscar')?.value || '').trim().toLowerCase()
+  const info = document.getElementById('sc-buscar-info')
+
+  if (!q) {
+    _scPintarTabla(scData.cuentas, scData.total)
+    if (info) info.textContent = ''
+    return
+  }
+  // Cada palabra debe aparecer en el código o en el nombre. Así "bac ahorro"
+  // encuentra la cuenta aunque las palabras estén separadas en el nombre.
+  const terminos = q.split(/\s+/)
+  const filtradas = scData.cuentas.filter(c => {
+    const texto = `${c.codigo} ${c.nombre}`.toLowerCase()
+    return terminos.every(t => texto.includes(t))
+  })
+  const suma = filtradas.reduce((s, c) => s + (c._sensible ? 0 : c.saldo), 0)
+  _scPintarTabla(filtradas, scData.total, { suma, deTotal: scData.cuentas.length })
+  if (info) {
+    info.textContent = filtradas.length
+      ? `${filtradas.length} de ${scData.cuentas.length} cuentas`
+      : `Sin coincidencias en ${scData.cuentas.length} cuentas`
+  }
 }
 
 window.exportarSaldosXLSX = () => {
