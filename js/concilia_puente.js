@@ -71,6 +71,14 @@ window.cpConsultar = async () => {
   if (btn) { btn.disabled = false; btn.textContent = 'Consultar →' }
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
 
+  // ── GRUPOS HUÉRFANOS ──
+  // Un grupo debe tener exactamente un débito y un crédito. Si quedó con un
+  // solo lado, la línea se muestra conciliada contra un guion y su contraparte
+  // aparece pendiente: imposible de cuadrar sin deshacer a mano. Va ANTES del
+  // filtrado: si se liberara después, el filtro de "no mostrar conciliados" ya
+  // habría descartado la línea y no reaparecería hasta volver a consultar.
+  await cpLiberarHuerfanos(lineas)
+
   const filtradas = (lineas || []).filter(l => {
     if (!l.partida || l.partida.estado !== 'aprobada') return false
     const f = l.partida.fecha_partida
@@ -387,4 +395,38 @@ window.cpExportarXLSX = () => {
   const nom = `Conciliacion_Puente_${cpCuenta.codigo}_${ctx.fechaIni || ''}_${ctx.fechaFin || ''}.xlsx`
   window.XLSX.writeFile(wb, nom.replace(/[^\w.\-]/g, '_'))
   window.toast?.('Excel exportado ✓', 'success')
+}
+
+
+// Libera grupos de conciliación que quedaron con un solo lado.
+// Solo mira los grupos presentes en la cuenta consultada.
+async function cpLiberarHuerfanos(lineas) {
+  const porGrupo = {}
+  ;(lineas || []).forEach(l => {
+    if (!l.grupo_conciliacion) return
+    const g = porGrupo[l.grupo_conciliacion] || (porGrupo[l.grupo_conciliacion] = { debe: 0, haber: 0 })
+    if (l.tipo === 'debito') g.debe++; else g.haber++
+  })
+  const rotos = Object.keys(porGrupo).filter(g => porGrupo[g].debe === 0 || porGrupo[g].haber === 0)
+  if (!rotos.length) return
+
+  const { error } = await cpSb().from('lineas_partida')
+    .update({ conciliado_puente: false, grupo_conciliacion: null })
+    .in('grupo_conciliacion', rotos)
+  if (error) { console.warn('[CP] No se pudieron liberar grupos huérfanos:', error); return }
+
+  await cpSb().from('conciliaciones_puente').delete().in('id', rotos)
+
+  // Reflejar el cambio en los datos ya cargados en memoria
+  ;(lineas || []).forEach(l => {
+    if (l.grupo_conciliacion && rotos.includes(l.grupo_conciliacion)) {
+      l.conciliado_puente = false
+      l.grupo_conciliacion = null
+    }
+  })
+
+  console.warn('[CP] Grupos huérfanos liberados:', rotos)
+  window.toast?.(`${rotos.length} conciliación${rotos.length === 1 ? '' : 'es'} incompleta${rotos.length === 1 ? '' : 's'} liberada${rotos.length === 1 ? '' : 's'} — la línea volvió a pendientes`, 'info')
+  window.logActividad?.('conciliacion_puente_reparada', 'contabilidad',
+    `${cpCuenta?.codigo || ''} · ${rotos.length} grupo(s) con un solo lado liberados`)
 }

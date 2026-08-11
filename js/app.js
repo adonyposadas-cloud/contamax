@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260805-conteo' } catch (e) {}
+try { window.__appBuild = '20260807-flags' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -3391,6 +3391,20 @@ window.guardarPartida = async (estado) => {
       }
     } catch(e) { /* silent */ }
 
+    // ── PRESERVAR FLAGS DE ESTADO ANTES DE BORRAR ──
+    // Las líneas se borran y se reinsertan con IDs nuevos. Todo lo que vive en
+    // la fila y no se reconstruye desde el formulario se perdía en silencio:
+    // grupo_conciliacion, conciliado_puente, pagado, centralizado,
+    // usado_en_recibo, recibo_prestamo_id. Como la contraparte de una
+    // conciliación vive en OTRA partida y no se tocaba, quedaban grupos con un
+    // solo lado: el débito conciliado y el crédito otra vez pendiente.
+    try {
+      const { data: viejas } = await sb.from('lineas_partida')
+        .select('cuenta_codigo, tipo, monto, pagado, pagado_at, pagado_partida_num, usado_en_recibo, conciliado_puente, grupo_conciliacion, centralizado, centralizado_at, centralizado_en, recibo_prestamo_id')
+        .eq('partida_id', editingPartidaId)
+      window.__flagsPrevios = viejas || []
+    } catch (e) { window.__flagsPrevios = [] }
+
     // Borrar líneas viejas y crear nuevas
     const { error: delErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
     if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
@@ -3442,6 +3456,27 @@ window.guardarPartida = async (estado) => {
   window._facturaFotoUrl = null
 
   // Insertar líneas
+  // Flags de la versión anterior, para devolverlos a la línea equivalente.
+  // Se empareja por cuenta + tipo + monto y cada flag se consume una sola vez,
+  // así una partida con dos líneas iguales no recibe el mismo grupo dos veces.
+  const _flagsPool = (window.__flagsPrevios || []).slice()
+  window.__flagsPrevios = null
+  const _tomarFlags = (l) => {
+    const m = Math.round((l.monto || 0) * 100) / 100
+    const i = _flagsPool.findIndex(f => f.cuenta_codigo === l.cuenta_codigo
+      && f.tipo === l.tipo
+      && Math.abs((parseFloat(f.monto) || 0) - m) < 0.01)
+    if (i < 0) return {}
+    const f = _flagsPool.splice(i, 1)[0]
+    return {
+      pagado: f.pagado, pagado_at: f.pagado_at, pagado_partida_num: f.pagado_partida_num,
+      usado_en_recibo: f.usado_en_recibo,
+      conciliado_puente: f.conciliado_puente, grupo_conciliacion: f.grupo_conciliacion,
+      centralizado: f.centralizado, centralizado_at: f.centralizado_at, centralizado_en: f.centralizado_en,
+      recibo_prestamo_id: f.recibo_prestamo_id,
+    }
+  }
+
   const lineas = lineasValidas.map(l => ({
     partida_id: partidaId,
     cuenta_id: l.cuenta_id,
@@ -3452,7 +3487,8 @@ window.guardarPartida = async (estado) => {
     centro_costo_id: l.centro_costo_id || null,
     descripcion: (l.descripcion || descripcion).toUpperCase(),
     numero_documento: documento || null,
-    aplica_fiscal: l.aplica_fiscal
+    aplica_fiscal: l.aplica_fiscal,
+    ...(editingPartidaId ? _tomarFlags(l) : {})
   }))
   const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
   if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
