@@ -500,6 +500,19 @@ function _computeDistribucion(neto, distrib, params) {
 }
 
 // Carga: flota (unidades + quién reportó ingreso en el período) y líneas pendientes del mayor del CC Taxis
+// Excluye SOLO las partidas de centralización del pool: son el resultado de un
+// cierre anterior y volver a consumirlas se muerde la cola (fue lo que pasó con
+// la #2130, que restó 699,327.25 de junio tras perder su flag `centralizado`).
+//
+// Las [CIERRE-TAXI] NO se excluyen a propósito: sus débitos a 410101-003 sacan
+// del CC Taxis la producción que pertenece a cada socio, así que DEBEN restar
+// del neto del pool. Excluirlas hacía que el pool repartiera también lo de los
+// socios (L. 109,363.95 de más en julio).
+const _RE_PARTIDA_CIERRE = /\[\s*CENTRALIZACION\s*\]/i
+function _esPartidaDeCierre(p) {
+  return !!p && _RE_PARTIDA_CIERRE.test(String(p.descripcion || ''))
+}
+
 async function _loadDatosPool(sb, desde, hasta, ccTaxisId) {
   const { data: unidades } = await sb.from('unidades_taxis').select('registro, propietario, modalidad').eq('activo', true)
   const poolUnits = (unidades || []).filter(u => _normProp(u.propietario) === 'TAXIS')
@@ -508,10 +521,16 @@ async function _loadDatosPool(sb, desde, hasta, ccTaxisId) {
   // Líneas del mayor del CC Taxis pendientes de centralizar (con su partida para fecha/estado).
   // Toma TODO lo pendiente hasta 'hasta' (sin piso de fecha) para arrastrar lo que entró tarde.
   const lineas = await _fetchAllPag(() => sb.from('lineas_partida')
-    .select('id, cuenta_codigo, tipo, monto, partidas_contables(fecha_partida, estado)')
+    .select('id, cuenta_codigo, tipo, monto, partidas_contables(fecha_partida, estado, descripcion)')
     .eq('centro_costo_id', ccTaxisId).eq('centralizado', false).order('id'))
   const glLines = (lineas || [])
     .filter(l => _esIngreso(l.cuenta_codigo) || _esGasto(l.cuenta_codigo))
+    // Las partidas de centralización y de cierre por socio NO son producción del
+    // período: ya liquidaron uno. Se excluyen por descripción y no solo por el
+    // flag `centralizado`, porque ese flag se pierde si alguien edita la partida
+    // (al guardar se borran las líneas y se reinsertan sin sus marcas). Eso fue
+    // lo que pasó con la #2130: reapareció en el pool y restó 699,327.25 de junio.
+    .filter(l => !_esPartidaDeCierre(_partidaDeLinea(l)))
     // Solo APROBADAS. Antes era `estado !== 'anulada'`, que dejaba entrar borradores y
     // pendientes: el pool sumaba plata que el estado de resultados no ve, y los números
     // nunca podían coincidir.
@@ -705,6 +724,14 @@ window.calcularCentralizacion = async function () {
   const cuadra = Math.abs(credTot - D.debito) < 0.01
   const totU = D.totVip + D.totTaxi
   const fondoEsDebito = D.residual < -0.005
+  // El lado de cada línea lo decide el signo, igual que _lineaFirmada() en la
+  // generación real. Antes la vista previa pintaba el ingreso SIEMPRE en la
+  // columna débito: con neto negativo mostraba un "débito de -43,852.32", que
+  // contablemente no existe y no era lo que se iba a guardar.
+  const ingresoEsCredito = D.debito < 0
+  const totDebitos = _r2((ingresoEsCredito ? 0 : D.debito) + (fondoEsDebito ? -D.residual : 0))
+  const totCreditos = _r2((ingresoEsCredito ? -D.debito : 0)
+    + D.socios.reduce((a, x) => a + x.cuota, 0) + (fondoEsDebito ? 0 : D.residual))
   document.getElementById('cent-resultado').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
       <div style="background:var(--bg3,#222);border-radius:8px;padding:12px">
@@ -728,14 +755,21 @@ window.calcularCentralizacion = async function () {
     <table style="width:100%;font-size:13px">
       <thead><tr><th style="text-align:left">Cuenta</th><th style="text-align:right">Débito</th><th style="text-align:right">Crédito</th></tr></thead>
       <tbody>
-        <tr><td>410101-003 Ingreso taxis (CC Taxis)</td><td style="text-align:right;font-family:var(--mono)">${f(D.debito)}</td><td></td></tr>
+        <tr><td>410101-003 Ingreso taxis (CC Taxis)${ingresoEsCredito ? ' — pérdida del período' : ''}</td>${ingresoEsCredito ? `<td></td><td style="text-align:right;font-family:var(--mono)">${f(-D.debito)}</td>` : `<td style="text-align:right;font-family:var(--mono)">${f(D.debito)}</td><td></td>`}</tr>
         ${D.socios.filter(s => s.cuota > 0).map(s => `<tr><td>${_resolverCuentaSocio(s).codigo || '?'} ${s.nombre}${_resolverCuentaSocio(s).centroAdony ? ' (CC Adony)' : ''}</td><td></td><td style="text-align:right;font-family:var(--mono)">${f(s.cuota)}</td></tr>`).join('')}
         <tr><td>110501-001 Fondo / Inventario (CC Taxis)${fondoEsDebito ? ' — déficit cubierto' : ''}</td>${fondoEsDebito ? `<td style="text-align:right;font-family:var(--mono)">${f(-D.residual)}</td><td></td>` : `<td></td><td style="text-align:right;font-family:var(--mono)">${f(D.residual)}</td>`}</tr>
-        <tr style="font-weight:700;border-top:1px solid var(--bg2,#333)"><td>Totales</td><td style="text-align:right;font-family:var(--mono)">${f(_r2(D.debito + (fondoEsDebito ? -D.residual : 0)))}</td><td style="text-align:right;font-family:var(--mono)">${f(_r2(D.socios.reduce((s, x) => s + x.cuota, 0) + (fondoEsDebito ? 0 : D.residual)))}</td></tr>
+        <tr style="font-weight:700;border-top:1px solid var(--bg2,#333)"><td>Totales</td><td style="text-align:right;font-family:var(--mono)">${f(totDebitos)}</td><td style="text-align:right;font-family:var(--mono)">${f(totCreditos)}</td></tr>
       </tbody>
     </table>
     <div style="margin-top:8px;font-weight:600;color:${cuadra ? 'var(--green,#2e7d32)' : 'var(--red,#c62828)'}">${cuadra ? 'Cuadrada ✓' : 'NO cuadra — revisar'}</div>
-    ${fondoEsDebito ? `<div style="margin-top:6px;font-size:12px;color:var(--gold,#d4a017)">⚠️ Las cuotas superan el neto del mes (déficit L. ${f(-D.residual)}). El fondo lo cubre — revisá cuotas/unidades antes de generar.</div>` : ''}`
+    ${fondoEsDebito ? `<div style="background:rgba(198,40,40,.12);border:1px solid var(--red,#c62828);border-radius:8px;padding:10px;margin-top:8px;font-size:12px;line-height:1.5">
+      <div style="font-weight:700;color:var(--red,#c62828);margin-bottom:4px">⚠️ Las cuotas superan el resultado del período por L. ${f(-D.residual)}</div>
+      El período cerró con un neto de L. ${f(D.neto ?? D.debito)} y se van a repartir L. ${f(D.totalCuotas)} en cuotas.
+      La diferencia se va a <strong>debitar a 110501-001 (Fondo / Inventario)</strong>, que es una cuenta de activo:
+      el asiento aumenta el activo en L. ${f(-D.residual)} en lugar de reconocer el faltante como resultado.
+      Mientras eso no se ajuste, el Balance General va a mostrar ese monto como si fuera inventario.
+      <div style="margin-top:5px">Antes de generar, revisá las cuotas por unidad y que estén todas las líneas de gasto e ingreso del período.</div>
+    </div>` : ''}`
   document.getElementById('cent-btn-generar').style.display = cuadra && Math.abs(D.debito) > 0.005 ? 'inline-block' : 'none'
 }
 
@@ -791,10 +825,17 @@ window.generarPartidaCentralizacion = async function () {
   // Marcar como centralizadas: las líneas del mayor consumidas + las propias de este cierre (para no morderse la cola)
   const marcar = [...new Set([...(lineIds || []), ...((lineasIns || []).map(l => l.id))])]
   let marcadas = 0
+  const fallos = []
   for (let i = 0; i < marcar.length; i += 100) {
     const chunk = marcar.slice(i, i + 100)
     const { error: mErr } = await sb.from('lineas_partida').update({ centralizado: true, centralizado_at: new Date().toISOString(), centralizado_en: partida.id }).in('id', chunk)
     if (!mErr) marcadas += chunk.length
+    else { fallos.push(mErr.message); console.error('[CENT] No se pudo marcar un lote:', mErr) }
+  }
+  // Antes los errores de marcado se descartaban en silencio: la partida quedaba
+  // generada y las líneas sin marcar volvían a entrar en el cierre siguiente.
+  if (fallos.length) {
+    window.toast?.(`ATENCIÓN: ${marcar.length - marcadas} línea(s) NO se marcaron como centralizadas. Volverán a aparecer en el próximo cierre. Revisá antes de aprobar la partida #${numero}.`, 'error')
   }
   if (window.logActividad) window.logActividad('centralizacion_generada', 'taxis', `Centralización ${periodo}: partida #${numero} · neto L. ${_fmtL(D.debito)} · ${marcadas} líneas marcadas`, partida.id)
   window.toast?.(`Partida de centralización #${numero} generada en borrador · ${marcadas} líneas marcadas`, 'success')

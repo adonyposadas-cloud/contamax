@@ -1588,7 +1588,13 @@ window.consultarRentabilidad = async function () {
     // ── Acumular por unidad ──
     // Normalizamos la clave a solo dígitos para que coincida sin importar
     // si viene como número, texto, con espacios o ceros (ej. 7036, "7036", " 7036").
-    const keyOf = (v) => String(v ?? '').replace(/\D/g, '')
+    // Normaliza a 4 dígitos (los últimos), que es como se identifica una unidad:
+    // "89" = "0089" y "00025" = "0025". Sin esto, una descripción con distinta
+    // cantidad de ceros no emparejaba con el registro y el gasto caía al pool.
+    const keyOf = (v) => {
+      const d = String(v ?? '').replace(/\D/g, '')
+      return d ? d.slice(-4).padStart(4, '0') : ''
+    }
     const acc = {}
     for (const u of (unidades || [])) acc[keyOf(u.registro)] = { ingresos: 0, egresos: 0 }
 
@@ -1605,7 +1611,9 @@ window.consultarRentabilidad = async function () {
     for (const l of lineas) {
       const texto = ((l.descripcion || '') + ' ' + (partidaMap[l.partida_id]?.descripcion || '')).toUpperCase()
       // Detectar registro: "TAXI 1234", "VIP 1234", "T_1234", etc.
-      const m = texto.match(/(?:TAXI|VIP|T_)\s*[_ ]?\s*(\d{3,5})/)
+      // TAXY incluido a propósito: es un error de escritura frecuente al
+      // capturar, y sin él esos gastos caían al pool en vez de a su unidad.
+      const m = texto.match(/(?:TAXI|TAXY|VIP|T_)\s*[_ ]?\s*(\d{1,5})(?!\d)/)
       if (!m) continue
       const k = keyOf(m[1])
       if (!acc[k]) continue

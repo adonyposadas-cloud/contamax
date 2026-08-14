@@ -212,6 +212,52 @@ window.verDetallePrestamo = async (ref) => {
     </div>`
 }
 
+// Variantes de escritura del código de unidad, para la consulta ilike.
+// "00025" genera 25 / 0025 / 00025, y cada una con los prefijos usados en las
+// descripciones. La consulta queda amplia a propósito: filtrar de más acá
+// significa que el abono no aparece nunca; el exceso lo recorta finCodigoCoincide().
+function finPrefijosBusqueda(codigo) {
+  const d = String(codigo || '').replace(/\D/g, '')
+  if (!d) return []
+  const base = d.replace(/^0+/, '') || '0'
+  const variantes = [...new Set([base, base.padStart(4, '0'), base.padStart(5, '0'), String(codigo).trim()])]
+  const out = []
+  variantes.forEach(v => {
+    if (!v) return
+    out.push(
+      `descripcion.ilike.%TAXI ${v}%`, `descripcion.ilike.%TAXI_${v}%`, `descripcion.ilike.%TAXI  ${v}%`,
+      `descripcion.ilike.%TAXY ${v}%`, `descripcion.ilike.%TAXY_${v}%`,
+      `descripcion.ilike.%VIP ${v}%`, `descripcion.ilike.%VIP_${v}%`, `descripcion.ilike.%VIP  ${v}%`,
+      `descripcion.ilike.%T_${v}%`,
+    )
+  })
+  return [...new Set(out)]
+}
+
+const FIN_COD_RE = /(?:TAXI|TAXY|VIP|T)[ _]*(\d+)/g
+
+function finNormCod(n) {
+  const d = String(n || '').replace(/\D/g, '')
+  if (!d) return ''
+  // Se trabaja SIEMPRE con los últimos 4 dígitos: así "00025" y "25" son la
+  // misma unidad (0025), y un VIN largo como "...A004352" queda en "4352".
+  // Los más cortos se rellenan con ceros: "89" → "0089".
+  return d.slice(-4).padStart(4, '0')
+}
+
+function finCodigoCoincide(texto, codigo) {
+  const objetivo = finNormCod(codigo)
+  if (!objetivo) return false
+  const t = String(texto || '').toUpperCase()
+  if (!t) return false
+  FIN_COD_RE.lastIndex = 0
+  let m
+  while ((m = FIN_COD_RE.exec(t)) !== null) {
+    if (finNormCod(m[1]) === objetivo) return true
+  }
+  return false
+}
+
 // ══════════════════════════════════════════════
 // ── LIQUIDACIÓN Y GENERACIÓN DE RECIBO ──
 // ══════════════════════════════════════════════
@@ -262,28 +308,13 @@ window.abrirLiquidacion = async (ref) => {
   const entregasDescartadas = (entregasRaw || []).filter(e => !FIN_ESTADOS_ENTREGA_VALIDA.includes(e.estado))
 
   // ── Buscar abonos vía partidas contables (créditos que mencionan el código de unidad) ──
-  const codigoStr = String(codigo).trim()
-  const codigoSinCero = codigoStr.replace(/^0+/, '') // "03989" → "3989"
-  // Usar prefijos exactos para evitar falsos positivos (ej: "25" matcheando fechas/montos)
-  const prefijosAbono = [
-    `descripcion.ilike.%TAXI ${codigoSinCero}%`,
-    `descripcion.ilike.%TAXI_${codigoSinCero}%`,
-    `descripcion.ilike.%TAXI  ${codigoSinCero}%`,
-    `descripcion.ilike.%VIP ${codigoSinCero}%`,
-    `descripcion.ilike.%VIP_${codigoSinCero}%`,
-    `descripcion.ilike.%VIP  ${codigoSinCero}%`,
-    `descripcion.ilike.%T_${codigoSinCero}%`,
-    `descripcion.ilike.%TAXI VIP ${codigoSinCero}%`,
-    `descripcion.ilike.%TAXI VIP  ${codigoSinCero}%`,
-  ]
-  // Also search with leading zeros if codigo has them
-  if (codigoStr !== codigoSinCero) {
-    prefijosAbono.push(
-      `descripcion.ilike.%TAXI ${codigoStr}%`,
-      `descripcion.ilike.%VIP ${codigoStr}%`,
-      `descripcion.ilike.%T_${codigoStr}%`,
-    )
-  }
+  // La unidad se escribe con distinta cantidad de ceros según quién capture:
+  // "VIP 25", "VIP 0025" y "VIP 00025" son la misma. Antes solo se buscaba el
+  // código sin ceros y el código tal cual, así que una descripción con un
+  // padding intermedio no se traía de la base y el abono no aparecía nunca.
+  // Se generan TODAS las variantes de relleno y el falso positivo se descarta
+  // después con finCodigoCoincide().
+  const prefijosAbono = finPrefijosBusqueda(codigo)
   let abonosValidos = []
   try {
     const { data: abonosPartida, error: apErr } = await getSb().from('lineas_partida')
@@ -292,11 +323,23 @@ window.abrirLiquidacion = async (ref) => {
       .or(prefijosAbono.join(','))
 
     if (!apErr && abonosPartida?.length) {
-      abonosValidos = abonosPartida.filter(a => 
+      abonosValidos = abonosPartida.filter(a =>
         a.partida?.estado === 'aprobada' && a.monto > 0 && !a.usado_en_recibo
+        && finCodigoCoincide(a.descripcion, codigo)
       )
     }
   } catch(e) { console.log('Abonos partida no disponible:', e) }
+
+
+// ── VALIDACIÓN DE CÓDIGO EXACTO ──
+// Los patrones ilike llevan % al final, así que "T_25" matchea "T_2598" y el
+// recibo de la unidad 00025 se llenaba con cargos de la 2598. PostgREST no
+// hace regex desde .or(), así que la consulta se deja amplia y el falso
+// positivo se descarta acá.
+//
+// Regla: los códigos de unidad son de 4 dígitos y se escriben con o sin los
+// ceros de la izquierda. Se normaliza a 4 dígitos de ambos lados y se compara
+// exacto, así "89" = "0089" pero "892" (=0892) y "8966" son unidades distintas.
 
   const totalAbonosPartida = abonosValidos.reduce((s, a) => s + (parseFloat(a.monto) || 0), 0)
 
@@ -311,6 +354,7 @@ window.abrirLiquidacion = async (ref) => {
     if (!cpErr && cargosPartida?.length) {
       cargosValidos = cargosPartida.filter(c =>
         c.partida?.estado === 'aprobada' && c.monto > 0 && !c.usado_en_recibo
+        && finCodigoCoincide(c.descripcion, codigo)
         // Antes se excluían las IMP-FACT-TAXIS para no duplicar con facturas_taxis.
         // Ahora la línea de partida es la ÚNICA fuente de cargos (es editable), y
         // de facturas_taxis se ignoran las que ya tienen partida (ver abajo). Por
@@ -694,21 +738,14 @@ window.eliminarRecibo = async (reciboId, codigo, numRecibo, prestamoId) => {
           await getSb().from('lineas_partida').update({ usado_en_recibo: false, recibo_prestamo_id: null }).eq('id', l.id)
         }
       } else {
-        const codigoSinCero = String(codigo).replace(/^0+/, '')
-        const codigoStr = String(codigo).trim()
-        const prefijos = [
-          `descripcion.ilike.%TAXI ${codigoSinCero}%`, `descripcion.ilike.%TAXI_${codigoSinCero}%`,
-          `descripcion.ilike.%VIP ${codigoSinCero}%`, `descripcion.ilike.%VIP_${codigoSinCero}%`,
-          `descripcion.ilike.%T_${codigoSinCero}%`,
-        ]
-        if (codigoStr !== codigoSinCero) {
-          prefijos.push(`descripcion.ilike.%TAXI ${codigoStr}%`, `descripcion.ilike.%VIP ${codigoStr}%`, `descripcion.ilike.%T_${codigoStr}%`)
-        }
+        const prefijos = finPrefijosBusqueda(codigo)
         const { data: lineasUsadas } = await getSb().from('lineas_partida')
-          .select('id').in('tipo', ['credito', 'debito']).eq('usado_en_recibo', true)
+          .select('id, descripcion').in('tipo', ['credito', 'debito']).eq('usado_en_recibo', true)
           .or(prefijos.join(','))
         if (lineasUsadas?.length) {
-          for (const l of lineasUsadas) {
+          // Mismo filtro de código exacto: sin esto, borrar el recibo de la
+          // unidad 00025 liberaría también líneas de la 2598.
+          for (const l of lineasUsadas.filter(x => finCodigoCoincide(x.descripcion, codigo))) {
             await getSb().from('lineas_partida').update({ usado_en_recibo: false, recibo_prestamo_id: null }).eq('id', l.id)
           }
         }

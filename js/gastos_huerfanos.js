@@ -31,7 +31,10 @@ window.initGastosHuerfanos = async () => {
 
 // Extrae el número de unidad de una descripción (T_, TAXI, VIP, con/sin ceros)
 function ghExtraerUnidad(desc) {
-  const m = String(desc || '').toUpperCase().match(/(?:TAXI[ _]VIP[ _]|TAXI[ _]|VIP[ _]|T_)0*(\d+)/)
+  // TAXY incluido a propósito: es un error de escritura frecuente al capturar.
+  // FLOTA queda fuera deliberadamente — se usa para gastos que NO se cargan a
+  // la unidad, así que detectarlo rompería ese mecanismo.
+  const m = String(desc || '').toUpperCase().match(/(?:TAXI[ _]VIP[ _]|TAXI[ _]|TAXY[ _]|VIP[ _]|T_)0*(\d+)/)
   return m ? m[1] : null
 }
 const ghSinCeros = s => String(s || '').replace(/^0+/, '')
@@ -50,7 +53,9 @@ window.ghConsultar = async () => {
   for (const p of (prestamos || [])) mapPrestamo[ghSinCeros(p.codigo)] = p
 
   // 2) Líneas de gasto con prefijo de taxi, no cobradas (buscar por patrón → barato)
-  const patrones = ['%T\\_%', '%TAXI %', '%TAXI\\_%', '%VIP %', '%VIP\\_%']
+  // Sin el patrón de TAXY, esas líneas no se traen de la base y el filtro de
+  // abajo nunca llega a evaluarlas: el gasto no aparece por ningún lado.
+  const patrones = ['%T\\_%', '%TAXI %', '%TAXI\\_%', '%TAXY %', '%TAXY\\_%', '%VIP %', '%VIP\\_%']
   let crudas = []
   for (const pat of patrones) {
     const { data } = await ghSb().from('lineas_partida')
