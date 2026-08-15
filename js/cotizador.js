@@ -3296,22 +3296,76 @@
   }
 
   // Finaliza todas las cotizaciones de una orden unificada
+
+  // ── CIERRE AUTOMÁTICO DE LA SOLICITADA VACÍA ──
+  // Cada orden lleva dos proformas: la 'solicitado' vacía (existe solo para
+  // habilitar el checklist del mecánico) y la 'recomendado' con los ítems.
+  // Al finalizar se finaliza la RECOMENDADA; la solicitada se quedaba en estado
+  // 'solicitada' y como el tablero del jefe de pista filtra por
+  // .in('estado',['solicitada','pendiente','autorizada']), seguía apareciendo en
+  // "Esperando el checklist del mecánico" para siempre.
+  //
+  // Se cierra junto con la orden y se deja registrado si el mecánico alcanzó a
+  // inspeccionar o no. NO afecta comisiones: es solo trazabilidad.
+  async function cerrarSolicitadaDeOrden (numeroOrden) {
+    if (!numeroOrden) return null
+    try {
+      const { data: hermanas } = await sb().from('cotizador_proformas')
+        .select('id, items, solicitados')
+        .eq('numero_orden', numeroOrden)
+        .eq('tipo_solicitud', 'solicitado')
+        .neq('estado', 'finalizada')
+      // Solo las que no tienen nada que cotizar: si alguien les cargó ítems,
+      // son trabajo real y no deben cerrarse por arrastre.
+      const vacias = (hermanas || []).filter(h => !(h.items || []).length && !(h.solicitados || []).length)
+      if (!vacias.length) return null
+
+      // ¿El mecánico llegó a inspeccionar? La prueba es que exista su checklist
+      // cerrado para esa orden. Misma RPC que usa el tablero del jefe de pista.
+      let tieneChecklist = false
+      try {
+        const { data: chk } = await sb().rpc('checklist_tecnicos_por_orden')
+        tieneChecklist = (chk || []).some(r => String(r.numero_orden) === String(numeroOrden))
+      } catch (e) { console.warn('[chk] No se pudo verificar el checklist:', e) }
+
+      const motivo = tieneChecklist ? 'hecho' : 'no_hecho'
+      const ids = vacias.map(v => v.id)
+      const { error } = await sb().from('cotizador_proformas').update({
+        estado: 'finalizada',
+        proc_completada: new Date().toISOString(),
+        chk_cierre_motivo: motivo
+      }).in('id', ids)
+      if (error) { console.error('[chk] No se pudo cerrar la solicitada:', error); return null }
+      return { n: ids.length, motivo }
+    } catch (e) { console.error('[chk] cerrarSolicitadaDeOrden:', e); return null }
+  }
+
   async function finalizarMulti (idsCsv) {
     const ids = String(idsCsv || '').split(',').filter(Boolean)
     if (!ids.length) return
     if (!confirm('¿Finalizar las cotizaciones unificadas de esta orden?\nSe quitan del Inicio pero quedan en Cotización.')) return
+    const ordenesCerradas = new Set()
     for (const id of ids) {
       try {
-        const { data } = await sb().from('cotizador_proformas').select('items, proc_aprobada').eq('id', id).single()
+        const { data } = await sb().from('cotizador_proformas').select('items, proc_aprobada, numero_orden').eq('id', id).single()
         const pr = progresoPedidos(data ? data.items : [])
         if (pr.total > 0 && pr.llegados < pr.total) continue   // no finalizar incompletas
+        if (data && data.numero_orden) ordenesCerradas.add(data.numero_orden)
         const solo = pr.total === 0
         await sb().from('cotizador_proformas').update({ estado: 'finalizada' }).eq('id', id)
         const upd = (solo && data && data.proc_aprobada) ? { proc_completada: data.proc_aprobada, proc_compra_ms: 0 } : { proc_completada: new Date().toISOString() }
         await sb().from('cotizador_proformas').update(upd).eq('id', id).is('proc_completada', null)
       } catch (e) { console.error('[finalizarMulti]', e) }
     }
-    toast('Cotizaciones finalizadas', 'success'); loadDashboard()
+    let sinChk = 0
+    for (const ord of ordenesCerradas) {
+      const r = await cerrarSolicitadaDeOrden(ord)
+      if (r && r.motivo === 'no_hecho') sinChk += r.n
+    }
+    toast(sinChk
+      ? `Cotizaciones finalizadas · ${sinChk} checklist(s) quedaron sin hacer`
+      : 'Cotizaciones finalizadas', sinChk ? 'info' : 'success')
+    loadDashboard()
   }
 
   async function dashAccion (act, id) {
@@ -3347,11 +3401,12 @@
       if (error) { toast('Error al autorizar', 'error'); return }
       toast('Cotización autorizada', 'success'); loadDashboard()
     } else if (act === 'finalizar') {
-      let solo = false, aprobada = null
+      let solo = false, aprobada = null, numOrden = null
       try {
-        const { data } = await sb().from('cotizador_proformas').select('items, proc_aprobada').eq('id', id).single()
+        const { data } = await sb().from('cotizador_proformas').select('items, proc_aprobada, numero_orden').eq('id', id).single()
         const pr = progresoPedidos(data ? data.items : [])
         aprobada = data ? data.proc_aprobada : null
+        numOrden = data ? data.numero_orden : null
         solo = pr.total === 0
         if (pr.total > 0 && pr.llegados < pr.total) {
           toast(`No podés finalizar: faltan productos por llegar (${pr.llegados}/${pr.total})`, 'error'); return
@@ -3363,7 +3418,11 @@
       // Solo servicios: no hubo compra → tiempo de compra 0 (completa = aprobada). Si no, ahora.
       const upd = (solo && aprobada) ? { proc_completada: aprobada, proc_compra_ms: 0 } : { proc_completada: new Date().toISOString() }
       await sb().from('cotizador_proformas').update(upd).eq('id', id).is('proc_completada', null)  // detiene el reloj si aún corría
-      toast('Cotización finalizada', 'success'); loadDashboard()
+      const rChk = await cerrarSolicitadaDeOrden(numOrden)
+      toast(rChk && rChk.motivo === 'no_hecho'
+        ? 'Cotización finalizada · el checklist quedó sin hacer'
+        : 'Cotización finalizada', rChk && rChk.motivo === 'no_hecho' ? 'info' : 'success')
+      loadDashboard()
     }
   }
 
