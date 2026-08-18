@@ -1559,9 +1559,18 @@ window.consultarRentabilidad = async function () {
       return all
     }
 
-    // 2) TODAS las entregas del rango (paginado)
-    const entregas = await fetchAll(() => sb.from('entregas_taxis')
-      .select('unidad, monto').gte('fecha_deposito', desde).lte('fecha_deposito', hasta))
+    // 2) Entregas del rango (paginado)
+    // Solo las VÁLIDAS: 'Aprobada' (flujo nuevo) y 'Programado' (legacy, anterior
+    // al cambio de flujo del 2026-06-25). Se excluyen 'Rechazada' (depósito
+    // invalidado) y 'Pendiente' (sin revisar). Mismo criterio que
+    // FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js: antes esta consulta no
+    // filtraba estado y una entrega rechazada sumaba como ingreso de la unidad.
+    const REP_ESTADOS_ENTREGA_VALIDA = ['Aprobada', 'Programado']
+    const entregasRaw = await fetchAll(() => sb.from('entregas_taxis')
+      .select('unidad, monto, estado').gte('fecha_deposito', desde).lte('fecha_deposito', hasta))
+    const entregas = (entregasRaw || []).filter(e => REP_ESTADOS_ENTREGA_VALIDA.includes(e.estado))
+    const entregasDescartadas = (entregasRaw || []).length - entregas.length
+    if (entregasDescartadas) console.info(`[rent] ${entregasDescartadas} entrega(s) excluidas por estado (rechazadas o pendientes)`)
 
     // 3) TODAS las facturas (gasto) del rango (paginado)
     const facturas = await fetchAll(() => sb.from('facturas_taxis')

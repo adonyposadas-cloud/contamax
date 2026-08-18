@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260812-revert' } catch (e) {}
+try { window.__appBuild = '20260818-entregas' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -9608,11 +9608,18 @@ window.desactivarUnidad = async (id, registro) => {
 let detalleRegistro = null
 
 // Calcula ingresos/egresos de una unidad en un rango. Reutilizable por el modal y por reportes.
+// Estados de entrega que cuentan como ingreso real de la unidad.
+// 'Programado' es legacy (anterior al cambio de flujo del 2026-06-25) y sí vale.
+// 'Rechazada' y 'Pendiente' NO: el depósito fue invalidado o no se ha revisado.
+// Mismo criterio que FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js.
+const APP_ESTADOS_ENTREGA_VALIDA = ['Aprobada', 'Programado']
+
 window.calcularRentabilidadUnidad = async (registro, desde, hasta) => {
-  const { data: entregas } = await sb.from('entregas_taxis')
-    .select('fecha_deposito, monto, banco')
+  const { data: entregasRaw } = await sb.from('entregas_taxis')
+    .select('fecha_deposito, monto, banco, estado')
     .eq('unidad', registro).gte('fecha_deposito', desde).lte('fecha_deposito', hasta)
     .order('fecha_deposito')
+  const entregas = (entregasRaw || []).filter(e => APP_ESTADOS_ENTREGA_VALIDA.includes(e.estado))
 
   const { data: facturas } = await sb.from('facturas_taxis')
     .select('fecha, descripcion, monto, es_mano_obra, tipo_unidad')
@@ -9696,12 +9703,13 @@ window.cargarDetalleUnidad = async () => {
   const fmtL = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   // 1. Cargar entregas
-  const { data: entregas } = await sb.from('entregas_taxis')
-    .select('fecha_deposito, monto, banco')
+  const { data: entregasRaw } = await sb.from('entregas_taxis')
+    .select('fecha_deposito, monto, banco, estado')
     .eq('unidad', detalleRegistro)
     .gte('fecha_deposito', desde)
     .lte('fecha_deposito', hasta)
     .order('fecha_deposito')
+  const entregas = (entregasRaw || []).filter(e => APP_ESTADOS_ENTREGA_VALIDA.includes(e.estado))
 
   // 2. Cargar facturas (gastos) desde importación
   const { data: facturas } = await sb.from('facturas_taxis')
@@ -10908,7 +10916,69 @@ function renderCxPTabla() {
     </tr>`
   }).join('')
 
+  renderCxPAntiguedad()
   updateSumaCxP()
+}
+
+// ── ANTIGÜEDAD DE LO PENDIENTE ──
+// Aproximado para saber cuánto de la deuda es reciente y cuánto lleva tiempo.
+// Se cuenta desde la fecha de la PARTIDA (cuándo se registró el gasto), no
+// desde un vencimiento: estas líneas no lo guardan. Para una tarjeta eso es una
+// referencia de antigüedad del consumo, no mora real contra el estado de cuenta.
+// Solo suma lo PENDIENTE; lo ya pagado no es deuda.
+function renderCxPAntiguedad() {
+  const cont = document.getElementById('cxp-antiguedad')
+  if (!cont) return
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const pend = (cxpFiltrados || []).filter(l => !l.pagado)
+  if (!pend.length) { cont.innerHTML = ''; return }
+
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+  const dias = (f) => {
+    const d = new Date(String(f) + 'T00:00:00')
+    return isNaN(d) ? 0 : Math.floor((hoy - d) / 86400000)
+  }
+  const tramos = [
+    { lbl: 'Hasta 30 días', test: d => d <= 30,            color: 'var(--green,#16a34a)', n: 0, t: 0 },
+    { lbl: '31 a 60 días',  test: d => d > 30 && d <= 60,  color: 'var(--gold,#d4a017)',  n: 0, t: 0 },
+    { lbl: '61 a 90 días',  test: d => d > 60 && d <= 90,  color: '#f59e0b',              n: 0, t: 0 },
+    { lbl: 'Más de 90 días',test: d => d > 90,             color: 'var(--red,#c62828)',   n: 0, t: 0 },
+  ]
+  let total = 0
+  pend.forEach(l => {
+    const d = dias(l.partida?.fecha_partida)
+    const m = parseFloat(l.monto) || 0
+    total += m
+    const t = tramos.find(x => x.test(d))
+    if (t) { t.n++; t.t += m }
+  })
+  const r2 = n => Math.round(n * 100) / 100
+  const hasta30 = tramos[0].t
+  const masDe30 = r2(total - hasta30)
+
+  cont.innerHTML = `
+    <div style="background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="font-weight:600;font-size:13px">Pendiente por antigüedad <span style="font-weight:400;color:var(--text3);font-size:11px">· ${pend.length} movimiento(s) · desde la fecha de la partida</span></div>
+        <div style="font-family:var(--mono);font-size:15px;font-weight:700;color:var(--gold,#d4a017)">L. ${fmt(r2(total))}</div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+        <div><span style="font-size:11px;color:var(--text3)">Hasta 30 días</span><br>
+          <span style="font-family:var(--mono);font-size:14px;font-weight:600;color:var(--green,#16a34a)">L. ${fmt(r2(hasta30))}</span></div>
+        <div><span style="font-size:11px;color:var(--text3)">Más de 30 días</span><br>
+          <span style="font-family:var(--mono);font-size:14px;font-weight:600;color:var(--red,#c62828)">L. ${fmt(masDe30)}</span></div>
+      </div>
+      <table style="width:100%;font-size:12px">
+        <tbody>${tramos.map(t => `
+          <tr>
+            <td style="padding:3px 0"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${t.color};margin-right:6px"></span>${t.lbl}</td>
+            <td style="text-align:center;color:var(--text3);width:60px">${t.n}</td>
+            <td style="text-align:right;font-family:var(--mono);width:130px">L. ${fmt(r2(t.t))}</td>
+            <td style="text-align:right;color:var(--text3);width:52px">${total ? Math.round(t.t / total * 100) : 0}%</td>
+          </tr>`).join('')}</tbody>
+      </table>
+      <div style="font-size:10px;color:var(--text3);margin-top:8px">Aproximado: cuenta días desde que se registró el gasto, no desde el corte de la tarjeta.</div>
+    </div>`
 }
 
 window.toggleCxPCheck = (cb) => {
