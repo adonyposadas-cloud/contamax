@@ -4342,8 +4342,15 @@
     if (act === 'duplicar') {
       await recuperarProforma(id, { noLock: true })
       PF.id = null; PF.correlativo = null; PF.estado = 'pendiente'
+      // Se duplica para volver a ofrecer el trabajo completo. Los ítems que el
+      // cliente NO autorizó en la venta anterior venían con oculto:true, y en la
+      // copia salían tachados y fuera del total. En una cotización nueva todos
+      // los ítems arrancan activos: si el cliente vuelve a rechazar alguno, se
+      // oculta acá. Sin esto había que reactivarlos uno por uno.
+      ;(PF.items || []).forEach(it => { it.oculto = false })
       $('cot-recban').style.display = 'none'; setNumLabel(); switchTab('nueva')
-      toast('Copia lista — guardá para crear una nueva', 'success'); return
+      renderItems()
+      toast('Copia lista con todos los ítems activos — guardá para crear una nueva', 'success'); return
     }
     if (act === 'autorizar') {
       if (!confirm('¿Autorizar esta cotización?')) return
