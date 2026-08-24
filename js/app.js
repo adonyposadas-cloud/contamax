@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260818-entregas' } catch (e) {}
+try { window.__appBuild = '20260822-ptxanul' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -8562,10 +8562,16 @@ window.consultarEntregasTaxis = async () => {
   })
 
   // Verificar cuáles ya tienen partida (buscar por descripción)
+  // Se excluyen las ANULADAS: una partida anulada no contabiliza nada, así que
+  // su fecha debe quedar disponible para volver a generar. Antes no se filtraba
+  // el estado, y una partida de taxis anulada (p.ej. generada con pocas entregas
+  // y luego anulada para rehacerla completa) dejaba la fecha marcada como
+  // "✓ Creada" y el generador la omitía: no se podía regenerar.
   const fechas = Object.keys(porFecha)
   const { data: existentes } = await sb.from('partidas_contables')
-    .select('fecha_partida, descripcion')
+    .select('fecha_partida, descripcion, estado')
     .like('descripcion', '%[IMP-TAXI]%')
+    .neq('estado', 'anulada')
     .in('fecha_partida', fechas)
 
   const fechasConPartida = new Set((existentes || []).map(e => e.fecha_partida))
@@ -10852,14 +10858,27 @@ window.consultarCxP = async () => {
   const tbody = document.getElementById('tbody-cxp')
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
 
-  // Query lineas_partida for these accounts
-  let query = sb.from('lineas_partida')
-    .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, pagado_partida_num, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
-    .in('cuenta_codigo', codigos)
-    .eq('tipo', 'credito')
-    .order('id', { ascending: true })
-
-  const { data, error } = await query
+  // Se lee por páginas de 1000. Sin esto, PostgREST corta en 1000 filas en
+  // silencio: como ordena por id y el filtro de fecha se aplica DESPUÉS en el
+  // navegador, los créditos con id alto (los más recientes) nunca llegaban,
+  // aunque estuvieran dentro del rango de fechas. Fue por qué la partida #201
+  // no aparecía pese a estar aprobada y ser un crédito. Mismo bug que se
+  // arregló en Conciliación Puente.
+  let data = [], error = null
+  try {
+    const PAGE = 1000
+    for (let desde0 = 0; ; desde0 += PAGE) {
+      const { data: chunk, error: e } = await sb.from('lineas_partida')
+        .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, pagado_partida_num, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
+        .in('cuenta_codigo', codigos)
+        .eq('tipo', 'credito')
+        .order('id', { ascending: true })
+        .range(desde0, desde0 + PAGE - 1)
+      if (e) throw e
+      data = data.concat(chunk || [])
+      if (!chunk || chunk.length < PAGE) break
+    }
+  } catch (e) { error = e }
   if (error) { toast('Error: ' + error.message, 'error'); return }
 
   // Filter by date and estado
