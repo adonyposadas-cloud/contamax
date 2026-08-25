@@ -399,8 +399,13 @@
       const sel = ctxSelDepositos.includes(mv.idx)
       const refTxt = mv.ref ? `<span class="ctx-ref">Ref: ${mv.ref}</span>` : ''
       const sTxt = `${mv.desc || ''} ${mv.ref || ''} ${mv.monto}`.toLowerCase().replace(/"/g, '')
+      // Botón de pista: solo si el depósito trae un punto RapiBac reconocible.
+      const punto = ctxPuntoRapibac(mv.desc)
+      const pistaBtn = punto
+        ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienUsaPunto('${punto}', this)" title="Ver qué motoristas suelen depositar en el punto ${punto}">👤 ¿quién usa ${punto}?</button>`
+        : ''
       return `<div class="ctx-row warn ctx-dep-row ${sel ? 'sel' : ''}" data-s="${sTxt}" onclick="ctxElegirDeposito(${mv.idx})">
-        <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${refTxt}</div>
+        <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${refTxt}${pistaBtn}</div>
         <div class="ctx-row-r"><span class="ctx-pick">${sel ? '☑ elegido' : '☐ elegir'}</span></div>
       </div>`
     }).join('')
@@ -569,7 +574,11 @@
       try {
         const refsConc = []
         r.conciliados.forEach(e => (e.pars || []).forEach(i => {
-          const mv = r.movs[i]; if (mv && mv.ref) refsConc.push({ ref: mv.ref, monto: mv.monto })
+          // Se guarda también la descripción del banco (trae el punto RapiBac) y
+          // la unidad a la que se asignó. Con eso se puede consultar después qué
+          // motoristas usan cada punto. e.unidad es el motorista de esta entrega.
+          const mv = r.movs[i]
+          if (mv && mv.ref) refsConc.push({ ref: mv.ref, monto: mv.monto, desc: mv.desc || '', unidad: e.unidad || '' })
         }))
         if (refsConc.length) {
           await csb().rpc('tx_refs_conciliadas_guardar', {
@@ -591,6 +600,8 @@
     const s = document.createElement('style'); s.id = 'ctx-styles'
     s.textContent = `
       .ctx-card{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;margin-bottom:14px}
+      .ctx-punto-btn{margin-left:10px;padding:2px 8px;font-size:11px;background:#1c2530;border:1px solid #2f3b4a;border-radius:6px;color:#7fb3ff;cursor:pointer}
+      .ctx-punto-btn:hover{background:#243141}
       .ctx-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
       .ctx-fld{display:flex;flex-direction:column;gap:5px}.ctx-fld.ctx-grow{flex:1;min-width:220px}
       .ctx-fld label{font-size:12px;color:#9aa0aa;text-transform:uppercase;letter-spacing:.04em}
@@ -648,4 +659,64 @@
     `
     document.head.appendChild(s)
   }
+
+// ── PISTA: motoristas por punto RapiBac ──
+// Extrae el número de punto de una descripción de depósito.
+// "DEP.RAPIBAC 025630" → "25630" (sin ceros de más, para comparar bien).
+function ctxPuntoRapibac(desc) {
+  const m = String(desc || '').toUpperCase().match(/RAPIBAC[^0-9]*([0-9]+)/)
+  if (!m) return null
+  const n = m[1].replace(/^0+/, '') || '0'
+  return n
+}
+
+// Consulta reactiva: qué motoristas suelen depositar en ese punto.
+// El historial arranca vacío y se llena a medida que se concilia.
+window.ctxQuienUsaPunto = async (punto, btn) => {
+  if (!punto) return
+  const prev = btn ? btn.textContent : ''
+  if (btn) { btn.disabled = true; btn.textContent = 'buscando…' }
+  try {
+    const { data, error } = await csb().rpc('tx_motoristas_por_punto', { p_punto: String(punto) })
+    if (error) throw error
+    const filas = data || []
+    let cuerpo
+    if (!filas.length) {
+      cuerpo = `<div style="color:#8b8f98;font-size:13px">Todavía no hay historial para el punto ${punto}. Se irá llenando a medida que concilies depósitos de este punto.</div>`
+    } else {
+      cuerpo = `<div style="font-size:12px;color:#8b8f98;margin-bottom:8px">Suelen depositar en el punto ${punto}:</div>` +
+        filas.map(f => {
+          const tel = f.telefono ? ` · 📞 ${f.telefono}` : ''
+          return `<div style="padding:6px 0;border-bottom:1px solid #23262d;font-size:13px">
+            <b>#${f.unidad}</b> ${f.nombre || ''} <span style="color:#8b8f98">— ${f.veces} vez(ces)${tel}</span>
+            <div style="color:#6b7280;font-size:11px">último: ${f.ultimo || '—'}</div>
+          </div>`
+        }).join('')
+    }
+    ctxModalPista(`Punto RapiBac ${punto}`, cuerpo)
+  } catch (e) {
+    window.toast?.('Error consultando el punto: ' + (e.message || e), 'error')
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev }
+  }
+}
+
+// Modal simple para mostrar la pista.
+function ctxModalPista(titulo, htmlCuerpo) {
+  document.getElementById('ctx-pista-modal')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'ctx-pista-modal'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center'
+  ov.onclick = (e) => { if (e.target === ov) ov.remove() }
+  ov.innerHTML = `<div style="background:#14161b;border:1px solid #2a2f3a;border-radius:12px;max-width:420px;width:92%;max-height:70vh;overflow:auto;padding:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-weight:600;font-size:15px">👤 ${titulo}</div>
+      <button onclick="document.getElementById('ctx-pista-modal').remove()" style="background:none;border:none;color:#8b8f98;font-size:20px;cursor:pointer">×</button>
+    </div>
+    <div style="font-size:11px;color:#6b7280;margin-bottom:10px">Es una pista por frecuencia, no una asignación: un punto lo pueden usar varios motoristas.</div>
+    ${htmlCuerpo}
+  </div>`
+  document.body.appendChild(ov)
+}
+
 })()
