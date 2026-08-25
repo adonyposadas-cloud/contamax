@@ -27,6 +27,7 @@ window.__cafBuild = '20260720b'
   let TAB = 'insumos'
   let INSUMOS = []      // desde v_caf_existencias
   let RECETAS = []      // desde v_caf_recetas_costo
+  let CONMOV = null     // insumos con movimiento en el punto (null = ve todo)
   let INGR = {}         // receta_id → [ingredientes]
   let MOVS = []
   let ABIERTA = null    // receta desplegada
@@ -113,6 +114,32 @@ window.__cafBuild = '20260720b'
     if (ri.error) throw ri.error
     if (rr.error) throw rr.error
     INSUMOS = ri.data || []
+
+    // ── FILTRO POR MOVIMIENTO (solo encargado de punto) ──
+    // El admin ve el catálogo completo para poder ENVIAR cualquier producto.
+    // El encargado ve solo los insumos que su punto ha manejado alguna vez:
+    // los que tienen al menos un movimiento en su ubicación. Un producto que
+    // se agotó (existencia 0) pero que sí circuló SIGUE apareciendo, porque hay
+    // que reponerlo; lo que nunca llegó al punto no ensucia su pantalla.
+    // Se filtra INSUMOS acá, así se acota en todas las pestañas del encargado
+    // (inventario, ventas, recetas) de una sola vez.
+    CONMOV = null
+    if (!veTodo()) {
+      // Se lee por páginas: un punto activo puede tener más de 1000 movimientos
+      // y PostgREST corta ahí en silencio. Solo interesan los insumo_id únicos.
+      const conMov = new Set()
+      const PAGE = 1000
+      for (let off = 0; ; off += PAGE) {
+        const { data: chunk, error: eMov } = await sb().from('caf_inventario_mov')
+          .select('insumo_id').eq('ubicacion_id', USEL)
+          .order('id', { ascending: true }).range(off, off + PAGE - 1)
+        if (eMov) break
+        ;(chunk || []).forEach(m => conMov.add(m.insumo_id))
+        if (!chunk || chunk.length < PAGE) break
+      }
+      CONMOV = conMov
+      INSUMOS = INSUMOS.filter(i => conMov.has(i.id))
+    }
     RECETAS = rr.data || []
     MOVS = rm.data || []
     VENTAS = rv.error ? [] : (rv.data || [])
@@ -324,6 +351,7 @@ window.__cafBuild = '20260720b'
   function vistaRecetas () {
     const q = FP.q.trim().toUpperCase()
     const vis = RECETAS.filter(r => {
+      if (!recetaEnPunto(r)) return false
       if (FP.clase === 'reventa' && !r.es_reventa) return false
       if (FP.clase === 'cocina' && r.es_reventa) return false
       if (FP.clase === 'caro' && !(r.food_cost_pct != null && r.food_cost_pct > 45)) return false
@@ -491,8 +519,18 @@ window.__cafBuild = '20260720b'
   //  (back-flush). Si no alcanza el stock, avisa y pide confirmar: la venta ya
   //  ocurrió, así que se puede registrar igual — la existencia queda negativa y
   //  eso es una señal honesta de que algo no cuadra.
+  // Una receta es vendible en el punto si TODOS sus insumos tienen movimiento acá.
+  // Reventa: su único insumo. Compuesta: si falta un ingrediente no se puede
+  // preparar, así que no se ofrece. El admin (CONMOV null) ve todo.
+  function recetaEnPunto (r) {
+    if (!CONMOV) return true
+    const ings = INGR[r.id] || []
+    if (!ings.length) return false
+    return ings.every(g => CONMOV.has(g.insumo_id))
+  }
+
   function vistaVentas () {
-    const activas = RECETAS.filter(r => r.activo)
+    const activas = RECETAS.filter(r => r.activo && recetaEnPunto(r))
     if (!activas.length) {
       return '<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">Primero creá recetas con sus ingredientes.</div>'
     }
@@ -501,6 +539,8 @@ window.__cafBuild = '20260720b'
       const r = RECETAS.find(x => x.id === Number(id))
       return a + (r ? Number(r.precio_venta) * VENTA[id] : 0)
     }, 0)
+    // Total de unidades (piezas) que se llevan, para ver el conteo antes de registrar.
+    const totalUnid = Object.keys(VENTA).reduce((a, id) => a + (VENTA[id] || 0), 0)
 
     const qv = FV.q.trim().toUpperCase()
     // Lo elegido se muestra siempre, aunque no coincida con la búsqueda: si no,
@@ -564,7 +604,7 @@ window.__cafBuild = '20260720b'
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas || '<tr><td style="padding:20px;text-align:center;color:#6e7681;font-size:12.5px">Ningún producto coincide.</td></tr>'}</tbody></table>
           <div style="padding:11px 14px;border-top:1px solid #21262d">
-            ${totalVenta > 0 ? `<div style="color:#8b949e;font-size:12.5px;margin-bottom:8px">Total: <b style="color:#4e7a51;font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
+            ${totalVenta > 0 ? `<div style="color:#8b949e;font-size:12.5px;margin-bottom:8px"><b id="caf-venta-unid" style="color:#e6edf3;font-size:15px">${totalUnid}</b> <span id="caf-venta-unid-lbl">${totalUnid === 1 ? 'unidad' : 'unidades'}</span> · Total: <b style="color:#4e7a51;font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
             <div style="display:flex;gap:8px">
               <button onclick="cafVentaLimpiar()" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
               <button onclick="cafVentaRegistrar()" style="flex:1;background:#4e7a51;color:#fff;border:0;border-radius:7px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">Registrar venta</button>
@@ -581,16 +621,22 @@ window.__cafBuild = '20260720b'
   window.cafVentaSet = function (id, v) {
     const n = Math.max(0, Math.floor(Number(v) || 0))
     if (n > 0) VENTA[id] = n; else delete VENTA[id]
-    // Repintar solo el total, para no perder el foco del input
     const cont = document.getElementById('caf-body')
     const tot = cont && cont.querySelector('b[style*="4e7a51"][style*="15px"]')
-    if (tot) {
-      const t = Object.keys(VENTA).reduce((a, k) => {
-        const r = RECETAS.find(x => x.id === Number(k))
-        return a + (r ? Number(r.precio_venta) * VENTA[k] : 0)
-      }, 0)
-      tot.textContent = 'L. ' + fmt(t)
-    }
+    const unidEl = cont && cont.querySelector('#caf-venta-unid')
+    // Si el bloque de total aún no existe (se pasó de 0 a la primera cantidad),
+    // hay que repintar para que aparezca. Si ya existe, se actualiza en vivo para
+    // no perder el foco del input que se está tecleando.
+    if (!tot || !unidEl) { pintarBody(); return }
+    const t = Object.keys(VENTA).reduce((a, k) => {
+      const r = RECETAS.find(x => x.id === Number(k))
+      return a + (r ? Number(r.precio_venta) * VENTA[k] : 0)
+    }, 0)
+    tot.textContent = 'L. ' + fmt(t)
+    const u = Object.keys(VENTA).reduce((a, k) => a + (VENTA[k] || 0), 0)
+    unidEl.textContent = u
+    const lbl = cont.querySelector('#caf-venta-unid-lbl')
+    if (lbl) lbl.textContent = (u === 1 ? 'unidad' : 'unidades')
   }
 
   window.cafVentaLimpiar = function () { VENTA = {}; pintarBody() }

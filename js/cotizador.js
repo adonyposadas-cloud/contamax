@@ -10,7 +10,7 @@
  * ════════════════════════════════════════════════════════════════════ */
 ;(function () {
   'use strict'
-  try { window.__cotBuild = '20260730-log' } catch (e) {}
+  try { window.__cotBuild = '20260825-novend' } catch (e) {}
 
   const sb = () => window._sb
   const $ = (id) => document.getElementById(id)
@@ -2440,7 +2440,7 @@
   }
   // Reloj compacto para las tarjetas de lista (Inicio/Cotización)
   function clockCardHTML (p) {
-    if (p.estado === 'finalizada' || p.estado === 'anulada') return ''   // proceso cerrado → sin reloj
+    if (p.estado === 'finalizada' || p.estado === 'anulada' || p.estado === 'no_vendida') return ''   // proceso cerrado → sin reloj
     const f = _procFase(p)
     if (!f.fase || f.fase === 'sin_iniciar' || f.fase === 'completado') return ''
     // Solo servicios (0 productos): no hay repuestos que pedir → el contador de Pedido no corre
@@ -2585,7 +2585,7 @@
     try {
       const [rango, curso, hist] = await Promise.all([
         sb().from('cotizador_proformas').select(cols).gte('created_at', start).lt('created_at', end).order('created_at', { ascending: false }).limit(3000),
-        sb().from('cotizador_proformas').select(cols).or('proc_inicio.not.is.null,proc_solicitada.not.is.null').is('proc_completada', null).neq('estado', 'finalizada').order('proc_inicio', { ascending: true }).limit(200),
+        sb().from('cotizador_proformas').select(cols).or('proc_inicio.not.is.null,proc_solicitada.not.is.null').is('proc_completada', null).not('estado', 'in', '(finalizada,no_vendida,anulada)').order('proc_inicio', { ascending: true }).limit(200),
         sb().from('cotizador_proformas').select(cols).or('proc_inicio.not.is.null,proc_solicitada.not.is.null').or(`proc_completada.gte.${start},proc_completada.is.null`).order('proc_inicio', { ascending: false }).limit(1000)
       ])
       if (rango.error) throw rango.error
@@ -3036,7 +3036,13 @@
 
   function pintarDashLista () {
     const list = document.getElementById('cot-dash-list'); if (!list) return
-    const todas = _dashRows || []
+    let todas = _dashRows || []
+
+    // Las terminales (no vendida / anulada / finalizada) no van al tablero de
+    // pendientes: su proceso ya cerró. Sin esto, una no_vendida se quedaba en la
+    // cola de "Cotización" con el cronómetro corriendo.
+    const _terminal = (p) => ['no_vendida', 'anulada', 'finalizada'].includes(p.estado)
+    todas = todas.filter(p => !_terminal(p))
 
     // Separar las que solo existen para habilitar el checklist
     const chk = todas.filter(soloParaChecklist)
@@ -3123,6 +3129,10 @@
     // orden y no hay a quién esperar. Si cayera en 'autorizacion' volvería a
     // arrancarle el cronómetro y a ensuciar el tiempo de autorización.
     if (p.tipo_solicitud === 'mostrador') return 'mostrador'
+    // Estados terminales: una cotización no vendida o anulada no está en ninguna
+    // fase activa. Sin este caso caía en el 'cotizacion' final y se quedaba en el
+    // tablero con el cronómetro de autorización corriendo, como pasó con la 1771.
+    if (p.estado === 'no_vendida' || p.estado === 'anulada') return 'cerrado'
     const f = _procFase(p).fase
     if (f === 'cotizacion') return 'cotizacion'
     if (f === 'autorizacion') return 'autorizacion'
