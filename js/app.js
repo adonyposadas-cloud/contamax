@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260822-ptxanul' } catch (e) {}
+try { window.__appBuild = '20260825-cxpfiltro' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -11582,6 +11582,8 @@ window.guardarSelCxP = async () => {
   logActividad(`cxp_seleccion_${accion}`, 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
 }
 
+let _progCxP = []   // programados pendientes, para el export a Excel
+let _progCxPById = {}   // selección por id, para descargar una sola
 window.verSeleccionesCxP = async () => {
   const { data, error } = await getSb().from('cxp_selecciones')
     .select('*')
@@ -11592,6 +11594,9 @@ window.verSeleccionesCxP = async () => {
 
   // Solo las realmente pendientes: las pagadas aparecen en "Pagos realizados"
   const pend = (data || []).filter(s => s.estado === 'pendiente')
+  _progCxP = pend
+  _progCxPById = {}
+  pend.forEach(s => { _progCxPById[String(s.id)] = s })
   if (!pend.length) {
     list.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">No hay pagos programados pendientes</div>'
   } else {
@@ -11619,6 +11624,7 @@ window.verSeleccionesCxP = async () => {
             ${s.notas ? `<span style="color:var(--text3);margin-left:8px">${s.notas}</span>` : ''}
           </div>
           <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" onclick="descargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--green)">📊 Excel</button>
             ${s.estado === 'pendiente' ? `
               <button class="btn btn-ghost" onclick="cargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--blue)">📥 Cargar</button>
               <button class="btn btn-ghost" onclick="eliminarSelCxP('${s.id}','${s.nombre.replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 10px;color:var(--red)">🗑️</button>
@@ -11637,13 +11643,28 @@ window.verSeleccionesCxP = async () => {
 // ── Historial de pagos realizados (reconstruido agrupando líneas pagadas por pagado_at) ──
 // Cada grupo de pagado_at = un pago. Muestra fecha, total y el desglose de facturas.
 let _histPagosCxP = []
+let _histFiltro = { desde: '', hasta: '', montoMin: '', montoMax: '', texto: '' }
+let _histListEl = null   // contenedor para repintar sin re-consultar
 async function renderHistorialPagosCxP(list) {
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const { data, error } = await getSb().from('lineas_partida')
-    .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, pagado_at, partida:partidas_contables(numero_partida, fecha_partida, descripcion, estado)')
-    .eq('pagado', true)
-    .order('pagado_at', { ascending: false })
-    .limit(1000)
+  // Se lee por páginas: sin esto PostgREST corta en 1000 líneas en silencio y
+  // los pagos más viejos no aparecían ni en pantalla ni en el Excel. Se ordena
+  // por id como desempate estable para que la paginación no repita ni salte filas.
+  let data = [], error = null
+  try {
+    const PAGE = 1000
+    for (let off = 0; ; off += PAGE) {
+      const { data: chunk, error: e } = await getSb().from('lineas_partida')
+        .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, pagado_at, pagado_partida_num, partida:partidas_contables(numero_partida, fecha_partida, descripcion, estado)')
+        .eq('pagado', true)
+        .order('pagado_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(off, off + PAGE - 1)
+      if (e) throw e
+      data = data.concat(chunk || [])
+      if (!chunk || chunk.length < PAGE) break
+    }
+  } catch (e) { error = e }
 
   let html = `<div style="font-weight:600;font-size:13px;margin:22px 0 10px;color:var(--text2);border-top:1px solid var(--bg3);padding-top:16px">💸 Pagos realizados</div>`
 
@@ -11652,17 +11673,104 @@ async function renderHistorialPagosCxP(list) {
     return
   }
 
+  // Nombre de la selección que originó cada pago. La selección, la partida de
+  // pago y las líneas están enlazadas por pagado_partida_num, así que el nombre
+  // se recupera por ese número — sirve también para los pagos ya hechos, sin
+  // migrar nada. (Antes el historial solo mostraba fecha/hora.)
+  const nums = [...new Set(data.map(l => l.pagado_partida_num).filter(Boolean))]
+  const nombrePorNum = {}
+  if (nums.length) {
+    try {
+      const { data: sels } = await getSb().from('cxp_selecciones')
+        .select('nombre, pagado_partida_num').in('pagado_partida_num', nums)
+      ;(sels || []).forEach(x => { if (x.pagado_partida_num) nombrePorNum[x.pagado_partida_num] = x.nombre })
+    } catch (e) { /* sin nombres: se sigue mostrando por fecha */ }
+  }
+
+  // Se agrupa por partida de pago (pagado_partida_num) cuando existe; si no, por
+  // pagado_at, para no perder pagos antiguos sin ese enlace.
   const grupos = {}
   data.forEach(l => {
     if (!l.pagado_at) return
-    const k = l.pagado_at
-    if (!grupos[k]) grupos[k] = { pagado_at: k, total: 0, lineas: [] }
+    const k = l.pagado_partida_num ? ('P' + l.pagado_partida_num) : ('T' + l.pagado_at)
+    if (!grupos[k]) grupos[k] = {
+      pagado_at: l.pagado_at, total: 0, lineas: [],
+      partida_num: l.pagado_partida_num || null,
+      nombre: l.pagado_partida_num ? (nombrePorNum[l.pagado_partida_num] || null) : null
+    }
     grupos[k].total = Math.round((grupos[k].total + (parseFloat(l.monto) || 0)) * 100) / 100
     grupos[k].lineas.push(l)
   })
   _histPagosCxP = Object.values(grupos).sort((a, b) => (b.pagado_at || '').localeCompare(a.pagado_at || ''))
 
-  html += _histPagosCxP.map((g, i) => {
+  // Barra de filtros (fecha / monto / nombre). No re-consulta: filtra en memoria.
+  html += `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px;background:var(--bg3);padding:10px;border-radius:var(--radius)">
+      <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">DESDE</div>
+        <input type="date" id="hist-desde" onchange="_histSetFiltro('desde',this.value)" style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;color:var(--text);padding:5px 7px;font-size:12px"></div>
+      <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">HASTA</div>
+        <input type="date" id="hist-hasta" onchange="_histSetFiltro('hasta',this.value)" style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;color:var(--text);padding:5px 7px;font-size:12px"></div>
+      <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">MONTO MIN</div>
+        <input type="number" id="hist-monto-min" placeholder="0" oninput="_histSetFiltro('montoMin',this.value)" style="width:90px;background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;color:var(--text);padding:5px 7px;font-size:12px"></div>
+      <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">MONTO MAX</div>
+        <input type="number" id="hist-monto-max" placeholder="∞" oninput="_histSetFiltro('montoMax',this.value)" style="width:90px;background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;color:var(--text);padding:5px 7px;font-size:12px"></div>
+      <div style="flex:1;min-width:140px"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">NOMBRE / DESCRIPCIÓN</div>
+        <input type="text" id="hist-texto" placeholder="Buscar…" oninput="_histSetFiltro('texto',this.value)" style="width:100%;background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;color:var(--text);padding:5px 7px;font-size:12px"></div>
+      <button class="btn btn-ghost" onclick="_histLimpiarFiltro()" style="font-size:11px;padding:6px 10px">Limpiar</button>
+    </div>
+    <div id="hist-pagos-lista"></div>`
+
+  list.innerHTML += html
+  _histListEl = document.getElementById('hist-pagos-lista')
+  _pintarHistPagos()
+}
+
+// Devuelve true si el grupo pasa los filtros activos.
+function _histPasa(g) {
+  const f = _histFiltro
+  const dISO = g.pagado_at ? g.pagado_at.slice(0, 10) : ''
+  if (f.desde && dISO && dISO < f.desde) return false
+  if (f.hasta && dISO && dISO > f.hasta) return false
+  const min = parseFloat(f.montoMin), max = parseFloat(f.montoMax)
+  if (!isNaN(min) && g.total < min) return false
+  if (!isNaN(max) && g.total > max) return false
+  if (f.texto) {
+    const q = f.texto.toLowerCase()
+    const enNombre = (g.nombre || '').toLowerCase().includes(q)
+    const enFacturas = (g.lineas || []).some(l =>
+      (l.descripcion || l.partida?.descripcion || l.cuenta_nombre || '').toLowerCase().includes(q))
+    if (!enNombre && !enFacturas) return false
+  }
+  return true
+}
+
+window._histSetFiltro = (campo, valor) => { _histFiltro[campo] = valor; _pintarHistPagos() }
+window._histLimpiarFiltro = () => {
+  _histFiltro = { desde: '', hasta: '', montoMin: '', montoMax: '', texto: '' }
+  ;['hist-desde','hist-hasta','hist-monto-min','hist-monto-max','hist-texto'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = ''
+  })
+  _pintarHistPagos()
+}
+
+function _pintarHistPagos() {
+  if (!_histListEl) return
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const visibles = _histPagosCxP.filter(_histPasa)
+  const sumaVis = visibles.reduce((a, g) => a + (g.total || 0), 0)
+
+  if (!visibles.length) {
+    _histListEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">Ningún pago coincide con los filtros</div>'
+    return
+  }
+
+  const hayFiltro = _histFiltro.desde || _histFiltro.hasta || _histFiltro.montoMin || _histFiltro.montoMax || _histFiltro.texto
+  const resumen = hayFiltro
+    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:8px"><b style="color:var(--text2)">${visibles.length}</b> de ${_histPagosCxP.length} pagos · Total filtrado: <b style="color:var(--green)">L. ${fmt(sumaVis)}</b></div>`
+    : ''
+
+  _histListEl.innerHTML = resumen + visibles.map((g) => {
+    const i = _histPagosCxP.indexOf(g)
     const f = new Date(g.pagado_at)
     const fecha = f.toLocaleDateString('es-HN')
     const hora = f.toLocaleString('es-HN', { hour: '2-digit', minute: '2-digit', hour12: true })
@@ -11670,17 +11778,20 @@ async function renderHistorialPagosCxP(list) {
       <tr>
         <td style="font-size:11px;color:var(--gold)">${l.partida?.numero_partida || '—'}</td>
         <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
-        <td style="font-size:12px;max-width:280px">${l.partida?.descripcion || l.descripcion || l.cuenta_nombre || '—'}</td>
+        <td style="font-size:12px;max-width:280px">${l.descripcion || l.partida?.descripcion || l.cuenta_nombre || '—'}</td>
         <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${fmt(l.monto)}</td>
       </tr>`).join('')
     return `
       <div style="background:var(--bg3);border-radius:var(--radius);margin-bottom:8px;border-left:3px solid var(--green)">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer" onclick="window._togglePagoCxP(${i})">
           <div>
-            <div style="font-weight:600">📅 ${fecha} <span style="font-size:11px;color:var(--text3)">· ${hora}</span></div>
-            <div style="font-size:11px;color:var(--text3)">${g.lineas.length} factura(s) · clic para ver detalle</div>
+            <div style="font-weight:600">${g.nombre ? String(g.nombre).replace(/</g,'&lt;').replace(/>/g,'&gt;') : '📅 ' + fecha}</div>
+            <div style="font-size:11px;color:var(--text3)">${g.nombre ? '📅 ' + fecha + ' · ' + hora + ' · ' : ''}${g.lineas.length} factura(s)${g.partida_num ? ' · partida #' + g.partida_num : ''} · clic para ver detalle</div>
           </div>
-          <div style="font-family:var(--mono);font-weight:600;color:var(--green)">L. ${fmt(g.total)}</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="font-family:var(--mono);font-weight:600;color:var(--green)">L. ${fmt(g.total)}</div>
+            <button class="btn btn-ghost" onclick="event.stopPropagation();descargarPagoRealizadoCxP(${i})" style="font-size:11px;padding:4px 8px;color:var(--green)">📊</button>
+          </div>
         </div>
         <div id="pago-cxp-det-${i}" style="display:none;padding:0 14px 12px">
           <table style="width:100%"><thead><tr>
@@ -11689,10 +11800,76 @@ async function renderHistorialPagosCxP(list) {
         </div>
       </div>`
   }).join('')
-
-  if (data.length >= 1000) html += `<div style="font-size:11px;color:var(--text3);text-align:center;padding:6px">Mostrando los pagos más recientes</div>`
-  list.innerHTML += html
 }
+
+// Descarga UNA selección programada, con el detalle de sus facturas.
+window.descargarSelCxP = async (selId) => {
+  if (!window.XLSX) { toast('No se pudo cargar el exportador', 'error'); return }
+  const sel = _progCxPById[String(selId)]
+  if (!sel) { toast('No se encontró la selección', 'error'); return }
+  const r2 = n => Math.round((parseFloat(n) || 0) * 100) / 100
+  const ids = sel.linea_ids || []
+  if (!ids.length) { toast('Esta selección no tiene facturas', 'error'); return }
+
+  // Traer las líneas de la selección (paginado por si son muchas)
+  let lineas = []
+  try {
+    const PAGE = 1000
+    for (let i = 0; i < ids.length; i += PAGE) {
+      const trozo = ids.slice(i, i + PAGE)
+      const { data, error } = await getSb().from('lineas_partida')
+        .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, partida:partidas_contables(numero_partida, fecha_partida, descripcion)')
+        .in('id', trozo)
+      if (error) throw error
+      lineas = lineas.concat(data || [])
+    }
+  } catch (e) { toast('Error: ' + (e.message || e), 'error'); return }
+
+  const filas = lineas.map(l => ({
+    'Partida': l.partida?.numero_partida || '',
+    'Fecha partida': l.partida?.fecha_partida || '',
+    'Cuenta': l.cuenta_codigo || '',
+    'Factura / Descripción': l.descripcion || l.partida?.descripcion || l.cuenta_nombre || '',
+    'Monto (L.)': r2(l.monto)
+  }))
+  // fila de total al final
+  filas.push({ 'Partida': '', 'Fecha partida': '', 'Cuenta': '', 'Factura / Descripción': 'TOTAL', 'Monto (L.)': r2(sel.total) })
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.json_to_sheet(filas)
+  ws['!cols'] = [{wch:9},{wch:14},{wch:13},{wch:46},{wch:14}]
+  const hoja = (sel.nombre || 'Selección').slice(0, 28).replace(/[\\/?*\[\]:]/g, ' ')
+  XLSX.utils.book_append_sheet(wb, ws, hoja)
+  const safe = (sel.nombre || 'seleccion').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
+  XLSX.writeFile(wb, `Pago_${safe}.xlsx`)
+  toast('Excel generado', 'success')
+}
+
+// Descarga UN pago realizado, con el detalle de sus facturas.
+window.descargarPagoRealizadoCxP = (i) => {
+  if (!window.XLSX) { toast('No se pudo cargar el exportador', 'error'); return }
+  const g = (_histPagosCxP || [])[i]
+  if (!g) { toast('No se encontró el pago', 'error'); return }
+  const r2 = n => Math.round((parseFloat(n) || 0) * 100) / 100
+  const f = g.pagado_at ? new Date(g.pagado_at) : null
+  const fecha = f ? f.toLocaleDateString('es-HN') : ''
+  const filas = (g.lineas || []).map(l => ({
+    'Partida': l.partida?.numero_partida || '',
+    'Cuenta': l.cuenta_codigo || '',
+    'Factura / Descripción': l.descripcion || l.partida?.descripcion || l.cuenta_nombre || '',
+    'Monto (L.)': r2(l.monto)
+  }))
+  filas.push({ 'Partida': '', 'Cuenta': '', 'Factura / Descripción': 'TOTAL', 'Monto (L.)': r2(g.total) })
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.json_to_sheet(filas)
+  ws['!cols'] = [{wch:9},{wch:13},{wch:46},{wch:14}]
+  const etiqueta = (g.nombre || 'Pago ' + fecha).slice(0, 28).replace(/[\\/?*\[\]:]/g, ' ')
+  XLSX.utils.book_append_sheet(wb, ws, etiqueta)
+  const safe = (g.nombre || ('realizado_' + fecha)).replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
+  XLSX.writeFile(wb, `Pago_${safe}.xlsx`)
+  toast('Excel generado', 'success')
+}
+
 
 window._togglePagoCxP = (i) => {
   const d = document.getElementById(`pago-cxp-det-${i}`)
