@@ -2323,14 +2323,39 @@ window.toggleSensible = async (id, valor) => {
 }
 
 window.filtrarPartidas = () => {
-  const buscar = (document.getElementById('fp-buscar')?.value || '').toLowerCase()
+  const buscarRaw = (document.getElementById('fp-buscar')?.value || '').trim()
+  const buscar = buscarRaw.toLowerCase()
   const desde = document.getElementById('fp-desde')?.value || ''
   const hasta = document.getElementById('fp-hasta')?.value || ''
   const estado = document.getElementById('fp-estado')?.value || ''
   const origen = document.getElementById('fp-origen')?.value || ''
 
   let filtered = allPartidas
-  if (buscar) filtered = filtered.filter(p => p.descripcion?.toLowerCase().includes(buscar) || p.numero_documento?.toLowerCase().includes(buscar) || String(p.numero_partida).includes(buscar))
+  if (buscar) {
+    // Búsqueda por número de partida:
+    //   "23"  → la partida 23 primero, luego las coincidencias parciales
+    //   "#23" → SOLO la partida 23 (exacta)
+    // Antes se hacía includes() sobre el número, así que buscar "23"
+    // devolvía la 123, la 230, la 4239… y había que correr 8 páginas.
+    const crudo = buscarRaw.replace(/^#/, '').trim()
+    const esNumero = /^\d+$/.test(crudo)
+    const soloExacta = buscarRaw.startsWith('#') && esNumero
+    const num = esNumero ? String(parseInt(crudo, 10)) : null
+    const coincideTexto = p =>
+      (p.descripcion || '').toLowerCase().includes(buscar) ||
+      (p.numero_documento || '').toLowerCase().includes(buscar) ||
+      String(p.numero_partida).includes(crudo)
+
+    if (soloExacta) {
+      filtered = filtered.filter(p => String(p.numero_partida) === num)
+    } else if (esNumero) {
+      const exactas = filtered.filter(p => String(p.numero_partida) === num)
+      const resto = filtered.filter(p => String(p.numero_partida) !== num && coincideTexto(p))
+      filtered = exactas.concat(resto)
+    } else {
+      filtered = filtered.filter(coincideTexto)
+    }
+  }
   if (desde) filtered = filtered.filter(p => p.fecha_partida >= desde)
   if (hasta) filtered = filtered.filter(p => p.fecha_partida <= hasta)
   if (estado) filtered = filtered.filter(p => p.estado === estado)
@@ -3361,32 +3386,80 @@ window.guardarPartida = async (estado) => {
     try {
       const { data: lineasAntes } = await sb.from('lineas_partida').select('cuenta_codigo, cuenta_nombre, monto, tipo, descripcion').eq('partida_id', editingPartidaId)
       if (lineasAntes?.length) {
+        // ── DIFF POR CONTENIDO, NO POR POSICIÓN NI POR CUENTA ──
+        // Una partida tiene muchas líneas con la misma cuenta+tipo
+        // (ej: 8 líneas de 110103-001 D). Comparar por cuenta+tipo
+        // hacía que todas se midieran contra la primera línea nueva
+        // y salieran como "modificadas" sin haber cambiado.
+        // Ahora: se cancelan las idénticas y solo se reporta el resto.
         const cambios = []
-        const antes = (lineasAntes || []).map(l => ({ key: `${l.cuenta_codigo}_${l.tipo}`, codigo: l.cuenta_codigo, nombre: l.cuenta_nombre, monto: parseFloat(l.monto) || 0, tipo: l.tipo, desc: l.descripcion || '' }))
-        const despues = lineasValidas.map(l => ({ key: `${l.cuenta_codigo}_${l.tipo}`, codigo: l.cuenta_codigo, nombre: l.cuenta_nombre, monto: l.monto, tipo: l.tipo, desc: l.descripcion || '' }))
-        // Eliminadas
-        const despuesKeys = despues.map(d => d.key)
-        antes.filter(a => !despuesKeys.includes(a.key)).forEach(a => {
-          cambios.push(`(-) ${a.codigo} ${a.tipo === 'debito' ? 'D' : 'H'} L.${a.monto.toFixed(2)}`)
+        const norm = s => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase()
+        const lado = l => ({
+          codigo: l.cuenta_codigo, nombre: l.cuenta_nombre,
+          monto: parseFloat(l.monto) || 0, tipo: l.tipo,
+          desc: l.descripcion || ''
         })
-        // Agregadas
-        const antesKeys = antes.map(a => a.key)
-        despues.filter(d => !antesKeys.includes(d.key)).forEach(d => {
-          cambios.push(`(+) ${d.codigo} ${d.tipo === 'debito' ? 'D' : 'H'} L.${d.monto.toFixed(2)}`)
+        const antes = (lineasAntes || []).map(lado)
+        const despues = lineasValidas.map(lado)
+        const sig = l => l.tipo === 'debito' ? 'D' : 'H'
+        // huella completa: dos líneas con la misma huella son la misma
+        const huella = l => `${l.codigo}|${l.tipo}|${l.monto.toFixed(2)}|${norm(l.desc)}`
+
+        // 1) cancelar las que aparecen igual de los dos lados
+        const bolsa = new Map()
+        despues.forEach(d => {
+          const k = huella(d)
+          if (!bolsa.has(k)) bolsa.set(k, [])
+          bolsa.get(k).push(d)
         })
-        // Montos cambiados
+        const restoAntes = []
         antes.forEach(a => {
-          const d = despues.find(x => x.key === a.key)
-          if (d && Math.abs(a.monto - d.monto) > 0.01) {
-            cambios.push(`(~) ${a.codigo} ${a.tipo === 'debito' ? 'D' : 'H'} L.${a.monto.toFixed(2)} → L.${d.monto.toFixed(2)}`)
+          const arr = bolsa.get(huella(a))
+          if (arr && arr.length) arr.shift()   // idéntica: no es un cambio
+          else restoAntes.push(a)
+        })
+        const restoDespues = []
+        bolsa.forEach(arr => arr.forEach(d => restoDespues.push(d)))
+
+        // 2) de lo que sobra, emparejar lo que es la misma línea editada
+        const usado = new Array(restoDespues.length).fill(false)
+        const sobraAntes = []
+        restoAntes.forEach(a => {
+          // mismo concepto y cuenta, cambió el monto
+          let i = restoDespues.findIndex((d, k) => !usado[k] &&
+            d.codigo === a.codigo && d.tipo === a.tipo && norm(d.desc) === norm(a.desc))
+          // misma cuenta y monto, cambió el concepto
+          if (i < 0) i = restoDespues.findIndex((d, k) => !usado[k] &&
+            d.codigo === a.codigo && d.tipo === a.tipo && Math.abs(d.monto - a.monto) <= 0.01)
+          if (i < 0) { sobraAntes.push(a); return }
+          usado[i] = true
+          const d = restoDespues[i]
+          if (Math.abs(a.monto - d.monto) > 0.01) {
+            cambios.push(`(~) ${a.codigo} ${sig(a)} L.${a.monto.toFixed(2)} → L.${d.monto.toFixed(2)}`)
+          } else {
+            cambios.push(`(~) ${a.codigo} ${sig(a)} L.${a.monto.toFixed(2)} concepto: "${a.desc}" → "${d.desc}"`)
           }
+        })
+
+        // 3) lo que quedó sin pareja son altas y bajas reales
+        sobraAntes.forEach(a => {
+          cambios.push(`(-) ${a.codigo} ${sig(a)} L.${a.monto.toFixed(2)}`)
+        })
+        restoDespues.forEach((d, k) => {
+          if (!usado[k]) cambios.push(`(+) ${d.codigo} ${sig(d)} L.${d.monto.toFixed(2)}`)
         })
         // Cambio de encabezado
         if (originalPartida && originalPartida.descripcion !== descripcion) {
           cambios.push(`Desc: "${originalPartida.descripcion}" → "${descripcion}"`)
         }
+        // Si no quedó ningún cambio real, no se registra el evento:
+        // guardar sin tocar nada no debería dejar rastro de modificación.
         if (cambios.length) {
-          logActividad('partida_modificada', 'partidas', `Partida #${originalPartida?.numero_partida || '?'}: ${cambios.join(' | ')}`, editingPartidaId)
+          const MAX = 8
+          const txt = cambios.length > MAX
+            ? cambios.slice(0, MAX).join(' | ') + ` | …y ${cambios.length - MAX} cambio(s) más`
+            : cambios.join(' | ')
+          logActividad('partida_modificada', 'partidas', `Partida #${originalPartida?.numero_partida || '?'}: ${txt}`, editingPartidaId)
         }
       }
     } catch(e) { /* silent */ }

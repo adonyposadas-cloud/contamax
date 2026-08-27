@@ -404,8 +404,14 @@
       const pistaBtn = punto
         ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienUsaPunto('${punto}', this)" title="Ver qué motoristas suelen depositar en el punto ${punto}">👤 ¿quién usa ${punto}?</button>`
         : ''
+      // Botón de pista para transferencias: "TEF DE:NOMBRE".
+      // Se pasa el índice, no el nombre, para no tener que escapar comillas.
+      const depTef = ctxNombreTef(mv.desc)
+      const depBtn = depTef
+        ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienDeposita(${mv.idx}, this)" title="Ver a qué motoristas le ha depositado antes esta persona">👤 ¿a quién le deposita?</button>`
+        : ''
       return `<div class="ctx-row warn ctx-dep-row ${sel ? 'sel' : ''}" data-s="${sTxt}" onclick="ctxElegirDeposito(${mv.idx})">
-        <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${refTxt}${pistaBtn}</div>
+        <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${refTxt}${pistaBtn}${depBtn}</div>
         <div class="ctx-row-r"><span class="ctx-pick">${sel ? '☑ elegido' : '☐ elegir'}</span></div>
       </div>`
     }).join('')
@@ -696,6 +702,60 @@ window.ctxQuienUsaPunto = async (punto, btn) => {
     ctxModalPista(`Punto RapiBac ${punto}`, cuerpo)
   } catch (e) {
     window.toast?.('Error consultando el punto: ' + (e.message || e), 'error')
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev }
+  }
+}
+
+// ── PISTA: motoristas por depositante (transferencias BAC) ──
+// "TEF DE:BRENDA ELIZABETH LOPEZ" → "BRENDA ELIZABETH LOPEZ"
+function ctxNombreTef(desc) {
+  const m = String(desc || '').match(/TEF\s+DE:?\s*(.+)$/i)
+  if (!m) return null
+  const n = m[1].trim()
+  // Se piden al menos 2 palabras: con un solo nombre la pista sería ruido.
+  return n.split(/\s+/).filter(Boolean).length >= 2 ? n : null
+}
+
+// Consulta reactiva: a qué motoristas le ha depositado antes esta persona.
+// Sirve para el caso del motorista sin cuenta que recibe el favor de un
+// familiar o amigo: el nombre del extracto no es de nadie de la empresa.
+window.ctxQuienDeposita = async (idx, btn) => {
+  const mv = ctxRes && ctxRes.movs ? ctxRes.movs[idx] : null
+  const nombre = ctxNombreTef(mv && mv.desc)
+  if (!nombre) return
+  const prev = btn ? btn.textContent : ''
+  if (btn) { btn.disabled = true; btn.textContent = 'buscando…' }
+  try {
+    const { data, error } = await csb().rpc('tx_motoristas_por_depositante', { p_nombre: nombre })
+    if (error) throw error
+    const filas = data || []
+    const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+    let cuerpo
+    if (!filas.length) {
+      cuerpo = `<div style="color:#8b8f98;font-size:13px">No hay historial de <b>${esc(nombre)}</b>. Si lo conciliás hoy, la próxima vez ya va a aparecer.</div>`
+    } else {
+      cuerpo = `<div style="font-size:12px;color:#8b8f98;margin-bottom:8px"><b>${esc(nombre)}</b> le ha depositado a:</div>` +
+        filas.map(f => {
+          const tel = f.telefono ? ` · 📞 ${esc(f.telefono)}` : ''
+          const dep = f.depositante && f.depositante.toUpperCase() !== nombre.toUpperCase()
+            ? `<div style="color:#6b7280;font-size:11px">en el extracto figuró como: ${esc(f.depositante)}</div>` : ''
+          // La pista agrupa por conductor. "unidades" trae todas las que
+          // manejó; se destaca la más reciente.
+          const varias = f.unidades && f.unidades.indexOf(',') >= 0
+            ? `<div style="color:#6b7280;font-size:11px">unidades: ${esc(f.unidades)}</div>` : ''
+          const quien = f.conductor
+            ? `<b>#${esc(f.unidad)}</b> ${esc(f.conductor)}`
+            : `<b>#${esc(f.unidad)}</b> <span style="color:#8b8f98">(conductor no identificado)</span>`
+          return `<div style="padding:6px 0;border-bottom:1px solid #23262d;font-size:13px">
+            ${quien} <span style="color:#8b8f98">— ${f.veces} vez(ces)${tel}</span>
+            <div style="color:#6b7280;font-size:11px">último: ${esc(f.ultimo) || '—'}</div>${varias}${dep}
+          </div>`
+        }).join('')
+    }
+    ctxModalPista(`Depósitos de ${nombre}`, cuerpo)
+  } catch (e) {
+    window.toast?.('Error consultando el depositante: ' + (e.message || e), 'error')
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = prev }
   }
