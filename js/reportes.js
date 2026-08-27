@@ -571,7 +571,7 @@ function renderAuxiliarSingle(b, fechaIni, fechaFin) {
   const searchId = 'aux-buscar-desc'
   document.getElementById('aux-tabla').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <input type="text" id="${searchId}" placeholder="🔍 Buscar en descripción..." style="flex:1;max-width:400px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
+      <input type="text" id="${searchId}" placeholder="🔍 Buscar por descripción o monto — ej. 612 · 1,286.43 · 500-1000" style="flex:1;max-width:400px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
       <span id="aux-buscar-count" style="font-size:12px;color:var(--text3)"></span>
     </div>
     <table>
@@ -584,7 +584,7 @@ function renderAuxiliarSingle(b, fechaIni, fechaFin) {
           <td colspan="6" style="text-align:right">Saldo anterior (vienen) al ${fechaIni}</td>
           <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtL(saldoAnterior)}</td>
         </tr>` : ''}${movimientos.map((m, i) => `
-        <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" onclick="verPartida('${m.partidaId}')">
+        <tr style="cursor:pointer" data-idx="${i}" data-desc="${(m.descripcion||'').toLowerCase()}" data-monto="${m.debe || m.haber || 0}" onclick="verPartida('${m.partidaId}')">
           <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
           <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
           <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion}</td>
@@ -602,14 +602,14 @@ function renderAuxiliarSingle(b, fechaIni, fechaFin) {
       </tr></tfoot>
     </table>`
 
-  // ── Filtro de búsqueda por descripción (client-side) ──
+  // ── Filtro de búsqueda por descripción o monto (client-side) ──
   document.getElementById(searchId).addEventListener('input', function() {
     const term = this.value.toLowerCase().trim()
     const rows = document.querySelectorAll('#aux-tbody tr')
     let shown = 0
     rows.forEach(tr => {
       const desc = tr.getAttribute('data-desc') || ''
-      const match = !term || desc.includes(term)
+      const match = !term || _auxCoincide(term, desc, tr.getAttribute('data-monto'))
       tr.style.display = match ? '' : 'none'
       if (match) shown++
     })
@@ -635,7 +635,7 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
     </div>`
 
   let tablaHTML = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-    <input type="text" id="aux-multi-buscar" placeholder="🔍 Buscar en descripción..." oninput="filtrarAuxMulti(this.value)" style="flex:1;max-width:400px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
+    <input type="text" id="aux-multi-buscar" placeholder="🔍 Buscar por descripción o monto — ej. 612 · 1,286.43 · 500-1000" oninput="filtrarAuxMulti(this.value)" style="flex:1;max-width:400px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px">
     <span id="aux-multi-count" style="font-size:12px;color:var(--text3)"></span>
   </div>`
   for (const b of bloques) {
@@ -659,7 +659,7 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
             <td colspan="6" style="text-align:right">Saldo anterior (vienen) al ${fechaIni}</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtL(saldoAntB)}</td>
           </tr>` : ''}${movimientos.map(m => `
-          <tr class="aux-multi-row" data-desc="${(m.descripcion||'').toLowerCase()}" style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
+          <tr class="aux-multi-row" data-desc="${(m.descripcion||'').toLowerCase()}" data-monto="${m.debe || m.haber || 0}" style="cursor:pointer" onclick="verPartida('${m.partidaId}')">
             <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${m.fecha}</td>
             <td style="font-family:var(--mono);color:var(--gold)">${m.partida}</td>
             <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.descripcion}">${m.descripcion}</td>
@@ -684,12 +684,55 @@ function renderAuxiliarMulti(bloques, fechaIni, fechaFin, grandTotalDebe, grandT
   document.getElementById('btn-auxiliar-xlsx').style.display = ''
 }
 
+// Comparador de los filtros del reporte (cuenta única y multicuenta).
+// Acepta texto, monto o ambos:
+//   "gasolina"      -> solo texto
+//   "12655"         -> sin decimales: cualquier monto 12,655.xx (y el texto que lo contenga)
+//   "12655.32"      -> con decimales: monto exacto
+//   "1,286.43"      -> ignora comas y el prefijo L.
+//   "500-1000"      -> rango de montos
+//   "gasolina 500"  -> descripción con gasolina Y monto 500.xx
+// El monto nunca se compara por substring: 612 no trae 6,120.00.
+function _auxCoincide(term, desc, monto) {
+  if (!term) return true
+  const _lim = s => String(s).replace(/^l\.?\s*/i, '').replace(/\$/g, '').replace(/,/g, '').trim()
+  const _num = s => {
+    const t = _lim(s)
+    return /^\d+(\.\d+)?$/.test(t) ? parseFloat(t) : null
+  }
+  const m = parseFloat(monto) || 0
+  const rango = term.match(/^([\d.,]+)\s*-\s*([\d.,]+)$/)
+  if (rango) {
+    const a = _num(rango[1]), b = _num(rango[2])
+    if (a != null && b != null) {
+      const min = Math.min(a, b), max = Math.max(a, b)
+      return m >= min - 0.005 && m <= max + 0.005
+    }
+  }
+  const tokens = term.split(/\s+/).filter(Boolean)
+  const nums = tokens
+    .map(t => ({ raw: t, v: _num(t), exacto: _lim(t).includes('.') }))
+    .filter(x => x.v != null)
+  const txt = tokens.filter(t => _num(t) === null)
+  if (!txt.every(t => desc.includes(t))) return false
+  if (!nums.length) return true
+  return nums.every(x => {
+    // Con decimales: coincidencia al centavo. Sin decimales: la parte entera,
+    // así "12655" encuentra 12,655.32 pero nunca 126,550.00.
+    const calzaMonto = x.exacto
+      ? Math.abs(m - x.v) < 0.005
+      : Math.floor(m + 0.0000001) === x.v
+    return calzaMonto || desc.includes(x.raw) || desc.includes(x.v.toFixed(2))
+  })
+}
+window._auxCoincide = _auxCoincide
+
 window.filtrarAuxMulti = (val) => {
   const term = val.toLowerCase().trim()
   const rows = document.querySelectorAll('.aux-multi-row')
   let shown = 0
   rows.forEach(tr => {
-    const match = !term || (tr.getAttribute('data-desc') || '').includes(term)
+    const match = _auxCoincide(term, tr.getAttribute('data-desc') || '', tr.getAttribute('data-monto'))
     tr.style.display = match ? '' : 'none'
     if (match) shown++
   })
