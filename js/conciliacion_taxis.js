@@ -120,6 +120,47 @@
     }))
   }
 
+  // Niveles 2 y 3 (monto+nombre y monto exacto único), repetidos mientras
+  // haya progreso. Se corre dentro de conciliar() y OTRA VEZ después de
+  // reponer los emparejamientos manuales: al ocupar esos depósitos, entregas
+  // que antes tenían varios candidatos del mismo monto pasan a tener uno solo.
+  // Antes se evaluaba una única vez y en orden, así que una entrega marcada
+  // 'ambigua' quedaba así aunque después el empate se resolviera solo.
+  function afinarPorMonto(entregas, movs) {
+    let progreso = true
+    while (progreso) {
+      progreso = false
+      entregas.forEach(e => {
+        if (e.m) return
+        const cands = movs.filter(mv => !mv.m && Math.abs(mv.monto - e.monto) < 0.01 && mv.nombre && nombresCoinciden(mv.nombre, e.nombre))
+        if (cands.length === 1) {
+          const mv = cands[0]
+          e.m = mv.m = true; e.pars = [mv.idx]; mv.par = e.idx; e.nivel = 2
+          progreso = true
+        }
+      })
+      entregas.forEach(e => {
+        if (e.m) return
+        const cands = movs.filter(mv => !mv.m && Math.abs(mv.monto - e.monto) < 0.01)
+        if (cands.length === 1) {
+          const mv = cands[0]
+          e.m = mv.m = true; e.pars = [mv.idx]; mv.par = e.idx; e.nivel = 3
+          progreso = true
+        }
+      })
+    }
+    // Recién ahora se marca lo realmente ambiguo: varias entregas y varios
+    // depósitos del mismo monto, sin forma de decidir cuál es cuál.
+    let ambiguas = 0
+    entregas.forEach(e => {
+      if (e.m) { if (e.nivel === 'amb') e.nivel = 3; return }
+      const cands = movs.filter(mv => !mv.m && Math.abs(mv.monto - e.monto) < 0.01)
+      if (cands.length > 1) { e.nivel = 'amb'; ambiguas++ }
+      else if (e.nivel === 'amb') e.nivel = null
+    })
+    return ambiguas
+  }
+
   function conciliar(entregas, movs, banco) {
     // Nivel 1: identificador fuerte (cédula/unidad) + el monto debe cuadrar
     entregas.forEach(e => {
@@ -141,19 +182,7 @@
       }
       // c) hay depósitos con su cédula pero el monto no cuadra → revisión manual (no forzar)
     })
-    // Nivel 2: monto + nombre (BAC)
-    entregas.forEach(e => {
-      if (e.m) return
-      const cands = movs.filter(mv => !mv.m && Math.abs(mv.monto - e.monto) < 0.01 && mv.nombre && nombresCoinciden(mv.nombre, e.nombre))
-      if (cands.length === 1) { const mv = cands[0]; e.m = mv.m = true; e.pars = [mv.idx]; mv.par = e.idx; e.nivel = 2 }
-    })
-    // Nivel 3: monto exacto único
-    entregas.forEach(e => {
-      if (e.m) return
-      const cands = movs.filter(mv => !mv.m && Math.abs(mv.monto - e.monto) < 0.01)
-      if (cands.length === 1) { const mv = cands[0]; e.m = mv.m = true; e.pars = [mv.idx]; mv.par = e.idx; e.nivel = 3 }
-      else if (cands.length > 1) e.nivel = 'amb'
-    })
+    afinarPorMonto(entregas, movs)
     return {
       conciliados: entregas.filter(e => e.m),
       entregasHuerfanas: entregas.filter(e => !e.m),
@@ -175,34 +204,66 @@
     if (!manuales.length) return
 
     let reaplicados = 0
+    const noReaplicados = []
+    const nivelTxt = n => n === 1 ? 'cédula/unidad' : n === 2 ? 'monto+nombre' : n === 3 ? 'monto' : (n || 'automático')
     manuales.forEach(man => {
-      // localizar la entrega (por id, o por unidad + monto)
-      const e = res.entregas.find(x => !x.m && (
-        (man.entrega_id && x.id === man.entrega_id) ||
+      const calza = x => (man.entrega_id && x.id === man.entrega_id) ||
         (!man.entrega_id && x.unidad === man.unidad && Math.abs(x.monto - (man.monto_entrega || 0)) < 0.01)
-      ))
-      if (!e) return
-      // localizar los depósitos (por referencia si existe, si no por monto)
+      // localizar la entrega libre
+      const e = res.entregas.find(x => !x.m && calza(x))
+      if (!e) {
+        // ¿existe pero ya se concilió sola? No es un problema: el algoritmo
+        // automático la resolvió sin necesidad del emparejamiento manual viejo.
+        const ya = res.entregas.find(x => x.m && calza(x))
+        noReaplicados.push({
+          unidad: man.unidad, nombre: man.nombre, monto: man.monto_entrega,
+          info: !!ya,
+          motivo: ya
+            ? `ya se concilió sola por ${nivelTxt(ya.nivel)} · no hace falta rehacerla`
+            : 'la entrega ya no aparece en el día'
+        })
+        return
+      }
+      // Localizar los depósitos SOLO por referencia bancaria.
+      // Antes había un respaldo por monto: si la referencia no aparecía, se
+      // tomaba el primer depósito libre del mismo monto. Con veinte depósitos
+      // de L.500.00 idénticos eso colocaba la marca en el motorista equivocado,
+      // así que se quitó: si no calza la referencia, no se reaplica y se avisa.
       const refs = man.deposito_refs || []
       const usados = []
+      const faltantes = []
       for (const d of refs) {
         let mv = null
         if (d.ref) mv = res.movs.find(m => !m.m && m.ref && m.ref === d.ref && !usados.includes(m.idx))
-        if (!mv) mv = res.movs.find(m => !m.m && Math.abs(m.monto - (d.monto || 0)) < 0.01 && !usados.includes(m.idx))
         if (mv) usados.push(mv.idx)
+        else faltantes.push(d.ref ? `ref ${d.ref}` : `L.${fmt(d.monto || 0)} sin referencia`)
       }
-      // solo reaplicar si se encontraron TODOS los depósitos del emparejamiento
-      if (usados.length === refs.length && usados.length > 0) {
+      if (!faltantes.length && usados.length === refs.length && usados.length > 0) {
         e.m = true; e.pars = usados; e.nivel = 'manual'
         usados.forEach(i => { res.movs[i].m = true; res.movs[i].par = e.idx })
         reaplicados++
+      } else {
+        noReaplicados.push({
+          unidad: man.unidad, nombre: man.nombre, monto: man.monto_entrega,
+          motivo: faltantes.length ? `no se encontró ${faltantes.join(' · ')}` : 'sin depósitos guardados'
+        })
       }
     })
-    if (reaplicados) {
+    res.manualesNoReaplicados = noReaplicados
+    // Al reponer los manuales se ocuparon depósitos; entregas que antes tenían
+    // varios candidatos del mismo monto pueden haber quedado con uno solo.
+    const nuevos = afinarPorMonto(res.entregas, res.movs)
+    if (reaplicados || res.entregas.some(x => x.m)) {
       res.conciliados = res.entregas.filter(x => x.m)
       res.entregasHuerfanas = res.entregas.filter(x => !x.m)
       res.depositosHuerfanos = res.movs.filter(x => !x.m)
+    }
+    if (reaplicados) {
       window.toast?.(`${reaplicados} emparejamiento(s) manual(es) recuperado(s)`, 'info')
+    }
+    if (noReaplicados.some(n => !n.info)) {
+      const n = noReaplicados.filter(x => !x.info).length
+      window.toast?.(`${n} emparejamiento(s) manual(es) NO se pudieron recuperar · revisalos abajo`, 'error')
     }
   }
 
@@ -492,10 +553,29 @@
           ${dupRows}</div>`
       : ''
 
+    // Emparejamientos manuales de la conciliación anterior que no se repusieron.
+    // Se separan los que hay que rehacer de los que se resolvieron solos.
+    const noReTodos = r.manualesNoReaplicados || []
+    const noRe = noReTodos.filter(n => !n.info)
+    const noReInfo = noReTodos.filter(n => n.info)
+    const filaNoRe = n => `<div class="ctx-row warn">
+        <div class="ctx-row-l">#${n.unidad || '—'} ${n.nombre || ''} · ${fmt(n.monto || 0)}</div>
+        <div class="ctx-row-r"><span class="ctx-dup-tag">${n.motivo}</span></div>
+      </div>`
+    const cNoRe = (noRe.length
+      ? `<div class="ctx-grp"><div class="ctx-grp-t warn">⚠️ Emparejamientos manuales por rehacer (${noRe.length})</div>
+          <div class="ctx-hint">Estos emparejamientos manuales estaban guardados de una conciliación anterior, pero sus depósitos no aparecen en el extracto cargado (referencia distinta, o el banco los reenvió con otro número). <b>No se reaplicaron</b>: hay que rehacerlos a mano abajo. Antes el sistema los colocaba en el primer depósito libre del mismo monto, y eso los asignaba al motorista equivocado.</div>
+          ${noRe.map(filaNoRe).join('')}</div>`
+      : '') + (noReInfo.length
+      ? `<div class="ctx-grp"><div class="ctx-grp-t dup">ℹ️ Emparejamientos manuales que ya no hacen falta (${noReInfo.length})</div>
+          <div class="ctx-hint">Estaban guardados como manuales, pero esta vez el sistema los resolvió solo. <b>No hay nada que hacer.</b></div>
+          ${noReInfo.map(filaNoRe).join('')}</div>`
+      : '')
+
     // guardar totales para ctxGuardar
     ctxRes._totales = { conciliado: totalConc, entregas: totalEnt, extracto: totalExt }
 
-    out.innerHTML = resumen + cCuadre + cConc + cDep + cEnt + cDup
+    out.innerHTML = resumen + cCuadre + cNoRe + cConc + cDep + cEnt + cDup
     ctxDepAplicarFiltro()
   }
 
