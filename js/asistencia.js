@@ -853,10 +853,64 @@ window.guardarAsistencia = async () => {
   const periodo = `${anio}-${mes}-${quincena}`
   const lote = `REL-${Date.now()}`
   
+  // ── Combinar con lo que ya está guardado (segundo reloj) ──
+  // Antes esta función borraba el período COMPLETO antes de insertar, así que
+  // importar el archivo del segundo reloj borraba todo lo del primero.
+  // Ahora se fusiona por empleado + fecha con el mismo criterio que usa el
+  // parser dentro de un archivo: entrada más temprana, salida más tardía.
+  const { data: previos } = await getSb().from('asistencia_reloj')
+    .select('empleado_nombre, fecha, dia_semana, hora_entrada, hora_salida')
+    .eq('periodo', periodo)
+
+  let combinar = false
+  if (previos?.length) {
+    combinar = confirm(
+      `Ya hay ${previos.length} registro(s) guardados para ${periodo}.\n\n` +
+      `ACEPTAR  → combinar con lo existente (usalo para el segundo reloj: ` +
+      `se toma la entrada más temprana y la salida más tardía de cada día).\n\n` +
+      `CANCELAR → reemplazar todo el período con este archivo.`
+    )
+  }
+
+  let registros = asistenciaData
+  if (combinar) {
+    const _min = h => h ? _horaAMin(h) : null
+    const mapa = {}
+    // primero lo que ya estaba en la base
+    for (const p of previos) {
+      const f = String(p.fecha).slice(0, 10)
+      mapa[`${p.empleado_nombre}|${f}`] = {
+        nombre: p.empleado_nombre, fecha: f, weekday: p.dia_semana,
+        entrada: p.hora_entrada || null, salida: p.hora_salida || null,
+        entradaMin: _min(p.hora_entrada), salidaMin: _min(p.hora_salida)
+      }
+    }
+    // encima, lo del archivo nuevo
+    for (const d of asistenciaData) {
+      const k = `${d.nombre}|${d.fecha}`
+      const prev = mapa[k]
+      if (!prev) { mapa[k] = { ...d }; continue }
+      const eNew = d.entradaMin ?? _min(d.entrada)
+      const sNew = d.salidaMin ?? _min(d.salida)
+      if (eNew != null && (prev.entradaMin == null || eNew < prev.entradaMin)) {
+        prev.entrada = d.entrada; prev.entradaMin = eNew
+      }
+      if (sNew != null && (prev.salidaMin == null || sNew > prev.salidaMin)) {
+        prev.salida = d.salida; prev.salidaMin = sNew
+      }
+      if (prev.weekday == null) prev.weekday = d.weekday
+    }
+    // se recalcula todo el período junto, para que tardanzas, HE y "sin salida"
+    // se evalúen sobre el día ya fusionado y no sobre media marcación
+    registros = calcularAsistencia(Object.values(mapa), permisosCache)
+  }
+
   // Match employees
   const { data: empleados } = await getSb().from('empleados').select('id, nombre').eq('activo', true)
-  
-  const rows = asistenciaData.filter(d => d.entrada).map(d => {
+
+  // Se conservan los días que solo tienen SALIDA. Antes se filtraban por
+  // `d.entrada` y desaparecían, así que el día se contaba como falta.
+  const rows = registros.filter(d => d.entrada || d.salida).map(d => {
     const emp = (empleados || []).find(e => {
       const en = e.nombre.toUpperCase().trim()
       const dn = d.nombre.toUpperCase().trim()
@@ -893,8 +947,13 @@ window.guardarAsistencia = async () => {
   const { error } = await getSb().from('asistencia_reloj').insert(rows)
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
   
-  window.toast?.(`${rows.length} registros de asistencia guardados para ${periodo}`, 'success')
-  window.logActividad?.('asistencia_importada', 'rrhh', `${rows.length} registros · ${periodo}`)
+  window.toast?.(
+    combinar
+      ? `${rows.length} registros guardados para ${periodo} (combinados con ${previos.length} previos)`
+      : `${rows.length} registros de asistencia guardados para ${periodo}`,
+    'success')
+  window.logActividad?.('asistencia_importada', 'rrhh',
+    `${rows.length} registros · ${periodo}${combinar ? ' · combinado con lote anterior' : ' · reemplazo total'}`)
 }
 
 // ── APPLY TO PLANILLA ──

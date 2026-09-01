@@ -584,6 +584,12 @@ window.generarPlanilla = async () => {
     }
   } catch (e) { console.error('resumenAsistenciaDesdeDB:', e) }
   if (!asistencia.length) asistencia = window._asistenciaResumen || []
+  // Sin asistencia, cada empleado cae al default de 15 días (quincena completa).
+  // Eso convierte un olvido de importar en un sobrepago silencioso, así que se avisa.
+  window._plSinAsistencia = !asistencia.length
+  if (!asistencia.length) {
+    window.toast?.(`⚠️ No hay asistencia guardada para ${periodo}: se pagarán 15 días a TODOS`, 'error')
+  }
 
   // ── Cargar anticipos y trucha de cuentas 110301-XXX (NETEANDO cargos vs abonos) ──
   // Es un auxiliar: traemos débitos (cargos) Y créditos (abonos) del período y los neteamos
@@ -1459,6 +1465,12 @@ async function generarPartidaConfidencial(periodo, fechaPartida) {
 // ── Aprobar planilla: rebaja saldo de vacaciones usado + genera partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
+  // Bloqueo extra: aprobar sin asistencia significa pagar 15 días a todos.
+  if (window._plSinAsistencia) {
+    if (!confirm('⚠️ ATENCIÓN: no hay asistencia guardada para este período.\n\n' +
+      'Todos los empleados se van a pagar con 15 días (quincena completa), sin faltas ni descuentos.\n\n' +
+      '¿Continuar de todos modos?')) return
+  }
   if (!confirm('¿Aprobar esta planilla? Se rebajará del saldo de vacaciones los días cubiertos en esta quincena.')) return
 
   const sb = getSb()
