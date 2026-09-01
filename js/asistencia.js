@@ -264,8 +264,8 @@ function _lunesDeLaSemana(dateStr) {
 // (igualdad, contención, o subconjunto de palabras) para tolerar nombres cortos del reloj.
 function _matchEmpleado(empleadoId, nombre, p) {
   if (empleadoId && p.empleado_id) return p.empleado_id === empleadoId
-  const a = (nombre || '').toUpperCase().trim()
-  const b = (p.empleado_nombre || '').toUpperCase().trim()
+  const a = _normNombre(nombre)
+  const b = _normNombre(p.empleado_nombre)
   if (!a || !b) return false
   if (a === b || a.includes(b) || b.includes(a)) return true
   const aw = a.split(/\s+/), bw = b.split(/\s+/)
@@ -512,8 +512,8 @@ function calcularResumenQuincenal(dayRecords, empleados, fechaInicio, fechaFin, 
 
   for (const [nombre, r] of Object.entries(byEmpleado)) {
     const emp = empleados.find(e => {
-      const en = e.nombre.toUpperCase().trim()
-      const rn = nombre.toUpperCase().trim()
+      const en = _normNombre(e.nombre)
+      const rn = _normNombre(nombre)
       // 1. Exact match
       if (en === rn) return true
       // 2. Contains (either direction)
@@ -696,6 +696,17 @@ window._filtrarEmpleados = (q) => {
 }
 
 // ── NOVEDADES DEL DÍA (ayer/hoy, en vivo desde marcaciones_raw) ──
+// Normaliza nombres para comparar: mayúsculas, sin tildes, sin espacios dobles.
+// Sin esto, "SAMY ANTHONIEL ANDINO GARCÍA" (como lo manda el reloj) nunca
+// calzaba con "Samy Anthoniel Andino Garcia" (como está en empleados), y sus
+// días quedaban con empleado_id en null: la planilla no los veía y le pagaba
+// la quincena completa.
+function _normNombre(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/\s+/g, ' ').trim()
+}
+
 function _horaAMin(hora) {
   const p = String(hora).split(':')
   return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0)
@@ -912,8 +923,8 @@ window.guardarAsistencia = async () => {
   // `d.entrada` y desaparecían, así que el día se contaba como falta.
   const rows = registros.filter(d => d.entrada || d.salida).map(d => {
     const emp = (empleados || []).find(e => {
-      const en = e.nombre.toUpperCase().trim()
-      const dn = d.nombre.toUpperCase().trim()
+      const en = _normNombre(e.nombre)
+      const dn = _normNombre(d.nombre)
       if (en === dn || en.includes(dn) || dn.includes(en)) return true
       const dnWords = dn.split(/\s+/)
       if (dnWords.length >= 2 && dnWords.every(w => en.includes(w))) return true
