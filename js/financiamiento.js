@@ -167,13 +167,8 @@ window.verDetallePrestamo = async (ref) => {
   document.getElementById('modal-detalle-prestamo-title').textContent = `🧾 Préstamo #${codigo} · ${p.motorista || p.categoria}`
   document.getElementById('modal-detalle-prestamo').classList.add('open')
 
-  document.getElementById('dp-info').innerHTML = `
-    <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-      <div><span style="color:var(--text3);font-size:11px">Código</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">${p.codigo}</div></div>
-      <div><span style="color:var(--text3);font-size:11px">Motorista</span><div>${p.motorista || '—'}</div></div>
-      <div><span style="color:var(--text3);font-size:11px">Categoría</span><div><span class="badge badge-blue">${p.categoria}</span></div></div>
-      <div><span style="color:var(--text3);font-size:11px">Saldo actual</span><div style="font-family:var(--mono);font-weight:700;font-size:18px;color:var(--red)">L. ${getFmt(p.saldo_actual)}</div></div>
-    </div>`
+  document.getElementById('dp-info').innerHTML =
+    '<div style="padding:14px;color:var(--text3);font-size:12px">Cargando…</div>'
 
   const contenido = document.getElementById('dp-contenido')
   contenido.innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>'
@@ -183,7 +178,78 @@ window.verDetallePrestamo = async (ref) => {
 
   if (!recibos?.length) { contenido.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text3)">No hay recibos emitidos</div>'; return }
 
-  contenido.innerHTML = `
+  // ── Totales del historial ──
+  // Los importes que vinieron del Excel viejo llegaron en negativo porque allá
+  // restaban en las fórmulas; no son créditos. Se suman por valor absoluto,
+  // igual que ya hace la tabla al mostrar alq/seg y gps.
+  const _abs = v => Math.abs(parseFloat(v) || 0)
+  const tot = recibos.reduce((a, r) => ({
+    monto:     a.monto     + _abs(r.monto_recibo),
+    capital:   a.capital   + _abs(r.capital),
+    intereses: a.intereses + _abs(r.intereses),
+    facturas:  a.facturas  + _abs(r.facturas),
+    alqseg:    a.alqseg    + _abs(r.numero_alquiler),
+    gps:       a.gps       + _abs(r.gps)
+  }), { monto: 0, capital: 0, intereses: 0, facturas: 0, alqseg: 0, gps: 0 })
+
+  const tarjeta = (etiqueta, valor, color) => `
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:12px 14px">
+      <div style="color:var(--text3);font-size:11px;letter-spacing:.4px;text-transform:uppercase">${etiqueta}</div>
+      <div style="font-family:var(--mono);font-weight:700;font-size:16px;margin-top:4px;color:${color}">L. ${getFmt(valor)}</div>
+    </div>`
+
+  const resumen = `
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
+      ${tarjeta('Capital', tot.capital, 'var(--green)')}
+      ${tarjeta('Intereses', tot.intereses, 'var(--red)')}
+      ${tarjeta('Facturas', tot.facturas, 'var(--amber)')}
+      ${tarjeta('Alq/Seguro', tot.alqseg, 'var(--text)')}
+      ${tarjeta('GPS', tot.gps, 'var(--text)')}
+      ${tarjeta('Total cobrado', tot.monto, 'var(--gold)')}
+    </div>`
+
+  // El saldo del encabezado se lee de la base, no de la lista en memoria:
+  // si el recibo se generó en otra ventana (o el update del préstamo falló),
+  // la lista queda vieja y el encabezado mostraba un saldo que ya no era.
+  const { data: pFresco } = await getSb().from('prestamos_taxis')
+    .select('saldo_actual, num_recibos, fecha_ultimo_pago').eq('id', p.id).maybeSingle()
+  const saldoBD = parseFloat(pFresco?.saldo_actual ?? p.saldo_actual) || 0
+
+  // El "último" recibo es el más RECIENTE POR FECHA, no el de número más alto.
+  // En los préstamos que vienen del Excel la numeración no es cronológica: el
+  // 5612 tiene 32 recibos y el más reciente es el #11. Y en los refinanciados
+  // el saldo sube de un mes al siguiente, así que el número tampoco ordena.
+  // Ante misma fecha, desempata el número mayor.
+  const _clave = r => `${r.fecha || '0000-00-00'}|${String(r.numero_recibo || 0).padStart(6, '0')}`
+  const ultimo = recibos.reduce((m, r) => (!m || _clave(r) > _clave(m)) ? r : m, null)
+  const saldoRecibo = parseFloat(ultimo?.saldo_actual) || 0
+  const difiere = Math.abs(saldoBD - saldoRecibo) > 0.01
+  // Dos motivos distintos para que no coincidan:
+  //  · El update del préstamo falló al generar el recibo. Señal: el saldo
+  //    quedó igual al SALDO INICIAL de ese recibo, es decir el valor previo.
+  //  · Se prestó dinero después del último recibo (refinanciamiento). El saldo
+  //    es un monto nuevo que no coincide con ningún punto de la cadena.
+  // Solo el primero es un error que corregir.
+  const saldoPrevio = parseFloat(ultimo?.saldo_inicial) || 0
+  const quedoSinAplicar = difiere && Math.abs(saldoBD - saldoPrevio) < 0.01
+  const descuadre = quedoSinAplicar
+
+  document.getElementById('dp-info').innerHTML = `
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:${descuadre ? '8' : '16'}px">
+      <div><span style="color:var(--text3);font-size:11px">Código</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">${p.codigo}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Motorista</span><div>${p.motorista || '—'}</div></div>
+      <div><span style="color:var(--text3);font-size:11px">Categoría</span><div><span class="badge badge-blue">${p.categoria}</span></div></div>
+      <div><span style="color:var(--text3);font-size:11px">Saldo actual</span><div style="font-family:var(--mono);font-weight:700;font-size:18px;color:var(--red)">L. ${getFmt(saldoBD)}</div></div>
+    </div>` + (quedoSinAplicar ? `
+    <div style="background:rgba(245,158,11,.12);border:1px solid var(--amber);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>⚠️ El recibo #${ultimo?.numero_recibo} (${ultimo?.fecha}) no se aplicó al saldo del préstamo: quedó en <b style="font-family:var(--mono)">L. ${getFmt(saldoBD)}</b>, que es el saldo con el que abría ese recibo. Debería ser <b style="font-family:var(--mono)">L. ${getFmt(saldoRecibo)}</b>.</span>
+      <button onclick="finSincronizarSaldo('${p.id}', ${saldoRecibo}, '${p.codigo}')" style="background:var(--amber);border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600">Aplicar el recibo al saldo</button>
+    </div>` : (difiere ? `
+    <div style="background:var(--bg3);border-radius:var(--radius);padding:8px 14px;margin-bottom:16px;font-size:11px;color:var(--text3)">
+      El saldo del préstamo difiere en <b style="font-family:var(--mono)">L. ${getFmt(saldoBD - saldoRecibo)}</b> del que dejó el recibo #${ultimo?.numero_recibo} (${ultimo?.fecha}). Es lo esperado si después de ese recibo se prestó dinero adicional.
+    </div>` : ''))
+
+  contenido.innerHTML = resumen + `
     <div class="table-wrap" style="overflow-x:auto">
       <div class="table-header"><span class="table-title">Historial de recibos (${recibos.length})</span></div>
       <table><thead><tr>
@@ -210,6 +276,29 @@ window.verDetallePrestamo = async (ref) => {
         </td>
       </tr>`).join('')}</tbody></table>
     </div>`
+}
+
+// Corrige el saldo del préstamo dejándolo igual al que deja el último recibo.
+// El historial es la fuente de verdad: cada recibo guarda su saldo inicial y
+// final, así que el saldo del préstamo debe coincidir con el del último.
+window.finSincronizarSaldo = async (prestamoId, saldoRecibo, codigo) => {
+  const { data: antes } = await getSb().from('prestamos_taxis')
+    .select('saldo_actual').eq('id', prestamoId).maybeSingle()
+  const anterior = parseFloat(antes?.saldo_actual) || 0
+  if (!confirm(`Préstamo #${codigo}\n\n` +
+    `Saldo actual:  L. ${getFmt(anterior)}\n` +
+    `Según recibos: L. ${getFmt(saldoRecibo)}\n\n` +
+    `¿Actualizar el saldo del préstamo al del último recibo?`)) return
+
+  const { error } = await getSb().from('prestamos_taxis')
+    .update({ saldo_actual: saldoRecibo }).eq('id', prestamoId)
+  if (error) { window.toast('No se pudo actualizar: ' + error.message, 'error'); return }
+
+  window.logActividad?.('prestamo_saldo_sincronizado', 'financiamiento',
+    `Préstamo #${codigo}: saldo L.${getFmt(anterior)} → L.${getFmt(saldoRecibo)} (según último recibo)`, codigo)
+  window.toast(`Saldo actualizado a L. ${getFmt(saldoRecibo)}`, 'success')
+  await loadFinanciamiento()
+  window.verDetallePrestamo(codigo)
 }
 
 // Variantes de escritura del código de unidad, para la consulta ilike.
