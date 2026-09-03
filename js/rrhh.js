@@ -655,8 +655,9 @@ window.generarPlanilla = async () => {
   } catch (e) { console.warn('validación CXC:', e) }
 
   // Cargar préstamos activos
+  const _prestSinCuota = []   // préstamos con saldo que no se van a descontar
   const { data: prestamosActivos, error: prestErr } = await getSb().from('prestamos_empleados')
-    .select('empleado_id, cuota_quincenal, saldo, activo, fecha_primera_deduccion')
+    .select('empleado_id, cuota_quincenal, saldo, activo, fecha_primera_deduccion, tipo, descripcion')
     .eq('activo', true).eq('tipo', 'prestamo')
   if (prestErr) { console.warn('Error leyendo préstamos:', prestErr.message); window.toast?.('Aviso: no se pudieron leer préstamos → ' + prestErr.message, 'error') }
 
@@ -758,6 +759,18 @@ window.generarPlanilla = async () => {
       totalCuotaPrest += Math.min(cuota, saldoPrest)
     }
     if (totalCuotaPrest > 0) overrides.cxc = Math.round(totalCuotaPrest * 100) / 100
+    // Aviso: préstamos con saldo que NO se van a descontar por tener cuota en
+    // cero. Quedan activos para siempre sin que nadie lo note. Los tipos que se
+    // liquidan en la planilla de bono no cuentan: van sin cuota por diseño.
+    for (const pr of prestamosEmp) {
+      const t = pr.tipo || 'prestamo'
+      if (t === 'prestaciones' || t === 'adelanto_aguinaldo' || t === 'adelanto_catorceavo') continue
+      const fpd2 = (pr.fecha_primera_deduccion || '').slice(0, 10)
+      if (fpd2 && fpd2 > fin) continue
+      if ((parseFloat(pr.cuota_quincenal) || 0) <= 0 && (parseFloat(pr.saldo) || 0) > 0) {
+        _prestSinCuota.push(`${e.nombre} · ${pr.descripcion || 'préstamo'} · saldo L.${fmt(pr.saldo)}`)
+      }
+    }
     // En la planilla GENERAL, un empleado partido se trata como normal (IHSS/vecinal sobre el
     // sueldo visible), aunque tenga marcada la casilla confidencial (esa solo aplica a la conf).
     const eCalc = (!planillaModoConf && e.planilla_confidencial) ? { ...e, planilla_confidencial: false } : e
@@ -769,6 +782,14 @@ window.generarPlanilla = async () => {
   // Insert all details (recuperando el id generado por la BD para poder editarlos luego)
   const { data: detInsertados, error: dErr } = await getSb().from('detalle_planilla').insert(detalles).select()
   if (dErr) { window.toast?.('Error generando detalle: ' + dErr.message, 'error'); return }
+
+  if (_prestSinCuota.length) {
+    window._plPrestSinCuota = _prestSinCuota
+    window.toast?.(`⚠️ ${_prestSinCuota.length} préstamo(s) con saldo NO se descontaron: les falta la cuota quincenal`, 'error')
+    console.warn('Préstamos activos sin cuota (no se descuentan):\n · ' + _prestSinCuota.join('\n · '))
+  } else {
+    window._plPrestSinCuota = null
+  }
 
   currentDetalle = detInsertados || detalles
   // Update planilla totals
@@ -1465,6 +1486,14 @@ async function generarPartidaConfidencial(periodo, fechaPartida) {
 // ── Aprobar planilla: rebaja saldo de vacaciones usado + genera partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
+  // Préstamos con saldo que no se descontaron por no tener cuota definida.
+  if (window._plPrestSinCuota?.length) {
+    if (!confirm(`⚠️ ${window._plPrestSinCuota.length} préstamo(s) con saldo NO se descontaron en esta planilla ` +
+      `porque no tienen cuota quincenal definida:\n\n · ` +
+      window._plPrestSinCuota.slice(0, 8).join('\n · ') +
+      (window._plPrestSinCuota.length > 8 ? `\n · …y ${window._plPrestSinCuota.length - 8} más` : '') +
+      `\n\n¿Aprobar de todos modos?`)) return
+  }
   // Bloqueo extra: aprobar sin asistencia significa pagar 15 días a todos.
   if (window._plSinAsistencia) {
     if (!confirm('⚠️ ATENCIÓN: no hay asistencia guardada para este período.\n\n' +
@@ -2054,6 +2083,15 @@ window.guardarPrestamoEmp = async () => {
   if (!empleadoId) { window.toast?.('Seleccioná un empleado', 'error'); return }
   if (monto <= 0) { window.toast?.('Ingresá un monto válido', 'error'); return }
   if (!fechaPrestamo) { window.toast?.('Ingresá la fecha del préstamo', 'error'); return }
+  // Un préstamo con cuota en cero queda activo y con saldo, pero la planilla
+  // descuenta Math.min(cuota, saldo) = 0 y nunca lo cobra. Los tipos que se
+  // liquidan en la planilla de bono (prestaciones, adelantos) sí van sin cuota.
+  const _sinCuota = t => t === 'prestaciones' || t === 'adelanto_aguinaldo' || t === 'adelanto_catorceavo'
+  if (!_sinCuota(tipo) && cuota <= 0) {
+    window.toast?.('Ingresá la cuota quincenal: sin cuota, la planilla nunca lo descuenta', 'error')
+    document.getElementById('pe-cuota')?.focus()
+    return
+  }
 
   // ── Modo EDICIÓN (solo super_admin): actualiza cuota, descripción y fecha 1ª deducción.
   // No re-postea asiento ni cambia empleado/tipo/monto (evita descuadrar la partida).
