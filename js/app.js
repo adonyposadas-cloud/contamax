@@ -11117,14 +11117,20 @@ window.limpiarSelCxP = () => {
 window.updateSumaCxP = () => {
   let suma = 0
   let count = cxpSeleccionados.size
+  let noHallados = 0
   // Try from loaded movimientos first, fallback to stored montos
   if (cxpMovimientos.length) {
+    const vivos = new Set()
     cxpMovimientos.forEach(l => {
       if (cxpSeleccionados.has(l.id)) {
         suma += parseFloat(l.monto) || 0
         cxpMontos[l.id] = parseFloat(l.monto) || 0
+        vivos.add(l.id)
       }
     })
+    // Los IDs seleccionados que no están en la consulta actual no suman nada.
+    // Antes se ignoraban en silencio y el pago salía corto sin que nadie lo viera.
+    noHallados = count - vivos.size
   } else {
     // Use stored montos when movimientos not loaded
     cxpSeleccionados.forEach(id => {
@@ -11133,7 +11139,10 @@ window.updateSumaCxP = () => {
   }
   suma = Math.round(suma * 100) / 100
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  document.getElementById('cxp-suma-sel').innerHTML = `Seleccionados: L. ${fmt(suma)} (${count})${cxpSeleccionActiva ? ` · <span style="color:var(--blue);font-size:11px">📂 ${cxpSeleccionActiva.nombre}</span>` : ''}`
+  const faltan = noHallados
+    ? ` <span style="color:var(--red);font-size:11px">⚠️ ${noHallados} sin encontrar (no se van a pagar)</span>`
+    : ''
+  document.getElementById('cxp-suma-sel').innerHTML = `Seleccionados: L. ${fmt(suma)} (${count - noHallados}${noHallados ? ` de ${count}` : ''})${faltan}${cxpSeleccionActiva ? ` · <span style="color:var(--blue);font-size:11px">📂 ${cxpSeleccionActiva.nombre}</span>` : ''}`
   document.getElementById('btn-generar-pago').style.display = count > 0 ? 'inline-flex' : 'none'
   const btnLimpiar = document.getElementById('btn-limpiar-sel-cxp')
   if (btnLimpiar) btnLimpiar.style.display = count > 0 ? 'inline-flex' : 'none'
@@ -11603,13 +11612,23 @@ async function _sincronizarPagoCxP(numero, pagar) {
 window.openGuardarSelCxP = () => {
   if (!cxpSeleccionados.size) return
   const fmt = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  let suma = 0
-  cxpSeleccionados.forEach(id => { suma += cxpMontos[id] || 0 })
+  // El resumen cuenta SOLO las líneas que existen en la consulta actual.
+  // Antes sumaba todo cxpMontos, así que las líneas muertas (partida editada,
+  // ID cambiado) inflaban el total: si además el usuario ya las había vuelto a
+  // marcar a mano, el mismo movimiento se contaba dos veces.
+  const vivos = cxpMovimientos.length ? new Set(cxpMovimientos.map(m => m.id)) : null
+  let suma = 0, n = 0, muertos = 0, montoMuerto = 0
+  cxpSeleccionados.forEach(id => {
+    const monto = cxpMontos[id] || 0
+    if (vivos && !vivos.has(id)) { muertos++; montoMuerto += monto; return }
+    suma += monto; n++
+  })
   // Pre-fill with active selection if editing
   document.getElementById('gs-nombre').value = cxpSeleccionActiva?.nombre || ''
   document.getElementById('gs-fecha-pago').value = cxpSeleccionActiva?.fecha_pago || ''
   document.getElementById('gs-notas').value = cxpSeleccionActiva?.notas || ''
-  document.getElementById('gs-resumen').innerHTML = `<strong>${cxpSeleccionados.size}</strong> movimientos · <strong style="color:var(--gold)">L. ${fmt(suma)}</strong>${cxpSeleccionActiva ? ' · <span style="color:var(--blue)">Editando selección existente</span>' : ''}`
+  document.getElementById('gs-resumen').innerHTML = `<strong>${n}</strong> movimientos · <strong style="color:var(--gold)">L. ${fmt(suma)}</strong>${cxpSeleccionActiva ? ' · <span style="color:var(--blue)">Editando selección existente</span>' : ''}` +
+    (muertos ? `<div style="color:var(--red);font-size:11px;margin-top:6px">⚠️ ${muertos} línea(s) ya no existen (L. ${fmt(montoMuerto)}) y se quitarán al guardar.</div>` : '')
   document.getElementById('modal-guardar-sel-cxp').classList.add('open')
 }
 
@@ -11620,8 +11639,45 @@ window.guardarSelCxP = async () => {
   if (!nombre) { toast('Ingresá un nombre', 'error'); return }
   if (!fechaPago) { toast('Ingresá la fecha de pago', 'error'); return }
 
+  // Antes de guardar, sacar los IDs que ya no existen en la consulta actual.
+  // Si el usuario volvió a marcar esas líneas a mano (ahora con su ID nuevo),
+  // dejar los muertos adentro las contaría DOS VECES: el total se inflaba con
+  // el monto viejo más el nuevo, y la selección quedaba con más items que
+  // movimientos reales.
+  const huellas = { ...(cxpSeleccionActiva?.huellas || {}) }
+  if (cxpMovimientos.length) {
+    const vivos = new Set(cxpMovimientos.map(m => m.id))
+    const muertos = [...cxpSeleccionados].filter(id => !vivos.has(id))
+    if (muertos.length) {
+      const montoMuerto = muertos.reduce((a, id) => a + (cxpMontos[id] || 0), 0)
+      const f = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      if (!confirm(`${muertos.length} línea(s) de esta selección ya no existen ` +
+        `(su partida se editó y cambiaron de ID), por L. ${f(montoMuerto)}.\n\n` +
+        `Se van a quitar al guardar. Si ya las volviste a marcar a mano, esto es lo correcto: ` +
+        `de lo contrario quedarían contadas dos veces.\n\n` +
+        `Quedarían ${cxpSeleccionados.size - muertos.length} movimientos.\n\n¿Guardar así?`)) return
+      muertos.forEach(id => { cxpSeleccionados.delete(id); delete cxpMontos[id]; delete huellas[id] })
+      document.querySelectorAll('.cxp-check').forEach(cb => { cb.checked = cxpSeleccionados.has(cb.dataset.id) })
+    }
+  }
+
   let suma = 0
   cxpSeleccionados.forEach(id => { suma += cxpMontos[id] || 0 })
+
+  // Huella de cada línea: partida, cuenta, descripción y monto.
+  // El UUID cambia cada vez que se edita la partida (guardarPartida borra y
+  // reinserta las líneas), así que guardar solo el id deja la selección
+  // apuntando al vacío. Con la huella se puede volver a encontrar la línea
+  // aunque el id sea otro, y sin depender de que el monto sea único.
+  cxpMovimientos.forEach(l => {
+    if (!cxpSeleccionados.has(l.id)) return
+    huellas[l.id] = {
+      p: l.partida?.numero_partida ?? null,
+      c: l.cuenta_codigo || null,
+      d: l.descripcion || null,
+      m: parseFloat(l.monto) || 0
+    }
+  })
 
   const payload = {
     nombre,
@@ -11629,6 +11685,7 @@ window.guardarSelCxP = async () => {
     notas,
     linea_ids: [...cxpSeleccionados],
     montos: cxpMontos,
+    huellas,
     total: Math.round(suma * 100) / 100,
     cantidad: cxpSeleccionados.size,
     creado_por: window._currentProfile()?.nombre || '',
@@ -11954,10 +12011,84 @@ window.cargarSelCxP = async (selId) => {
   if (!sel) { toast('Selección no encontrada', 'error'); return }
   cxpSeleccionados = new Set(sel.linea_ids || [])
   cxpMontos = sel.montos || {}
-  cxpSeleccionActiva = { id: sel.id, nombre: sel.nombre, fecha_pago: sel.fecha_pago, notas: sel.notas || '' }
+  cxpSeleccionActiva = { id: sel.id, nombre: sel.nombre, fecha_pago: sel.fecha_pago, notas: sel.notas || '', huellas: sel.huellas || {} }
+
+  // ── Recuperar los IDs que ya no existen ──
+  // Al editar una partida se borran y reinsertan sus líneas con UUID nuevo, así
+  // que una selección guardada queda apuntando al vacío: el contador sigue
+  // diciendo 57 pero la suma baja y el pago sale incompleto sin aviso.
+  // Se busca primero por HUELLA (partida + cuenta + descripción + monto), que
+  // identifica el movimiento aunque haya varios del mismo importe. Si no hay
+  // huella guardada (selecciones viejas), se cae al monto exacto único.
+  let recuperados = 0, ambiguos = 0, perdidos = 0
+  const huellas = sel.huellas || {}
+  const _norm = s => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase()
+  if (cxpMovimientos.length) {
+    const vivos = new Set(cxpMovimientos.map(m => m.id))
+    const muertos = [...cxpSeleccionados].filter(id => !vivos.has(id))
+    for (const idMuerto of muertos) {
+      const h = huellas[idMuerto]
+      const monto = parseFloat(h?.m ?? cxpMontos[idMuerto])
+      if (!monto) { perdidos++; continue }
+      const libres = cxpMovimientos.filter(m =>
+        !cxpSeleccionados.has(m.id) && Math.abs((parseFloat(m.monto) || 0) - monto) < 0.005)
+      // 1) por huella completa
+      let cands = h ? libres.filter(m =>
+        (h.p == null || m.partida?.numero_partida == h.p) &&
+        (!h.c || m.cuenta_codigo === h.c) &&
+        (!h.d || _norm(m.descripcion) === _norm(h.d))) : []
+      // 2) sin descripción, por partida + cuenta
+      if (!cands.length && h) cands = libres.filter(m =>
+        (h.p == null || m.partida?.numero_partida == h.p) && (!h.c || m.cuenta_codigo === h.c))
+      // 3) selecciones viejas sin huella: solo monto
+      if (!cands.length && !h) cands = libres
+      if (cands.length === 1) {
+        cxpSeleccionados.delete(idMuerto)
+        delete cxpMontos[idMuerto]
+        cxpSeleccionados.add(cands[0].id)
+        cxpMontos[cands[0].id] = parseFloat(cands[0].monto) || 0
+        recuperados++
+      } else if (cands.length > 1) { ambiguos++ } else { perdidos++ }
+    }
+    // Si se recuperó algo, se deja arreglada la selección para la próxima vez.
+    if (recuperados) {
+      const idsNuevos = [...cxpSeleccionados]
+      const huellasNuevas = { ...huellas }
+      cxpMovimientos.forEach(l => {
+        if (!cxpSeleccionados.has(l.id)) return
+        huellasNuevas[l.id] = { p: l.partida?.numero_partida ?? null, c: l.cuenta_codigo || null,
+                                d: l.descripcion || null, m: parseFloat(l.monto) || 0 }
+      })
+      await getSb().from('cxp_selecciones').update({
+        linea_ids: idsNuevos,
+        montos: cxpMontos,
+        huellas: huellasNuevas,
+        cantidad: idsNuevos.length,
+        total: Math.round(idsNuevos.reduce((a, id) => a + (cxpMontos[id] || 0), 0) * 100) / 100
+      }).eq('id', sel.id)
+      window.logActividad?.('cxp_seleccion_reparada', 'cuentas_por_pagar',
+        `"${sel.nombre}": ${recuperados} línea(s) re-enlazadas por monto tras cambiar de ID`, sel.id)
+    }
+  }
+
   guardarCxPSeleccion()
   closeModal('modal-selecciones-cxp')
-  toast(`Selección "${sel.nombre}" cargada · ${sel.cantidad} items`, 'success')
+  const extra = [
+    recuperados ? `${recuperados} recuperada(s)` : '',
+    ambiguos ? `${ambiguos} ambigua(s)` : '',
+    perdidos ? `${perdidos} sin encontrar` : ''
+  ].filter(Boolean).join(' · ')
+  toast(`Selección "${sel.nombre}" cargada · ${cxpSeleccionados.size} items${extra ? ' · ' + extra : ''}`,
+    (ambiguos || perdidos) ? 'error' : 'success')
+  if (ambiguos || perdidos) {
+    alert(`Atención: la selección "${sel.nombre}" tenía líneas cuyo ID ya no existe ` +
+      `(pasa cuando se edita la partida que las contiene).\n\n` +
+      (recuperados ? `· ${recuperados} se re-enlazaron por monto exacto.\n` : '') +
+      (ambiguos ? `· ${ambiguos} NO se pudieron re-enlazar: hay varios movimientos del mismo monto.\n` : '') +
+      (perdidos ? `· ${perdidos} NO aparecen en la consulta actual.\n` : '') +
+      `\nRevisá y marcá esas líneas a mano antes de generar el pago.`)
+  }
+
   // Update checkboxes if table is visible
   document.querySelectorAll('.cxp-check').forEach(cb => {
     cb.checked = cxpSeleccionados.has(cb.dataset.id)
