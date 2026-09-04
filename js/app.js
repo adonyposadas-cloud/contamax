@@ -2666,6 +2666,11 @@ window.editarPartida = async (id) => {
     lineaCounter++
     const lineaObj = {
       id: lineaCounter,
+      // UUID real de la línea en la base. Es lo que permite ACTUALIZARLA al
+      // guardar en vez de borrarla y reinsertarla: si el id cambia, se pierden
+      // pagado, pagado_partida_num, centralizado, grupo_conciliacion y las
+      // selecciones guardadas de CxP que apuntaban a esa línea.
+      _dbId: l.id,
       cuenta_id: l.cuenta_id || '',
       cuenta_codigo: l.cuenta_codigo || '',
       cuenta_nombre: l.cuenta_nombre || '',
@@ -3193,6 +3198,7 @@ let _guardandoPartida = false
 window.guardarPartida = async (estado) => {
   if (_guardandoPartida) return
   _guardandoPartida = true
+  let lineasExistentesIds = new Set()   // ids de las líneas que ya estaban (solo al editar)
   // Deshabilitar botones para evitar doble click
   document.querySelectorAll('#view-partida-nueva .btn-gold, #view-partida-nueva .btn-green').forEach(b => b.disabled = true)
   try {
@@ -3464,9 +3470,19 @@ window.guardarPartida = async (estado) => {
       }
     } catch(e) { /* silent */ }
 
-    // Borrar líneas viejas y crear nuevas
-    const { error: delErr } = await sb.from('lineas_partida').delete().eq('partida_id', editingPartidaId)
-    if (delErr) { toast('Error al borrar líneas: ' + delErr.message, 'error'); return }
+    // ── NO se borran las líneas ──
+    // Antes acá había un DELETE de todas las líneas de la partida, seguido de un
+    // INSERT completo más abajo. Eso le daba UUID nuevo a cada línea, aunque su
+    // contenido no hubiera cambiado, y con el id viejo se iban los flags:
+    // `pagado` y `pagado_partida_num` (movimientos ya pagados volvían a
+    // Pendiente y podían pagarse dos veces), `centralizado`, `grupo_conciliacion`,
+    // y las selecciones guardadas de CxP quedaban apuntando al vacío.
+    // Ahora se reconcilia más abajo: UPDATE a las que siguen, INSERT a las
+    // nuevas, DELETE solo a las que el usuario quitó.
+    const { data: _lexist, error: _lexErr } = await sb.from('lineas_partida')
+      .select('id').eq('partida_id', editingPartidaId)
+    if (_lexErr) { toast('Error al leer líneas: ' + _lexErr.message, 'error'); return }
+    lineasExistentesIds = new Set((_lexist || []).map(x => x.id))
   } else {
     // ── CREAR partida nueva ──
     // Correlativo atómico (evita duplicados por concurrencia)
@@ -3514,8 +3530,8 @@ window.guardarPartida = async (estado) => {
   }
   window._facturaFotoUrl = null
 
-  // Insertar líneas
-  const lineas = lineasValidas.map(l => ({
+  // ── Guardar las líneas ──
+  const filaDe = l => ({
     partida_id: partidaId,
     cuenta_id: l.cuenta_id,
     cuenta_codigo: l.cuenta_codigo,
@@ -3526,9 +3542,43 @@ window.guardarPartida = async (estado) => {
     descripcion: (l.descripcion || descripcion).toUpperCase(),
     numero_documento: documento || null,
     aplica_fiscal: l.aplica_fiscal
-  }))
-  const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
-  if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
+  })
+
+  if (editingPartidaId) {
+    // Reconciliación por IDENTIDAD, no por borrado masivo.
+    // Una línea que ya existía conserva su UUID y por lo tanto sus flags:
+    // el UPDATE solo toca las columnas del formulario, nunca pagado,
+    // pagado_partida_num, centralizado ni grupo_conciliacion.
+    const conservados = new Set()
+    const paraActualizar = []
+    const paraInsertar = []
+    for (const l of lineasValidas) {
+      if (l._dbId && lineasExistentesIds.has(l._dbId) && !conservados.has(l._dbId)) {
+        conservados.add(l._dbId)
+        paraActualizar.push({ id: l._dbId, ...filaDe(l) })
+      } else {
+        paraInsertar.push(filaDe(l))
+      }
+    }
+    const paraBorrar = [...lineasExistentesIds].filter(id => !conservados.has(id))
+
+    if (paraActualizar.length) {
+      const { error } = await sb.from('lineas_partida').upsert(paraActualizar, { onConflict: 'id' })
+      if (error) { toast('Error actualizando líneas: ' + error.message, 'error'); return }
+    }
+    if (paraInsertar.length) {
+      const { error } = await sb.from('lineas_partida').insert(paraInsertar)
+      if (error) { toast('Error en líneas nuevas: ' + error.message, 'error'); return }
+    }
+    if (paraBorrar.length) {
+      const { error } = await sb.from('lineas_partida').delete().in('id', paraBorrar)
+      if (error) { toast('Error al quitar líneas: ' + error.message, 'error'); return }
+    }
+    console.log(`[PARTIDA] líneas: ${paraActualizar.length} conservadas · ${paraInsertar.length} nuevas · ${paraBorrar.length} eliminadas`)
+  } else {
+    const { error: lErr } = await sb.from('lineas_partida').insert(lineasValidas.map(filaDe))
+    if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
+  }
 
   // Guardar conteo de billetes si existe
   const lineasConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
