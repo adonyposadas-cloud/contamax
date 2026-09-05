@@ -8909,6 +8909,17 @@ function vinFillUbicSelect() {
   vinUbicList().forEach(u => { if (u && !have.has(u)) el.add(new Option(u, u)) })
 }
 
+// ── Enlace del vehículo: solo http/https, escapado para insertar en HTML ──
+// Devuelve '' si la URL es inválida o usa un esquema peligroso (javascript:, data:, ...)
+function vinUrlSegura(u) {
+  const s = (u || '').trim()
+  if (!s) return ''
+  let p
+  try { p = new URL(s) } catch (_) { return '' }
+  if (p.protocol !== 'http:' && p.protocol !== 'https:') return ''
+  return p.href.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 async function loadVehiculos() {
   const tbody = document.getElementById('tbody-vehiculos')
   if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
@@ -9043,9 +9054,11 @@ function renderVehiculosTable() {
     const last4 = v.vin.slice(-4)
     const fecha = v.fecha_compra ? new Date(v.fecha_compra + 'T12:00:00').toLocaleDateString('es-HN') : '—'
     const chk = esSuperAdmin ? `<input type="checkbox" ${vinSel.has(v.id) ? 'checked' : ''} onclick="event.stopPropagation();vinToggleSel('${v.id}',this.checked)" title="Seleccionar" style="margin-right:8px;vertical-align:middle;cursor:pointer;width:15px;height:15px">` : ''
+    const _url = vinUrlSegura(v.enlace)
+    const lnk = _url ? ` <a href="${_url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="Ver vehículo" style="text-decoration:none;font-size:13px">🔗</a>` : ''
     return `
     <tr style="cursor:pointer" onclick="verDetalleVin('${v.id}')">
-      <td style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold);letter-spacing:1px">${chk}${last4}</td>
+      <td style="font-family:var(--mono);font-size:16px;font-weight:600;color:var(--gold);letter-spacing:1px">${chk}${last4}${lnk}</td>
       <td style="font-family:var(--mono);font-size:11px;color:var(--text3)">${v.vin}</td>
       <td><span class="badge badge-blue">${v.propietario}</span></td>
       <td>${v.marca}</td>
@@ -9115,7 +9128,7 @@ window.openModalVin = () => {
   editingVinId = null
   document.getElementById('modal-vin-title').textContent = '🚗 Nuevo vehículo'
   document.getElementById('btn-guardar-vin').textContent = 'Guardar vehículo'
-  ;['nv-vin','nv-propietario','nv-marca','nv-modelo','nv-anio','nv-costo','nv-fecha','nv-notas','nv-ubicacion'].forEach(id => {
+  ;['nv-vin','nv-propietario','nv-marca','nv-modelo','nv-anio','nv-costo','nv-fecha','nv-notas','nv-ubicacion','nv-enlace'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
   document.getElementById('nv-vin').disabled = false
@@ -9139,6 +9152,7 @@ window.editarVehiculo = (id) => {
   document.getElementById('nv-costo').value = v.costo_copart || ''
   document.getElementById('nv-fecha').value = v.fecha_compra || ''
   document.getElementById('nv-notas').value = v.notas || ''
+  document.getElementById('nv-enlace').value = v.enlace || ''
   vinFillUbicSelect()
   const _ubEl = document.getElementById('nv-ubicacion')
   if (_ubEl && _ubEl.tagName === 'SELECT' && v.ubicacion && !Array.from(_ubEl.options).some(o => o.value === v.ubicacion)) _ubEl.add(new Option(v.ubicacion, v.ubicacion))
@@ -9157,16 +9171,18 @@ window.guardarVehiculo = async () => {
   const fecha = document.getElementById('nv-fecha').value || null
   const notas = document.getElementById('nv-notas').value.trim()
   const ubicacion = document.getElementById('nv-ubicacion').value || null
+  const enlace = document.getElementById('nv-enlace').value.trim()
   const err = document.getElementById('modal-vin-error')
 
   if (!vin) { showError(err, 'El VIN es obligatorio'); return }
   if (vin.length < 4) { showError(err, 'El VIN debe tener al menos 4 caracteres'); return }
   if (!propietario) { showError(err, 'El propietario es obligatorio'); return }
+  if (enlace && !vinUrlSegura(enlace)) { showError(err, 'El enlace debe empezar con http:// o https://'); return }
 
   const btn = document.getElementById('btn-guardar-vin')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
-  const payload = { vin, propietario, marca, modelo, anio, costo_copart: costo, fecha_compra: fecha, notas, ubicacion, activo: true }
+  const payload = { vin, propietario, marca, modelo, anio, costo_copart: costo, fecha_compra: fecha, notas, ubicacion, enlace: enlace || null, activo: true }
 
   let error
   if (editingVinId) {
@@ -9420,6 +9436,7 @@ window.verDetalleVin = async (vinId) => {
       <div><span style="color:var(--text3);font-size:11px">Vehículo</span><div>${v.marca} ${v.modelo} ${v.anio || ''}</div></div>
       <div><span style="color:var(--text3);font-size:11px">Costo Copart</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div></div>
       <div><span style="color:var(--text3);font-size:11px">Ubicación</span><div>${v.ubicacion ? `<span class="badge ${({'Tránsito a puerto':'badge-amber','Bodega USA':'badge-blue','En tránsito marítimo':'badge-blue','Trámites aduaneros':'badge-amber','Grúa a TGU':'badge-purple','Grúa a SPS':'badge-purple','Llegado a plantel':'badge-on','Vendido':'badge-off'})[v.ubicacion] || 'badge-off'}">${v.ubicacion}</span>` : '<span style="color:var(--text3)">Sin asignar</span>'}</div></div>
+      ${vinUrlSegura(v.enlace) ? `<div><span style="color:var(--text3);font-size:11px">Enlace</span><div><a href="${vinUrlSegura(v.enlace)}" target="_blank" rel="noopener noreferrer" style="color:var(--gold)">🔗 Ver vehículo</a></div></div>` : ''}
     </div>`
   document.getElementById('dv-resumen').innerHTML = ''
   document.getElementById('dv-contenido').innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>'
