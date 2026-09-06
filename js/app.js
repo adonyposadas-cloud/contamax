@@ -3224,6 +3224,36 @@ window.guardarPartida = async (estado) => {
     toast(`La partida no cuadra: Débitos L.${debitos.toFixed(2)} ≠ Créditos L.${creditos.toFixed(2)}`, 'error'); return
   }
 
+  // ── CANDADO DE VIN AMBIGUO ──
+  // Si una descripción dice "VIN 1983" pero hay dos vehículos cuyo VIN termina en 1983,
+  // el gasto no se puede atribuir: los reportes se lo cargarían a ambos. El buscador ya
+  // inserta un sufijo largo, pero la descripción también se escribe a mano, así que se
+  // valida acá, que es por donde pasa todo.
+  await ensureVinCache()
+  if (vinCache && vinCache.length) {
+    const choques = []
+    for (const l of lineasValidas) {
+      const txt = String(l.descripcion || '')
+      for (const m of txt.matchAll(/\bVIN\s*[:#-]?\s*(\d{4,17})\b/gi)) {
+        const num = m[1]
+        const cand = vinCache.filter(v => String(v.vin || '').endsWith(num))
+        if (cand.length > 1) choques.push({ num, cand, desc: txt })
+      }
+    }
+    if (choques.length) {
+      const det = choques.map(c =>
+        `• "VIN ${c.num}" → ${c.cand.length} vehículos:\n` +
+        c.cand.map(v => `     ${v.vin}  (${v.propietario})  → usá VIN ${vinSufijoUnico(v.vin, vinCache)}`).join('\n')
+      ).join('\n\n')
+      const ok = confirm(
+        `VIN ambiguo en la partida\n\n${det}\n\n` +
+        `Con esos dígitos el gasto no se puede atribuir a un solo vehículo.\n` +
+        `Corregí la descripción con los dígitos que se indican arriba.\n\n` +
+        `¿Guardar de todos modos?`)
+      if (!ok) return
+    }
+  }
+
   // ── CANDADO DEL CONTEO DE BILLETES ──
   // Los billetes de una línea de caja TIENEN que sumar el monto de esa línea.
   // Si no, el arqueo miente en silencio y aparece un faltante o sobrante fantasma
@@ -8909,6 +8939,24 @@ function vinFillUbicSelect() {
   vinUbicList().forEach(u => { if (u && !have.has(u)) el.add(new Option(u, u)) })
 }
 
+// ── Sufijo de VIN que NO se repite ──
+// Por defecto los últimos 4 dígitos. Si otro vehículo activo termina igual, se alarga
+// a 6 y luego a 8 hasta que sea único; si aun así choca, se usa el VIN completo.
+// Evita que un gasto cargado como "VIN 1983" pueda pertenecer a dos vehículos.
+function vinSufijoUnico(vin, lista, min = 4) {
+  const v = String(vin || '')
+  if (!v) return ''
+  const arr = lista || []
+  for (const n of [min, 6, 8]) {
+    if (v.length <= n) break
+    const suf = v.slice(-n)
+    let coincidencias = 0
+    for (const x of arr) if (String(x.vin || '').endsWith(suf)) coincidencias++
+    if (coincidencias <= 1) return suf
+  }
+  return v
+}
+
 // ── Enlace del vehículo: solo http/https, escapado para insertar en HTML ──
 // Devuelve '' si la URL es inválida o usa un esquema peligroso (javascript:, data:, ...)
 function vinUrlSegura(u) {
@@ -8939,9 +8987,14 @@ async function loadVehiculos() {
 
   const propSelect = document.getElementById('vin-filtro-prop')
   if (propSelect) {
+    // Conservar el propietario elegido al recargar (mismo criterio que el select de
+    // ubicación). Sin esto, eliminar un vehículo reseteaba el filtro y había que
+    // volver a buscar dónde se iba. Si el propietario ya no existe, cae a "Todos".
+    const cur = propSelect.value
     const props = [...new Set(allVehiculos.map(v => v.propietario))].sort()
     propSelect.innerHTML = '<option value="">Todos los propietarios</option>' +
       props.map(p => `<option value="${p}">${p}</option>`).join('')
+    propSelect.value = cur
   }
 
   // Filtro de ubicación: se llena con las ubicaciones/contenedores que existan en los datos
@@ -9019,6 +9072,15 @@ window.filtrarVehiculos = () => {
   const elFiltrados = document.getElementById('vin-stat-filtrados')
   if (elFiltrados) elFiltrados.textContent = filteredVehiculos.length
 
+  // El costo total sigue al filtro: suma solo lo que se está mostrando.
+  // Sin filtros activos vuelve a ser el total de la flota.
+  const hayFiltro = !!(term || propFilter || ubicacionFilter)
+  const costoVisible = filteredVehiculos.reduce((s, v) => s + (parseFloat(v.costo_copart) || 0), 0)
+  const elCostoV = document.getElementById('vin-stat-costo')
+  const elCostoL = document.getElementById('vin-stat-costo-lbl')
+  if (elCostoV) elCostoV.textContent = '$' + costoVisible.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (elCostoL) elCostoL.textContent = hayFiltro ? 'Costo mostrado' : 'Costo total'
+
   renderVehiculosTable()
 }
 
@@ -9051,7 +9113,7 @@ function renderVehiculosTable() {
   }
 
   tbody.innerHTML = filteredVehiculos.map(v => {
-    const last4 = v.vin.slice(-4)
+    const last4 = vinSufijoUnico(v.vin, allVehiculos)
     const fecha = v.fecha_compra ? new Date(v.fecha_compra + 'T12:00:00').toLocaleDateString('es-HN') : '—'
     const chk = esSuperAdmin ? `<input type="checkbox" ${vinSel.has(v.id) ? 'checked' : ''} onclick="event.stopPropagation();vinToggleSel('${v.id}',this.checked)" title="Seleccionar" style="margin-right:8px;vertical-align:middle;cursor:pointer;width:15px;height:15px">` : ''
     const _url = vinUrlSegura(v.enlace)
@@ -9295,18 +9357,23 @@ window.buscarVinLive = () => {
     <div style="font-size:11px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">${results.length} resultado(s)</div>
     <table style="width:100%">
       <thead><tr>
-        <th style="width:80px">Últimos 4</th>
+        <th style="width:110px">Identificador</th>
         <th>VIN completo</th>
         <th>Propietario</th>
         <th>Vehículo</th>
         <th style="text-align:right">Costo</th>
       </tr></thead>
       <tbody>${results.map(v => {
-        const last4 = v.vin.slice(-4)
+        const last4 = vinSufijoUnico(v.vin, vinCache)
+        // Aviso: si los últimos 4 los comparte otro vehículo, se usa un sufijo más largo
+        const rep4 = (vinCache || []).filter(x => String(x.vin || '').endsWith(v.vin.slice(-4))).length > 1
+        const avisoRep = rep4
+          ? `<div style="font-size:9px;color:var(--amber);font-weight:400;letter-spacing:0;margin-top:2px;line-height:1.2">últimos 4 repetidos<br>se usan ${last4.length} dígitos</div>`
+          : ''
         const vinHL = v.vin.replace(new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
           '<span style="background:rgba(250,204,21,0.3);border-radius:2px;padding:0 2px">$1</span>')
         return `<tr style="cursor:pointer" onclick="seleccionarVinResult('${v.propietario}','${v.vin}')">
-          <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px;text-align:center">${last4}</td>
+          <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px;text-align:center">${last4}${avisoRep}</td>
           <td style="font-family:var(--mono);font-size:11px;color:var(--text2)">${vinHL}</td>
           <td><span class="badge badge-blue" style="font-size:12px">${v.propietario}</span></td>
           <td style="font-size:12px">${v.marca} ${v.modelo} ${v.anio || ''}</td>
@@ -9317,7 +9384,7 @@ window.buscarVinLive = () => {
 }
 
 window.seleccionarVinResult = (propietario, vin) => {
-  const last4 = vin.slice(-4)
+  const last4 = vinSufijoUnico(vin, vinCache)
   const descInput = document.getElementById('pn-descripcion')
   if (descInput) {
     const current = descInput.value
@@ -9422,11 +9489,13 @@ window.verDetalleVin = async (vinId) => {
   if (!v) return
   // Extract all trailing digits from VIN for search - try multiple lengths
   const trailingDigits = v.vin.match(/(\d+)$/)?.[1] || v.vin.slice(-4)
-  const last4 = v.vin.slice(-4)
-  const last5 = v.vin.slice(-5)
-  const last6 = v.vin.slice(-6)
-  // Build search variants: full trailing, last6, last5, last4
-  const searchVariants = [...new Set([trailingDigits, last6, last5, last4].filter(s => s.length >= 4))]
+  // Sufijo mínimo que NO se comparte con otro vehículo. Si los últimos 4 están
+  // repetidos, buscar por 4 dígitos traería los gastos del otro vehículo también,
+  // así que las variantes cortas se descartan.
+  const minSuf = vinSufijoUnico(v.vin, allVehiculos)
+  const last4 = minSuf
+  const largos = [trailingDigits, v.vin.slice(-6), v.vin.slice(-5), v.vin.slice(-4)]
+  const searchVariants = [...new Set(largos.filter(x => x.length >= minSuf.length))]
 
   document.getElementById('modal-dv-title').textContent = `🚗 Detalle VIN ${last4} · ${v.marca} ${v.modelo} ${v.anio || ''}`
   document.getElementById('dv-info').innerHTML = `
@@ -10137,7 +10206,17 @@ window.parsearFacturasTaxis = async () => {
   const { data: unidades } = await sb.from('unidades_taxis').select('registro, modalidad, propietario').eq('activo', true)
   const { data: vins } = await sb.from('vehiculos_vin').select('vin, propietario').eq('activo', true)
   const unidadesMap = new Map((unidades || []).map(u => [u.registro, u]))
-  const vinsMap = new Map((vins || []).map(v => [v.vin.slice(-4), v]))  // últimos 4 del VIN
+  // Map por últimos 4 del VIN. Con `new Map(...)` un VIN repetido sobrescribía al otro
+  // en silencio y el importador podía asignar el propietario equivocado. Ahora los
+  // repetidos se marcan como ambiguos: no se asigna propietario y se avisa.
+  const vinsMap = new Map()
+  const vinsAmbiguos = new Set()
+  for (const v of (vins || [])) {
+    const k = String(v.vin || '').slice(-4)
+    if (!k) continue
+    if (vinsMap.has(k)) { vinsAmbiguos.add(k); vinsMap.delete(k) }
+    else if (!vinsAmbiguos.has(k)) vinsMap.set(k, v)
+  }
 
   const dias = []     // { fecha, lineas: [...], resumen: [...] }
   const alertas = []
@@ -10243,7 +10322,11 @@ window.parsearFacturasTaxis = async () => {
       } else if (parsed.tipo === 'VIN') {
         // Buscar en vehiculos_vin por últimos 4 dígitos
         const regStr = parsed.registro.toString()
-        const vinMatch = vinsMap.get(regStr.padStart(4, '0')) || vinsMap.get(regStr)
+        const k4 = regStr.padStart(4, '0')
+        const vinMatch = vinsMap.get(k4) || vinsMap.get(regStr)
+        if (!vinMatch && (vinsAmbiguos.has(k4) || vinsAmbiguos.has(regStr))) {
+          alertas.push({ tipo: 'warning', msg: `⚠️ VIN ${regStr}: hay más de un vehículo con esos últimos 4 dígitos. Asigná el propietario a mano.` })
+        }
         if (vinMatch) {
           propietario = vinMatch.propietario
         } else {

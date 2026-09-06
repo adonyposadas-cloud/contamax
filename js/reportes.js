@@ -1,3 +1,4 @@
+window.__repBuild = '20260905e-rentab-filtros-memoria'
 // ══════════════════════════════════════════════
 // ── REPORTES FINANCIEROS · js/reportes.js
 // ── Depende de: window._sb, window._empresas(), window.catalogoCuentas, 
@@ -1560,19 +1561,29 @@ window.initRentabilidadTaxis = async function () {
             <option value="PARTICULAR">PARTICULAR</option>
           </select>
         </div>
+        <div class="fld" style="min-width:200px">
+          <label>Buscar unidad</label>
+          <input type="text" id="rent-buscar" placeholder="N° unidad, propietario o VIN"
+                 autocomplete="off" style="text-transform:none">
+        </div>
         <button class="btn btn-gold" id="btn-rent-consultar" onclick="consultarRentabilidad()">Consultar →</button>
       </div>
     </div>
 
     <div id="rent-resumen" style="margin-bottom:16px"></div>
     <div class="table-wrap" id="rent-tabla"></div>`
+
+  // Enganchar el buscador desde JS. Con oninput= en el HTML no funciona: este archivo
+  // se carga como <script type="module"> y los atributos inline solo ven el ambito global.
+  const refiltrar = () => { if (rentUnidades.length) renderRentabilidad() }
+  document.getElementById('rent-buscar')?.addEventListener('input', refiltrar)
+  document.getElementById('rent-prop')?.addEventListener('change', refiltrar)
+  document.getElementById('rent-mod')?.addEventListener('change', refiltrar)
 }
 
 window.consultarRentabilidad = async function () {
   const desde = document.getElementById('rent-desde').value
   const hasta = document.getElementById('rent-hasta').value
-  const propFilter = document.getElementById('rent-prop').value
-  const modFilter = document.getElementById('rent-mod').value
   if (!desde || !hasta) { window.toast?.('Seleccioná el rango de fechas', 'error'); return }
 
   const btn = document.getElementById('btn-rent-consultar')
@@ -1582,12 +1593,12 @@ window.consultarRentabilidad = async function () {
 
   try {
     const sb = getSb()
-    // 1) Unidades filtradas
-    let q = sb.from('unidades_taxis').select('registro, modalidad, propietario, motorista').eq('activo', true)
-    if (propFilter) q = q.eq('propietario', propFilter)
-    if (modFilter) q = q.eq('modalidad', modFilter)
-    const { data: unidades } = await q.order('registro')
-    const regs = new Set((unidades || []).map(u => u.registro))
+    // 1) TODAS las unidades activas. Propietario y modalidad ya no filtran aqui:
+    // se aplican en memoria junto con el buscador (ver rentFiltradas), asi los tres
+    // filtros responden al instante sin volver a consultar la base. Solo el rango de
+    // fechas obliga a reconsultar, porque cambia los datos que se acumulan.
+    const { data: unidades } = await sb.from('unidades_taxis')
+      .select('registro, modalidad, propietario, motorista').eq('activo', true).order('registro')
 
     // Helper: traer TODAS las filas paginando (Supabase corta en 1000 por defecto)
     const fetchAll = async (build) => {
@@ -1615,9 +1626,11 @@ window.consultarRentabilidad = async function () {
     const entregasDescartadas = (entregasRaw || []).length - entregas.length
     if (entregasDescartadas) console.info(`[rent] ${entregasDescartadas} entrega(s) excluidas por estado (rechazadas o pendientes)`)
 
-    // 3) TODAS las facturas (gasto) del rango (paginado)
-    const facturas = await fetchAll(() => sb.from('facturas_taxis')
-      .select('registro, monto').gte('fecha', desde).lte('fecha', hasta))
+    // 3) FUENTE ÚNICA DE EGRESOS: lineas_partida.
+    // Antes se sumaba también facturas_taxis, pero esas facturas ya están
+    // asentadas como líneas de partida, así que repuestos y mano de obra se
+    // contaban dos veces (los egresos salían casi al doble). Ahora la
+    // contabilidad manda y facturas_taxis no participa del cálculo.
 
     // 4) TODAS las líneas de partidas aprobadas del rango que tengan centro de costo
     const partidasRango = await fetchAll(() => sb.from('partidas_contables')
@@ -1654,10 +1667,6 @@ window.consultarRentabilidad = async function () {
       const k = keyOf(e.unidad)
       if (acc[k]) acc[k].ingresos += parseFloat(e.monto) || 0
     }
-    for (const f of (facturas || [])) {
-      const k = keyOf(f.registro)
-      if (acc[k]) acc[k].egresos += parseFloat(f.monto) || 0
-    }
     // Líneas de partida: emparejar la unidad por su número en la descripción
     const esIngreso = (l) => l.tipo === 'credito' && String(l.cuenta_codigo || '').startsWith('4')
     for (const l of lineas) {
@@ -1688,22 +1697,38 @@ window.consultarRentabilidad = async function () {
   }
 }
 
+// Buscador: filtra en memoria sobre lo ya consultado (unidad, propietario, motorista/VIN).
+// Lo usan el render y la exportación a Excel, para que el archivo salga con lo que se ve.
+function rentFiltradas() {
+  const q    = (document.getElementById('rent-buscar')?.value || '').trim().toLowerCase()
+  const prop = document.getElementById('rent-prop')?.value || ''
+  const mod  = document.getElementById('rent-mod')?.value || ''
+  let lista = rentUnidades
+  if (prop) lista = lista.filter(u => u.propietario === prop)
+  if (mod)  lista = lista.filter(u => u.modalidad === mod)
+  if (q)    lista = lista.filter(u => [u.registro, u.propietario, u.motorista, u.modalidad]
+    .some(v => String(v ?? '').toLowerCase().includes(q)))
+  return { q, prop, mod, lista, hayFiltro: !!(q || prop || mod) }
+}
+
 function renderRentabilidad() {
   const tabla = document.getElementById('rent-tabla')
-  const totI = rentUnidades.reduce((s, u) => s + u.totalIngresos, 0)
-  const totE = rentUnidades.reduce((s, u) => s + u.totalEgresos, 0)
+  const { hayFiltro, lista: visibles } = rentFiltradas()
+
+  const totI = visibles.reduce((s, u) => s + u.totalIngresos, 0)
+  const totE = visibles.reduce((s, u) => s + u.totalEgresos, 0)
   const totN = totI - totE
 
   document.getElementById('rent-resumen').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-      <div class="stat-card"><div class="stat-num" style="font-size:18px">${rentUnidades.length}</div><div class="stat-label">Unidades</div></div>
+      <div class="stat-card"><div class="stat-num" style="font-size:18px">${visibles.length}${hayFiltro ? ` <span style="font-size:11px;color:var(--text3)">de ${rentUnidades.length}</span>` : ''}</div><div class="stat-label">Unidades</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--green);font-size:18px">L. ${fmtL(totI)}</div><div class="stat-label">Ingresos</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:18px">L. ${fmtL(totE)}</div><div class="stat-label">Egresos</div></div>
       <div class="stat-card"><div class="stat-num" style="color:${totN >= 0 ? 'var(--green)' : 'var(--red)'};font-size:18px">L. ${fmtL(totN)}</div><div class="stat-label">${totN >= 0 ? 'Utilidad' : 'Pérdida'}</div></div>
     </div>`
 
-  if (!rentUnidades.length) {
-    tabla.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Sin unidades para los filtros seleccionados</div>'
+  if (!visibles.length) {
+    tabla.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text3)">${hayFiltro ? 'Ninguna unidad coincide con los filtros' : 'Sin unidades en el rango de fechas'}</div>`
     document.getElementById('btn-rent-xlsx').style.display = 'none'
     return
   }
@@ -1712,7 +1737,7 @@ function renderRentabilidad() {
   // Ordenar según la columna/dirección seleccionada
   const { col, dir } = rentSort
   const mult = dir === 'asc' ? 1 : -1
-  const ordenadas = [...rentUnidades].sort((a, b) => {
+  const ordenadas = [...visibles].sort((a, b) => {
     let va, vb
     if (col === 'registro') { va = a.registro; vb = b.registro }
     else if (col === 'modalidad') { va = a.modalidad || ''; vb = b.modalidad || '' }
@@ -1761,21 +1786,23 @@ function renderRentabilidad() {
 }
 
 window.exportRentabilidadXlsx = function () {
-  if (!rentUnidades.length || !window.XLSX) return
+  const { q, prop, mod, hayFiltro, lista: expUnidades } = rentFiltradas()
+  if (!expUnidades.length || !window.XLSX) return
   const desde = document.getElementById('rent-desde').value
   const hasta = document.getElementById('rent-hasta').value
   const rows = [
     ['RENTABILIDAD POR UNIDAD'],
     [`Período: ${desde} a ${hasta}`],
+    ...(hayFiltro ? [[`Filtros:${prop ? ' propietario ' + prop : ''}${mod ? ' · modalidad ' + mod : ''}${q ? ' · búsqueda "' + q + '"' : ''} — ${expUnidades.length} de ${rentUnidades.length} unidades`]] : []),
     [],
     ['Unidad', 'Modalidad', 'Propietario', 'Motorista', 'Ingresos', 'Egresos', 'Total'],
-    ...rentUnidades.map(u => [u.registro, u.modalidad, u.propietario || '', u.motorista || '',
+    ...expUnidades.map(u => [u.registro, u.modalidad, u.propietario || '', u.motorista || '',
       Math.round(u.totalIngresos * 100) / 100, Math.round(u.totalEgresos * 100) / 100, Math.round(u.neto * 100) / 100]),
     [],
     ['', '', '', 'TOTALES',
-      Math.round(rentUnidades.reduce((s, u) => s + u.totalIngresos, 0) * 100) / 100,
-      Math.round(rentUnidades.reduce((s, u) => s + u.totalEgresos, 0) * 100) / 100,
-      Math.round(rentUnidades.reduce((s, u) => s + u.neto, 0) * 100) / 100]
+      Math.round(expUnidades.reduce((s, u) => s + u.totalIngresos, 0) * 100) / 100,
+      Math.round(expUnidades.reduce((s, u) => s + u.totalEgresos, 0) * 100) / 100,
+      Math.round(expUnidades.reduce((s, u) => s + u.neto, 0) * 100) / 100]
   ]
   const ws = window.XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]

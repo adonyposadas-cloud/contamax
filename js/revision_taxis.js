@@ -27,7 +27,7 @@ let rtxUltUnidad = {}  // identidad → última unidad aprobada anterior (para d
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 
 // Marcador de build — verificar en consola con window.__rtxBuild
-window.__rtxBuild = '20260803-teclado-search-hist'
+window.__rtxBuild = '20260905-km-filtro-exacto'
 
 // Estados que representan dinero realmente recibido. Debe coincidir con
 // FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js.
@@ -2627,8 +2627,16 @@ function rtxKmRenderShell(cargando) {
 
 function rtxKmFiltradas() {
   let rows = rtxKmData.slice()
+  // Filtro por unidad: la coincidencia EXACTA manda. Antes usaba .includes(), asi que
+  // escribir "532" tambien traia "3532" (mismo problema que "398" dentro de "3989").
+  // Si no hay ninguna exacta se cae a parcial, para que sirva mientras se teclea.
   const fu = rtxKmFUnidad.trim()
-  if (fu) rows = rows.filter(r => String(r.unidad).includes(fu))
+  if (fu) {
+    const norm = (v) => String(v ?? '').replace(/\D/g, '').replace(/^0+/, '')
+    const objetivo = norm(fu)
+    const exactas = objetivo ? rows.filter(r => norm(r.unidad) === objetivo) : []
+    rows = exactas.length ? exactas : rows.filter(r => String(r.unidad).includes(fu))
+  }
   if (rtxKmFUsuario) rows = rows.filter(r => (r.usuario_gps || '(sin usuario)') === rtxKmFUsuario)
   const um = parseFloat(rtxKmUmbral)
   if (rtxKmOp && !isNaN(um)) {
