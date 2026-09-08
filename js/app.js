@@ -11467,6 +11467,21 @@ function cxpParseBAC(t) {
 function cxpTokens(s) { return [...new Set(String(s || '').toLowerCase().split(/[^a-z0-9áéíóúñ]+/i).filter(w => w.length >= 3))] }
 function cxpOverlap(a, b) { const B = new Set(b); return a.reduce((n, w) => n + (B.has(w) ? 1 : 0), 0) }
 function cxpDias(a, b) { if (!a || !b) return 999; return Math.abs((new Date(a) - new Date(b)) / 86400000) }
+
+// Palabras que aparecen en casi todos los cargos y no identifican nada. Sin esta lista,
+// "francisco" (de FRANCISCO MOR) o "para" bastaban para dar por buena una coincidencia.
+const CXP_RUIDO = new Set(['francisco','tegucigal','tegucigalpa','comayague','comayaguela','distrito',
+  'para','con','los','las','del','por','sus','una','uno_','sde','inc','cia','honduras','sucursal'])
+// Palabras con peso real: descarta el ruido y los números sueltos (horas, correlativos).
+function cxpTokensUtiles(toks) { return (toks || []).filter(w => !CXP_RUIDO.has(w) && !/^\d+$/.test(w)) }
+function cxpOverlapReal(a, b) { return cxpOverlap(cxpTokensUtiles(a), cxpTokensUtiles(b)) }
+
+// Umbrales del emparejamiento automático. Un candidato que no los cumple NO se empareja:
+// el cargo queda pendiente para revisión manual. Es preferible más trabajo a mano que
+// una atribución equivocada (se detectaron cargos tomados de otra tarjeta y con 42 días
+// de diferencia porque antes se elegía "el mejor candidato" aunque fuera malo).
+const CXP_MAX_DIAS = 3      // la fecha de la partida debe caer dentro de ±3 días del cargo
+const CXP_MIN_PALABRAS = 1  // y compartir al menos una palabra significativa
 // Extrae los montos en dólares que aparecen tras "$" en la descripción (con o sin coma de miles)
 function cxpDolares(desc) {
   const out = []; const re = /\$\s*([\d.,]+)/g; let m
@@ -11497,12 +11512,30 @@ function cxpConciliarEstado(cargos) {
       : pool.filter(p => !usados.has(p.id) && Math.abs(p.monto - cm) < 0.01)
     if (!cand.length) { cargosSinMatch.push(c); return }
     const cTok = cxpTokens(c.desc)
+
+    // Filtro DURO: además del monto, la fecha tiene que estar dentro de ±3 días y
+    // tiene que haber al menos una palabra significativa en común. Antes esto solo
+    // puntuaba, y como se elegía siempre al mejor candidato, un cargo sin ninguna
+    // relación se emparejaba igual con tal de que el monto coincidiera.
+    const validos = cand.filter(p =>
+      cxpDias(c.fecha, p.fecha) <= CXP_MAX_DIAS &&
+      cxpOverlapReal(cTok, p.descTok) >= CXP_MIN_PALABRAS)
+
+    if (!validos.length) {
+      const cerca = cand.map(p => ({ d: cxpDias(c.fecha, p.fecha), o: cxpOverlapReal(cTok, p.descTok) }))
+        .sort((x, y) => x.d - y.d)[0]
+      cargosSinMatch.push({ ...c, _motivo: cerca
+        ? `monto igual pero ${cerca.d > CXP_MAX_DIAS ? `${Math.round(cerca.d)} días de diferencia` : 'sin palabras en común'}`
+        : 'sin monto igual' })
+      return
+    }
+
+    // Entre los válidos, el de fecha más cercana; a igualdad, el de más palabras en común.
     let best = null, bestScore = -Infinity
-    cand.forEach(p => {
-      const ov = cxpOverlap(cTok, p.descTok)
+    validos.forEach(p => {
+      const ov = cxpOverlapReal(cTok, p.descTok)
       const dd = cxpDias(c.fecha, p.fecha)
-      const ds = dd <= 3 ? 2 : dd <= 10 ? 1 : dd <= 31 ? 0.5 : 0
-      const score = ov * 3 + ds
+      const score = ov * 3 + (CXP_MAX_DIAS - dd)
       if (score > bestScore) { bestScore = score; best = p }
     })
     usados.add(best.id)
@@ -11589,13 +11622,13 @@ window.cxpExportSinMatch = () => {
   window.XLSX.utils.book_append_sheet(wb, wsCon, 'Conciliadas')
 
   // Hoja 2: Cargos del estado sin línea en CxP (para que el auxiliar busque las facturas)
-  const rSin = sin.map(c => ({ 'Fecha': c.fecha || '', 'Descripción': String(c.desc || '').replace(/\s+/g, ' ').trim(), 'Moneda': c.moneda || 'HNL', 'Monto': r2(c.monto) }))
+  const rSin = sin.map(c => ({ 'Fecha': c.fecha || '', 'Descripción': String(c.desc || '').replace(/\s+/g, ' ').trim(), 'Moneda': c.moneda || 'HNL', 'Monto': r2(c.monto), 'Por qué no se emparejó': c._motivo || 'sin línea con ese monto en CxP' }))
   const totHNL = r2(sin.filter(c => c.moneda !== 'USD').reduce((s, c) => s + (c.monto || 0), 0))
   const totUSD = r2(sin.filter(c => c.moneda === 'USD').reduce((s, c) => s + (c.monto || 0), 0))
   rSin.push({ 'Fecha': '', 'Descripción': 'TOTAL HNL', 'Moneda': 'HNL', 'Monto': totHNL })
   if (sin.some(c => c.moneda === 'USD')) rSin.push({ 'Fecha': '', 'Descripción': 'TOTAL USD', 'Moneda': 'USD', 'Monto': totUSD })
   const wsSin = window.XLSX.utils.json_to_sheet(rSin.length ? rSin : [{ 'Fecha': '', 'Descripción': '(ninguno)', 'Moneda': '', 'Monto': 0 }])
-  wsSin['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 8 }, { wch: 14 }]
+  wsSin['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 8 }, { wch: 14 }, { wch: 38 }]
   window.XLSX.utils.book_append_sheet(wb, wsSin, 'Cargos sin registrar')
 
   // Hoja 3: Bonos/devoluciones + pago adelantado (valores a registrar para cuadrar la partida)
