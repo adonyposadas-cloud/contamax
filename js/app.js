@@ -11482,6 +11482,12 @@ function cxpOverlapReal(a, b) { return cxpOverlap(cxpTokensUtiles(a), cxpTokensU
 // de diferencia porque antes se elegía "el mejor candidato" aunque fuera malo).
 const CXP_MAX_DIAS = 3      // la fecha de la partida debe caer dentro de ±3 días del cargo
 const CXP_MIN_PALABRAS = 1  // y compartir al menos una palabra significativa
+
+// Igualdad de montos en CENTAVOS ENTEROS. Con `Math.abs(a - b) < 0.01` el punto flotante
+// daba por iguales 199.99 y 200.00: Math.abs(200 - 199.99) = 0.009999999999990905, que es
+// menor que 0.01. Así un cargo de 199.99 llegó a emparejarse con una línea de 200.00.
+const cxpCent = v => Math.round((parseFloat(v) || 0) * 100)
+function cxpMismoMonto(a, b) { return cxpCent(a) === cxpCent(b) }
 // Extrae los montos en dólares que aparecen tras "$" en la descripción (con o sin coma de miles)
 function cxpDolares(desc) {
   const out = []; const re = /\$\s*([\d.,]+)/g; let m
@@ -11508,8 +11514,8 @@ function cxpConciliarEstado(cargos) {
   cargos.forEach(c => {
     const cm = Math.round(c.monto * 100) / 100
     const cand = (c.moneda === 'USD')
-      ? pool.filter(p => !usados.has(p.id) && p.dolares.some(d => Math.abs(d - cm) < 0.01))
-      : pool.filter(p => !usados.has(p.id) && Math.abs(p.monto - cm) < 0.01)
+      ? pool.filter(p => !usados.has(p.id) && p.dolares.some(d => cxpMismoMonto(d, cm)))
+      : pool.filter(p => !usados.has(p.id) && cxpMismoMonto(p.monto, cm))
     if (!cand.length) { cargosSinMatch.push(c); return }
     const cTok = cxpTokens(c.desc)
 

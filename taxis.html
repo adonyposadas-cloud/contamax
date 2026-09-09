@@ -56,6 +56,61 @@
   .moto-info .box.saldo .val{color:var(--amber)}
   .moto-info .box.esperado .val{color:var(--gold)}
 
+  /* Detalle "¿De dónde sale mi saldo?" — el motorista no veía los km y no podía
+     cuadrar su saldo. Se arma con tx_detalle_saldo, que lee tx_saldos (el registro
+     real que formó el saldo), así que siempre coincide con el número de arriba. */
+  .det-toggle{width:100%;margin-top:13px;background:rgba(240,165,0,.10);
+    border:1px solid rgba(240,165,0,.45);color:var(--gold2);border-radius:9px;
+    padding:12px 10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;
+    letter-spacing:.2px;display:flex;align-items:center;justify-content:center;gap:7px}
+  .det-toggle:active{background:rgba(240,165,0,.20)}
+  .det-toggle .chev{font-size:11px;opacity:.8;transition:transform .2s ease}
+  .det-toggle.abierto .chev{transform:rotate(180deg)}
+  .det-box{display:none;margin-top:10px}
+  .det-box.show{display:block;animation:fade .2s ease}
+  .det-row{background:var(--bg2);border-radius:8px;padding:9px 11px;margin-bottom:7px}
+  .det-row .l1{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .det-row .fch{font-size:12.5px;font-weight:600;color:var(--text)}
+  .det-row .mv{font-size:13px;font-weight:600;font-family:var(--mono)}
+  .det-row .mv.cargo{color:var(--amber)}
+  .det-row .mv.abono{color:#4ade80}
+  .det-row .mv.ajuste{color:var(--text2)}
+  .det-row .l2{font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.45}
+  .det-row .sal{font-size:11px;color:var(--text2);margin-top:3px;font-family:var(--mono)}
+  .det-msg{font-size:12px;color:var(--text2);text-align:center;padding:10px}
+  .det-mas{width:100%;background:transparent;border:0.5px dashed var(--border);color:var(--text2);
+    border-radius:8px;padding:8px;font-size:12px;cursor:pointer;font-family:inherit}
+  .det-pie{font-size:11.5px;color:var(--text2);margin-top:9px;padding:9px 11px;
+    background:var(--bg2);border-radius:8px;line-height:1.5}
+
+  /* Días trabajados que todavía no se cobraron. Van ARRIBA porque es lo que el
+     motorista necesita para saber cuánto entregar hoy. */
+  .det-pend{background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.40);
+    border-radius:9px;padding:11px;margin-bottom:12px}
+  .det-pend .tit{font-size:12px;font-weight:600;color:var(--amber);margin-bottom:8px}
+  .det-pend .fila{display:flex;justify-content:space-between;font-size:12px;
+    color:var(--text);padding:4px 0;gap:8px}
+  .det-pend .fila .k{color:var(--text2);font-size:11.5px}
+  .det-pend .fila .v{font-family:var(--mono);font-weight:600}
+  .det-pend .tot{display:flex;justify-content:space-between;margin-top:8px;
+    padding-top:8px;border-top:1px solid rgba(245,158,11,.30);font-size:15px;font-weight:700;
+    align-items:baseline;gap:8px}
+  .det-pend .tot .v{color:var(--gold2);font-family:var(--mono)}
+  .det-pend .tot .k{line-height:1.3}
+  .det-pend .tot small{display:block;font-size:10.5px;font-weight:400;color:var(--text2);
+    text-transform:none;letter-spacing:0;margin-top:2px}
+  .det-pend .aldia{display:flex;justify-content:space-between;margin-top:7px;
+    font-size:11.5px;color:var(--text2);gap:8px}
+  .det-pend .aldia .v{font-family:var(--mono)}
+  .det-pend .nota{font-size:11px;color:var(--text2);margin-top:7px;line-height:1.45}
+  /* Día trabajado cuyo GPS todavía no llegó: se muestra para que el motorista sepa
+     que existe, pero NO suma al total, porque el cobro tampoco lo incluye hasta
+     que lleguen los kilómetros. Así el cuadro nunca contradice a la caja. */
+  .det-pend .fila.singps{opacity:.6}
+  .det-pend .fila.singps .v{font-style:italic;font-weight:500;font-size:11px}
+  .det-sub{font-size:11.5px;color:var(--text2);font-weight:600;text-transform:uppercase;
+    letter-spacing:.5px;margin:4px 0 8px}
+
   .confirma{margin:0 0 16px}
   .confirma-q{font-size:14px;color:var(--text);margin-bottom:10px;text-align:center}
   .confirma-btns{display:flex;gap:10px}
@@ -183,6 +238,10 @@
         <div class="box saldo"><div class="lbl">Saldo actual</div><div class="val" id="mi-saldo">L. 0</div></div>
         <div class="box esperado"><div class="lbl">Esperado hoy</div><div class="val" id="mi-esperado">L. 0</div></div>
       </div>
+      <button class="det-toggle" id="det-btn" onclick="toggleDetalle()">
+        <span id="det-btn-txt">¿De dónde sale mi saldo?</span><span class="chev">▼</span>
+      </button>
+      <div class="det-box" id="det-box"></div>
     </div>
 
     <!-- ¿Sos vos? confirmación -->
@@ -344,7 +403,142 @@ function pintarMotorista(data) {
   const tel = $('telefono'); if (tel) tel.value = data.telefono || ''
 }
 
+// ── DETALLE DEL SALDO ────────────────────────────────────────────────
+// El motorista no tenía forma de ver los km y no entendía de dónde salía
+// su saldo. Esto muestra, día por día, el movimiento que lo formó.
+// Los datos vienen de tx_saldos (lo que realmente pasó), no de un
+// recálculo: así el detalle nunca contradice el saldo de arriba.
+let detAbierto = false, detExtra = 0
+
+window.toggleDetalle = function () {
+  detAbierto = !detAbierto
+  const box = $('det-box'), btn = $('det-btn'), txt = $('det-btn-txt')
+  box.classList.toggle('show', detAbierto)
+  btn.classList.toggle('abierto', detAbierto)
+  if (txt) txt.textContent = detAbierto ? 'Cerrar detalle' : '¿De dónde sale mi saldo?'
+  if (detAbierto) { detExtra = 0; cargarDetalle() }
+}
+
+window.verMasDetalle = function () { detExtra += 7; cargarDetalle() }
+
+async function cargarDetalle() {
+  const box = $('det-box')
+  box.innerHTML = '<div class="det-msg">Cargando…</div>'
+  try {
+    const { data, error } = await sb.rpc('tx_detalle_saldo', { p_unidad: unidadActual, p_extra_dias: detExtra })
+    if (error) throw error
+    if (!data?.ok) { box.innerHTML = `<div class="det-msg">${data?.error || 'No se pudo cargar el detalle.'}</div>`; return }
+    box.innerHTML = pintarDetalle(data)
+  } catch (e) {
+    box.innerHTML = '<div class="det-msg">No se pudo cargar el detalle. Revisá tu conexión.</div>'
+  }
+}
+
+function pintarDetalle(d) {
+  const movs = d.movimientos || []
+  if (!movs.length) return '<div class="det-msg">No hay movimientos en este período.</div>'
+
+  // Agrupar por día. tx_saldos guarda dos movimientos por día (la entrega y la
+  // reconciliación); mostrarlos por separado confunde, porque el mismo día aparece
+  // con un cargo y un abono a la vez. Al motorista le sirve el NETO del día.
+  const dias = []
+  const idx = {}
+  for (const m of movs) {
+    const k = m.fecha
+    if (idx[k] === undefined) { idx[k] = dias.length; dias.push({ ...m, neto: 0, partes: 0 }) }
+    const g = dias[idx[k]]
+    g.neto += (m.tipo === 'cargo' ? 1 : m.tipo === 'abono' ? -1 : 0) * Number(m.monto || 0)
+    g.partes++
+    // el saldo del día es el del movimiento más reciente (el primero que llega)
+  }
+
+  const filas = dias.map(g => {
+    const neto = Math.round(g.neto * 100) / 100
+    const clase = neto > 0 ? 'cargo' : neto < 0 ? 'abono' : 'ajuste'
+    const signo = neto > 0 ? '+' : neto < 0 ? '−' : ''
+    let expl = ''
+    if (g.km === null || g.km === undefined) {
+      expl = 'Sin dato de GPS ese día · no se cobró tarifa'
+    } else if (Number(g.km) < Number(d.km_minimo)) {
+      expl = `${g.km} km · menos de ${d.km_minimo} km, no se cobra tarifa`
+    } else {
+      expl = `${g.km} km · tarifa del día ${fmt(g.tarifa_km)}`
+      expl += Number(g.entregado) > 0 ? ` · entregaste ${fmt(g.entregado)}` : ' · no entregaste ese día'
+    }
+    const resumen = neto > 0 ? 'Te quedó pendiente' : neto < 0 ? 'Abonaste a tu saldo' : 'Quedaste al día'
+    return `<div class="det-row">
+      <div class="l1">
+        <span class="fch">${g.fecha_txt}</span>
+        <span class="mv ${clase}">${signo} ${fmt(Math.abs(neto))}</span>
+      </div>
+      <div class="l2">${expl}</div>
+      <div class="sal">${resumen} · Saldo después: ${fmt(g.saldo)}</div>
+    </div>`
+  }).join('')
+
+  const mas = d.hay_mas
+    ? '<button class="det-mas" onclick="verMasDetalle()">Ver 7 días más</button>'
+    : '<div class="det-msg">No hay más movimientos anteriores.</div>'
+
+  const pie = `<div class="det-pie">
+    Tu tarifa base es de <b>${fmt(d.tarifa_base)}</b> por día. Si recorrés más kilómetros,
+    la tarifa del día sube; los días con menos de ${d.km_minimo} km o sin dato de GPS no se cobran.<br>
+  </div>`
+
+  // Días trabajados desde el último movimiento que aún no se cobraron.
+  // Es lo primero que se muestra: responde "¿cuánto tengo que entregar hoy?"
+  const pend = d.pendientes || []
+  let bloquePend = ''
+  if (pend.length || Number(d.esperado_hoy) > Number(d.saldo_actual) + Number(d.tarifa_base)) {
+    // Las filas tienen que SUMAR el total. Lo que no encaja es el ajuste de días
+    // ya registrados pero aún no reconciliados (ej. entregó de más y todavía no se
+    // le abonó la diferencia). Sin esta línea, el motorista suma y no le da.
+    const sumaPend = pend.reduce((a, p) => a + Number(p.tarifa_km || 0), 0)
+    const ajuste = Math.round((Number(d.esperado_hoy) - Number(d.saldo_actual)
+                   - Number(d.tarifa_base) - sumaPend) * 100) / 100
+    // Lo que le toca hoy para que el saldo quede igual que ayer: es el esperado
+    // total menos la deuda vieja. Es la cifra accionable — el total incluye un
+    // saldo de miles que nadie va a pagar de una vez.
+    const hoyToca = Math.round((Number(d.esperado_hoy) - Number(d.saldo_actual)) * 100) / 100
+    const ajusteTxt = Math.abs(ajuste) >= 0.01
+      ? `<div class="fila"><span class="k">Ajuste de días ya registrados</span><span class="v">${ajuste < 0 ? '−' : '+'} ${fmt(Math.abs(ajuste))}</span></div>`
+      : ''
+    const filasP = pend.map(p => `<div class="fila">
+        <span class="k">${p.fecha_txt}${p.es_hoy ? ' (hoy)' : ''} · ${p.km} km</span>
+        <span class="v">${fmt(p.tarifa_km)}</span>
+      </div>`).join('')
+    // Días posteriores al último movimiento que aún no tienen GPS. Informativos:
+    // no suman, porque tampoco se cobran hasta que lleguen los kilómetros.
+    const filasSin = (d.sin_gps || []).map(p => `<div class="fila singps">
+        <span class="k">${p.fecha_txt}${p.es_hoy ? ' (hoy)' : ''}</span>
+        <span class="v">esperando datos de GPS</span>
+      </div>`).join('')
+    bloquePend = `<div class="det-pend">
+      <div class="tit">⏳ Días trabajados sin cobrar</div>
+      ${(filasP + filasSin) || '<div class="fila"><span class="k">Sin días pendientes</span></div>'}
+      <div class="fila"><span class="k">Tarifa de hoy</span><span class="v">${fmt(d.tarifa_base)}</span></div>
+      <div class="fila"><span class="k">Saldo anterior</span><span class="v">${fmt(d.saldo_actual)}</span></div>
+      ${ajusteTxt}
+      <div class="tot">
+        <span class="k">Entregá hoy<small>para que tu saldo no suba</small></span>
+        <span class="v">${fmt(hoyToca)}</span>
+      </div>
+      <div class="aldia"><span>Si querés quedar sin saldo pendiente</span><span class="v">${fmt(d.esperado_hoy)}</span></div>
+      <div class="nota">Estos días ya los trabajaste pero todavía no se descontaron de tu saldo.
+        Se aplican cuando hacés tu próxima entrega.${(d.sin_gps || []).length
+          ? ' Los días que dicen <b>esperando datos de GPS</b> todavía no se cobran: cuando lleguen los kilómetros se agregan a este total.'
+          : ''}</div>
+    </div>`
+  }
+
+  return bloquePend + '<div class="det-sub">Movimientos anteriores</div>' + filas + mas + pie
+}
+
 function ocultarSecciones() {
+  detAbierto = false; detExtra = 0
+  const _db = $('det-box'), _bt = $('det-btn')
+  if (_db) { _db.classList.remove('show'); _db.innerHTML = '' }
+  if (_bt) { _bt.classList.remove('abierto'); const _t = $('det-btn-txt'); if (_t) _t.textContent = '¿De dónde sale mi saldo?' }
   $('moto-info').classList.remove('show')
   $('confirma').classList.add('hidden')
   $('cambio').classList.add('hidden')
