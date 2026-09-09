@@ -473,7 +473,11 @@ function pintarDetalle(d) {
     } else if (Number(g.km) < Number(d.km_minimo)) {
       expl = `${g.km} km · menos de ${d.km_minimo} km, no se cobra tarifa`
     } else {
-      expl = `${g.km} km · tarifa del día ${fmt(g.tarifa_km)}`
+      // NO se muestra la tarifa en los movimientos ya ocurridos. El monto del
+      // movimiento es un hecho registrado, pero la tarifa se recalcula al vuelo y
+      // puede no coincidir con la que regía ese día (la regla del alivio cambió el
+      // 09/09/2026). Mostrarla contradecía al pie, que indica la tarifa base real.
+      expl = `${g.km} km`
       expl += Number(g.entregado) > 0 ? ` · entregaste ${fmt(g.entregado)}` : ' · no entregaste ese día'
     }
     const resumen = neto > 0 ? 'Te quedó pendiente' : neto < 0 ? 'Abonaste a tu saldo' : 'Quedaste al día'
@@ -506,7 +510,12 @@ function pintarDetalle(d) {
        lo que ves como esperado es tu saldo pendiente de días anteriores.</div>`
     : ''
   let bloquePend = ''
-  if (pend.length || Number(d.esperado_hoy) > Number(d.saldo_actual) + Number(d.tarifa_base)) {
+  // Solo se muestra si hay días CON monto o días esperando GPS. Si todos los días
+  // dieron neto cero, el bloque no aporta nada: enumerar catorce fechas para decir
+  // "no pasó nada" tapaba la pantalla (caso 7118, al día desde el 25/08).
+  const hayQueCobrar = pend.some(p => Math.abs(Number(p.tarifa_km || 0) - Number(p.entregado || 0)) >= 0.01)
+  const haySinGps = (d.sin_gps || []).length > 0
+  if (hayQueCobrar || haySinGps || Number(d.esperado_hoy) > Number(d.saldo_actual) + Number(d.tarifa_base)) {
     // Las filas tienen que SUMAR el total. Lo que no encaja es el ajuste de días
     // ya registrados pero aún no reconciliados (ej. entregó de más y todavía no se
     // le abonó la diferencia). Sin esta línea, el motorista suma y no le da.
@@ -550,7 +559,9 @@ function pintarDetalle(d) {
     bloquePend = `<div class="det-pend">
       <div class="tit">⏳ Días trabajados sin cobrar</div>
       ${(filasP + filasSin) || '<div class="fila"><span class="k">Sin días pendientes</span></div>'}
-      ${pendCero.length ? `<div class="fila" style="opacity:.55"><span class="k">${pendCero.length === 1 ? 'El día' : 'Los días'} ${pendCero.map(p => p.fecha_txt).join(', ')} quedaron sin diferencia</span><span class="v">${fmt(0)}</span></div>` : ''}
+      ${pendCero.length ? `<div class="fila" style="opacity:.55"><span class="k">${pendCero.length === 1
+          ? `El día ${pendCero[0].fecha_txt} quedó sin diferencia`
+          : `Otros ${pendCero.length} días quedaron sin diferencia`}</span><span class="v">${fmt(0)}</span></div>` : ''}
       <div class="fila"><span class="k">Tarifa de hoy</span><span class="v">${fmt(d.tarifa_base)}</span></div>
       <div class="fila"><span class="k">Saldo anterior</span><span class="v">${fmt(d.saldo_actual)}</span></div>
       ${ajusteTxt}
