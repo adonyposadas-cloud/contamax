@@ -110,6 +110,10 @@
   .det-pend .fila.singps .v{font-style:italic;font-weight:500;font-size:11px}
   .det-sub{font-size:11.5px;color:var(--text2);font-weight:600;text-transform:uppercase;
     letter-spacing:.5px;margin:4px 0 8px}
+  /* Aviso cuando ya entregó hoy: explica por qué el esperado no incluye la
+     tarifa del día (tx_calc_monto_km la da por cubierta). */
+  .det-ok{background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.35);
+    border-radius:9px;padding:11px;margin-bottom:12px;font-size:12.5px;color:#4ade80;line-height:1.5}
 
   .confirma{margin:0 0 16px}
   .confirma-q{font-size:14px;color:var(--text);margin-bottom:10px;text-align:center}
@@ -436,7 +440,9 @@ async function cargarDetalle() {
 
 function pintarDetalle(d) {
   const movs = d.movimientos || []
-  if (!movs.length) return '<div class="det-msg">No hay movimientos en este período.</div>'
+  if (!movs.length) {
+    return '<div class="det-msg">Todavía no hay movimientos registrados para esta unidad.</div>'
+  }
 
   // Agrupar por día. tx_saldos guarda dos movimientos por día (la entrega y la
   // reconciliación); mostrarlos por separado confunde, porque el mismo día aparece
@@ -458,7 +464,12 @@ function pintarDetalle(d) {
     const signo = neto > 0 ? '+' : neto < 0 ? '−' : ''
     let expl = ''
     if (g.km === null || g.km === undefined) {
-      expl = 'Sin dato de GPS ese día · no se cobró tarifa'
+      // Sin km pero CON movimiento: el cobro del día se hizo con la tarifa base
+      // y se reajusta cuando el GPS suba los kilómetros. Antes decía "no se cobró
+      // tarifa", que contradecía al cargo que se mostraba al lado.
+      expl = 'Sin dato de GPS todavía'
+      if (Number(g.entregado) > 0) expl += ` · entregaste ${fmt(g.entregado)}`
+      expl += ' · se ajusta cuando lleguen los kilómetros'
     } else if (Number(g.km) < Number(d.km_minimo)) {
       expl = `${g.km} km · menos de ${d.km_minimo} km, no se cobra tarifa`
     } else {
@@ -488,6 +499,12 @@ function pintarDetalle(d) {
   // Días trabajados desde el último movimiento que aún no se cobraron.
   // Es lo primero que se muestra: responde "¿cuánto tengo que entregar hoy?"
   const pend = d.pendientes || []
+  // Ya entregó hoy: la tarifa del día está cubierta, por eso el esperado es
+  // solo el saldo. Sin este aviso, ver saldo y esperado iguales confunde.
+  const avisoHoy = d.ya_entrego_hoy
+    ? `<div class="det-ok">✓ Ya registraste una entrega hoy. La tarifa de hoy está cubierta;
+       lo que ves como esperado es tu saldo pendiente de días anteriores.</div>`
+    : ''
   let bloquePend = ''
   if (pend.length || Number(d.esperado_hoy) > Number(d.saldo_actual) + Number(d.tarifa_base)) {
     // Las filas tienen que SUMAR el total. Lo que no encaja es el ajuste de días
@@ -531,7 +548,7 @@ function pintarDetalle(d) {
     </div>`
   }
 
-  return bloquePend + '<div class="det-sub">Movimientos anteriores</div>' + filas + mas + pie
+  return avisoHoy + bloquePend + '<div class="det-sub">Movimientos anteriores</div>' + filas + mas + pie
 }
 
 function ocultarSecciones() {
