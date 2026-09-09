@@ -24,10 +24,23 @@ const rtxHoy = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America
 let rtxTelIdent = {}   // identidad → teléfono (tx_motoristas)
 let rtxTelUni = {}     // unidad → teléfono (tx_directorio)
 let rtxUltUnidad = {}  // identidad → última unidad aprobada anterior (para detectar cambio)
+
+// GPS sin reportar: el RPA graba 1.001 km cuando no obtiene lectura. Si ese día
+// el motorista entregó dinero, la unidad SÍ se movió: nadie paga sin trabajar.
+// Esa contradicción es la señal de que hay que ir a revisar el GPS.
+const RTX_KM_CENTINELA = 1.001
+// El centinela se compara con tolerancia: según de dónde venga el dato puede
+// llegar como 1.001 o redondeado a 1.00, y una comparación exacta lo perdería.
+function rtxEsCentinela(km) {
+  const v = Number(km)
+  return Number.isFinite(v) && Math.abs(v - RTX_KM_CENTINELA) < 0.01
+}
+let rtxGpsDia = {}    // "unidad|fecha" → true si ese día el GPS no reportó
+let rtxGpsRacha = {}  // unidad → días con GPS caído en los últimos 30, habiendo entregado
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 
 // Marcador de build — verificar en consola con window.__rtxBuild
-window.__rtxBuild = '20260905-km-filtro-exacto'
+window.__rtxBuild = '20260909b-gps-flota'
 
 // Estados que representan dinero realmente recibido. Debe coincidir con
 // FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js.
@@ -53,6 +66,7 @@ window.initRevisionTaxis = async () => {
   rtx7dEnsure()   // inyecta estilos (botones WhatsApp + modal 7 días)
   rtxKmEnsureTab()      // crea la pestaña "KM recorridos" si no existe
   rtxHistEnsureTab()    // crea la pestaña "Historial" si no existe
+  rtxGpsEnsureTab()     // crea la pestaña "GPS flota" si no existe
   rtxAplicarPermisos()  // oculta pestañas según permisos del usuario
   if (!rtxFechaSol) rtxFechaSol = rtxHoy()
   const inp = document.getElementById('rtx-fecha'); if (inp) inp.value = rtxFechaSol
@@ -110,6 +124,7 @@ window.rtxConsultar = async (silent = false) => {
     rtxEntregas = data || []
     await rtxCargarTelefonos()
     await rtxCargarUltimaUnidad()
+    await rtxCargarGpsCaido()
     rtxRender()
   } catch (e) {
     if (!silent) window.toast?.('Error: ' + (e.message || e), 'error')
@@ -182,6 +197,53 @@ async function rtxCargarUltimaUnidad() {
   } catch (e) { /* silencioso: si falla, no se muestra el aviso de cambio */ }
 }
 
+// Marca los días en que el GPS no reportó (km = 1.001) para las unidades del día,
+// y cuenta cuántos días lleva así cada unidad en el último mes. Un solo día puede
+// ser un fallo puntual del RPA; tres o más ya es un GPS que hay que revisar.
+async function rtxCargarGpsCaido() {
+  rtxGpsDia = {}; rtxGpsRacha = {}
+  try {
+    const unis = [...new Set(rtxEntregas.map(e => e.unidad).filter(u => u != null).map(String))]
+    if (!unis.length) return
+    // variantes del número de unidad, igual que hace tx_km_dia en la base
+    const variantes = [...new Set(unis.flatMap(u => [u, u.replace(/^0+/, ''), u.padStart(4, '0')]))]
+    const desde = new Date(rtxFechaSol + 'T00:00:00')
+    desde.setDate(desde.getDate() - 30)
+    const desdeStr = desde.toISOString().slice(0, 10)
+
+    // Paginado: mismo motivo que en la pestaña GPS flota — 30 días por muchas
+    // unidades supera las 1000 filas y PostgREST corta sin avisar.
+    const traer = async (build) => window._fetchAllPag
+      ? (await window._fetchAllPag(build)) || []
+      : ((await build()).data || [])
+    const kms = await traer(() => rtxSb().from('km_diarios_taxis')
+      .select('unidad, fecha, km_recorridos')
+      .in('unidad', variantes).gte('fecha', desdeStr).lte('fecha', rtxFechaSol)
+      .order('fecha').order('unidad'))
+    const caido = new Set()
+    ;(kms || []).forEach(k => {
+      if (rtxEsCentinela(k.km_recorridos)) {
+        caido.add(String(k.unidad).replace(/^0+/, '') + '|' + k.fecha)
+      }
+    })
+
+    // Solo cuenta como GPS caído si ADEMÁS hubo entrega con monto ese día
+    const ents = await traer(() => rtxSb().from('entregas_taxis')
+      .select('unidad, fecha_deposito, monto, estado')
+      .in('unidad', unis).gte('fecha_deposito', desdeStr).lte('fecha_deposito', rtxFechaSol)
+      .order('fecha_deposito').order('id'))
+    ;(ents || []).forEach(e => {
+      if ((e.estado || '') === 'Rechazada' || !(Number(e.monto) > 0)) return
+      const u = String(e.unidad).replace(/^0+/, '')
+      if (!caido.has(u + '|' + e.fecha_deposito)) return
+      rtxGpsDia[String(e.unidad) + '|' + e.fecha_deposito] = true
+      rtxGpsRacha[String(e.unidad)] = (rtxGpsRacha[String(e.unidad)] || new Set())
+      rtxGpsRacha[String(e.unidad)].add(e.fecha_deposito)
+    })
+    Object.keys(rtxGpsRacha).forEach(u => { rtxGpsRacha[u] = rtxGpsRacha[u].size })
+  } catch (e) { /* silencioso: si falla, simplemente no se muestra la alerta */ }
+}
+
 function rtxRender() {
   const cont = document.getElementById('rtx-resultado')
   if (!cont) return
@@ -196,6 +258,18 @@ function rtxRender() {
       <div class="rtx-stat pend"><div class="rtx-stat-n">${por.Pendiente.n}</div><div class="rtx-stat-l">Pendientes</div></div>
       <div class="rtx-stat apr"><div class="rtx-stat-n">${por.Aprobada.n}</div><div class="rtx-stat-l">Aprobadas</div></div>
       <div class="rtx-stat rec"><div class="rtx-stat-n">${por.Rechazada.n}</div><div class="rtx-stat-l">Rechazadas</div></div>
+      ${(() => {
+        // Unidades del día que entregaron sin que el GPS reportara movimiento.
+        const u = new Set(rtxEntregas
+          .filter(x => rtxGpsDia[String(x.unidad) + '|' + x.fecha_deposito])
+          .map(x => String(x.unidad)))
+        if (!u.size) return ''
+        const graves = [...u].filter(x => (rtxGpsRacha[x] || 0) >= 3).length
+        return `<div class="rtx-stat" style="border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.08)">
+          <div class="rtx-stat-n" style="color:#f87171">${u.size}</div>
+          <div class="rtx-stat-l">GPS a revisar${graves ? ` · ${graves} con 3+ días` : ''}</div>
+        </div>`
+      })()}
     </div>`
 
   // Conteos para los chips (sobre todo lo cargado)
@@ -250,6 +324,16 @@ function rtxRender() {
     const cambioBadge = cambioUni
       ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.45);color:#f0a500;font-size:12px;font-weight:600">🔁 Cambio de unidad: venía en #${prevU}, entregó en #${e.unidad}</div>`
       : ''
+    // GPS caído: la unidad entregó pero el GPS no reportó movimiento ese día.
+    const gpsCaido = !!rtxGpsDia[String(e.unidad) + '|' + e.fecha_deposito]
+    const gpsDias = rtxGpsRacha[String(e.unidad)] || 0
+    const gpsBadge = gpsCaido
+      ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(239,68,68,${gpsDias >= 3 ? '.16' : '.10'});border:1px solid rgba(239,68,68,${gpsDias >= 3 ? '.55' : '.35'});color:#f87171;font-size:12px;font-weight:600">
+           📡 Revisar GPS de la unidad · entregó pero el GPS no reportó movimiento${gpsDias >= 3
+             ? `<div style="font-weight:400;font-size:11px;margin-top:3px;opacity:.9">Van ${gpsDias} días así en el último mes — no parece un fallo puntual</div>` : ''}
+         </div>`
+      : ''
+    const msgGps = `Hola ${nombre}, el GPS de la Unidad #${uni} no está reportando movimiento aunque la unidad sí está trabajando.\n\nPor favor pasá al taller para que lo revisen.`
     const msgConex = `Hola ${nombre}, el dispositivo de Unidad #${uni} *NO ESTÁ EN LÍNEA*.\n\nRevisá:\n1. Internet del celular\n2. Compartir datos al dispositivo\n3. Dispositivo encendido\n\nUna vez corregido se programará.`
     const msgAprob = `Hola ${nombre}, tu pago de Unidad #${uni} fue *APROBADO*. Ya podés trabajar.`
     const msgRech  = `Hola ${nombre}, tu solicitud de Unidad #${uni} fue *RECHAZADA*. Por favor comunicate con el encargado.`
@@ -274,6 +358,7 @@ function rtxRender() {
             ${badge(est)}
           </div>
           ${cambioBadge}
+          ${gpsBadge}
           <div class="rtx-grid">
             <div><span>Monto</span><b>L. ${rtxFmt(e.monto)}</b></div>
             <div><span>Medio</span><b>${e.banco || '—'}</b></div>
@@ -285,6 +370,7 @@ function rtxRender() {
           </div>
           <div class="rtx-acts">
             <button class="rtx-b ghost" onclick="rtxVer7dias('${e.identidad}','${e.unidad}','${e.fecha_deposito}')">📅 7 días</button>
+            ${gpsCaido ? waBtn(msgGps, '📡 Avisar GPS', 'conex') : ''}
             ${acciones}
             ${rtxEsSuper() ? `<button class="rtx-b edit" onclick="rtxEditar('${e.id}')">✏️ Editar</button>` : ''}
             <button class="rtx-b del" onclick="rtxEliminar('${e.id}')">🗑 Eliminar</button>
@@ -654,7 +740,7 @@ let rtxDashAuditLoading = false
 const RTX_KM_TRABAJO = 50     // km mínimos para considerar que la unidad "trabajó"
 
 window.rtxTab = (tab) => {
-  const tabs = ['sol', 'dash', 'mot', 'km', 'hist']
+  const tabs = ['sol', 'dash', 'mot', 'km', 'hist', 'gps']
   tabs.forEach(t => {
     const tb = document.getElementById('rtx-tab-' + t)
     const pn = document.getElementById('rtx-pane-' + t)
@@ -670,6 +756,8 @@ window.rtxTab = (tab) => {
     rtxKmAbrir()
   } else if (tab === 'hist') {
     rtxHistAbrir()
+  } else if (tab === 'gps') {
+    rtxGpsAbrir()
   }
 }
 
@@ -2873,4 +2961,206 @@ function rtxKmEnsureStyles() {
     .rtx-km-chk{display:flex;gap:7px;align-items:center;font-size:13px;margin-top:8px;color:#cfd3da}
     .rtx-km-edit-btns{display:flex;gap:8px;margin-top:10px}`
   document.head.appendChild(s)
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// GPS FLOTA — panorama de toda la flota en una sola vista
+//
+// Detecta el conflicto: la unidad entregó dinero pero el GPS no reportó
+// movimiento (el RPA graba 1.001 km cuando no obtiene lectura). Nadie paga
+// sin trabajar, así que esa contradicción señala un GPS a revisar.
+//
+// Distingue eso de una unidad simplemente parada: sin lecturas Y sin
+// entregas es "Sin actividad" (taller, unidad fuera de servicio), no alerta.
+// ══════════════════════════════════════════════════════════════════════
+let rtxGpsData = null
+let rtxGpsFiltro = 'problema'   // problema | todas
+let rtxGpsVentana = 30
+
+function rtxGpsEnsureTab() {
+  if (document.getElementById('rtx-tab-gps')) return
+  const barra = document.querySelector('.rtx-tabs')
+  const paneRef = document.getElementById('rtx-pane-sol') || document.getElementById('rtx-pane-dash')
+  if (!barra || !paneRef) return
+  const btn = document.createElement('button')
+  btn.id = 'rtx-tab-gps'; btn.className = 'rtx-tab'
+  btn.textContent = '📡 GPS flota'
+  btn.onclick = () => rtxTab('gps')
+  barra.appendChild(btn)
+  const pane = document.createElement('div')
+  pane.id = 'rtx-pane-gps'; pane.className = 'hidden'
+  pane.innerHTML = '<div id="rtx-gps-root"></div>'
+  paneRef.parentNode.appendChild(pane)
+}
+
+window.rtxGpsAbrir = () => { rtxGpsShell(); if (!rtxGpsData) rtxGpsCargar(); else rtxGpsPintar() }
+window.rtxGpsSetFiltro = (v) => { rtxGpsFiltro = v; rtxGpsPintar() }
+window.rtxGpsSetVentana = (v) => { rtxGpsVentana = parseInt(v, 10) || 30; rtxGpsCargar() }
+window.rtxGpsRecargar = () => rtxGpsCargar()
+
+function rtxGpsShell() {
+  const r = document.getElementById('rtx-gps-root')
+  if (!r) return
+  r.innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <select class="rtx-inp" onchange="rtxGpsSetVentana(this.value)" style="max-width:170px">
+        <option value="30"${rtxGpsVentana === 30 ? ' selected' : ''}>Últimos 30 días</option>
+        <option value="15"${rtxGpsVentana === 15 ? ' selected' : ''}>Últimos 15 días</option>
+        <option value="60"${rtxGpsVentana === 60 ? ' selected' : ''}>Últimos 60 días</option>
+      </select>
+      <button class="rtx-b" onclick="rtxGpsRecargar()">↻ Actualizar</button>
+      <div id="rtx-gps-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+    <div id="rtx-gps-body"><div class="rtx-empty">Cargando flota…</div></div>`
+}
+
+async function rtxGpsCargar() {
+  const body = document.getElementById('rtx-gps-body')
+  if (body) body.innerHTML = '<div class="rtx-empty">Cargando flota…</div>'
+  try {
+    const hasta = rtxKmLocalDate()
+    const d = new Date(); d.setDate(d.getDate() - rtxGpsVentana)
+    const desde = rtxKmLocalDate(d)
+
+    // Paginado obligatorio: 138 unidades x 30 días pasan de 4.000 filas y PostgREST
+    // corta en 1000 SIN AVISAR. Sin esto, las unidades cuyas lecturas caían fuera de
+    // las primeras 1000 aparecían como "Sin GPS · nunca" teniendo km normales
+    // (pasó con las unidades 8603 y 7657).
+    const traer = async (build) => window._fetchAllPag
+      ? (await window._fetchAllPag(build)) || []
+      : ((await build()).data || [])
+
+    const dir  = await traer(() => rtxSb().from('tx_directorio').select('unidad, identidad').order('unidad'))
+    const mots = await traer(() => rtxSb().from('tx_motoristas').select('identidad, nombre, activo').order('identidad'))
+    const kms  = await traer(() => rtxSb().from('km_diarios_taxis')
+      .select('unidad, fecha, km_recorridos').gte('fecha', desde).lte('fecha', hasta)
+      .order('fecha').order('unidad'))
+    const ents = await traer(() => rtxSb().from('entregas_taxis')
+      .select('unidad, fecha_deposito, monto, estado').gte('fecha_deposito', desde).lte('fecha_deposito', hasta)
+      .order('fecha_deposito').order('id'))
+
+    const nombre = {}; (mots || []).forEach(m => { nombre[m.identidad] = m })
+    const norm = u => String(u == null ? '' : u).replace(/^0+/, '')
+
+    // km por unidad: última lectura REAL (≠ centinela) y set de días caídos
+    const ultReal = {}, caido = {}
+    ;(kms || []).forEach(k => {
+      const u = norm(k.unidad)
+      if (rtxEsCentinela(k.km_recorridos)) { (caido[u] = caido[u] || new Set()).add(k.fecha) }
+      else if (!ultReal[u] || k.fecha > ultReal[u]) ultReal[u] = k.fecha
+    })
+
+    // entregas por unidad
+    const entDias = {}, entTot = {}
+    ;(ents || []).forEach(e => {
+      if ((e.estado || '') === 'Rechazada' || !(Number(e.monto) > 0)) return
+      const u = norm(e.unidad)
+      ;(entDias[u] = entDias[u] || new Set()).add(e.fecha_deposito)
+      entTot[u] = (entTot[u] || 0) + 1
+    })
+
+    const hoyD = new Date(hasta + 'T12:00:00')
+    rtxGpsData = (dir || []).map(x => {
+      const u = norm(x.unidad)
+      const mot = nombre[x.identidad] || {}
+      const dias = [...(caido[u] || [])].filter(f => (entDias[u] || new Set()).has(f))
+      const ul = ultReal[u] || null
+      const sinLectura = ul ? Math.round((hoyD - new Date(ul + 'T12:00:00')) / 86400000) : null
+      const entregas = entTot[u] || 0
+      // Clasificación. "Sin lecturas pero CON entregas" es lo más grave: el GPS
+      // nunca reportó nada mientras la unidad trabaja (caso de la unidad 5413,
+      // que la primera versión de esta consulta daba por buena).
+      // Si la última lectura REAL es posterior al último día caído, el GPS ya se
+      // recuperó y la unidad no debe seguir en la lista de revisar: los días viejos
+      // son historia, no un problema abierto (caso 5940, caído del 23 al 30 de
+      // agosto y reportando normal desde el 31).
+      const ultCaido = dias.length ? dias.slice().sort().pop() : null
+      const recuperado = !!(ul && ultCaido && ul > ultCaido)
+      let estado
+      if (!ul && entregas > 0) estado = 'sin-gps'
+      else if (recuperado) estado = 'ok'
+      else if (dias.length >= 3) estado = 'critico'
+      else if (dias.length >= 1) estado = 'revisar'
+      else if (entregas === 0) estado = 'parada'
+      else estado = 'ok'
+      return { unidad: String(x.unidad), nombre: mot.nombre || '—', activo: mot.activo !== false,
+               ult_real: ul, dias_sin_lectura: sinLectura, dias_caido: dias.length,
+               ult_caido: ultCaido, recuperado, entregas, estado }
+    })
+    rtxGpsPintar()
+  } catch (e) {
+    if (body) body.innerHTML = `<div class="rtx-empty">No se pudo cargar: ${e.message || e}</div>`
+  }
+}
+
+function rtxGpsPintar() {
+  const body = document.getElementById('rtx-gps-body')
+  const chips = document.getElementById('rtx-gps-chips')
+  if (!body || !rtxGpsData) return
+
+  const ORDEN = { 'sin-gps': 0, critico: 1, revisar: 2, parada: 3, ok: 4 }
+  const META = {
+    'sin-gps': { t: 'Sin GPS', c: '#f87171', bg: 'rgba(239,68,68,.14)', d: 'entrega pero el GPS nunca reportó' },
+    critico:   { t: 'Crítico',  c: '#f87171', bg: 'rgba(239,68,68,.10)', d: '3 o más días entregando sin señal' },
+    revisar:   { t: 'Revisar',  c: '#fbbf24', bg: 'rgba(245,158,11,.10)', d: '1 o 2 días entregando sin señal' },
+    parada:    { t: 'Sin actividad', c: '#8b949e', bg: 'rgba(139,148,158,.08)', d: 'sin entregas en el período' },
+    ok:        { t: 'OK', c: '#4ade80', bg: 'rgba(34,197,94,.08)', d: 'GPS reportando normal' }
+  }
+  const ETIQ = {
+    ok: (x) => x.recuperado ? 'Recuperado' : 'OK'
+  }
+  const cuenta = {}
+  rtxGpsData.forEach(x => { cuenta[x.estado] = (cuenta[x.estado] || 0) + 1 })
+  const conProblema = (cuenta['sin-gps'] || 0) + (cuenta.critico || 0) + (cuenta.revisar || 0)
+
+  if (chips) chips.innerHTML =
+    `<button class="rtx-chip${rtxGpsFiltro === 'problema' ? ' on' : ''}" onclick="rtxGpsSetFiltro('problema')">A revisar ${conProblema}</button>
+     <button class="rtx-chip${rtxGpsFiltro === 'todas' ? ' on' : ''}" onclick="rtxGpsSetFiltro('todas')">Toda la flota ${rtxGpsData.length}</button>`
+
+  const lista = rtxGpsData
+    .filter(x => rtxGpsFiltro === 'todas' || ['sin-gps', 'critico', 'revisar'].includes(x.estado))
+    .sort((a, b) => (ORDEN[a.estado] - ORDEN[b.estado]) || (b.dias_caido - a.dias_caido)
+                 || ((b.dias_sin_lectura || 0) - (a.dias_sin_lectura || 0)))
+
+  const resumen = Object.keys(META).filter(k => cuenta[k]).map(k =>
+    `<div class="rtx-stat" style="border-color:${META[k].c}44;background:${META[k].bg}">
+       <div class="rtx-stat-n" style="color:${META[k].c}">${cuenta[k]}</div>
+       <div class="rtx-stat-l">${META[k].t}</div></div>`).join('')
+
+  const filas = lista.map(x => {
+    const m = META[x.estado]
+    const ult = x.ult_real
+      ? `${x.ult_real} <span style="color:var(--text3,#6e7681)">(hace ${x.dias_sin_lectura} d)</span>`
+      : '<span style="color:#f87171">nunca</span>'
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:9px 8px;font-family:var(--mono);font-weight:600;color:var(--gold)">${x.unidad}</td>
+      <td style="padding:9px 8px;font-size:12.5px">${x.nombre}${x.activo ? '' : ' <span style="color:var(--text3,#6e7681);font-size:11px">(inactivo)</span>'}</td>
+      <td style="padding:9px 8px;font-size:12px">${ult}</td>
+      <td style="padding:9px 8px;text-align:center;font-family:var(--mono)">${
+        x.recuperado
+          ? `<span title="ya se recuperó" style="color:#4ade80">${x.dias_caido} ✓</span>`
+          : (x.dias_caido || '—')}</td>
+      <td style="padding:9px 8px;text-align:center;font-family:var(--mono)">${x.entregas}</td>
+      <td style="padding:9px 8px"><span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;color:${m.c};background:${m.bg};border:1px solid ${m.c}55">${
+        (ETIQ[x.estado] ? ETIQ[x.estado](x) : m.t)}</span></td>
+    </tr>`
+  }).join('')
+
+  body.innerHTML = `
+    <div class="rtx-stats" style="margin-bottom:12px">${resumen}</div>
+    ${lista.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:640px">
+      <thead><tr style="border-bottom:1px solid var(--border2,#3a4452)">
+        <th style="text-align:left;padding:8px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Unidad</th>
+        <th style="text-align:left;padding:8px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Motorista</th>
+        <th style="text-align:left;padding:8px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Última lectura real</th>
+        <th style="padding:8px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Días caído</th>
+        <th style="padding:8px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Entregas</th>
+        <th style="text-align:left;padding:8px;font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Estado</th>
+      </tr></thead><tbody>${filas}</tbody></table></div>`
+      : '<div class="rtx-empty">Ninguna unidad con problemas de GPS en este período.</div>'}
+    <div style="margin-top:12px;font-size:11.5px;color:var(--text2);line-height:1.6">
+      <b>Sin GPS</b>: ${META['sin-gps'].d} · <b>Crítico</b>: ${META.critico.d} · <b>Revisar</b>: ${META.revisar.d}<br>
+      <b>Sin actividad</b>: ${META.parada.d} — normalmente unidades en taller, no requieren revisar el GPS.<br>
+      <b>Recuperado</b>: tuvo días caídos pero ya volvió a reportar; sale de la lista de revisar.
+    </div>`
 }

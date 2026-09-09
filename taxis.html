@@ -510,20 +510,37 @@ function pintarDetalle(d) {
     // Las filas tienen que SUMAR el total. Lo que no encaja es el ajuste de días
     // ya registrados pero aún no reconciliados (ej. entregó de más y todavía no se
     // le abonó la diferencia). Sin esta línea, el motorista suma y no le da.
-    const sumaPend = pend.reduce((a, p) => a + Number(p.tarifa_km || 0), 0)
+    const sumaPend = pend.reduce((a, p) => a + Number(p.tarifa_km || 0) - Number(p.entregado || 0), 0)
     const ajuste = Math.round((Number(d.esperado_hoy) - Number(d.saldo_actual)
                    - Number(d.tarifa_base) - sumaPend) * 100) / 100
     // Lo que le toca hoy para que el saldo quede igual que ayer: es el esperado
     // total menos la deuda vieja. Es la cifra accionable — el total incluye un
     // saldo de miles que nadie va a pagar de una vez.
     const hoyToca = Math.round((Number(d.esperado_hoy) - Number(d.saldo_actual)) * 100) / 100
-    const ajusteTxt = Math.abs(ajuste) >= 0.01
-      ? `<div class="fila"><span class="k">Ajuste de días ya registrados</span><span class="v">${ajuste < 0 ? '−' : '+'} ${fmt(Math.abs(ajuste))}</span></div>`
+    const fAj = d.ultima_entrega
+      ? String(d.ultima_entrega).slice(8, 10) + '/' + String(d.ultima_entrega).slice(5, 7)
       : ''
-    const filasP = pend.map(p => `<div class="fila">
-        <span class="k">${p.fecha_txt}${p.es_hoy ? ' (hoy)' : ''} · ${p.km} km</span>
-        <span class="v">${fmt(p.tarifa_km)}</span>
-      </div>`).join('')
+    const ajusteTxt = Math.abs(ajuste) >= 0.01
+      ? `<div class="fila"><span class="k">Ajuste del ${fAj || 'día ya registrado'} (pendiente de reconciliar)</span><span class="v">${ajuste < 0 ? '−' : '+'} ${fmt(Math.abs(ajuste))}</span></div>`
+      : ''
+    // Cada día pendiente se muestra NETO: tarifa del día menos lo que entregó.
+    // Antes solo se listaba la tarifa y lo entregado quedaba fuera, así que la
+    // diferencia aparecía abajo como un "ajuste" que nadie podía ubicar.
+    // Un día cuyo neto es cero ya está saldado (entregó justo la tarifa) o no se
+    // cobró (menos de 45 km). No corresponde listarlo bajo "días sin cobrar": no
+    // suma nada y confunde. Se resume abajo en una línea para no ocultarlo.
+    const neto1 = p => Math.round((Number(p.tarifa_km || 0) - Number(p.entregado || 0)) * 100) / 100
+    const pendVis = pend.filter(p => Math.abs(neto1(p)) >= 0.01)
+    const pendCero = pend.filter(p => Math.abs(neto1(p)) < 0.01)
+    const filasP = pendVis.map(p => {
+      const neto = Math.round((Number(p.tarifa_km || 0) - Number(p.entregado || 0)) * 100) / 100
+      const det = Number(p.entregado) > 0
+        ? `${p.km} km · tarifa ${fmt(p.tarifa_km)} · entregaste ${fmt(p.entregado)}`
+        : `${p.km} km · tarifa ${fmt(p.tarifa_km)}`
+      return `<div class="fila">
+        <span class="k">${p.fecha_txt}${p.es_hoy ? ' (hoy)' : ''} · ${det}</span>
+        <span class="v" style="${neto < 0 ? 'color:#4ade80' : ''}">${neto < 0 ? '− ' : ''}${fmt(Math.abs(neto))}</span>
+      </div>` }).join('')
     // Días posteriores al último movimiento que aún no tienen GPS. Informativos:
     // no suman, porque tampoco se cobran hasta que lleguen los kilómetros.
     const filasSin = (d.sin_gps || []).map(p => `<div class="fila singps">
@@ -533,6 +550,7 @@ function pintarDetalle(d) {
     bloquePend = `<div class="det-pend">
       <div class="tit">⏳ Días trabajados sin cobrar</div>
       ${(filasP + filasSin) || '<div class="fila"><span class="k">Sin días pendientes</span></div>'}
+      ${pendCero.length ? `<div class="fila" style="opacity:.55"><span class="k">${pendCero.length === 1 ? 'El día' : 'Los días'} ${pendCero.map(p => p.fecha_txt).join(', ')} quedaron sin diferencia</span><span class="v">${fmt(0)}</span></div>` : ''}
       <div class="fila"><span class="k">Tarifa de hoy</span><span class="v">${fmt(d.tarifa_base)}</span></div>
       <div class="fila"><span class="k">Saldo anterior</span><span class="v">${fmt(d.saldo_actual)}</span></div>
       ${ajusteTxt}
