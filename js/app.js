@@ -2284,7 +2284,13 @@ async function loadPartidas() {
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })   // desempate único para paginar sin perder filas
       // Si el usuario tiene "solo sus partidas", filtrar por las que él generó
-      if (window._soloSusPartidas && currentProfile?.id) q = q.eq('generada_por', currentProfile.id)
+      if (window._soloSusPartidas && currentProfile?.id) {
+        // "Ver solo sus propios asientos" ademas deja ver las compras importadas
+        // de Taller Alpha: no tienen autor humano real (las firma quien corrio la
+        // importacion) y el auxiliar contable las necesita para trabajar.
+        // Las sensibles quedan fuera aunque vengan de Alpha.
+        q = q.or(`generada_por.eq.${currentProfile.id},and(tipo_origen.eq.compra_alpha,es_sensible.is.false)`)
+      }
       return q
     })
   } catch (error) {
@@ -3683,8 +3689,10 @@ window.guardarPartida = async (estado) => {
   }
 
   // ── SINCRONIZAR LIBRO DE COMPRAS ──
-  // Solo para partidas de tipo 'compra'
-  if (tipo_origen === 'compra' && documento) {
+  // Aplica a compras cargadas a mano Y a las importadas de Taller Alpha.
+  // Al separar 'compra_alpha' como tipo propio, esta condicion dejaba fuera del
+  // libro de compras (registro fiscal) todo lo que entra por la importacion.
+  if ((tipo_origen === 'compra' || tipo_origen === 'compra_alpha') && documento) {
     await syncLibroCompras(partidaId, fecha, documento, lineasValidas, descripcion)
   }
 
@@ -7528,7 +7536,11 @@ window.guardarImportCompras = async () => {
     const { data: partida, error: errP } = await sb.from('partidas_contables').insert({
       centro_costo_id: centroCostoId,
       generada_por: currentProfile.id,
-      tipo_origen: 'compra',
+      // Marca propia para las compras que entran por la importacion de Taller
+      // Alpha. Antes iban como 'compra' y no habia forma de distinguirlas de las
+      // que un contador carga a mano: la unica senal era el sufijo [IMP-COMPRA]
+      // dentro de la descripcion, que es texto y se rompe si alguien lo edita.
+      tipo_origen: 'compra_alpha',
       descripcion: descripcion,
       fecha_partida: fechaISO,
       numero_partida: numPartidaImp,
