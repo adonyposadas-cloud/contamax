@@ -40,7 +40,7 @@ let rtxGpsRacha = {}  // unidad → días con GPS caído en los últimos 30, hab
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 
 // Marcador de build — verificar en consola con window.__rtxBuild
-window.__rtxBuild = '20260909b-gps-flota'
+window.__rtxBuild = '20260910-origen-cambios'
 
 // Estados que representan dinero realmente recibido. Debe coincidir con
 // FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js.
@@ -1652,11 +1652,28 @@ async function rtxCambiosCargar() {
     if (error) throw error
     const arr = Array.isArray(data) ? data : []
     if (!arr.length) { body.innerHTML = '<div style="color:#8b8f98;padding:8px">Sin cambios de unidad registrados.</div>'; return }
+    // El origen se muestra tal como quedo guardado. Antes cualquier valor que no
+    // fuera 'caja' se pintaba como "Motorista", asi que los cambios administrativos
+    // (la consolidacion del directorio) aparecian como si los hubiera hecho un
+    // motorista y no habia forma de distinguirlos.
+    const ORIGEN = {
+      caja:                'Caja',
+      motorista:           'Motorista',
+      consolidacion:       'Consolidación',
+      tx_asignar_unidad:   'Asignación'
+    }
+    const pintaOrigen = (o) => {
+      const k = String(o || '').trim()
+      if (!k) return '<span style="color:#8b8f98">—</span>'
+      const txt = ORIGEN[k] || k
+      const admin = (k === 'consolidacion')
+      return `<span style="${admin ? 'color:#8b8f98;font-style:italic' : ''}">${txt}</span>`
+    }
     const rows = arr.map(c => `<tr>
       <td style="white-space:nowrap">${c.fecha || '—'}</td>
       <td>${c.nombre || '—'}<div style="color:#8b8f98;font-size:11px">${c.identidad}</div></td>
       <td style="white-space:nowrap">#${c.unidad_anterior || '—'} → <b style="color:#f0a500">#${c.unidad_nueva || '—'}</b></td>
-      <td>${c.origen === 'caja' ? 'Caja' : 'Motorista'}</td>
+      <td>${pintaOrigen(c.origen)}</td>
     </tr>`).join('')
     body.innerHTML = `
       <table class="rtx-7d-tbl" style="width:100%">
