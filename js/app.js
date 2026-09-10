@@ -11507,7 +11507,12 @@ function cxpConciliarEstado(cargos) {
       monto: Math.round((parseFloat(l.monto) || 0) * 100) / 100,
       descTok: cxpTokens(descRaw),
       dolares: cxpDolares(descRaw),
-      fecha: (l.partida && l.partida.fecha_partida) || ''
+      fecha: (l.partida && l.partida.fecha_partida) || '',
+      // Para poder señalar en el reporte cuál fue la línea que estuvo cerca y no
+      // pasó el filtro: sin la partida hay que buscarla a mano por monto.
+      part: (l.partida && l.partida.numero_partida) || '',
+      desc: String(descRaw).replace(/\s+/g, ' ').trim(),
+      cuenta: l.cuenta_codigo || ''
     }
   })
   const usados = new Set(), matched = [], cargosSinMatch = []
@@ -11528,11 +11533,19 @@ function cxpConciliarEstado(cargos) {
       cxpOverlapReal(cTok, p.descTok) >= CXP_MIN_PALABRAS)
 
     if (!validos.length) {
-      const cerca = cand.map(p => ({ d: cxpDias(c.fecha, p.fecha), o: cxpOverlapReal(cTok, p.descTok) }))
+      // El candidato más cercano en fecha: se reporta para que la búsqueda manual
+      // arranque de algún lado en vez de rastrear el monto por toda la contabilidad.
+      const cerca = cand.map(p => ({ d: cxpDias(c.fecha, p.fecha), o: cxpOverlapReal(cTok, p.descTok), p }))
         .sort((x, y) => x.d - y.d)[0]
-      cargosSinMatch.push({ ...c, _motivo: cerca
-        ? `monto igual pero ${cerca.d > CXP_MAX_DIAS ? `${Math.round(cerca.d)} días de diferencia` : 'sin palabras en común'}`
-        : 'sin monto igual' })
+      cargosSinMatch.push({ ...c,
+        _motivo: cerca
+          ? `monto igual pero ${cerca.d > CXP_MAX_DIAS ? `${Math.round(cerca.d)} días de diferencia` : 'sin palabras en común'}`
+          : 'sin monto igual',
+        _candPart:   cerca ? cerca.p.part : '',
+        _candFecha:  cerca ? cerca.p.fecha : '',
+        _candCuenta: cerca ? cerca.p.cuenta : '',
+        _candDesc:   cerca ? cerca.p.desc : '',
+        _candDias:   cerca ? Math.round(cerca.d) : '' })
       return
     }
 
@@ -11628,13 +11641,24 @@ window.cxpExportSinMatch = () => {
   window.XLSX.utils.book_append_sheet(wb, wsCon, 'Conciliadas')
 
   // Hoja 2: Cargos del estado sin línea en CxP (para que el auxiliar busque las facturas)
-  const rSin = sin.map(c => ({ 'Fecha': c.fecha || '', 'Descripción': String(c.desc || '').replace(/\s+/g, ' ').trim(), 'Moneda': c.moneda || 'HNL', 'Monto': r2(c.monto), 'Por qué no se emparejó': c._motivo || 'sin línea con ese monto en CxP' }))
+  const rSin = sin.map(c => ({
+    'Fecha': c.fecha || '',
+    'Descripción': String(c.desc || '').replace(/\s+/g, ' ').trim(),
+    'Moneda': c.moneda || 'HNL',
+    'Monto': r2(c.monto),
+    'Por qué no se emparejó': c._motivo || 'sin línea con ese monto en CxP',
+    'Partida candidata': c._candPart || '',
+    'Fecha candidata': c._candFecha || '',
+    'Días dif.': c._candDias === 0 ? 0 : (c._candDias || ''),
+    'Cuenta candidata': c._candCuenta || '',
+    'Descripción candidata': c._candDesc || ''
+  }))
   const totHNL = r2(sin.filter(c => c.moneda !== 'USD').reduce((s, c) => s + (c.monto || 0), 0))
   const totUSD = r2(sin.filter(c => c.moneda === 'USD').reduce((s, c) => s + (c.monto || 0), 0))
   rSin.push({ 'Fecha': '', 'Descripción': 'TOTAL HNL', 'Moneda': 'HNL', 'Monto': totHNL })
   if (sin.some(c => c.moneda === 'USD')) rSin.push({ 'Fecha': '', 'Descripción': 'TOTAL USD', 'Moneda': 'USD', 'Monto': totUSD })
   const wsSin = window.XLSX.utils.json_to_sheet(rSin.length ? rSin : [{ 'Fecha': '', 'Descripción': '(ninguno)', 'Moneda': '', 'Monto': 0 }])
-  wsSin['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 8 }, { wch: 14 }, { wch: 38 }]
+  wsSin['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 8 }, { wch: 14 }, { wch: 38 }, { wch: 11 }, { wch: 13 }, { wch: 9 }, { wch: 13 }, { wch: 48 }]
   window.XLSX.utils.book_append_sheet(wb, wsSin, 'Cargos sin registrar')
 
   // Hoja 3: Bonos/devoluciones + pago adelantado (valores a registrar para cuadrar la partida)
