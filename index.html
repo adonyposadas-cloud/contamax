@@ -1461,9 +1461,50 @@
           .rtx-overlay{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:1000;padding:20px}
           .rtx-overlay.show{display:flex}
           .rtx-img-full{max-width:95%;max-height:92vh;border-radius:10px;cursor:default}
-          @media(max-width:640px){.rtx-grid{grid-template-columns:repeat(2,1fr)}.rtx-card{flex-direction:column}.rtx-thumb{width:100%;height:140px}
-            .rtx-stats{gap:8px}.rtx-stat{min-width:calc(33.333% - 6px);padding:10px 12px}.rtx-stat-n{font-size:20px}
-            .rtx-tabs{overflow-x:auto;flex-wrap:nowrap}.rtx-tab{white-space:nowrap;flex-shrink:0}}
+          /* ── CELULAR ───────────────────────────────────────────────────────
+             Los minmax y anchos fijos del escritorio dejaban todo apilado en una
+             sola columna gigante. Aca se compacta sin tocar el diseno de arriba
+             de 640px: nada fuera de este bloque cambia. */
+          @media(max-width:640px){
+            /* Datos de la entrega en 2 columnas (en escritorio son 3) */
+            .rtx-grid{grid-template-columns:repeat(2,1fr);gap:7px 10px;margin-bottom:10px}
+            .rtx-grid span{font-size:9px;letter-spacing:.3px}
+            .rtx-grid b{font-size:13px}
+
+            /* La miniatura seguia al lado y ocupaba 84px de ancho; al pasar a
+               columna crecia a 140px de alto y comia media pantalla. Queda al
+               lado, mas chica. */
+            .rtx-card{gap:10px;padding:11px;border-radius:10px}
+            .rtx-thumb{width:56px;height:56px;border-radius:6px}
+            .rtx-nofoto{font-size:9px}
+            .rtx-uni{font-size:13px}
+            .rtx-top{margin-bottom:8px;gap:6px}
+            .rtx-badge{font-size:10px;padding:2px 8px}
+
+            /* Botones: mas altos para el dedo y repartidos en la fila */
+            .rtx-acts{gap:6px}
+            .rtx-b{padding:10px 12px;font-size:12.5px;flex:1 1 auto;min-width:calc(50% - 3px);text-align:center}
+            .rtx-b.del{margin-left:0;flex:1 1 100%}
+
+            /* Estadisticas en 2 columnas fijas: con 3 o 4 tarjetas quedaba
+               3+1 desparejo */
+            .rtx-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+            .rtx-stat{min-width:0;padding:10px 12px;border-radius:10px}
+            .rtx-stat-n{font-size:19px}
+            .rtx-stat-l{font-size:11px}
+
+            /* Las pestanas no entran: se deslizan en horizontal */
+            .rtx-tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;
+              scrollbar-width:none;padding-bottom:2px}
+            .rtx-tabs::-webkit-scrollbar{display:none}
+            .rtx-tab{white-space:nowrap;flex-shrink:0;font-size:12.5px;padding:8px 12px}
+
+            /* Filtros y chips */
+            .rtx-inp{font-size:13px;padding:9px 10px}
+            .rtx-chip{font-size:11.5px;padding:4px 9px}
+
+            .rtx-empty{padding:20px;font-size:13px}
+          }
         </style>
       </div>
 
@@ -3622,7 +3663,7 @@
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260701e"></script>
 <script defer src="js/fiscal.js?v=20260707a"></script>
-<script defer src="js/revision_taxis.js?v=20260910a"></script>
+<script defer src="js/revision_taxis.js?v=20260910b"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260720a"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
 <script defer src="js/cotizador.js?v=20260714-chk7"></script>

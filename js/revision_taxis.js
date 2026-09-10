@@ -40,7 +40,7 @@ let rtxGpsRacha = {}  // unidad → días con GPS caído en los últimos 30, hab
 let rtxFBusqueda = ''  // texto de búsqueda (unidad/nombre/identidad)
 
 // Marcador de build — verificar en consola con window.__rtxBuild
-window.__rtxBuild = '20260910-origen-cambios'
+window.__rtxBuild = '20260910b-responsive'
 
 // Estados que representan dinero realmente recibido. Debe coincidir con
 // FIN_ESTADOS_ENTREGA_VALIDA en financiamiento.js.
@@ -65,6 +65,7 @@ function rtxTelefono(e) {
 window.initRevisionTaxis = async () => {
   rtx7dEnsure()   // inyecta estilos (botones WhatsApp + modal 7 días)
   rtxKmEnsureTab()      // crea la pestaña "KM recorridos" si no existe
+  rtxEnsureMobileCss()  // reglas de celular (se inyectan una sola vez)
   rtxHistEnsureTab()    // crea la pestaña "Historial" si no existe
   rtxGpsEnsureTab()     // crea la pestaña "GPS flota" si no existe
   rtxAplicarPermisos()  // oculta pestañas según permisos del usuario
@@ -525,6 +526,31 @@ const RTX_EST = {
   sin:     { ic: '■', cl: 'e-sin',   t: 'Sin actividad' },
 }
 const rtx7dFmt = n => 'L. ' + Number(n || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// ── Estilos de celular ────────────────────────────────────────────────
+// Van inyectados desde el JS a proposito: este archivo agrega sus <style>
+// en tiempo de ejecucion, o sea DESPUES del bloque de index.html. Si las
+// reglas moviles vivieran solo alla, .rtx-tab, .rtx-inp, .rtx-chip y
+// .rtx-b quedarian pisadas por las que el JS define despues.
+// Solo aplica bajo 640px: el escritorio no cambia en nada.
+function rtxEnsureMobileCss() {
+  if (document.getElementById('rtx-mobile-css')) return
+  const st = document.createElement('style')
+  st.id = 'rtx-mobile-css'
+  st.textContent = `
+    @media(max-width:640px){
+      .rtx-tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;
+        scrollbar-width:none;padding-bottom:2px}
+      .rtx-tabs::-webkit-scrollbar{display:none}
+      .rtx-tab{white-space:nowrap;flex-shrink:0;font-size:12.5px;padding:8px 12px}
+      .rtx-inp{font-size:13px;padding:9px 10px}
+      .rtx-chip{font-size:11.5px;padding:4px 9px}
+      .rtx-b{padding:10px 12px;font-size:12.5px}
+      .rtx-7d-modal{max-height:92vh}
+      .rtx-hist-form .rtx-inp{min-width:0;width:100%}
+    }`
+  document.head.appendChild(st)
+}
 
 function rtx7dEnsure() {
   if (document.getElementById('rtx-7d-overlay')) return
