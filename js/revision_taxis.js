@@ -1218,7 +1218,19 @@ window.rtxAudGuardadas = async (solo) => {
   try {
     const { data, error } = await rtxSb().rpc('tx_auditoria_listar', { p_fecha: pFecha, p_tipo: null })
     if (error) throw error
-    const lista = Array.isArray(data) ? data : []
+    // La RPC devuelve por fecha de guardado, no por la fecha auditada. Como el
+    // snapshot de varios días se guarda de una sentada, todas caen en el mismo
+    // minuto y el orden dentro de ese minuto es arbitrario: la lista salta
+    // 09-04, 09-03, 09-13, 09-04… Se reordena por la fecha que importa, que es
+    // la auditada, y el guardado queda solo como desempate.
+    // Los dos tipos no se separan: las auditorías de un mismo día van juntas.
+    const lista = (Array.isArray(data) ? [...data] : []).sort((x, y) => {
+      const fx = x.fecha_auditada || '', fy = y.fecha_auditada || ''
+      if (fx !== fy) return fy.localeCompare(fx)                 // más reciente primero
+      const cx = x.created_at || '', cy = y.created_at || ''
+      if (cx !== cy) return cy.localeCompare(cx)
+      return String(x.tipo || '').localeCompare(String(y.tipo || ''))  // orden estable
+    })
     const sel = on => on ? 'border-color:#d4af37;color:#d4af37' : ''
     const toggle = `<div style="display:flex;gap:6px;margin-bottom:12px">
       <button class="rtx-aud-back" style="${sel(!rtxAudSoloFecha)}" onclick="rtxAudGuardadas(false)">📅 Todas las fechas</button>
