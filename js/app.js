@@ -11338,6 +11338,8 @@ function cxpAplicarConciliacion(parsed) {
   res.abonos = items.filter(x => x.tipo === 'abono')
   res.pagos = items.filter(x => x.tipo === 'pago')
   res.saldoAnterior = parsed.saldoAnterior
+  res.cargos = cargos
+  res.control = parsed.control || {}
   // Selección FRESCA: partimos de cero para no arrastrar marcas viejas/persistidas.
   cxpSeleccionados = new Set()
   cxpMontos = {}
@@ -11351,16 +11353,35 @@ function cxpAplicarConciliacion(parsed) {
   cxpResumenConciliacion(res)
 }
 
-// Parser del PDF de Ficohsa (usa pdf.js). Reconstruye filas por posición (x,y) y clasifica
+// Parser de PDF de tarjeta (usa pdf.js). Reconstruye filas por posición (x,y) y clasifica
 // Lempiras vs Dólares por el borde derecho del monto (el más cercano al header).
+//
+// Lee DOS formatos de BAC con el mismo recorrido:
+//   A) "Transacciones del periodo"  → Fecha | Concepto | Local | Dólares
+//      Fecha completa dd/mm/yyyy en la primera columna. Es el que se usaba hasta ahora.
+//   B) "Estado de cuenta" (QEM)     → No. de referencia | Fecha | Concepto | Lempiras | Dólares
+//      La primera columna es la REFERENCIA y la fecha viene abreviada y SIN AÑO ("AGO/01").
+//      Algunas sucursales solo pueden descargar este.
+// Diferencias del formato B que obligaron a generalizar el parser:
+//   · la fecha no está en line[0] y no trae año → se deduce de "Fecha de Corte"
+//   · los montos en dólares traen "$" adelante  → isAmt tiene que aceptarlo
+//   · los pagos traen el signo AL FINAL ("102,536.51-") → isAmt tiene que aceptarlo
+//   · los acentos vienen partidos en items sueltos (D + ó + lares) → el header no se
+//     puede ubicar buscando la palabra "Dólares" como un solo item
+//   · la tabla de financiamientos de la última página no tiene fecha → se descarta sola
+// Las tarjetas adicionales (****-****-****-7550, etc.) NO se separan: son extensiones de
+// la misma tarjeta y la cuenta por pagar es una sola. Sus filas de encabezado no traen
+// fecha, así que se descartan solas.
 async function cxpParsePDF(arrayBuffer) {
   const lib = window.pdfjsLib
   if (!lib) throw new Error('el lector de PDF no cargó; recargá la página e intentá de nuevo')
   try { lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {}
   const pdf = await lib.getDocument({ data: arrayBuffer }).promise
-  const isAmt = s => /^-?[\d,]+\.\d{2}$/.test(String(s).trim())
+  // Montos válidos: 1,583.10 · -66136.42 · $864.29 · 102,536.51- (signo al final = BAC QEM)
+  const isAmt = s => /^-?\$?[\d,]+\.\d{2}-?$/.test(String(s).trim())
   const items = []
   let saldoAntHNL = null, saldoAntUSD = null, xLempR = null, xDolR = null
+  let corteMes = null, corteAnio = null, ctrlHNL = null, ctrlUSD = null
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p)
     const tc = await page.getTextContent()
@@ -11374,10 +11395,29 @@ async function cxpParsePDF(arrayBuffer) {
     const ys = [...rows.keys()].sort((a, b) => b - a)   // arriba → abajo
     for (const y of ys) {
       const line = rows.get(y).sort((a, b) => a.x - b.x)
+      if (!line.length) continue
       const txt = line.map(i => i.s).join(' ')
-      if (/^Fecha$/i.test(line[0].s) && /D[oó]lares/i.test(txt)) {
+      // Encabezado de columnas (sirve para los dos formatos). En el QEM "Dólares" viene
+      // partido en varios items, así que el borde derecho se toma del último item.
+      if (/\bFecha\b/i.test(txt) && /(Lempiras|Local)/i.test(txt) && /lares/i.test(txt)) {
         const L = line.find(i => /^(Lempiras|Local)$/i.test(i.s)); if (L) xLempR = L.x1
-        const D = line.find(i => /D[oó]lares/i.test(i.s)); if (D) xDolR = D.x1
+        const D = line.find(i => /^D[oó]lares$/i.test(i.s))
+        xDolR = D ? D.x1 : line[line.length - 1].x1
+        continue
+      }
+      // Fecha de corte: es la que le da el AÑO a las fechas abreviadas del formato QEM.
+      // Acepta "24-AGO-2026" (QEM) y "Fecha de corte: 03/09/2026" (Transacciones).
+      if (corteMes == null && /fecha de corte/i.test(txt)) {
+        let m = txt.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/)
+        if (m && CXP_MES3[m[2].toUpperCase()]) { corteMes = CXP_MES3[m[2].toUpperCase()]; corteAnio = +m[3] }
+        else if ((m = txt.match(/(\d{1,2})\/(\d{2})\/(\d{4})/))) { corteMes = +m[2]; corteAnio = +m[3] }
+        continue
+      }
+      // Total declarado por el banco. Se usa solo para AVISAR si la lectura quedó corta;
+      // nunca para corregir nada en silencio.
+      if (ctrlHNL == null && /compras\s*\+\s*otros cargos/i.test(txt)) {
+        const a = line.filter(i => isAmt(i.s)).map(i => Math.abs(cxpNum(i.s))).filter(v => v > 0)
+        if (a.length) { ctrlHNL = a[0]; if (a.length > 1) ctrlUSD = a[1] }
         continue
       }
       if (/saldo anterior|previous balance/i.test(txt)) {
@@ -11385,16 +11425,25 @@ async function cxpParsePDF(arrayBuffer) {
         if (saldoAntHNL == null && amts.length) { saldoAntHNL = amts[0]; if (amts.length > 1) saldoAntUSD = amts[1] }
         continue
       }
-      if (!line[0] || !/^\d{2}\/\d{2}\/\d{4}$/.test(line[0].s)) continue
+      // ── Ubicar la fecha de la fila ──
+      // Formato A: dd/mm/yyyy en la primera columna.
+      // Formato B: "AGO/01" dentro de las primeras 3 columnas (después de la referencia).
+      let iF = -1, fechaISO = ''
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(line[0].s)) { iF = 0; fechaISO = cxpFechaISO(line[0].s) }
+      else {
+        const k = line.findIndex(i => CXP_RE_MESDIA.test(i.s))
+        if (k >= 0 && k <= 2) { iF = k; fechaISO = cxpFechaMesDia(line[k].s, corteMes, corteAnio) }
+      }
+      if (iF < 0 || !fechaISO) continue
       const amtItems = line.filter(i => isAmt(i.s))
-      if (!amtItems.length) continue
+      if (!amtItems.length) continue   // p. ej. "SOCIO LIFEMILES: 2021..." trae fecha pero no monto
       // Puede haber 2 montos por fila (Local + Dólares). Tomamos el de la columna correcta:
-      // Local si es > 0, si no el de Dólares. La columna se decide por el header más cercano.
+      // Local si es > 0, si no el de Dólares. El "$" manda; si no hay, decide el header.
       let localV = 0, dolarV = 0
       amtItems.forEach(a => {
         const v = Math.abs(cxpNum(a.s))
-        const esUSD = (xLempR != null && xDolR != null)
-          ? Math.abs(a.x1 - xDolR) < Math.abs(a.x1 - xLempR)
+        const esUSD = /^\s*-?\$/.test(a.s) ? true
+          : (xLempR != null && xDolR != null) ? Math.abs(a.x1 - xDolR) < Math.abs(a.x1 - xLempR)
           : a.x1 > 505
         if (esUSD) dolarV = Math.max(dolarV, v); else localV = Math.max(localV, v)
       })
@@ -11403,12 +11452,15 @@ async function cxpParsePDF(arrayBuffer) {
       else if (dolarV > 0) { monto = dolarV; moneda = 'USD' }
       else continue
       const firstAmtIdx = line.findIndex(i => isAmt(i.s))
-      const mid = line.slice(1, firstAmtIdx).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim()
-      const desc = mid.replace(/^\d{4,}\s+/, '').trim() || mid
-      items.push({ fecha: cxpFechaISO(line[0].s), desc, monto, moneda, tipo: cxpTipoMov(desc) })
+      const mid = line.slice(iF + 1, firstAmtIdx).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim()
+      const desc = (iF === 0 ? mid.replace(/^\d{4,}\s+/, '').trim() : mid) || mid
+      // La referencia del QEM es el único identificador único por transacción: hay cargos
+      // idénticos (mismo día, comercio y monto) que solo se distinguen por ella.
+      const ref = iF > 0 ? line.slice(0, iF).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim() : ''
+      items.push({ fecha: fechaISO, desc, ref, monto, moneda, tipo: cxpTipoMov(desc) })
     }
   }
-  return { items, saldoAnterior: { hnl: saldoAntHNL, usd: saldoAntUSD } }
+  return { items, saldoAnterior: { hnl: saldoAntHNL, usd: saldoAntUSD }, control: { hnl: ctrlHNL, usd: ctrlUSD } }
 }
 
 // pago = lo que la empresa abonó (se ignora en el match); abono = devoluciones/bonos de la tarjeta (crédito); resto = cargo
@@ -11433,6 +11485,23 @@ function cxpParseEstado(t) {
 }
 function cxpNum(s) { const n = parseFloat(String(s == null ? '' : s).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n }
 function cxpFechaISO(d) { const m = String(d).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : '' }
+
+// El "Estado de cuenta" de BAC trae la fecha abreviada y SIN AÑO: JUL/25, AGO/01.
+const CXP_MES3 = { ENE: 1, FEB: 2, MAR: 3, ABR: 4, MAY: 5, JUN: 6, JUL: 7, AGO: 8, SEP: 9, SET: 9, OCT: 10, NOV: 11, DIC: 12 }
+const CXP_RE_MESDIA = /^(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|SET|OCT|NOV|DIC)\/(\d{1,2})$/i
+// El año se deduce de la fecha de corte: el ciclo TERMINA en el corte, así que un mes
+// posterior al del corte solo puede ser del año anterior (corte de enero → cargos de diciembre).
+// Sin fecha de corte se usa el mes actual, que es lo más cercano a la realidad al subir el archivo.
+function cxpFechaMesDia(s, corteMes, corteAnio) {
+  const m = String(s).trim().match(CXP_RE_MESDIA)
+  if (!m) return ''
+  const mes = CXP_MES3[m[1].toUpperCase()], dia = parseInt(m[2], 10)
+  if (!mes || !(dia >= 1 && dia <= 31)) return ''
+  let anio = corteAnio, mc = corteMes
+  if (!anio || !mc) { const h = new Date(); anio = h.getFullYear(); mc = h.getMonth() + 1 }
+  if (mes > mc) anio -= 1
+  return `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+}
 function cxpCSVLine(line) {
   const out = []; let cur = '', q = false
   for (let i = 0; i < line.length; i++) {
@@ -11604,11 +11673,28 @@ function cxpResumenConciliacion(res) {
       <div style="display:flex;justify-content:space-between;padding:2px 0;color:var(--text3)"><span>Devoluciones / bonos (abonos)</span><b style="font-family:var(--mono)">${sim} ${fmt(abonoV)}</b></div>
       <div id="cxp-verdict-${cur}" style="margin-top:6px">${cxpCuadreVerdict(saldoV, pagoV, sim)}</div>`
   const hayUSD = pagoUSD > 0 || abonoUSD > 0 || saldo.usd != null
+  // Verificación de LECTURA (no de contabilidad): los cargos que se leyeron del PDF tienen
+  // que sumar lo que el propio estado declara en "Compras + Otros cargos". Si no cuadra, el
+  // parser se saltó filas y el resultado no sirve: hay que avisarlo antes de que se use.
+  const ctrl = res.control || {}
+  const leidoHNL = sumC(res.cargos, 'HNL') - abonoHNL
+  const leidoUSD = sumC(res.cargos, 'USD') - abonoUSD
+  const ctrlLinea = (decl, leido, sim) => {
+    if (decl == null) return ''
+    const d = Math.round((decl - leido) * 100) / 100
+    return Math.abs(d) < 0.01
+      ? `<div style="color:#86efac;padding:2px 0">✓ Lectura completa (${sim}): los cargos leídos suman ${sim} ${fmt(leido)}, igual que el estado.</div>`
+      : `<div style="color:#f5c451;padding:2px 0">⚠️ La lectura del PDF no cuadra (${sim}): leído ${sim} ${fmt(leido)} vs ${sim} ${fmt(decl)} declarado · diferencia ${sim} ${fmt(d)}. Faltan cargos por leer — no uses este resultado.</div>`
+  }
+  const ctrlHtml = (ctrl.hnl != null || ctrl.usd != null) ? `
+      <div style="font-weight:600;font-size:10px;letter-spacing:.5px;color:var(--text3);margin:10px 0 2px">LECTURA DEL ARCHIVO</div>
+      ${ctrlLinea(ctrl.hnl, leidoHNL, 'L.')}${ctrlLinea(ctrl.usd, leidoUSD, '$')}` : ''
   const cuadreHtml = `
     <div style="background:var(--bg3,#151515);border:0.5px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px">
       <div style="font-weight:600;margin-bottom:2px">🧮 Cuadre del estado</div>
       ${bloque('LEMPIRAS', 'L.', 'hnl', saldo.hnl, pagoHNL, abonoHNL, true)}
       ${hayUSD ? bloque('DÓLARES', '$', 'usd', saldo.usd, pagoUSD, abonoUSD, false) : ''}
+      ${ctrlHtml}
     </div>`
   const filasSin = res.cargosSinMatch.map(c => `<tr><td style="padding:4px 8px">${c.fecha || '—'}</td><td style="padding:4px 8px">${(c.desc || '').slice(0, 44)}</td><td style="padding:4px 8px;text-align:right;font-family:var(--mono)">${c.moneda === 'USD' ? '$' : 'L.'} ${fmt(c.monto)}</td></tr>`).join('')
   const html = `
