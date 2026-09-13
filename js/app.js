@@ -11132,23 +11132,148 @@ window.consultarCxP = async () => {
   renderCxPTabla()
 }
 
+// El filtro rápido combina DOS cosas en la misma caja:
+//   "#3661"            → solo lo de esa partida (la del gasto o la que lo pagó)
+//   "gasolina"         → lo de siempre: descripción / monto / cuenta
+//   "#3661 gasolina"   → las dos a la vez, en cualquier orden
+// El token "#N" se reconoce donde esté y se saca del texto libre; lo que sobra busca normal.
+// El "#" es obligatorio para buscar por partida porque sin él un "500" traía las gasolineras
+// de L.500 revueltas con la partida 500.
 window.filtrarCxPTexto = () => {
-  const term = (document.getElementById('cxp-filtro-texto').value || '').toLowerCase()
-  if (!term) {
-    cxpFiltrados = [...cxpMovimientos]
-  } else {
-    cxpFiltrados = cxpMovimientos.filter(l => {
-      const desc = ((l.descripcion || '') + ' ' + (l.partida?.descripcion || '')).toLowerCase()
-      const monto = String(l.monto)
-      return desc.includes(term) || monto.includes(term) || (l.cuenta_codigo || '').includes(term)
-    })
-  }
+  const raw = (document.getElementById('cxp-filtro-texto')?.value || '')
+  const mPago = raw.match(/(?:^|\s)#\s*(\d+)(?=\s|$)/)
+  const numPago = mPago ? mPago[1] : ''
+  const texto = raw.replace(/(?:^|\s)#\s*\d+(?=\s|$)/, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const numTexto = texto.replace(/[^\d]/g, '')
+  const esPartida = (l, n) => n && (String((l.partida || {}).numero_partida || '') === n || String(l.pagado_partida_num || '') === n)
+  let base = cxpMovimientos || []
+  if (numPago) base = base.filter(l => esPartida(l, numPago))
+  cxpFiltrados = !texto ? [...base] : base.filter(l => {
+    const desc = ((l.descripcion || '') + ' ' + (l.partida?.descripcion || '')).toLowerCase()
+    return desc.includes(texto) || String(l.monto).includes(texto) || (l.cuenta_codigo || '').includes(texto) || esPartida(l, numTexto)
+  })
   renderCxPTabla()
+}
+
+// Click en el badge "Pagado · #3661": fija el filtro y deja el cursor listo para seguir
+// escribiendo, para poder buscar dentro de ese pago sin perderlo.
+window.cxpFiltrarPago = (num) => {
+  const inp = document.getElementById('cxp-filtro-texto')
+  if (!inp) return
+  inp.value = '#' + num + ' '
+  filtrarCxPTexto()
+  inp.focus()
+  inp.setSelectionRange(inp.value.length, inp.value.length)
+  inp.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+// Saca solo el "#N" y conserva lo que el usuario haya escrito además.
+window.cxpQuitarFiltroPago = () => {
+  const inp = document.getElementById('cxp-filtro-texto')
+  if (!inp) return
+  inp.value = inp.value.replace(/(?:^|\s)#\s*\d+(?=\s|$)/, ' ').replace(/\s+/g, ' ').trim()
+  filtrarCxPTexto()
+}
+
+// Lista de los pagos que aparecen en lo consultado, con su total y cuántas líneas cubrió.
+// Sale de las líneas ya cargadas: no consulta nada, así que refleja el rango de fechas y
+// el estado que estén filtrados arriba. Si un pago cubrió líneas fuera de ese rango,
+// aquí va a verse incompleto — por eso el aviso al pie del modal.
+window.cxpVerPagos = () => {
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const mapa = new Map()
+  ;(cxpMovimientos || []).forEach(l => {
+    if (!l.pagado || !l.pagado_partida_num) return
+    const k = String(l.pagado_partida_num)
+    const it = mapa.get(k) || { num: k, n: 0, total: 0, fecha: '' }
+    it.n++
+    it.total += parseFloat(l.monto) || 0
+    const f = (l.partida || {}).fecha_partida || ''
+    if (f && (!it.fecha || f > it.fecha)) it.fecha = f
+    mapa.set(k, it)
+  })
+  const pagos = [...mapa.values()].sort((a, b) => (parseInt(b.num, 10) || 0) - (parseInt(a.num, 10) || 0))
+  const sinNum = (cxpMovimientos || []).filter(l => l.pagado && !l.pagado_partida_num).length
+  if (!pagos.length && !sinNum) { toast('En lo consultado no hay líneas pagadas', 'info'); return }
+  const filas = pagos.map(p => `<tr style="cursor:pointer" onclick="this.closest('.cxp-modal-ov').remove();cxpFiltrarPago('${p.num}')">
+      <td style="padding:6px 8px;color:var(--gold);font-family:var(--mono)">#${p.num}</td>
+      <td style="padding:6px 8px;text-align:right">${p.n}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono)">L. ${fmt(p.total)}</td>
+      <td style="padding:6px 8px;color:var(--text3);font-size:11px">último gasto ${p.fecha || '—'}</td>
+    </tr>`).join('')
+  const totGeneral = pagos.reduce((s, p) => s + p.total, 0)
+  cxpModal('💵 Pagos en lo consultado', `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Tocá un pago para ver únicamente las líneas que cubrió.</div>
+    <div style="max-height:340px;overflow:auto;border:0.5px solid var(--border);border-radius:8px">
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="color:var(--text3)">
+          <th style="padding:4px 8px;text-align:left">Partida de pago</th>
+          <th style="padding:4px 8px;text-align:right">Líneas</th>
+          <th style="padding:4px 8px;text-align:right">Total</th>
+          <th style="padding:4px 8px;text-align:left"></th></tr></thead>
+        <tbody>${filas}</tbody></table></div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
+      <span>${pagos.length} pago(s)</span><b style="font-family:var(--mono)">L. ${fmt(totGeneral)}</b></div>
+    ${sinNum ? `<div style="font-size:11px;color:#f5c451;margin-top:8px">⚠️ Hay ${sinNum} línea(s) marcadas como pagadas sin número de partida de pago: son anteriores a que se guardara ese dato y no se pueden agrupar acá.</div>` : ''}
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Solo cuenta las líneas del rango de fechas y el estado que consultaste arriba. Si un pago cubrió gastos fuera de ese rango, el total de acá va a salir incompleto.</div>`)
+}
+
+// ── ORDEN DE LA TABLA ──
+// Se ordena SOLO al pintar, sobre una copia. cxpFiltrados no se toca porque es el mismo
+// array del que salen la antigüedad y la suma de seleccionados, y reordenarlo en sitio
+// haría que esos cálculos dependan del último click en un encabezado.
+// Arranca en fecha descendente: el listado viene ordenado por id de línea, que no tiene
+// nada que ver con la fecha del gasto.
+let cxpOrden = { campo: 'fecha', asc: false }
+
+window.ordenarCxP = (campo) => {
+  if (cxpOrden.campo === campo) cxpOrden.asc = !cxpOrden.asc
+  else cxpOrden = { campo, asc: (campo !== 'fecha' && campo !== 'monto') }  // texto: A→Z; fecha y monto: mayor primero
+  renderCxPTabla()
+}
+
+function cxpValorOrden(l, campo) {
+  const p = l.partida || {}
+  switch (campo) {
+    case 'fecha':   return p.fecha_partida || ''          // ISO yyyy-mm-dd: ordena bien como texto
+    case 'partida': return parseInt(p.numero_partida, 10) || 0
+    case 'cuenta':  return l.cuenta_codigo || ''
+    case 'desc':    return String(l.descripcion || p.descripcion || '').toLowerCase()
+    case 'monto':   return parseFloat(l.monto) || 0
+    case 'estado':  return l.pagado ? 1 : 0
+    default:        return ''
+  }
+}
+
+function cxpAplicarOrden(arr) {
+  if (!cxpOrden.campo) return arr
+  const dir = cxpOrden.asc ? 1 : -1
+  return [...arr].sort((a, b) => {
+    const A = cxpValorOrden(a, cxpOrden.campo), B = cxpValorOrden(b, cxpOrden.campo)
+    if (A < B) return -1 * dir
+    if (A > B) return 1 * dir
+    // Empate (mismo día, mismo monto): la partida desempata para que el orden sea estable
+    // entre repintados y no baile al marcar un check.
+    const pa = parseInt((a.partida || {}).numero_partida, 10) || 0
+    const pb = parseInt((b.partida || {}).numero_partida, 10) || 0
+    return pa - pb
+  })
+}
+
+function cxpPintarFlechas() {
+  document.querySelectorAll('[data-cxp-sort]').forEach(th => {
+    const span = th.querySelector('.cxp-arrow')
+    if (!span) return
+    span.textContent = (th.getAttribute('data-cxp-sort') === cxpOrden.campo) ? (cxpOrden.asc ? ' ▲' : ' ▼') : ''
+    span.style.color = 'var(--gold)'
+  })
 }
 
 function renderCxPTabla() {
   const tbody = document.getElementById('tbody-cxp')
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  cxpPintarFlechas()
 
   if (!cxpFiltrados.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</td></tr>'
@@ -11156,7 +11281,7 @@ function renderCxPTabla() {
     return
   }
 
-  tbody.innerHTML = cxpFiltrados.map(l => {
+  tbody.innerHTML = cxpAplicarOrden(cxpFiltrados).map(l => {
     const p = l.partida
     const isChecked = cxpSeleccionados.has(l.id)
     return `<tr style="${l.pagado ? 'opacity:0.5' : ''}">
@@ -11166,12 +11291,41 @@ function renderCxPTabla() {
       <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
       <td style="max-width:300px">${l.descripcion || p.descripcion || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${fmt(l.monto)}</td>
-      <td>${l.pagado ? `<span class="badge badge-on" title="${l.pagado_partida_num ? 'Pagado con la partida #' + l.pagado_partida_num : 'Pagado'}">Pagado${l.pagado_partida_num ? ' · #' + l.pagado_partida_num : ''}</span>` : '<span class="badge badge-amber">Pendiente</span>'}</td>
+      <td>${l.pagado
+        ? (l.pagado_partida_num
+            ? `<span class="badge badge-on" style="cursor:pointer" title="Ver todas las líneas pagadas con la partida #${l.pagado_partida_num}" onclick="cxpFiltrarPago('${l.pagado_partida_num}')">Pagado · #${l.pagado_partida_num}</span>`
+            : '<span class="badge badge-on" title="Pagado (sin número de partida registrado)">Pagado</span>')
+        : '<span class="badge badge-amber">Pendiente</span>'}</td>
     </tr>`
   }).join('')
 
   renderCxPAntiguedad()
+  cxpResumenFiltroPago()
   updateSumaCxP()
+}
+
+// Barra de resumen del pago filtrado. Si además hay texto escrito, muestra el total REAL
+// del pago y cuánto de eso se está viendo: si solo mostrara lo visible, el total cambiaría
+// al escribir y ya no serviría para cuadrar contra el pago.
+function cxpResumenFiltroPago() {
+  const cont = document.getElementById('cxp-resumen-pago')
+  if (!cont) return
+  const raw = document.getElementById('cxp-filtro-texto')?.value || ''
+  const mPago = raw.match(/(?:^|\s)#\s*(\d+)(?=\s|$)/)
+  if (!mPago) { cont.innerHTML = ''; cont.style.display = 'none'; return }
+  const num = mPago[1]
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const suma = arr => arr.reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
+  const todas = (cxpMovimientos || []).filter(l => String(l.pagado_partida_num || '') === num)
+  const delGasto = (cxpMovimientos || []).filter(l => String((l.partida || {}).numero_partida || '') === num)
+  const hayTexto = raw.replace(/(?:^|\s)#\s*\d+(?=\s|$)/, ' ').trim() !== ''
+  const partes = []
+  if (todas.length) partes.push(`<span>Pagado con la partida <b style="color:var(--gold)">#${num}</b>: <b>${todas.length}</b> línea(s) · <b style="font-family:var(--mono)">L. ${fmt(suma(todas))}</b></span>`)
+  if (delGasto.length) partes.push(`<span style="color:var(--text2)">Registrado en la partida <b style="color:var(--gold)">#${num}</b>: <b>${delGasto.length}</b> línea(s) · <b style="font-family:var(--mono)">L. ${fmt(suma(delGasto))}</b></span>`)
+  if (!partes.length) partes.push(`<span style="color:var(--text3)">Ninguna línea de lo consultado corresponde a la partida #${num}.</span>`)
+  if (hayTexto) partes.push(`<span style="color:var(--blue,#60a5fa)">Mostrando <b>${cxpFiltrados.length}</b> · <b style="font-family:var(--mono)">L. ${fmt(suma(cxpFiltrados))}</b> (filtrado por texto)</span>`)
+  cont.style.display = 'flex'
+  cont.innerHTML = partes.join('') + `<button class="btn btn-ghost" onclick="cxpQuitarFiltroPago()" style="font-size:11px;padding:4px 10px;margin-left:auto">✕ Quitar filtro de pago</button>`
 }
 
 // ── ANTIGÜEDAD DE LO PENDIENTE ──
