@@ -163,6 +163,9 @@
           <div class="nav-item" id="nav-catalogo" onclick="showView('catalogo','Catálogo de cuentas')">
             <span class="nav-dot"></span>Catálogo de cuentas
           </div>
+          <div class="nav-item" id="nav-destinos" onclick="showView('destinos','Destinos de depósito')">
+            <span class="nav-dot"></span>Destinos de depósito
+          </div>
           <div class="nav-item" id="nav-vencimientos" onclick="showView('vencimientos','Vencimiento de documentos')">
             <span class="nav-dot"></span>Vencimientos
           </div>
@@ -1506,6 +1509,12 @@
             .rtx-empty{padding:20px;font-size:13px}
           }
         </style>
+      </div>
+
+      <div id="view-destinos" class="view">
+        <div class="page-title">🏦 Destinos de depósito</div>
+        <div class="page-sub">A dónde entra el dinero de las entregas y contra qué cuenta contable se registra. Los de tipo banco son los que se concilian contra estado de cuenta.</div>
+        <div id="dest-root"></div>
       </div>
 
       <div id="view-concilia-taxis" class="view">
@@ -3650,7 +3659,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260912d"></script>
+<script type="module" src="js/app.js?v=20260913c"></script>
 <script type="module" src="js/reportes.js?v=20260905e"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3671,7 +3680,7 @@
 <script defer src="js/conciliacion.js?v=20260701e"></script>
 <script defer src="js/fiscal.js?v=20260707a"></script>
 <script defer src="js/revision_taxis.js?v=20260910b"></script>
-<script defer src="js/conciliacion_taxis.js?v=20260720a"></script>
+<script defer src="js/conciliacion_taxis.js?v=20260913c"></script>
 <script defer src="js/yonker.js?v=20260706d"></script>
 <script defer src="js/cotizador.js?v=20260714-chk7"></script>
 <script defer src="js/jefe_pista.js?v=20260718a"></script>
@@ -3683,6 +3692,7 @@
 <script defer src="js/cafeteria.js?v=20260718h"></script>
 <script defer src="js/prospectos.js?v=20260720a"></script>
 <script defer src="js/estados_fisicos.js?v=20260720a"></script>
+<script defer src="js/destinos.js?v=20260913a"></script>
 
 <!-- MODAL: crear partida desde conciliación (paso 7) -->
 <div class="modal-backdrop" id="modal-cb-partida">

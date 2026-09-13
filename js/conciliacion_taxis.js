@@ -18,17 +18,41 @@
   // lunes que sirve para sábado y domingo) sin llegar a los números reusados.
   const DIAS_DUP = 3
 
-  let ctxBanco = 'BAC'
   let ctxFecha = ''
-  let ctxFechaBanco = ''
-  let ctxFile = null
+  // ctxArchivos: un elemento por extracto cargado.
+  //   { file, nombre, destino, auto, fechaBanco, fechaManual, movs, error }
+  // La FECHA EN EL BANCO es por archivo, no global. Ficohsa acredita los
+  // depósitos de sábado y domingo con fecha del lunes siguiente; BAC los
+  // acredita el mismo día. Con un campo único, poner el lunes dejaba BAC en
+  // cero y poner el viernes dejaba Ficohsa en cero.
+  // Se concilia con TODOS los depósitos juntos contra TODAS las entregas del
+  // día, en un solo cruce. Separar por cuenta encogía el lado de los depósitos
+  // pero dejaba entero el de las entregas, y eso fabricaba huérfanas que no
+  // eran errores: los depósitos que faltaban estaban en el otro archivo.
+  // La cuenta contable la define el DEPÓSITO, no lo que eligió el motorista.
+  let ctxArchivos = []
+  // codigo de cuenta → fecha con la que el banco acreditó sus depósitos.
+  // Se llena al conciliar y lo usan el subtítulo y el guardado.
+  let ctxFechasBanco = {}
   let ctxRes = null          // resultado de la conciliación
   let ctxSelDepositos = []   // depósitos huérfanos elegidos para emparejar (permite varios → 1 entrega)
   let ctxDepFiltro = ''      // texto del buscador de depósitos sin entrega
   let ctxPartida = null      // total del débito de la partida [IMP-TAXI] del día (para el cuadre)
 
-  // Cuenta contable de cada banco (debe coincidir con TAXI_CUENTAS de app.js)
-  const CTX_CUENTA = { BAC: '110104-021', Ficohsa: '110104-013' }
+  // Los bancos y su cuenta contable salen de `destinos_deposito` (destinos.js),
+  // ya no de un mapa fijo. Cada archivo guarda el CÓDIGO de su destino ('BAC',
+  // 'BAC 2', 'Ficohsa'…), que es el mismo texto que traen entregas_taxis.banco
+  // y tx_conciliaciones.banco — así las RPC siguen recibiendo lo que esperan y
+  // cada cuenta conserva sus referencias y sus emparejamientos manuales aparte.
+  let ctxDestinos = []
+  // Sin código no hay destino: devolver null es correcto. Un archivo recién
+  // cargado puede no tener cuenta asignada todavía y la pantalla se pinta igual.
+  const ctxDest = (cod) => (cod ? ctxDestinos.find(d => d.codigo === cod) : null) || null
+  // La INSTITUCIÓN es la que manda en el parseo: de ella depende cómo viene
+  // escrito el depositante en el extracto. Dos cuentas del mismo banco se leen
+  // igual, así que nada de esto se ramifica por código de destino.
+  const ctxInst = (cod) => (ctxDest(cod) || {}).institucion || 'BAC'   // sin destino aún: se lee como BAC y se relee al elegir la cuenta
+  const ctxCuentaDe = (cod) => (ctxDest(cod) || {}).cuenta_codigo || null
 
   const fmt = n => 'L. ' + (parseFloat(n) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   // Fecha local (Honduras UTC-6), NO UTC. toISOString() devolvería el día equivocado de noche.
@@ -54,11 +78,14 @@
     return false
   }
 
-  // Clasifica el depositante de una descripción según el banco
-  function clasificar(desc, banco) {
+  // Clasifica el depositante de una descripción según la INSTITUCIÓN.
+  // Antes recibía el banco y comparaba contra 'Ficohsa'/'BAC'. Con cuentas
+  // nuevas ('BAC 2') esa comparación fallaba y caía al parseo de BAC por
+  // descarte — funcionaba de casualidad. Ahora es explícito.
+  function clasificar(desc, inst) {
     const d = String(desc || '').trim()
     const out = { nombre: null, unidad: null, identidad: null }
-    if (banco === 'Ficohsa') {
+    if (inst === 'Ficohsa') {
       const m = d.match(/(\d{10,15})/)            // "TENGO - 0307199700008"
       if (m) out.identidad = m[1]
     } else { // BAC
@@ -72,7 +99,7 @@
   }
 
   // Parsea el extracto Excel → créditos del día seleccionado
-  async function parseExtracto(file, banco, fecha) {
+  async function parseExtracto(file, inst, fecha) {
     const ab = await file.arrayBuffer()
     const wb = XLSX.read(ab, { type: 'array' })
     const sh = wb.Sheets[wb.SheetNames[0]]
@@ -88,6 +115,9 @@
       if (fF >= 0 && fC >= 0) { hi = i; idxFecha = fF; idxCred = fC; idxDesc = fD; idxRef = fR; break }
     }
     if (hi < 0) throw new Error('No se encontró la tabla de movimientos en el archivo.')
+    // Texto del encabezado (lo que va antes de la tabla): de ahí sale el número
+    // de cuenta para detectar a qué destino pertenece el archivo.
+    const cabecera = rows.slice(0, hi + 1).map(r => (r || []).join(' ')).join(' ')
 
     const movs = []
     for (let i = hi + 1; i < rows.length; i++) {
@@ -103,21 +133,11 @@
       let fIso = null
       if (fm) { let [_, dd, mm, yy] = fm; if (yy.length === 2) yy = '20' + yy; fIso = `${yy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}` }
       if (fIso !== fecha) continue
-      const cl = clasificar(desc, banco)
+      const cl = clasificar(desc, inst)
       movs.push({ idx: movs.length, desc, ref, monto: cred, fecha: fIso, ...cl, m: false, par: null })
     }
+    movs.cabecera = cabecera
     return movs
-  }
-
-  async function cargarEntregas(banco, fecha) {
-    const { data, error } = await csb().from('entregas_taxis').select('*')
-      .eq('banco', banco).eq('fecha_deposito', fecha).eq('estado', 'Aprobada')
-    if (error) throw error
-    return (data || []).map((e, i) => ({
-      idx: i, id: e.id, unidad: String(e.unidad || '').trim(),
-      nombre: e.nombre_conductor || '', identidad: String(e.identidad || '').trim(),
-      monto: parseFloat(e.monto) || 0, m: false, pars: [], nivel: null
-    }))
   }
 
   // Niveles 2 y 3 (monto+nombre y monto exacto único), repetidos mientras
@@ -159,36 +179,6 @@
       else if (e.nivel === 'amb') e.nivel = null
     })
     return ambiguas
-  }
-
-  function conciliar(entregas, movs, banco) {
-    // Nivel 1: identificador fuerte (cédula/unidad) + el monto debe cuadrar
-    entregas.forEach(e => {
-      if (e.m) return
-      // depósitos que comparten el identificador fuerte con esta entrega
-      const mismos = movs.filter(mv => !mv.m && (
-        (banco === 'Ficohsa' && mv.identidad && digs(mv.identidad) === digs(e.identidad)) ||
-        (banco === 'BAC' && mv.unidad && mv.unidad === e.unidad) ||
-        (banco === 'BAC' && mv.identidad && digs(mv.identidad) === digs(e.identidad))
-      ))
-      if (!mismos.length) return
-      // a) un depósito de esa cédula/unidad que cuadra exacto
-      const exacto = mismos.find(mv => Math.abs(mv.monto - e.monto) < 0.01)
-      if (exacto) { e.m = exacto.m = true; e.pars = [exacto.idx]; exacto.par = e.idx; e.nivel = 1; return }
-      // b) la SUMA de todos los de esa cédula/unidad cuadra (pago fraccionado identificado)
-      const suma = mismos.reduce((s, mv) => s + mv.monto, 0)
-      if (mismos.length > 1 && Math.abs(suma - e.monto) < 0.01) {
-        e.m = true; e.pars = mismos.map(mv => mv.idx); mismos.forEach(mv => { mv.m = true; mv.par = e.idx }); e.nivel = 1; return
-      }
-      // c) hay depósitos con su cédula pero el monto no cuadra → revisión manual (no forzar)
-    })
-    afinarPorMonto(entregas, movs)
-    return {
-      conciliados: entregas.filter(e => e.m),
-      entregasHuerfanas: entregas.filter(e => !e.m),
-      depositosHuerfanos: movs.filter(mv => !mv.m),
-      entregas, movs, banco
-    }
   }
 
   // Reaplica los emparejamientos manuales de una conciliación previa, identificando
@@ -249,7 +239,8 @@
         })
       }
     })
-    res.manualesNoReaplicados = noReaplicados
+    // Se llama una vez por cuenta: se acumula, no se pisa.
+    res.manualesNoReaplicados = (res.manualesNoReaplicados || []).concat(noReaplicados)
     // Al reponer los manuales se ocuparon depósitos; entregas que antes tenían
     // varios candidatos del mismo monto pueden haber quedado con uno solo.
     const nuevos = afinarPorMonto(res.entregas, res.movs)
@@ -267,160 +258,381 @@
     }
   }
 
+  // ── DETECCIÓN DE CUENTA ──
+  // Busca el número de cuenta del catálogo dentro del encabezado del extracto.
+  // Primero el número completo; si no aparece (el banco lo enmascara o lo
+  // escribe con guiones), se prueba con los últimos 6 dígitos, y SOLO se acepta
+  // si un único destino coincide: con dos candidatos preferimos no elegir a
+  // elegir mal, porque asignar el extracto a la cuenta equivocada manda el
+  // dinero a otra cuenta contable y el total general igual cuadra.
+  function detectarDestino(cabecera) {
+    const dig = String(cabecera || '').replace(/\D/g, '')
+    if (!dig) return ''
+    const conNum = ctxDestinos.filter(d => d.numero_cuenta && String(d.numero_cuenta).replace(/\D/g, ''))
+    const exactos = conNum.filter(d => dig.includes(String(d.numero_cuenta).replace(/\D/g, '')))
+    if (exactos.length === 1) return exactos[0].codigo
+    if (exactos.length > 1) return ''
+    const colas = conNum.filter(d => {
+      const n = String(d.numero_cuenta).replace(/\D/g, '')
+      return n.length >= 6 && dig.includes(n.slice(-6))
+    })
+    return colas.length === 1 ? colas[0].codigo : ''
+  }
+
+  // Fecha que le corresponde a un archivo según la institución de su cuenta.
+  // Ficohsa no acredita fin de semana: sábado y domingo caen con fecha del
+  // lunes siguiente. BAC acredita el mismo día.
+  function sugerirFecha(destino) {
+    if (!ctxFecha) return ''
+    if (ctxInst(destino) !== 'Ficohsa') return ctxFecha
+    const d = new Date(ctxFecha + 'T12:00:00')
+    const dow = d.getDay()                       // 0=dom, 6=sáb
+    if (dow === 6) d.setDate(d.getDate() + 2)
+    else if (dow === 0) d.setDate(d.getDate() + 1)
+    return fechaLocal(d)
+  }
+
   // ── UI ──
-  window.initConciliaTaxis = function () {
+  window.initConciliaTaxis = async function () {
     ctxFecha = ctxFecha || fechaLocal()
-    ctxFile = null; ctxRes = null
+    ctxArchivos = []; ctxRes = null
     const root = document.getElementById('ctx-root')
+    root.innerHTML = '<div style="text-align:center;padding:40px"><div class="spinner"></div></div>'
+    ctxEnsureStyles()
+
+    try {
+      const todos = await window.cargarDestinos(true)
+      ctxDestinos = (todos || []).filter(d => d.tipo === 'banco' && d.activa)
+    } catch (e) {
+      root.innerHTML = `<div class="ctx-empty">No se pudo leer el catálogo de destinos: ${String(e.message || e)}</div>`
+      return
+    }
+    if (!ctxDestinos.length) {
+      root.innerHTML = '<div class="ctx-empty">No hay cuentas bancarias activas en el catálogo. Agregá una en Contabilidad → Destinos de depósito.</div>'
+      return
+    }
+
+    const sinNumero = ctxDestinos.filter(d => !d.numero_cuenta)
     root.innerHTML = `
       <div class="ctx-card">
         <div class="ctx-controls">
           <div class="ctx-fld">
-            <label>Banco</label>
-            <div class="ctx-banco">
-              <button class="ctx-bbtn ${ctxBanco === 'BAC' ? 'on' : ''}" data-b="BAC" onclick="ctxSetBanco('BAC')">BAC</button>
-              <button class="ctx-bbtn ${ctxBanco === 'Ficohsa' ? 'on' : ''}" data-b="Ficohsa" onclick="ctxSetBanco('Ficohsa')">Ficohsa</button>
-            </div>
-          </div>
-          <div class="ctx-fld">
             <label>Entregas del día</label>
             <input type="date" id="ctx-fecha" value="${ctxFecha}" onchange="ctxSetFecha(this.value)">
           </div>
-          <div class="ctx-fld">
-            <label>Fecha en el banco</label>
-            <input type="date" id="ctx-fecha-banco" value="${ctxFechaBanco || ctxFecha}" onchange="ctxSetFechaBanco(this.value)">
-          </div>
           <div class="ctx-fld ctx-grow">
-            <label>Estado de cuenta (Excel del banco)</label>
-            <input type="file" id="ctx-file" accept=".xls,.xlsx,.csv" onchange="ctxSetFile(this.files[0])">
+            <label>Estados de cuenta (uno por cuenta · podés elegir varios)</label>
+            <input type="file" id="ctx-file" accept=".xls,.xlsx,.csv" multiple onchange="ctxAgregarArchivos(this.files)">
           </div>
           <button class="btn btn-gold" id="ctx-btn" onclick="ctxConciliar()" disabled>Conciliar →</button>
         </div>
+        <div id="ctx-files"></div>
+        ${sinNumero.length ? `<div class="ctx-aviso warn">⚠️ ${sinNumero.length} cuenta(s) sin número registrado (${sinNumero.map(d => d.codigo).join(', ')}). Sin el número no se puede detectar sola a qué cuenta pertenece cada archivo: vas a tener que elegirla a mano. Cargalo en Contabilidad → Destinos de depósito.</div>` : ''}
+        <div class="ctx-aviso">Cada archivo lleva su propia <b>fecha en el banco</b>: Ficohsa acredita sábado y domingo con fecha del lunes, BAC el mismo día. Se ajusta sola al elegir la cuenta; podés corregirla.</div>
       </div>
       <div id="ctx-out"></div>`
-    ctxEnsureStyles()
+    ctxRenderArchivos()
   }
 
-  window.ctxSetBanco = (b) => {
-    ctxBanco = b
-    document.querySelectorAll('.ctx-bbtn').forEach(x => x.classList.toggle('on', x.dataset.b === b))
-    ctxSugerirFechaBanco()  // al cambiar de banco, re-sugerir
-  }
-  window.ctxSetFecha = (v) => { if (v) { ctxFecha = v; ctxSugerirFechaBanco() } }
-  window.ctxSetFechaBanco = (v) => { if (v) ctxFechaBanco = v }
-
-  // Si el día de entregas cae sábado/domingo y el banco es Ficohsa, sugiere el lunes siguiente
-  function ctxSugerirFechaBanco() {
-    const inp = document.getElementById('ctx-fecha-banco')
-    if (!inp || !ctxFecha) return
-    let sugerida = ctxFecha
-    if (ctxBanco === 'Ficohsa') {
-      const d = new Date(ctxFecha + 'T12:00:00')
-      const dow = d.getDay() // 0=dom, 6=sáb
-      if (dow === 6) d.setDate(d.getDate() + 2)       // sábado → lunes
-      else if (dow === 0) d.setDate(d.getDate() + 1)  // domingo → lunes
-      sugerida = fechaLocal(d)
+  // ── ARCHIVOS ──
+  window.ctxAgregarArchivos = async (fileList) => {
+    const nuevos = Array.from(fileList || [])
+    if (!nuevos.length) return
+    const inp = document.getElementById('ctx-file')
+    for (const f of nuevos) {
+      if (ctxArchivos.some(a => a.nombre === f.name && a.file.size === f.size)) {
+        window.toast?.(`"${f.name}" ya estaba cargado`, 'info')
+        continue
+      }
+      const item = { file: f, nombre: f.name, destino: '', auto: false, fechaBanco: ctxFecha, fechaManual: false, movs: [], error: null }
+      ctxArchivos.push(item)
+      try {
+        // Primera lectura con la fecha del día solo para poder mirar el
+        // encabezado. Con la cuenta detectada se ajusta la fecha y se relee.
+        item.movs = await parseExtracto(f, 'BAC', item.fechaBanco)
+        const det = detectarDestino(item.movs.cabecera)
+        if (det) {
+          item.destino = det; item.auto = true
+          item.fechaBanco = sugerirFecha(det)
+          await reparsear(item)
+        }
+      } catch (e) {
+        item.error = e.message || String(e)
+      }
     }
-    ctxFechaBanco = sugerida
-    inp.value = sugerida
+    if (inp) inp.value = ''
+    ctxRenderArchivos()
   }
-  window.ctxSetFile = (f) => { ctxFile = f || null; const b = document.getElementById('ctx-btn'); if (b) b.disabled = !ctxFile }
+
+  window.ctxQuitarArchivo = (i) => {
+    ctxArchivos.splice(i, 1); ctxRes = null
+    const out = document.getElementById('ctx-out'); if (out) out.innerHTML = ''
+    ctxRenderArchivos()
+  }
+
+  window.ctxSetDestinoArchivo = async (i, cod) => {
+    const a = ctxArchivos[i]; if (!a) return
+    a.destino = cod; a.auto = false
+    // La fecha sugerida depende de la institución, así que cambia con la cuenta
+    // — salvo que ya la hayas tocado a mano, en cuyo caso mandás vos.
+    if (!a.fechaManual) a.fechaBanco = sugerirFecha(cod)
+    await reparsear(a)
+    ctxRenderArchivos()
+  }
+
+  window.ctxSetFechaArchivo = async (i, v) => {
+    const a = ctxArchivos[i]; if (!a || !v) return
+    a.fechaBanco = v; a.fechaManual = true
+    await reparsear(a)
+    ctxRenderArchivos()
+  }
+
+  async function reparsear(a) {
+    a.error = null
+    try {
+      const inst = ctxInst(a.destino)
+      a.movs = await parseExtracto(a.file, inst, a.fechaBanco || ctxFecha)
+    } catch (e) { a.error = e.message || String(e); a.movs = [] }
+  }
+
+  function ctxRenderArchivos() {
+    const cont = document.getElementById('ctx-files')
+    if (!cont) return
+    if (!ctxArchivos.length) { cont.innerHTML = ''; ctxActualizarBoton(); return }
+    const filas = ctxArchivos.map((a, i) => {
+      const opts = ['<option value="">— Elegir cuenta —</option>']
+        .concat(ctxDestinos.map(d => `<option value="${d.codigo.replace(/"/g, '&quot;')}" ${d.codigo === a.destino ? 'selected' : ''}>${d.codigo} · ${d.etiqueta}</option>`))
+        .join('')
+      const cta = ctxCuentaDe(a.destino)
+      const tot = a.movs.reduce((s, m) => s + m.monto, 0)
+      const corrida = a.fechaBanco && a.fechaBanco !== ctxFecha
+      const vacio = !a.error && a.destino && !a.movs.length
+      return `<div class="ctx-file-row${a.error ? ' err' : ''}${vacio ? ' vacio' : ''}">
+        <div class="ctx-file-n" title="${a.nombre.replace(/"/g, '&quot;')}">📄 ${a.nombre}</div>
+        <div class="ctx-file-sel">
+          <select onchange="ctxSetDestinoArchivo(${i}, this.value)">${opts}</select>
+          ${a.auto ? '<span class="ctx-auto">detectada</span>' : ''}
+        </div>
+        <div class="ctx-file-f">
+          <input type="date" value="${a.fechaBanco || ctxFecha}" onchange="ctxSetFechaArchivo(${i}, this.value)" title="Fecha con la que el banco acreditó estos depósitos">
+          ${corrida ? `<span class="ctx-auto" title="Ficohsa acredita sábado y domingo el lunes siguiente">${ctxInst(a.destino) === 'Ficohsa' ? 'fin de semana' : 'otra fecha'}</span>` : ''}
+        </div>
+        <div class="ctx-file-i">${a.error
+          ? `<span class="ctx-file-err">${a.error}</span>`
+          : `${a.movs.length} depósito(s) · ${fmt(tot)}${cta ? ` · <b>${cta}</b>` : ' · <span class="ctx-file-err">falta la cuenta</span>'}`}</div>
+        <button class="ctx-file-x" onclick="ctxQuitarArchivo(${i})" title="Quitar">✕</button>
+      </div>`
+    }).join('')
+    const dup = ctxDestinosRepetidos()
+    const vacios = ctxArchivos.filter(a => !a.error && a.destino && !a.movs.length)
+    cont.innerHTML = `<div class="ctx-files">${filas}
+      ${dup.length ? `<div class="ctx-file-warn">⚠️ Hay ${dup.length > 1 ? 'cuentas repetidas' : 'una cuenta repetida'} en dos archivos (${dup.join(', ')}). Cada cuenta va una sola vez: si no, sus depósitos se cuentan doble.</div>` : ''}
+      ${vacios.length ? `<div class="ctx-file-warn">⚠️ ${vacios.length} archivo(s) sin ningún depósito en su fecha. Revisá la fecha en el banco de esa fila: el extracto puede traer los movimientos con otra fecha.</div>` : ''}</div>`
+    ctxActualizarBoton()
+  }
+
+  function ctxDestinosRepetidos() {
+    const c = {}
+    ctxArchivos.forEach(a => { if (a.destino) c[a.destino] = (c[a.destino] || 0) + 1 })
+    return Object.keys(c).filter(k => c[k] > 1)
+  }
+
+  function ctxActualizarBoton() {
+    const b = document.getElementById('ctx-btn')
+    if (!b) return
+    const listo = ctxArchivos.length > 0
+      && ctxArchivos.every(a => !a.error && a.destino)
+      && !ctxDestinosRepetidos().length
+    b.disabled = !listo
+  }
+
+  window.ctxSetFecha = async (v) => {
+    if (!v) return
+    ctxFecha = v
+    // Las fechas que no tocaste a mano siguen a la del día; las que corregiste
+    // se respetan.
+    for (const a of ctxArchivos) {
+      if (!a.fechaManual) a.fechaBanco = sugerirFecha(a.destino)
+      await reparsear(a)
+    }
+    ctxRenderArchivos()
+  }
 
   window.ctxConciliar = async () => {
-    if (!ctxFile) { window.toast?.('Subí el estado de cuenta', 'error'); return }
+    if (!ctxArchivos.length) { window.toast?.('Subí al menos un estado de cuenta', 'error'); return }
+    if (ctxArchivos.some(a => !a.destino)) { window.toast?.('Falta indicar la cuenta de algún archivo', 'error'); return }
+    if (ctxDestinosRepetidos().length) { window.toast?.('Hay una cuenta cargada dos veces', 'error'); return }
     ctxDepFiltro = ''
     const btn = document.getElementById('ctx-btn'); btn.disabled = true; btn.textContent = 'Conciliando…'
     try {
-      const fechaBanco = ctxFechaBanco || ctxFecha
-      const movsAll = await parseExtracto(ctxFile, ctxBanco, fechaBanco)
+      const codigos = ctxArchivos.map(a => a.destino)
+      // Cada cuenta guarda con qué fecha el banco acreditó sus depósitos; se
+      // usa en las RPC de referencias, que trabajan por banco y por fecha.
+      const fechaDe = {}
+      ctxArchivos.forEach(a => { fechaDe[a.destino] = a.fechaBanco || ctxFecha })
+      ctxFechasBanco = fechaDe
 
-      // Guardar las referencias de este extracto y detectar las que NO se deben
-      // volver a presentar:
-      //   (1) re-envíos del banco: vistas en extractos de días anteriores (BAC).
-      //   (2) ya conciliadas para otro día reciente (Ficohsa fin de semana: el
-      //       mismo extracto del lunes se usa para sábado, domingo y lunes).
-      let duplicados = []
-      // (0) Duplicados dentro del MISMO extracto: 1-2 veces por mes BAC repite
-      // todos los depósitos con la misma referencia exacta. Se deja el primero
-      // y se omiten los repetidos.
-      //
-      // OJO — la referencia SOLA no identifica una transferencia: BAC REUSA los
-      // números. Se vio el mismo 412444292 el 07/07 (Rafael Moncada, L.200) y el
-      // 18/07 (Raúl Santos, L.500): dos transferencias distintas con el mismo
-      // número. Por eso la llave lleva referencia + MONTO. Si el banco repite
-      // una línea de verdad, el monto también viene igual y se sigue detectando;
-      // pero dos transferencias distintas que casualmente comparten número ya
-      // no se confunden.
-      const kRef = (ref, monto) => {
+      // Todos los depósitos en una sola bolsa, cada uno con su cuenta pegada.
+      // `destino` viaja con el movimiento hasta el guardado: es lo que decide a
+      // qué cuenta contable entró el dinero, sin importar lo que dijo el motorista.
+      const movsAll = []
+      ctxArchivos.forEach(a => a.movs.forEach(m => movsAll.push({ ...m, destino: a.destino })))
+
+      // ── Duplicados ──
+      // La llave lleva la CUENTA además de referencia y monto: BAC reusa los
+      // números de transferencia, así que el mismo ref+monto en dos cuentas
+      // distintas son dos depósitos reales, no una repetición.
+      const kRef = (destino, ref, monto) => {
         const r = String(ref == null ? '' : ref).trim()
         if (!r) return ''
         const n = Number(monto)
-        return Number.isFinite(n) ? r + '|' + n.toFixed(2) : r
+        return destino + '|' + r + (Number.isFinite(n) ? '|' + n.toFixed(2) : '')
       }
+      let duplicados = []
       const _vistos = new Set()
       let movs = []
       movsAll.forEach(m => {
-        const key = kRef(m.ref, m.monto)
+        const key = kRef(m.destino, m.ref, m.monto)
         if (key && _vistos.has(key)) { m.dupTipo = 'igual'; duplicados.push(m) }
         else { if (key) _vistos.add(key); movs.push(m) }
       })
       movs.forEach((m, i) => { m.idx = i })
+
+      // ── Referencias ya vistas · una consulta por cuenta ──
+      // Las RPC trabajan por banco, así que se llaman una vez por cuenta y los
+      // resultados se guardan con la cuenta en la llave. Así cada cuenta
+      // conserva su propio historial de re-envíos sin contaminar a las otras.
       try {
-        const payload = movs.filter(m => m.ref).map(m => ({ ref: m.ref, monto: m.monto, desc: m.desc }))
-        if (payload.length) {
-          await csb().rpc('tx_refs_guardar', { p_banco: ctxBanco, p_fecha: fechaBanco, p_refs: payload })
-        }
-        const seen = {}       // 'ref|monto' → info  (preferido: descarta reuso de número)
-        const seenSolo = {}   // 'ref' → info        (respaldo si la base no devuelve monto)
-        // Guardar la info de una referencia previa, con monto si viene.
-        const marcar = (referencia, monto, info) => {
+        const seen = {}, seenSolo = {}
+        const marcar = (destino, referencia, monto, info) => {
           if (!referencia) return
           const r = String(referencia).trim()
           const n = Number(monto)
-          if (Number.isFinite(n) && monto !== null && monto !== '') seen[r + '|' + n.toFixed(2)] = info
-          else seenSolo[r] = info
+          if (Number.isFinite(n) && monto !== null && monto !== '') seen[destino + '|' + r + '|' + n.toFixed(2)] = info
+          else seenSolo[destino + '|' + r] = info
         }
-        // (1) re-envíos por fecha del banco
-        try {
-          const { data: prev } = await csb().rpc('tx_refs_previas', { p_banco: ctxBanco, p_fecha: fechaBanco, p_dias: DIAS_DUP })
-          ;(Array.isArray(prev) ? prev : []).forEach(p => marcar(p.referencia, p.monto, { tipo: 'reenvio', fecha: p.fecha }))
-        } catch (e) {}
-        // (2) ya conciliadas para otro día de entregas reciente (precede a re-envío)
-        try {
-          const { data: conc } = await csb().rpc('tx_refs_conciliadas_previas', { p_banco: ctxBanco, p_fecha_entregas: ctxFecha, p_dias: DIAS_DUP })
-          ;(Array.isArray(conc) ? conc : []).forEach(c => marcar(c.referencia, c.monto, { tipo: 'conciliado', fecha: c.fecha_entregas }))
-        } catch (e) {}
+        for (const a of ctxArchivos) {
+          const propios = movs.filter(m => m.destino === a.destino && m.ref)
+          try {
+            const payload = propios.map(m => ({ ref: m.ref, monto: m.monto, desc: m.desc }))
+            if (payload.length) await csb().rpc('tx_refs_guardar', { p_banco: a.destino, p_fecha: a.fechaBanco || ctxFecha, p_refs: payload })
+          } catch (e) {}
+          try {
+            const { data: prev } = await csb().rpc('tx_refs_previas', { p_banco: a.destino, p_fecha: a.fechaBanco || ctxFecha, p_dias: DIAS_DUP })
+            ;(Array.isArray(prev) ? prev : []).forEach(x => marcar(a.destino, x.referencia, x.monto, { tipo: 'reenvio', fecha: x.fecha }))
+          } catch (e) {}
+          try {
+            const { data: conc } = await csb().rpc('tx_refs_conciliadas_previas', { p_banco: a.destino, p_fecha_entregas: ctxFecha, p_dias: DIAS_DUP })
+            ;(Array.isArray(conc) ? conc : []).forEach(x => marcar(a.destino, x.referencia, x.monto, { tipo: 'conciliado', fecha: x.fecha_entregas }))
+          } catch (e) {}
+        }
         if (Object.keys(seen).length || Object.keys(seenSolo).length) {
           const _f = []
           movs.forEach(m => {
             const r = m.ref ? String(m.ref).trim() : ''
-            // Primero por referencia+monto (preciso). Si la base no guardó el
-            // monto, se cae al respaldo por referencia sola.
-            const s = r ? (seen[kRef(m.ref, m.monto)] || seenSolo[r]) : null
-            if (s) { m.dupFecha = s.fecha; m.dupTipo = s.tipo; duplicados.push(m) }
+            const s2 = r ? (seen[kRef(m.destino, m.ref, m.monto)] || seenSolo[m.destino + '|' + r]) : null
+            if (s2) { m.dupFecha = s2.fecha; m.dupTipo = s2.tipo; duplicados.push(m) }
             else _f.push(m)
           })
           movs = _f
-          movs.forEach((m, i) => { m.idx = i })   // re-indexar idx contra el array movs
+          movs.forEach((m, i) => { m.idx = i })
         }
       } catch (e) { /* si falla la detección, seguimos con todos los movimientos */ }
 
-      const entregas = await cargarEntregas(ctxBanco, ctxFecha)
-      ctxRes = conciliar(entregas, movs, ctxBanco)
+      // ── Entregas: TODAS las del día, sin filtrar por banco ──
+      // Antes se filtraba por el banco elegido. Eso era el error de fondo: la
+      // entrega dice a dónde CREYÓ depositar el motorista, y puede no coincidir
+      // con dónde entró la plata. El cruce se hace contra todas y la cuenta la
+      // pone el depósito.
+      const entregas = await cargarEntregasTodas(ctxFecha, codigos)
+
+      // El matching por identificador fuerte depende de la institución. Con
+      // cuentas de bancos distintos en la misma bolsa, se corre una pasada por
+      // institución, cada una viendo solo sus propios depósitos.
+      const instituciones = [...new Set(ctxArchivos.map(a => ctxInst(a.destino)))]
+      ctxRes = conciliarMulti(entregas, movs, instituciones)
       ctxRes.duplicados = duplicados
-      // Reaplicar emparejamientos manuales guardados de una conciliación previa
-      await reaplicarManuales(ctxRes, ctxBanco, ctxFecha)
-      // total del débito de la partida [IMP-TAXI] del día (de las entregas) para este banco
-      ctxPartida = null
-      const cuenta = CTX_CUENTA[ctxBanco]
-      if (cuenta) {
-        const { data, error } = await csb().rpc('tx_partida_total_dia', { p_cuenta: cuenta, p_fecha: ctxFecha })
-        if (!error) ctxPartida = parseFloat(data) || 0
+      ctxRes.codigos = codigos
+
+      // Emparejamientos manuales guardados: una consulta por cuenta, todas
+      // aplicadas sobre el mismo resultado.
+      ctxRes.manualesNoReaplicados = []
+      for (const cod of codigos) await reaplicarManuales(ctxRes, cod, ctxFecha)
+
+      // Partida contable: un total por cuenta.
+      ctxPartida = {}
+      for (const cod of codigos) {
+        const cuenta = ctxCuentaDe(cod)
+        if (!cuenta) continue
+        try {
+          const { data, error } = await csb().rpc('tx_partida_total_dia', { p_cuenta: cuenta, p_fecha: ctxFecha })
+          if (!error) ctxPartida[cod] = parseFloat(data) || 0
+        } catch (e) {}
       }
       ctxRender()
     } catch (e) {
       window.toast?.('Error: ' + (e.message || e), 'error')
-    } finally { btn.disabled = false; btn.textContent = 'Conciliar →' }
+    } finally { btn.disabled = false; btn.textContent = 'Conciliar →'; ctxActualizarBoton() }
+  }
+
+  // Todas las entregas aprobadas del día, sin importar el destino que declaró
+  // el motorista. `bancoDeclarado` se conserva para poder señalar después los
+  // casos en que el depósito entró en otra cuenta.
+  async function cargarEntregasTodas(fecha, codigos) {
+    const { data, error } = await csb().from('entregas_taxis').select('*')
+      .eq('fecha_deposito', fecha).eq('estado', 'Aprobada')
+    if (error) throw error
+    // Las entregas de caja no se depositan en banco: no tienen nada que cruzar.
+    const soloBanco = (data || []).filter(e => {
+      const d = ctxDestinos.find(x => x.codigo === String(e.banco || '').trim())
+      return !!d   // ctxDestinos ya viene filtrado a tipo banco
+    })
+    return soloBanco.map((e, i) => ({
+      idx: i, id: e.id, unidad: String(e.unidad || '').trim(),
+      nombre: e.nombre_conductor || '', identidad: String(e.identidad || '').trim(),
+      monto: parseFloat(e.monto) || 0, bancoDeclarado: String(e.banco || '').trim(),
+      m: false, pars: [], nivel: null
+    }))
+  }
+
+  // Nivel 1 por institución (cada pasada ve solo los depósitos de bancos de esa
+  // institución), y después el afinado por monto sobre TODO el conjunto.
+  function conciliarMulti(entregas, movs, instituciones) {
+    instituciones.forEach(inst => {
+      const propios = movs.filter(m => ctxInst(m.destino) === inst)
+      entregas.forEach(e => {
+        if (e.m) return
+        const mismos = propios.filter(mv => !mv.m && (
+          (inst === 'Ficohsa' && mv.identidad && digs(mv.identidad) === digs(e.identidad)) ||
+          (inst === 'BAC' && mv.unidad && mv.unidad === e.unidad) ||
+          (inst === 'BAC' && mv.identidad && digs(mv.identidad) === digs(e.identidad))
+        ))
+        if (!mismos.length) return
+        const exacto = mismos.find(mv => Math.abs(mv.monto - e.monto) < 0.01)
+        if (exacto) { e.m = exacto.m = true; e.pars = [exacto.idx]; exacto.par = e.idx; e.nivel = 1; return }
+        const suma = mismos.reduce((s2, mv) => s2 + mv.monto, 0)
+        if (mismos.length > 1 && Math.abs(suma - e.monto) < 0.01) {
+          e.m = true; e.pars = mismos.map(mv => mv.idx); mismos.forEach(mv => { mv.m = true; mv.par = e.idx }); e.nivel = 1
+        }
+      })
+    })
+    afinarPorMonto(entregas, movs)
+    return {
+      conciliados: entregas.filter(e => e.m),
+      entregasHuerfanas: entregas.filter(e => !e.m),
+      depositosHuerfanos: movs.filter(mv => !mv.m),
+      entregas, movs
+    }
+  }
+
+  // Cuenta de una entrega conciliada = la de su depósito. Si sus depósitos
+  // vienen de cuentas distintas (pago fraccionado entre dos cuentas), acá se
+  // devuelve la primera solo para mostrar; el reparto real por monto lo hace
+  // ctxGuardar, que manda la porción de cada cuenta a su propia conciliación.
+  function destinoDeEntrega(e, r) {
+    const deps = (e.pars || []).map(i => r.movs[i]).filter(Boolean)
+    const cods = [...new Set(deps.map(d => d.destino))]
+    return cods.length === 1 ? cods[0] : (cods[0] || '')
   }
 
   function ctxRender() {
@@ -438,7 +650,7 @@
         <div class="ctx-stat warn"><div class="ctx-n">${r.depositosHuerfanos.length}</div><div class="ctx-l">Depósitos sin entrega</div></div>
         ${(r.duplicados && r.duplicados.length) ? `<div class="ctx-stat dup"><div class="ctx-n">${r.duplicados.length}</div><div class="ctx-l">Omitidas</div></div>` : ''}
       </div>
-      <div class="ctx-sub">Banco ${r.banco} · entregas del ${ctxFecha}${(ctxFechaBanco && ctxFechaBanco !== ctxFecha) ? ` · depósitos del banco con fecha ${ctxFechaBanco}` : ''} · ${totEnt} entregas reportadas vs ${totMov} depósitos en el extracto</div>`
+      <div class="ctx-sub">${(r.codigos || []).map(c => c + ((ctxFechasBanco[c] && ctxFechasBanco[c] !== ctxFecha) ? ` (banco ${ctxFechasBanco[c]})` : '')).join(' + ')} · entregas del ${ctxFecha} · ${totEnt} entregas reportadas vs ${totMov} depósitos en los extractos</div>`
 
     // Conciliados
     const concRows = r.conciliados.map(e => {
@@ -499,41 +711,79 @@
     const cEnt = `<div class="ctx-grp"><div class="ctx-grp-t warn">🚕 Entregas sin depósito (${r.entregasHuerfanas.length})</div>
       ${entRows || '<div class="ctx-empty">Todas las entregas tienen depósito. 🎉</div>'}</div>`
 
-    // Panel de cuadre contra la partida contable del día
+    // ── Panel de cuadre · UNA FILA POR CUENTA ──
+    // El total conciliado se reparte según la cuenta del DEPÓSITO, no según lo
+    // que declaró el motorista. Cada cuenta se compara contra su propia partida.
     const totalConc = r.conciliados.reduce((s, e) => s + e.monto, 0)
     const totalEnt = r.entregas.reduce((s, e) => s + e.monto, 0)
     const totalExt = r.movs.reduce((s, m) => s + m.monto, 0)
-    const cuenta = CTX_CUENTA[r.banco] || '—'
-    // ctxPartida null = no se pudo consultar; 0 = consultado pero la partida aún no existe
-    const hayPartida = ctxPartida != null && ctxPartida > 0
-    let cCuadre
-    if (hayPartida) {
-      const dif = Math.round((totalConc - ctxPartida) * 100) / 100
-      const cuadra = Math.abs(dif) < 0.01
-      cCuadre = `<div class="ctx-grp ctx-cuadre ${cuadra ? 'ok' : 'no'}">
-        <div class="ctx-grp-t ${cuadra ? 'ok' : 'warn'}">${cuadra ? '✓' : '⚠'} Cuadre contra la partida contable</div>
-        <div class="ctx-cuadre-rows">
-          <div><span>Total conciliado</span><b>${fmt(totalConc)}</b></div>
-          <div><span>Partida del día (débito ${cuenta})</span><b>${fmt(ctxPartida)}</b></div>
-          <div class="ctx-cuadre-dif ${cuadra ? 'ok' : 'no'}"><span>Diferencia</span><b>${fmt(dif)}</b></div>
+    const porCuenta = {}
+    ;(r.codigos || []).forEach(c => { porCuenta[c] = { conciliado: 0, n: 0 } })
+    r.conciliados.forEach(e => {
+      ;(e.pars || []).map(i => r.movs[i]).filter(Boolean).forEach(d => {
+        if (!porCuenta[d.destino]) porCuenta[d.destino] = { conciliado: 0, n: 0 }
+        porCuenta[d.destino].conciliado += d.monto
+        porCuenta[d.destino].n++
+      })
+    })
+    r._porCuenta = porCuenta
+
+    const filasCuadre = Object.keys(porCuenta).map(cod => {
+      const c = porCuenta[cod]
+      const cuenta = ctxCuentaDe(cod) || '—'
+      const p = ctxPartida ? ctxPartida[cod] : null
+      const hay = p != null && p > 0
+      const dif = hay ? Math.round((c.conciliado - p) * 100) / 100 : null
+      const cuadra = hay && Math.abs(dif) < 0.01
+      return `<div class="ctx-cq ${hay ? (cuadra ? 'ok' : 'no') : 'pend'}">
+        <div class="ctx-cq-h"><b>${cod}</b> <span class="ctx-cq-cta">${cuenta}</span></div>
+        <div class="ctx-cq-rows">
+          <div><span>Conciliado (${c.n} depósito${c.n === 1 ? '' : 's'})</span><b>${fmt(c.conciliado)}</b></div>
+          <div><span>Partida del día</span><b>${hay ? fmt(p) : '— aún no generada'}</b></div>
+          ${hay ? `<div class="ctx-cuadre-dif ${cuadra ? 'ok' : 'no'}"><span>Diferencia</span><b>${fmt(dif)}</b></div>` : ''}
         </div>
-        ${cuadra
-          ? '<div class="ctx-cuadre-msg ok">Cuadra exacto con el movimiento contable del día. 🎉</div>'
-          : '<div class="ctx-cuadre-msg no">No cuadra. Podés guardar igual; la diferencia queda registrada para resolver después.</div>'}
-        <button class="btn btn-gold ctx-save" onclick="ctxGuardar()">💾 Guardar conciliación</button>
       </div>`
-    } else {
-      // flujo normal: todavía no generaste la partida. No es descuadre.
-      cCuadre = `<div class="ctx-grp ctx-cuadre pend">
-        <div class="ctx-grp-t info">🕒 Pendiente de partida</div>
-        <div class="ctx-cuadre-rows">
-          <div><span>Total conciliado</span><b>${fmt(totalConc)}</b></div>
-          <div><span>Partida del día (débito ${cuenta})</span><b>— aún no generada</b></div>
-        </div>
-        <div class="ctx-cuadre-msg info">Guardá la conciliación ahora. Cuando generes la partida de taxis del ${ctxFecha} por <b>${fmt(totalConc)}</b>, se cuadrará sola automáticamente.</div>
-        <button class="btn btn-gold ctx-save" onclick="ctxGuardar()">💾 Guardar conciliación</button>
-      </div>`
-    }
+    }).join('')
+
+    const algunaPartida = ctxPartida && Object.keys(porCuenta).some(c => (ctxPartida[c] || 0) > 0)
+    const todasCuadran = algunaPartida && Object.keys(porCuenta).every(c => {
+      const p = ctxPartida[c]
+      return p == null || p === 0 || Math.abs(porCuenta[c].conciliado - p) < 0.01
+    })
+
+    // Depósitos que entraron en una cuenta distinta a la que declaró el
+    // motorista. Con una sola cuenta esto era invisible; ahora se ve.
+    const desviados = r.conciliados.map(e => {
+      const cod = destinoDeEntrega(e, r)
+      return (cod && e.bancoDeclarado && cod !== e.bancoDeclarado) ? { e, cod } : null
+    }).filter(Boolean)
+    const cDesv = desviados.length ? `<div class="ctx-grp">
+        <div class="ctx-grp-t warn">↪️ Depositaron en otra cuenta (${desviados.length})</div>
+        <div class="ctx-hint">El motorista reportó una cuenta y el depósito entró en otra. Se contabiliza donde <b>realmente</b> entró, que es lo que dice el banco. Sirve para corregirle el dato al motorista.</div>
+        ${desviados.map(d => `<div class="ctx-row warn">
+          <div class="ctx-row-l">#${d.e.unidad || '—'} ${d.e.nombre || ''} · ${fmt(d.e.monto)}</div>
+          <div class="ctx-row-r"><span class="ctx-dup-tag">reportó ${d.e.bancoDeclarado} → entró en ${d.cod}</span></div>
+        </div>`).join('')}</div>` : ''
+
+    const cCuadre = `<div class="ctx-grp ctx-cuadre ${algunaPartida ? (todasCuadran ? 'ok' : 'no') : 'pend'}">
+      <div class="ctx-grp-t ${algunaPartida ? (todasCuadran ? 'ok' : 'warn') : 'info'}">
+        ${algunaPartida ? (todasCuadran ? '✓ Cuadre contra las partidas contables' : '⚠ Cuadre contra las partidas contables') : '🕒 Pendiente de partida'}
+      </div>
+      <div class="ctx-cq-wrap">${filasCuadre}</div>
+      <div class="ctx-cuadre-rows" style="margin-top:8px">
+        <div><span>Total conciliado (todas las cuentas)</span><b>${fmt(totalConc)}</b></div>
+      </div>
+      <div class="ctx-cuadre-msg ${algunaPartida ? (todasCuadran ? 'ok' : 'no') : 'info'}">
+        ${algunaPartida
+          ? (todasCuadran
+            ? 'Cada cuenta cuadra con su movimiento contable del día. 🎉'
+            : 'Alguna cuenta no cuadra. Podés guardar igual; la diferencia queda registrada para resolver después.')
+          : `Guardá la conciliación ahora. Cuando generes la partida de taxis del ${ctxFecha}, se cuadrará sola automáticamente.`}
+      </div>
+      <div class="ctx-cuadre-msg info">Se guarda <b>una conciliación por cuenta</b> (${Object.keys(porCuenta).length}), cada una con sus propios depósitos.</div>
+      <button class="btn btn-gold ctx-save" onclick="ctxGuardar()">💾 Guardar conciliación</button>
+    </div>` + cDesv
+
     // Omitidos: re-envíos del banco o referencias ya conciliadas otro día
     const dups = r.duplicados || []
     const dupRows = dups.map(mv => {
@@ -572,8 +822,6 @@
           ${noReInfo.map(filaNoRe).join('')}</div>`
       : '')
 
-    // guardar totales para ctxGuardar
-    ctxRes._totales = { conciliado: totalConc, entregas: totalEnt, extracto: totalExt }
 
     out.innerHTML = resumen + cCuadre + cNoRe + cConc + cDep + cEnt + cDup
     ctxDepAplicarFiltro()
@@ -623,57 +871,113 @@
   window.ctxGuardar = async () => {
     if (!ctxRes) return
     const r = ctxRes
-    const t = r._totales || { conciliado: 0, entregas: 0, extracto: 0 }
-    // Construir el detalle del cruce
-    const detalle = []
+    const codigos = r.codigos || []
+
+    // Una conciliación POR CUENTA: tx_conciliaciones lleva un banco y una
+    // cuenta por fila, que es la forma que la tabla ya tiene y la que hace que
+    // el cuadre contra la partida siga siendo por cuenta. No se inventa nada.
+    //
+    // El reparto del detalle:
+    //   · conciliados → a la cuenta de SUS depósitos (si un pago se fraccionó
+    //     entre dos cuentas, cada depósito va a la suya y la entrega aparece
+    //     en ambas con el monto que le corresponde a cada una)
+    //   · depósitos huérfanos → a la cuenta de su archivo
+    //   · entregas huérfanas → NO se reparten. Una entrega sin depósito no
+    //     pertenece a ninguna cuenta y ensuciaría el cuadre de la que le
+    //     tocara. Se guardan en la primera cuenta solo como registro del
+    //     problema, con monto_entrega intacto y sin monto_deposito.
+    const porCod = {}
+    codigos.forEach(c => { porCod[c] = { detalle: [], extracto: 0, conciliado: 0, entregas: 0 } })
+    const bolsa = c => (porCod[c] = porCod[c] || { detalle: [], extracto: 0, conciliado: 0, entregas: 0 })
+
+    r.movs.forEach(mv => { bolsa(mv.destino).extracto += mv.monto })
+
     r.conciliados.forEach(e => {
       const deps = (e.pars || []).map(i => r.movs[i]).filter(Boolean)
-      detalle.push({
-        entrega_id: e.id || null, unidad: e.unidad, nombre: e.nombre,
-        monto_entrega: e.monto,
-        deposito_desc: deps.map(d => `${d.desc} (${d.monto})`).join(' + '),
-        monto_deposito: deps.reduce((s, d) => s + d.monto, 0),
-        deposito_refs: deps.map(d => ({ ref: d.ref || null, monto: d.monto })),
-        nivel: String(e.nivel)
+      const grupos = {}
+      deps.forEach(d => { (grupos[d.destino] = grupos[d.destino] || []).push(d) })
+      Object.keys(grupos).forEach(cod => {
+        const ds = grupos[cod]
+        const montoDep = ds.reduce((s2, d) => s2 + d.monto, 0)
+        const b = bolsa(cod)
+        b.conciliado += montoDep
+        b.entregas += montoDep     // la parte de esta entrega que entró en esta cuenta
+        b.detalle.push({
+          entrega_id: e.id || null, unidad: e.unidad, nombre: e.nombre,
+          monto_entrega: montoDep,
+          deposito_desc: ds.map(d => `${d.desc} (${d.monto})`).join(' + '),
+          monto_deposito: montoDep,
+          deposito_refs: ds.map(d => ({ ref: d.ref || null, monto: d.monto })),
+          nivel: String(e.nivel)
+        })
       })
     })
-    r.entregasHuerfanas.forEach(e => detalle.push({
-      entrega_id: e.id || null, unidad: e.unidad, nombre: e.nombre,
-      monto_entrega: e.monto, deposito_desc: null, monto_deposito: null, nivel: 'huerfano_ent'
-    }))
-    r.depositosHuerfanos.forEach(mv => detalle.push({
-      entrega_id: null, unidad: null, nombre: null, monto_entrega: null,
-      deposito_desc: mv.desc, monto_deposito: mv.monto, nivel: 'huerfano_dep'
-    }))
+
+    r.depositosHuerfanos.forEach(mv => {
+      bolsa(mv.destino).detalle.push({
+        entrega_id: null, unidad: null, nombre: null, monto_entrega: null,
+        deposito_desc: mv.desc, monto_deposito: mv.monto, nivel: 'huerfano_dep'
+      })
+    })
+
+    const primera = codigos[0]
+    if (primera) {
+      r.entregasHuerfanas.forEach(e => {
+        bolsa(primera).detalle.push({
+          entrega_id: e.id || null, unidad: e.unidad, nombre: e.nombre,
+          monto_entrega: e.monto, deposito_desc: null, monto_deposito: null, nivel: 'huerfano_ent'
+        })
+      })
+    }
 
     const btn = document.querySelector('.ctx-save')
     if (btn) { btn.disabled = true; btn.textContent = 'Guardando…' }
+    const oks = [], fallos = []
     try {
-      const { data, error } = await csb().rpc('tx_guardar_conciliacion', {
-        p_banco: r.banco, p_fecha: ctxFecha, p_cuenta: CTX_CUENTA[r.banco] || null,
-        p_total_entregas: t.entregas, p_total_extracto: t.extracto, p_total_conciliado: t.conciliado,
-        p_detalle: detalle
-      })
-      if (error) throw error
-      if (!data?.ok) { window.toast?.(data?.error || 'No se pudo guardar', 'error'); return }
-      // Registrar las referencias conciliadas para no re-presentarlas otro día
-      try {
-        const refsConc = []
-        r.conciliados.forEach(e => (e.pars || []).forEach(i => {
-          // Se guarda también la descripción del banco (trae el punto RapiBac) y
-          // la unidad a la que se asignó. Con eso se puede consultar después qué
-          // motoristas usan cada punto. e.unidad es el motorista de esta entrega.
-          const mv = r.movs[i]
-          if (mv && mv.ref) refsConc.push({ ref: mv.ref, monto: mv.monto, desc: mv.desc || '', unidad: e.unidad || '' })
-        }))
-        if (refsConc.length) {
-          await csb().rpc('tx_refs_conciliadas_guardar', {
-            p_banco: r.banco, p_fecha_entregas: ctxFecha,
-            p_fecha_banco: (ctxFechaBanco || ctxFecha), p_refs: refsConc
+      for (const cod of Object.keys(porCod)) {
+        const b = porCod[cod]
+        try {
+          const { data, error } = await csb().rpc('tx_guardar_conciliacion', {
+            p_banco: cod, p_fecha: ctxFecha, p_cuenta: ctxCuentaDe(cod) || null,
+            p_total_entregas: b.entregas, p_total_extracto: b.extracto, p_total_conciliado: b.conciliado,
+            p_detalle: b.detalle
           })
+          if (error) throw error
+          if (!data?.ok) throw new Error(data?.error || 'la base rechazó el guardado')
+          oks.push({ cod, cuadra: !!data.cuadra, diferencia: data.diferencia })
+        } catch (e) {
+          fallos.push({ cod, msg: e.message || String(e) })
+          continue
         }
-      } catch (e) { /* no bloquear el guardado por esto */ }
-      window.toast?.(data.cuadra ? 'Conciliación guardada · cuadra ✓' : `Guardada · diferencia ${fmt(data.diferencia)}`, data.cuadra ? 'success' : 'info')
+        // Referencias conciliadas de ESTA cuenta, para no re-presentarlas.
+        try {
+          const refsConc = []
+          r.conciliados.forEach(e => (e.pars || []).forEach(i => {
+            const mv = r.movs[i]
+            if (mv && mv.ref && mv.destino === cod) {
+              refsConc.push({ ref: mv.ref, monto: mv.monto, desc: mv.desc || '', unidad: e.unidad || '' })
+            }
+          }))
+          if (refsConc.length) {
+            await csb().rpc('tx_refs_conciliadas_guardar', {
+              p_banco: cod, p_fecha_entregas: ctxFecha,
+              p_fecha_banco: (ctxFechasBanco[cod] || ctxFecha), p_refs: refsConc
+            })
+          }
+        } catch (e) { /* no bloquear el guardado por esto */ }
+      }
+
+      // Un fallo parcial NO se reporta como éxito: quedaron cuentas guardadas y
+      // otras no, y hay que saber cuáles para no re-guardar a ciegas.
+      if (fallos.length) {
+        window.toast?.(`${oks.length} cuenta(s) guardada(s), ${fallos.length} con error: ${fallos.map(f => f.cod + ' (' + f.msg + ')').join(' · ')}`, 'error')
+      } else {
+        const malos = oks.filter(o => !o.cuadra)
+        window.toast?.(malos.length
+          ? `Guardado · ${malos.length} cuenta(s) con diferencia: ${malos.map(o => o.cod + ' ' + fmt(o.diferencia)).join(' · ')}`
+          : `Conciliación guardada · ${oks.length} cuenta(s) · cuadra ✓`,
+          malos.length ? 'info' : 'success')
+      }
     } catch (e) {
       window.toast?.('Error: ' + (e.message || e), 'error')
     } finally {
@@ -686,15 +990,41 @@
     const s = document.createElement('style'); s.id = 'ctx-styles'
     s.textContent = `
       .ctx-card{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;margin-bottom:14px}
+      .ctx-files{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+      .ctx-file-row{display:flex;align-items:center;gap:10px;background:#0f1115;border:1px solid #2a2e37;border-radius:9px;padding:8px 10px;font-size:12px;flex-wrap:wrap}
+      .ctx-file-row.err{border-color:#5a2a2a}
+      .ctx-file-n{flex:1 1 180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c9d1e0}
+      .ctx-file-sel{display:flex;align-items:center;gap:6px}
+      .ctx-file-sel select{padding:5px 9px;background:#15171c;border:1px solid #2a2e37;border-radius:7px;color:#e7e9ee;font-size:12px;outline:none}
+      .ctx-auto{font-size:10px;color:#4ade80;border:1px solid #2b5f3f;border-radius:5px;padding:1px 6px}
+      .ctx-file-f{display:flex;align-items:center;gap:6px}
+      .ctx-file-f input{padding:4px 8px;background:#15171c;border:1px solid #2a2e37;border-radius:7px;color:#e7e9ee;font-size:12px;outline:none}
+      .ctx-file-row.vacio{border-color:#6b4a1f}
+      .ctx-file-i{flex:1 1 180px;color:#8b93a3}
+      .ctx-file-i b{color:#c9d1e0;font-family:var(--mono,monospace)}
+      .ctx-file-err{color:#f87171}
+      .ctx-file-x{background:none;border:none;color:#8b93a3;cursor:pointer;font-size:14px;padding:0 4px}
+      .ctx-file-x:hover{color:#f87171}
+      .ctx-file-warn{font-size:11px;color:#f5c451;padding:6px 2px}
+      .ctx-aviso{font-size:11px;color:#8b93a3;margin-top:12px;padding-top:11px;border-top:1px solid #2a2e37}
+      .ctx-aviso.warn{color:#f5c451}
+      .ctx-cq-wrap{display:flex;flex-direction:column;gap:8px;margin:6px 0}
+      .ctx-cq{border:1px solid #2a2e37;border-radius:9px;padding:9px 11px;background:#0f1115}
+      .ctx-cq.ok{border-color:#2b5f3f}.ctx-cq.no{border-color:#6b4a1f}.ctx-cq.pend{border-color:#2a3c5a}
+      .ctx-cq-h{font-size:12px;margin-bottom:5px}
+      .ctx-cq-cta{color:#8b93a3;font-family:var(--mono,monospace);font-size:11px;margin-left:6px}
+      .ctx-cq-rows>div{display:flex;justify-content:space-between;font-size:12px;padding:1px 0}
+      .ctx-fld select{width:100%;padding:8px 11px;background:#0f1115;border:1px solid #2a2e37;border-radius:8px;color:#e7e9ee;font-size:13px;outline:none}
+      .ctx-cta{font-size:11px;color:#8b93a3;margin-top:5px}
+      .ctx-cta b{color:#c9d1e0}
+      .ctx-personal{color:#f5c451}
+      .ctx-aviso{font-size:11px;color:#8b93a3;margin-top:12px;padding-top:11px;border-top:1px solid #2a2e37}
       .ctx-punto-btn{margin-left:10px;padding:2px 8px;font-size:11px;background:#1c2530;border:1px solid #2f3b4a;border-radius:6px;color:#7fb3ff;cursor:pointer}
       .ctx-punto-btn:hover{background:#243141}
       .ctx-controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
       .ctx-fld{display:flex;flex-direction:column;gap:5px}.ctx-fld.ctx-grow{flex:1;min-width:220px}
       .ctx-fld label{font-size:12px;color:#9aa0aa;text-transform:uppercase;letter-spacing:.04em}
       .ctx-fld input{padding:9px 11px;background:#15171c;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:14px}
-      .ctx-banco{display:flex;gap:6px}
-      .ctx-bbtn{background:#15171c;border:1px solid #2a2e37;border-radius:9px;padding:9px 18px;color:#9aa0aa;font-weight:600;cursor:pointer}
-      .ctx-bbtn.on{background:#2563eb;border-color:#2563eb;color:#fff}
       .ctx-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:8px}
       .ctx-stat{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:15px;text-align:center}
       .ctx-stat.ok{border-color:rgba(22,163,74,.4)}.ctx-stat.warn{border-color:rgba(240,165,0,.35)}

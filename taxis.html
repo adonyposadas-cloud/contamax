@@ -271,7 +271,8 @@
       <div class="field"><label>Forma de pago</label>
         <select id="medio"><option value="">Seleccionar…</option></select>
       </div>
-      <div class="field"><label>Fecha del depósito</label><input id="fecha" type="date"></div>
+      <div class="field"><label>Fecha del depósito</label><input id="fecha" type="date">
+        <div id="fecha-aviso" style="font-size:11px;color:#8b93a3;margin-top:4px"></div></div>
       <div class="field"><label>Tu número de celular (WhatsApp)</label><input id="telefono" type="tel" inputmode="tel" placeholder="Ej: 9988-7766" autocomplete="off"></div>
       <div class="field">
         <label id="foto-label">Foto del comprobante</label>
@@ -368,11 +369,39 @@ window.entrarCaja = async () => {
   finally { b.disabled = false; b.textContent = 'Entrar' }
 }
 
+// Día más viejo que todavía admite entregas: el siguiente al último que ya se
+// contabilizó. La base lo rechaza igual con un trigger, pero sin el mínimo en
+// el selector el motorista elegiría una fecha cerrada y chocaría con un error.
+let primerDiaAbierto = null
+async function cargarPrimerDiaAbierto() {
+  try {
+    const { data, error } = await sb.rpc('tx_primer_dia_abierto')
+    if (!error && data) primerDiaAbierto = String(data).slice(0, 10)
+  } catch (e) { /* si falla, el selector queda sin mínimo y manda el trigger */ }
+  aplicarMinimoFecha()
+}
+
+function aplicarMinimoFecha() {
+  const inp = $('fecha'); if (!inp) return
+  const aviso = $('fecha-aviso')
+  if (!primerDiaAbierto) { inp.removeAttribute('min'); if (aviso) aviso.textContent = ''; return }
+  inp.min = primerDiaAbierto
+  // Si el valor quedó antes del mínimo (p. ej. se cerró un día mientras la
+  // pantalla estaba abierta), se corrige solo en vez de dejarlo inválido.
+  if (inp.value && inp.value < primerDiaAbierto) inp.value = primerDiaAbierto
+  if (aviso) {
+    aviso.textContent = primerDiaAbierto > hoy()
+      ? 'Los días anteriores ya están contabilizados.'
+      : `Desde el ${txFechaCorta(primerDiaAbierto)}: los días anteriores ya están contabilizados.`
+  }
+}
+
 function prepararForm() {
   $('form-title').textContent = modo === 'caja' ? 'Registro de cobro' : 'Registro de depósito'
   const sel = $('medio')
   sel.innerHTML = '<option value="">Seleccionar…</option>' + MEDIOS[modo].map(m => `<option value="${m}">${m}</option>`).join('')
   $('fecha').value = hoy()
+  aplicarMinimoFecha()
   // Foto: obligatoria para motorista, opcional para caja
   $('foto-label').textContent = modo === 'caja' ? 'Foto del comprobante (opcional)' : 'Foto del comprobante'
   $('foto-s').textContent = modo === 'caja' ? 'Sólo si es un depósito' : 'Obligatoria'
@@ -750,11 +779,24 @@ window.enviar = async () => {
       })
       if (error) throw error; res = data
     }
-    if (!res?.ok) { showMsg('form-msg', res?.error || 'No se pudo registrar.', 'err'); return }
+    if (!res?.ok) {
+      showMsg('form-msg', res?.error || 'No se pudo registrar.', 'err')
+      if (/contabilizado/i.test(String(res?.error || ''))) cargarPrimerDiaAbierto()
+      return
+    }
     ultimoMedio = medio
     mostrarResultado(res)
   } catch (e) {
-    showMsg('form-msg', 'No se pudo enviar. Revisá tu conexión e intentá de nuevo.', 'err')
+    // El catch mostraba siempre "revisá tu conexión". Cuando la base rechaza la
+    // fecha por día cerrado, ese mensaje manda al motorista a reintentar algo
+    // que nunca va a funcionar. El motivo real se muestra tal cual.
+    const msg = String(e?.message || e || '')
+    if (/contabilizado|día cerrado|dia cerrado/i.test(msg)) {
+      showMsg('form-msg', msg, 'err')
+      cargarPrimerDiaAbierto()
+    } else {
+      showMsg('form-msg', 'No se pudo enviar. Revisá tu conexión e intentá de nuevo.', 'err')
+    }
   } finally { b.disabled = false; b.textContent = 'Enviar solicitud' }
 }
 
@@ -889,6 +931,7 @@ setInterval(() => {
 
 // Cargar los puntos de recolección configurados al abrir el formulario
 cargarMedios()
+cargarPrimerDiaAbierto()
 </script>
 </body>
 </html>

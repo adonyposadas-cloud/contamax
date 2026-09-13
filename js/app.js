@@ -393,6 +393,7 @@ window.showView = (id, label) => {
   if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
   if (id === 'cotizador' && window.initCotizador) window.initCotizador()
   if (id === 'estados-fisicos' && window.initEstadosFisicos) window.initEstadosFisicos()
+  if (id === 'destinos' && window.initDestinos) window.initDestinos()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }
@@ -8653,21 +8654,20 @@ window.guardarImportTaxis = async () => {
 // ══════════════════════════════════════════════
 
 const TAXI_CUENTAS = {
-  bac:       { codigo: '110104-021', nombre: 'BAC ADONY AHORRO 758812601' },
-  bac2:      { codigo: '110104-007', nombre: 'BAC ADONY AHORRO 72XXXXX' },
-  ficohsa:   { codigo: '110104-013', nombre: 'FICOHSA ADONY AHORRO' },
-  caja:      { codigo: '110102-001', nombre: 'CAJA GENERAL MN' },
   ingreso:   { codigo: '410101-003', nombre: 'Ingresos por renta Taxis' },
 }
 
+// La cuenta contable de cada destino sale de `destinos_deposito`, no de un mapa
+// fijo acá. Antes esta función terminaba en `return TAXI_CUENTAS.caja` como
+// valor por defecto, así que un destino no reconocido se contabilizaba
+// silenciosamente como Caja General. Ahora devuelve null y el llamador corta:
+// es preferible que la partida del día no se genere a que se genere mal.
+// Requiere window.cargarDestinos() previo (destinos.js).
 function bancoToCuenta(banco) {
-  const b = (banco || '').toLowerCase().trim()
-  if (b === 'bac') return TAXI_CUENTAS.bac
-  if (b === 'bac 2' || b === 'bac2') return TAXI_CUENTAS.bac2
-  if (b.includes('ficohsa')) return TAXI_CUENTAS.ficohsa
-  // Caja Tecnimax, Caja Yonker, Caja Taxis → todas a Caja General
-  if (b.includes('caja')) return TAXI_CUENTAS.caja
-  return TAXI_CUENTAS.caja // default
+  const b = String(banco || '').trim()
+  if (!b) return null
+  const d = (window.DESTINOS || []).find(x => String(x.codigo).trim() === b)
+  return d ? { codigo: d.cuenta_codigo, nombre: d.etiqueta } : null
 }
 
 let ptxData = null
@@ -8816,6 +8816,17 @@ window.generarPartidasTaxis = async () => {
   }
   const getCuenta = (codigo) => cuentasDetalle.find(c => c.codigo === codigo)
 
+  // El catálogo de destinos se relee de la base, no se confía en el cache: si
+  // alguien dio de alta una cuenta en otra pestaña, esta partida tiene que
+  // verla. Sin esto bancoToCuenta() no resuelve nada.
+  try {
+    await window.cargarDestinos(true)
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Generar partidas'
+    toast('No se pudo leer el catálogo de destinos: ' + (e.message || e), 'error')
+    return
+  }
+
   let creadas = 0, errores = 0
   const log = []
   const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
@@ -8826,13 +8837,26 @@ window.generarPartidasTaxis = async () => {
 
     // Agrupar por cuenta contable
     const porCuenta = {}
+    let destinoDesconocido = null
     dia.entregas.forEach(e => {
+      const monto = parseFloat(e.monto) || 0
+      if (monto <= 0) return                   // entregas programadas en 0: no aportan nada
       const cuenta = bancoToCuenta(e.banco)
+      if (!cuenta) { destinoDesconocido = destinoDesconocido || (e.banco || '(vacío)'); return }
       const key = cuenta.codigo
       if (!porCuenta[key]) porCuenta[key] = { cuenta, total: 0, count: 0 }
-      porCuenta[key].total += parseFloat(e.monto) || 0
+      porCuenta[key].total += monto
       porCuenta[key].count++
     })
+
+    // Un destino sin cuenta contable NO se manda a Caja General como antes. El
+    // día se salta con el error a la vista: contabilizarlo mal es peor que no
+    // contabilizarlo, porque el total general igual cuadra y nadie lo nota.
+    if (destinoDesconocido) {
+      errores++
+      log.push(`<span style="color:var(--red)">✕</span> ${dia.fecha}: el destino "${destinoDesconocido}" no está en el catálogo. Agregalo en Destinos de depósito y volvé a generar.`)
+      continue
+    }
 
     const descripcion = `Entregas taxis · ${dia.fecha} · ${dia.entregas.length} unidades · L. ${fmt(total)} [IMP-TAXI]`
 
