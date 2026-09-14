@@ -2913,8 +2913,10 @@ function renderLineas() {
   const esAuxContable = currentProfile?.rol === 'aux_contable'
   const esDuenoCajaChica = ['aux_contable', 'contador'].includes(currentProfile?.rol)   // ambos manejan caja chica
   tbody.innerHTML = partidaLineas.map(l => {
-    const debeVal = l.tipo === 'debito' && l.monto ? l.monto : ''
-    const haberVal = l.tipo === 'credito' && l.monto ? l.monto : ''
+    // Se pintan con separador de miles. Con montos de seis cifras, 103309.38 y
+    // 103309.38 se ven casi iguales y es donde se cuelan los errores de carga.
+    const debeVal = l.tipo === 'debito' && l.monto ? pnMiles(l.monto) : ''
+    const haberVal = l.tipo === 'credito' && l.monto ? pnMiles(l.monto) : ''
     const esCaja = esCuentaCaja(l.cuenta_codigo)
     const esCajaChica = l.cuenta_codigo === CUENTA_CAJA_CHICA
 
@@ -2933,24 +2935,24 @@ function renderLineas() {
       // Dueño de caja chica (aux_contable/contador): control total con botón 💵
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-            oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+            oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
       haberInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
-            oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+            oninput="setHaber(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
     } else if (esCaja && esSuperAdmin && !esCajaChica) {
       // Super Admin: botones 💵 en ambos lados (solo caja general; la caja chica la cuenta su responsable)
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-            oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+            oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
       haberInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
-            oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+            oninput="setHaber(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
     } else if (esCaja && cajaReadonly) {
@@ -2963,7 +2965,7 @@ function renderLineas() {
       // Otros roles en partida nueva con caja: solo ingreso (débito) con botón 💵, haber bloqueado
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-            oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono);flex:1">
+            oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
           <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
         </div>`
       haberInput = `<input type="text" value="" placeholder="—" disabled
@@ -2972,9 +2974,9 @@ function renderLineas() {
     } else {
       // Cuentas normales (no caja)
       debeInput = `<input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
-          oninput="setDebe(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+          oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono)">`
       haberInput = `<input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
-          oninput="setHaber(${l.id},this.value)" style="text-align:right;font-family:var(--mono)">`
+          oninput="setHaber(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono)">`
     }
 
     // No permitir eliminar línea de caja a usuarios no super_admin en edición
@@ -3067,7 +3069,7 @@ window.copyCalcUSD = () => {
 window.setDebe = (id, val) => {
   const l = partidaLineas.find(x => x.id === id)
   if (!l) return
-  const v = parseFloat(val) || 0
+  const v = pnNum(val)
   l.tipo = 'debito'
   l.monto = v
   // Si es cuenta de caja y se editó directo (sin botón 💵), limpiar billetes
@@ -3087,7 +3089,7 @@ window.setHaber = (id, val) => {
     renderLineas()
     return
   }
-  const v = parseFloat(val) || 0
+  const v = pnNum(val)
   l.tipo = 'credito'
   l.monto = v
   // Si es cuenta de caja y se editó directo (sin botón 💵), limpiar billetes
@@ -3098,10 +3100,32 @@ window.setHaber = (id, val) => {
   calcTotales()
 }
 
+// ── Separador de miles en los montos de la partida ──
+// Se muestra formateado y se edita crudo: formatear mientras se teclea mueve el
+// cursor y es peor que no formatear. Al entrar al campo se limpia, al salir se
+// vuelve a formatear.
+function pnMiles(v) {
+  const n = pnNum(v)
+  if (!n) return ''
+  return n.toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+// Quita separadores antes de parsear. Sin esto, parseFloat('103,309.38') da 103.
+function pnNum(v) {
+  if (typeof v === 'number') return v
+  const n = parseFloat(String(v == null ? '' : v).replace(/,/g, '').trim())
+  return isNaN(n) ? 0 : n
+}
+window.pnCrudo = (inp) => {
+  const n = pnNum(inp.value)
+  inp.value = n ? String(n) : ''
+  inp.select()
+}
+window.pnFormatear = (inp) => { inp.value = pnMiles(inp.value) }
+
 window.updLinea = (id, field, val) => {
   const l = partidaLineas.find(x => x.id === id)
   if (!l) return
-  if (field === 'monto') l[field] = Math.round((parseFloat(val) || 0) * 100) / 100
+  if (field === 'monto') l[field] = Math.round(pnNum(val) * 100) / 100
   else if (field === 'aplica_fiscal') l[field] = val
   else l[field] = val
   calcTotales()
@@ -3111,19 +3135,19 @@ function calcTotales() {
   const debitos = Math.round(partidaLineas.filter(l => l.tipo === 'debito').reduce((s, l) => s + (l.monto || 0), 0) * 100) / 100
   const creditos = Math.round(partidaLineas.filter(l => l.tipo === 'credito').reduce((s, l) => s + (l.monto || 0), 0) * 100) / 100
   const diff = Math.round(Math.abs(debitos - creditos) * 100) / 100
-  document.getElementById('pn-tot-d').textContent = debitos.toFixed(2)
-  document.getElementById('pn-tot-c').textContent = creditos.toFixed(2)
+  document.getElementById('pn-tot-d').textContent = pnMiles(debitos) || '0.00'
+  document.getElementById('pn-tot-c').textContent = pnMiles(creditos) || '0.00'
   const diffEl = document.getElementById('pn-diff')
   const balEl = document.getElementById('pn-balance')
   if (diff === 0 && debitos > 0) {
     diffEl.textContent = 'Cuadrada ✓'
     diffEl.style.color = 'var(--green)'
-    balEl.textContent = `Cuadrada: L. ${debitos.toFixed(2)}`
+    balEl.textContent = `Cuadrada: L. ${pnMiles(debitos) || '0.00'}`
     balEl.style.color = 'var(--green)'
   } else {
-    diffEl.textContent = `Diferencia: L. ${diff.toFixed(2)}`
+    diffEl.textContent = `Diferencia: L. ${pnMiles(diff) || '0.00'}`
     diffEl.style.color = 'var(--red)'
-    balEl.textContent = `Descuadre: L. ${diff.toFixed(2)}`
+    balEl.textContent = `Descuadre: L. ${pnMiles(diff) || '0.00'}`
     balEl.style.color = 'var(--red)'
   }
 }
