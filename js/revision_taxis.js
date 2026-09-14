@@ -618,6 +618,16 @@ function rtx7dEnsure() {
     .rtx-hist-sug-nm{display:block;color:#e8eaed;font-size:13px}
     .rtx-hist-sug-md{display:block;color:#8b93a3;font-size:11px;margin-top:1px}
     .rtx-hist-sug-n{padding:9px 11px;color:#8b93a3;font-size:12px}
+    .mot-lpk{margin-top:5px;font-size:12px;padding:4px 9px;border-radius:7px;display:inline-block}
+    .mot-lpk b{font-weight:700}
+    .mot-lpk span{color:#8b93a3;margin-left:6px;font-size:11px}
+    .mot-lpk.ok{background:rgba(63,185,80,.10);border:1px solid rgba(63,185,80,.35);color:#3fb950}
+    .mot-lpk.bad{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.5);color:#f85149}
+    .mot-lpk.none{background:#15171c;border:1px solid #2a2e37;color:#8b93a3}
+    .mot-bajos{border-color:rgba(248,81,73,.45)!important;color:#f85149!important}
+    .mot-bajos b{color:#f85149;font-weight:700;margin-left:3px}
+    .mot-bajos.on{background:rgba(248,81,73,.16)!important;border-color:rgba(248,81,73,.7)!important}
+    .mot-bajos-res{font-size:12px;color:#f85149;margin:2px 0 8px}
     .rtx-chip-gps{border-color:rgba(239,68,68,.45);color:#f87171}
     .rtx-chip-gps b{color:#f87171}
     .rtx-chip-gps.on{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.7);color:#f87171}
@@ -1515,6 +1525,13 @@ let rtxMotData = []
 let rtxMotBusqueda = ''
 let rtxMotFiltro = 'activos'  // 'activos' | 'inactivos' | 'todos'
 let rtxMotOrden = 'nombre'    // 'nombre' | 'saldo'
+// Rendimiento L./km por motorista. Se calcula sobre un período fijo porque
+// comparar un mes contra una semana no dice nada.
+let rtxMotLpk = null          // { identidad: {lpk, monto, km, unidades, entregas, diasKm} }
+let rtxMotLpkDias = 30
+let rtxMotLpkCargando = false
+const RTX_LPK_MIN = 2.30      // por debajo de esto la unidad no se está pagando
+let rtxMotSoloBajos = false   // ver únicamente los que no llegan al mínimo
 
 async function rtxMotCargar() {
   const pane = document.getElementById('rtx-pane-mot')
@@ -1526,6 +1543,133 @@ async function rtxMotCargar() {
     rtxMotData = data || []
     rtxMotPintar()
   } catch (e) { pane.innerHTML = '<div class="rtx-empty">Error: ' + (e.message || e) + '</div>' }
+}
+
+// Lempiras recaudados por kilómetro, de todos los motoristas, en una sola
+// pasada. Dos consultas, no una por motorista: 199 consultas serían inusables.
+async function rtxMotCargarLpk() {
+  if (rtxMotLpkCargando) return
+  rtxMotLpkCargando = true
+  rtxMotPintar()
+  try {
+    const hasta = rtxKmLocalDate()
+    const d = new Date(); d.setDate(d.getDate() - (rtxMotLpkDias - 1))
+    const desde = rtxKmLocalDate(d)
+
+    const qEnt = () => rtxSb().from('entregas_taxis')
+      .select('identidad, unidad, monto, fecha_deposito, estado')
+      .gte('fecha_deposito', desde).lte('fecha_deposito', hasta)
+    const entregas = window._fetchAllPag ? await window._fetchAllPag(qEnt) : ((await qEnt()).data || [])
+
+    const qKm = () => rtxSb().from('km_diarios_taxis')
+      .select('unidad, fecha, km_recorridos')
+      .gte('fecha', desde).lte('fecha', hasta)
+    const kms = window._fetchAllPag ? await window._fetchAllPag(qKm) : ((await qKm()).data || [])
+
+    const norm = u => String(u || '').trim().replace(/^0+/, '')
+    // km por unidad+día, quedándose con el mayor: la misma unidad aparece con y
+    // sin ceros a la izquierda y sería el mismo recorrido contado dos veces.
+    const kmDia = {}
+    ;(kms || []).forEach(r => {
+      const k = parseFloat(r.km_recorridos) || 0
+      const key = norm(r.unidad) + '|' + r.fecha
+      if (!(key in kmDia) || k > kmDia[key]) kmDia[key] = k
+    })
+
+    // ── Reparto de kilómetros ──
+    // Cada km-día de una unidad es de QUIEN LA TENÍA ese día: el motorista cuya
+    // última entrega con esa unidad es la más reciente hasta esa fecha. Así cada
+    // kilómetro se asigna a una sola persona.
+    //
+    // Los dos criterios anteriores estaban mal, cada uno para un lado. Contar
+    // solo los días con entrega dejaba fuera los días que manejó sin depositar,
+    // que es justo lo que hay que ver. Contar todos los km de la unidad en el
+    // período le cargaba 30 días a alguien que empezó hace tres.
+    //
+    // Los días posteriores a su última entrega siguen siendo suyos hasta que
+    // otro entregue con esa unidad. Es intencional: si el carro anduvo y nadie
+    // depositó, el rendimiento tiene que bajar.
+    const porUnidad = {}
+    ;(entregas || []).forEach(e => {
+      if (!RTX_ESTADOS_VALIDOS.includes(e.estado)) return
+      const u = norm(e.unidad); if (!u || !e.identidad || !e.fecha_deposito) return
+      ;(porUnidad[u] = porUnidad[u] || []).push({ f: e.fecha_deposito, id: e.identidad })
+    })
+    Object.values(porUnidad).forEach(arr => arr.sort((a, b) => a.f < b.f ? -1 : a.f > b.f ? 1 : 0))
+
+    const kmDe = {}       // identidad → km que le tocan
+    const diasDe = {}     // identidad → días de GPS que le tocan
+    let kmSinDueno = 0    // km anteriores a la primera entrega del período
+    Object.keys(kmDia).forEach(key => {
+      const i = key.indexOf('|')
+      const u = key.slice(0, i), f = key.slice(i + 1)
+      const arr = porUnidad[u]
+      if (!arr || !arr.length) { kmSinDueno += kmDia[key]; return }
+      let dueno = null
+      for (const r of arr) { if (r.f <= f) dueno = r.id; else break }
+      if (!dueno) { kmSinDueno += kmDia[key]; return }   // antes de que alguien la tomara
+      kmDe[dueno] = (kmDe[dueno] || 0) + kmDia[key]
+      diasDe[dueno] = (diasDe[dueno] || 0) + 1
+    })
+
+    const acc = {}
+    ;(entregas || []).forEach(e => {
+      if (!RTX_ESTADOS_VALIDOS.includes(e.estado)) return
+      const id = e.identidad; if (!id) return
+      const a = acc[id] || (acc[id] = { monto: 0, entregas: 0, unidades: new Set() })
+      a.monto += parseFloat(e.monto) || 0
+      a.entregas++
+      const u = norm(e.unidad)
+      if (u) a.unidades.add(u)
+    })
+
+    const out = {}
+    Object.keys(acc).forEach(id => {
+      const a = acc[id]
+      const km = kmDe[id] || 0
+      out[id] = {
+        monto: a.monto, km, unidades: a.unidades.size,
+        entregas: a.entregas, diasKm: diasDe[id] || 0,
+        lpk: km > 0 ? a.monto / km : null
+      }
+    })
+    rtxMotLpk = out
+  } catch (e) {
+    rtxMotLpk = null
+    window.toast?.('No se pudo calcular L./km: ' + (e.message || e), 'error')
+  } finally {
+    rtxMotLpkCargando = false
+    rtxMotPintar()
+  }
+}
+
+window.rtxMotLpkToggle = () => {
+  if (rtxMotLpk) { rtxMotLpk = null; rtxMotSoloBajos = false; rtxMotPintar(); return }
+  rtxMotCargarLpk()
+}
+window.rtxMotBajos = () => { rtxMotSoloBajos = !rtxMotSoloBajos; rtxMotPintar() }
+window.rtxMotLpkDiasSet = (v) => {
+  rtxMotLpkDias = parseInt(v, 10) || 30
+  if (rtxMotLpk || rtxMotLpkCargando) rtxMotCargarLpk()
+}
+
+// Línea de rendimiento en la tarjeta. Solo aparece con el cálculo activo.
+function rtxMotLpkLinea(m) {
+  if (!rtxMotLpk) return ''
+  const r = rtxMotLpk[m.identidad]
+  if (!r) return `<div class="mot-lpk none">Sin entregas en los últimos ${rtxMotLpkDias} días</div>`
+  if (r.lpk == null) return `<div class="mot-lpk none">L. ${rtxFmt(r.monto)} · sin datos de GPS para calcular L./km</div>`
+  const bajo = r.lpk < RTX_LPK_MIN
+  const uds = r.unidades > 1 ? ` · ${r.unidades} unidades` : ''
+  // Pocos días de GPS = poca muestra. Con 3 días, un solo día flojo mueve el
+  // número entero, así que conviene no tratarlo como un veredicto.
+  const pocos = r.diasKm > 0 && r.diasKm < 5 ? ` · ⚠️ solo ${r.diasKm} día(s)` : ''
+  const tip = `L. ${rtxFmt(r.monto)} en ${r.entregas} entrega(s) · ${rtxFmt(r.km)} km en ${r.diasKm} día(s) con GPS`
+    + ` · solo los días en que tuvo la unidad, dentro de los últimos ${rtxMotLpkDias}`
+    + (r.diasKm < 5 ? '. Muestra corta: el valor puede moverse mucho con un día más.' : '')
+  return `<div class="mot-lpk ${bajo ? 'bad' : 'ok'}" title="${tip}">
+    <b>L. ${rtxFmt(r.lpk)}</b> por km${bajo ? ' · bajo el mínimo de L. ' + RTX_LPK_MIN.toFixed(2) : ''} <span>${rtxFmt(r.km)} km · ${r.diasKm} días · ${r.entregas} entregas${uds}${pocos}</span>
+  </div>`
 }
 
 function rtxMotPintar() {
@@ -1547,16 +1691,47 @@ function rtxMotPintar() {
   const salidasBtn = `<button class="rtx-b" onclick="rtxSalidasGlobal()">🚪 Historial de salidas</button>`
   const cambiosBtn = `<button class="rtx-b" onclick="rtxCambiosUnidad()">🔁 Cambios de unidad</button>`
   const cajasBtn = puedeAdmin ? `<button class="rtx-b" onclick="rtxCajasAdmin()">🔐 Cajas y PINs</button>` : ''
-  const barra = `<div class="mot-barra">${ordenBtn}${salidasBtn}${cambiosBtn}${cajasBtn}${addBtn}</div>`
+  const lpkBtn = `<button class="dash-orden ${rtxMotLpk ? 'on' : ''}" onclick="rtxMotLpkToggle()">${
+    rtxMotLpkCargando ? '⏳ Calculando…' : (rtxMotLpk ? '✓ L. por km' : '📊 Ver L. por km')}</button>`
+  // El conteo respeta el chip de activos/inactivos: si estás viendo activos, el
+  // número tiene que ser el de activos en rojo, no el de toda la base.
+  const enFiltroEstado = m => rtxMotFiltro === 'todos' || (rtxMotFiltro === 'activos' ? m.activo : !m.activo)
+  const nBajos = rtxMotLpk
+    ? rtxMotData.filter(m => enFiltroEstado(m) && (rtxMotLpk[m.identidad]?.lpk ?? null) !== null
+                          && rtxMotLpk[m.identidad].lpk < RTX_LPK_MIN).length
+    : 0
+  const bajosBtn = rtxMotLpk
+    ? `<button class="dash-orden mot-bajos ${rtxMotSoloBajos ? 'on' : ''}" onclick="rtxMotBajos()" title="Solo los que no llegan a L. ${RTX_LPK_MIN.toFixed(2)} por km">🔴 Bajo el mínimo <b>${nBajos}</b></button>`
+    : ''
+  const lpkDias = (rtxMotLpk || rtxMotLpkCargando)
+    ? `<select class="dash-orden" onchange="rtxMotLpkDiasSet(this.value)" title="Período de cálculo">
+         ${[7, 15, 30, 60, 90].map(d => `<option value="${d}" ${d === rtxMotLpkDias ? 'selected' : ''}>${d} días</option>`).join('')}
+       </select>` : ''
+  const barra = `<div class="mot-barra">${ordenBtn}${lpkBtn}${lpkDias}${bajosBtn}${salidasBtn}${cambiosBtn}${cajasBtn}${addBtn}</div>`
 
   const q = rtxMotBusqueda.trim().toLowerCase()
   const lista = rtxMotData.filter(m => {
     if (rtxMotFiltro === 'activos' && !m.activo) return false
     if (rtxMotFiltro === 'inactivos' && m.activo) return false
     if (q) { const hay = [m.unidad, m.nombre, m.identidad].some(x => String(x || '').toLowerCase().includes(q)); if (!hay) return false }
+    // Los sin dato de km NO entran: no se sabe si andan mal, y meterlos acá
+    // haría parecer que hay más problemas de los que hay.
+    if (rtxMotSoloBajos && rtxMotLpk) {
+      const l = rtxMotLpk[m.identidad]?.lpk
+      if (l == null || l >= RTX_LPK_MIN) return false
+    }
     return true
   })
   if (rtxMotOrden === 'saldo') lista.sort((a, b) => (parseFloat(b.saldo) || 0) - (parseFloat(a.saldo) || 0))
+  // Con el L./km activo, los peores primero: son los que hay que mirar.
+  // Sin dato de km quedan al final, no arriba: un null no es un mal resultado.
+  else if (rtxMotLpk) lista.sort((a, b) => {
+    const x = rtxMotLpk[a.identidad]?.lpk, y = rtxMotLpk[b.identidad]?.lpk
+    if (x == null && y == null) return 0
+    if (x == null) return 1
+    if (y == null) return -1
+    return x - y
+  })
 
   const rows = lista.map(m => {
     const nEsc = (m.nombre || '').replace(/'/g, '\\\'')
@@ -1572,11 +1747,17 @@ function rtxMotPintar() {
         <span class="mot-estado ${m.activo ? 'on' : 'off'}">${m.activo ? 'Activo' : 'Inactivo'}</span>
       </div>
       <div class="mot-sub">Cédula: ${m.identidad} · Tarifa: L. ${rtxFmt(m.tarifa)} · Grupo ${m.grupo}${m.telefono ? ' · 📱 ' + m.telefono : ' · <span style="color:#d29922">sin teléfono</span>'} · Saldo: <b class="${m.saldo > 0 ? 'mot-debe' : ''}">L. ${rtxFmt(m.saldo)}</b></div>
+      ${rtxMotLpkLinea(m)}
       ${acciones}
     </div>`
   }).join('')
 
-  pane.innerHTML = `${search}${chips}${barra}<div class="mot-lista">${rows || '<div class="rtx-empty">Sin resultados.</div>'}</div>`
+  const vacio = rtxMotSoloBajos
+    ? `<div class="rtx-empty">Ninguno por debajo de L. ${RTX_LPK_MIN.toFixed(2)} por km en los últimos ${rtxMotLpkDias} días. 👌</div>`
+    : '<div class="rtx-empty">Sin resultados.</div>'
+  const resumen = (rtxMotLpk && rtxMotSoloBajos && lista.length)
+    ? `<div class="mot-bajos-res">${lista.length} motorista(s) bajo el mínimo · ordenados del peor al menos malo</div>` : ''
+  pane.innerHTML = `${search}${chips}${barra}${resumen}<div class="mot-lista">${rows || vacio}</div>`
 
   if (hadFocus) { const ne = document.getElementById('rtx-mot-search'); if (ne) { ne.focus(); if (caret != null) { try { ne.setSelectionRange(caret, caret) } catch (e) {} } } }
 }
@@ -2455,7 +2636,7 @@ let rtxHistUnidad = ''
 let rtxHistDesde = ''
 let rtxHistHasta = ''
 let rtxHistData = null
-let rtxHistKm = null    // { km, dias, sinDato, compartidas } del período, o null
+let rtxHistKm = null    // { km, dias, unidades } del período, o null
 let rtxHistIdent = ''   // cédula del motorista elegido (excluyente con la unidad)
 let rtxHistIdentNom = ''
 let rtxHistSug = []     // sugerencias visibles del desplegable
@@ -2598,6 +2779,28 @@ async function rtxHistCargarKm() {
     const { data, error } = await q
     if (error) throw error
     const filas = Array.isArray(data) ? data : []
+
+    // Con un motorista filtrado hay que saber quién tenía cada unidad cada día:
+    // sus propias entregas no alcanzan, porque no dicen cuándo otro tomó el
+    // carro. Se consultan las entregas de esas unidades, de todos.
+    let tenencia = null
+    if (rtxHistIdent) {
+      const qT = () => {
+        let t = rtxSb().from('entregas_taxis').select('identidad, unidad, fecha_deposito, estado').in('unidad', variantes)
+        if (rtxHistDesde) t = t.gte('fecha_deposito', rtxHistDesde)
+        if (rtxHistHasta) t = t.lte('fecha_deposito', rtxHistHasta)
+        return t
+      }
+      const todas = window._fetchAllPag ? await window._fetchAllPag(qT) : ((await qT()).data || [])
+      tenencia = {}
+      ;(todas || []).forEach(e => {
+        if (!RTX_ESTADOS_VALIDOS.includes(e.estado)) return
+        const u = String(e.unidad || '').replace(/^0+/, '')
+        if (!u || !e.identidad || !e.fecha_deposito) return
+        ;(tenencia[u] = tenencia[u] || []).push({ f: e.fecha_deposito, id: e.identidad })
+      })
+      Object.values(tenencia).forEach(a => a.sort((x, y) => x.f < y.f ? -1 : x.f > y.f ? 1 : 0))
+    }
     // Un mismo día puede venir por más de una variante del número: se toma el
     // mayor por fecha, no la suma, para no duplicar el recorrido.
     // Se agrupa por fecha+unidad normalizada: el mismo día puede venir por dos
@@ -2609,6 +2812,18 @@ async function rtxHistCargarKm() {
       const key = r.fecha + '|' + norm(r.unidad)
       if (!(key in porDia) || k > porDia[key]) porDia[key] = k
     })
+    // Si se filtró por motorista, cada km-día se queda solo si él tenía la
+    // unidad ese día. Mismo criterio que la pestaña Motoristas.
+    if (tenencia) {
+      Object.keys(porDia).forEach(key => {
+        const i = key.indexOf('|')
+        const f = key.slice(0, i), u = key.slice(i + 1)
+        const arr = tenencia[u]
+        let dueno = null
+        if (arr) for (const r of arr) { if (r.f <= f) dueno = r.id; else break }
+        if (dueno !== rtxHistIdent) delete porDia[key]
+      })
+    }
     const fechasConKm = new Set(Object.keys(porDia).map(k => k.split('|')[0]))
     const dias = fechasConKm.size
     rtxHistKm = {
@@ -2617,8 +2832,6 @@ async function rtxHistCargarKm() {
       unidades: base.length,
       // Días con entrega pero sin dato de GPS: el ratio sale inflado porque
       // hay ingreso sin los km que lo produjeron.
-      sinDato: [...new Set((rtxHistData || []).map(e => e.fecha_deposito).filter(Boolean))]
-        .filter(f => !fechasConKm.has(f)).length
     }
   } catch (e) {
     rtxHistKm = null   // sin km la tarjeta no se muestra; el resto funciona igual
@@ -2700,11 +2913,9 @@ function rtxHistResultPintar() {
         if (!uni && !rtxHistIdent) return `<div><b>Todas</b><span>Unidad</span></div>`
         if (!rtxHistKm || !rtxHistKm.km) return `<div><b style="color:#8b93a3">sin GPS</b><span>L. por km</span></div>`
         const lpk = total / rtxHistKm.km
-        const aviso = rtxHistKm.sinDato
-          ? ` title="${rtxHistKm.sinDato} día(s) con entrega pero sin dato de GPS: el ratio sale más alto de lo real"`
-          : ''
+        const aviso = ` title="L. ${rtxFmt(total)} en ${rtxHistKm.dias} día(s) con GPS${rtxHistIdent ? ', solo los días en que tuvo la unidad' : ''}${rtxHistKm.dias < 5 ? '. Muestra corta: el valor puede moverse mucho con un día más.' : ''}"`
         const uds = rtxHistKm.unidades > 1 ? ` · ${rtxHistKm.unidades} unidades` : ''
-        return `<div${aviso}><b style="color:#58a6ff">L. ${rtxFmt(lpk)}</b><span>por km · ${rtxFmt(rtxHistKm.km)} km${uds}${rtxHistKm.sinDato ? ' ⚠️' : ''}</span></div>`
+        return `<div${aviso}><b style="color:#58a6ff">L. ${rtxFmt(lpk)}</b><span>por km · ${rtxFmt(rtxHistKm.km)} km · ${rtxHistKm.dias} días${uds}${rtxHistKm.dias < 5 ? ' ⚠️' : ''}</span></div>`
       })()}
     </div>
     ${cards}`
