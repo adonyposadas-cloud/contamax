@@ -607,6 +607,17 @@ function rtx7dEnsure() {
     .rtx-chip b{color:#e8eaed;font-weight:700;margin-left:2px}
     .rtx-chip.on{background:rgba(240,165,0,.16);border-color:rgba(240,165,0,.5);color:#f0a500}
     .rtx-chip.on b{color:#f0a500}
+    .rtx-hist-sug{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:4px;background:#15171c;
+      border:1px solid #2a2e37;border-radius:10px;overflow:hidden;max-height:280px;overflow-y:auto;
+      box-shadow:0 8px 24px rgba(0,0,0,.5)}
+    .rtx-hist-sug.hidden{display:none}
+    .rtx-hist-sug-i{display:block;width:100%;text-align:left;background:none;border:none;
+      border-bottom:1px solid #22252c;padding:8px 11px;cursor:pointer}
+    .rtx-hist-sug-i:last-child{border-bottom:none}
+    .rtx-hist-sug-i:hover{background:#1c1f26}
+    .rtx-hist-sug-nm{display:block;color:#e8eaed;font-size:13px}
+    .rtx-hist-sug-md{display:block;color:#8b93a3;font-size:11px;margin-top:1px}
+    .rtx-hist-sug-n{padding:9px 11px;color:#8b93a3;font-size:12px}
     .rtx-chip-gps{border-color:rgba(239,68,68,.45);color:#f87171}
     .rtx-chip-gps b{color:#f87171}
     .rtx-chip-gps.on{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.7);color:#f87171}
@@ -2444,6 +2455,10 @@ let rtxHistUnidad = ''
 let rtxHistDesde = ''
 let rtxHistHasta = ''
 let rtxHistData = null
+let rtxHistKm = null    // { km, dias, sinDato, compartidas } del período, o null
+let rtxHistIdent = ''   // cédula del motorista elegido (excluyente con la unidad)
+let rtxHistIdentNom = ''
+let rtxHistSug = []     // sugerencias visibles del desplegable
 
 function rtxHistEnsureTab() {
   if (document.getElementById('rtx-tab-hist')) return
@@ -2484,14 +2499,129 @@ window.rtxHistBuscar = async () => {
       if (rtxHistDesde) q = q.gte('fecha_deposito', rtxHistDesde)
       if (rtxHistHasta) q = q.lte('fecha_deposito', rtxHistHasta)
       const uni = (rtxHistUnidad || '').trim()
-      if (uni) q = q.eq('unidad', uni)
+      if (rtxHistIdent) q = q.eq('identidad', rtxHistIdent)
+      else if (uni) q = q.eq('unidad', uni)
       return q.order('fecha_deposito', { ascending: false }).order('id')
     }
     const data = window._fetchAllPag ? await window._fetchAllPag(build) : ((await build()).data || [])
     rtxHistData = Array.isArray(data) ? data : []
+    await rtxHistCargarKm()
     rtxHistResultPintar()
   } catch (e) {
     if (cont) cont.innerHTML = `<div class="rtx-hist-info" style="color:#f0a500">Error: ${e.message || e}</div>`
+  }
+}
+
+// El campo acepta tres cosas y decide sola cuál es:
+//   · solo dígitos, hasta 10  → número de unidad (no despliega nada)
+//   · solo dígitos, 11 o más  → cédula del motorista
+//   · algo con letras         → busca en los motoristas y ofrece la lista
+// Unidad y motorista son excluyentes: elegir uno limpia el otro, porque
+// filtrar por ambos a la vez daría vacío en cuanto el motorista cambie de carro.
+window.rtxHistEscribir = (v) => {
+  const txt = String(v || '')
+  const soloDigitos = /^[0-9\s]*$/.test(txt)
+  if (soloDigitos) {
+    const d = txt.replace(/\D/g, '')
+    if (d.length >= 11) { rtxHistIdent = d; rtxHistIdentNom = d; rtxHistUnidad = '' }
+    else { rtxHistUnidad = d; rtxHistIdent = ''; rtxHistIdentNom = '' }
+    rtxHistCerrarSug()
+    return
+  }
+  // Con letras: el texto todavía no es un filtro, es una búsqueda.
+  rtxHistUnidad = ''; rtxHistIdent = ''; rtxHistIdentNom = ''
+  rtxHistSugerir(txt)
+}
+
+async function rtxHistSugerir(txt) {
+  const q = txt.trim().toLowerCase()
+  const cont = document.getElementById('rtx-hist-sug')
+  if (!cont) return
+  if (q.length < 2) { rtxHistCerrarSug(); return }
+  if (!rtxMotData.length) {
+    try {
+      const { data } = await rtxSb().rpc('tx_motoristas_listar')
+      rtxMotData = data || []
+    } catch (e) { rtxHistCerrarSug(); return }
+  }
+  // Se buscan también los inactivos: el historial sirve justo para revisar a
+  // quien ya no está.
+  rtxHistSug = rtxMotData
+    .filter(m => String(m.nombre || '').toLowerCase().includes(q))
+    .slice(0, 8)
+  if (!rtxHistSug.length) {
+    cont.innerHTML = '<div class="rtx-hist-sug-n">Ningún motorista con ese nombre</div>'
+    cont.classList.remove('hidden'); return
+  }
+  cont.innerHTML = rtxHistSug.map((m, i) => `<button class="rtx-hist-sug-i" onclick="rtxHistElegir(${i})">
+      <span class="rtx-hist-sug-nm">${String(m.nombre || '—')}</span>
+      <span class="rtx-hist-sug-md">${m.unidad ? '#' + m.unidad + ' · ' : ''}${m.identidad || ''}${m.activo === false ? ' · inactivo' : ''}</span>
+    </button>`).join('')
+  cont.classList.remove('hidden')
+}
+
+window.rtxHistElegir = (i) => {
+  const m = rtxHistSug[i]; if (!m) return
+  rtxHistIdent = m.identidad || ''
+  rtxHistIdentNom = m.nombre || m.identidad || ''
+  rtxHistUnidad = ''
+  const inp = document.getElementById('rtx-hist-uni')
+  if (inp) inp.value = rtxHistIdentNom
+  rtxHistCerrarSug()
+  rtxHistBuscar()
+}
+
+window.rtxHistCerrarSug = () => {
+  const c = document.getElementById('rtx-hist-sug')
+  if (c) { c.classList.add('hidden'); c.innerHTML = '' }
+}
+
+// Km recorridos en el rango. Solo tiene sentido con UNA unidad
+// filtrada: sumar los km de toda la flota y dividirlos entre lo recaudado no
+// significa nada, porque cada unidad tiene su tarifa y sus días trabajados.
+// El número de unidad se guarda con o sin ceros a la izquierda según quién lo
+// cargó, así que se consultan las tres variantes — igual que hace tx_km_dia.
+async function rtxHistCargarKm() {
+  rtxHistKm = null
+  const uni = (rtxHistUnidad || '').trim()
+  // Con un motorista filtrado, los km salen de las unidades que él manejó en el
+  // período, no de una sola: puede haber cambiado de carro a mitad del rango.
+  const base = rtxHistIdent
+    ? [...new Set((rtxHistData || []).map(e => String(e.unidad || '').trim()).filter(Boolean))]
+    : (uni ? [uni] : [])
+  if (!base.length) return
+  const variantes = [...new Set(base.flatMap(u => [u, u.replace(/^0+/, ''), u.padStart(4, '0')]))].filter(Boolean)
+  try {
+    let q = rtxSb().from('km_diarios_taxis').select('fecha, unidad, km_recorridos').in('unidad', variantes)
+    if (rtxHistDesde) q = q.gte('fecha', rtxHistDesde)
+    if (rtxHistHasta) q = q.lte('fecha', rtxHistHasta)
+    const { data, error } = await q
+    if (error) throw error
+    const filas = Array.isArray(data) ? data : []
+    // Un mismo día puede venir por más de una variante del número: se toma el
+    // mayor por fecha, no la suma, para no duplicar el recorrido.
+    // Se agrupa por fecha+unidad normalizada: el mismo día puede venir por dos
+    // variantes del número y sería el mismo recorrido contado dos veces.
+    const norm = u => String(u || '').replace(/^0+/, '')
+    const porDia = {}
+    filas.forEach(r => {
+      const k = parseFloat(r.km_recorridos) || 0
+      const key = r.fecha + '|' + norm(r.unidad)
+      if (!(key in porDia) || k > porDia[key]) porDia[key] = k
+    })
+    const fechasConKm = new Set(Object.keys(porDia).map(k => k.split('|')[0]))
+    const dias = fechasConKm.size
+    rtxHistKm = {
+      km: Object.values(porDia).reduce((a, b) => a + b, 0),
+      dias,
+      unidades: base.length,
+      // Días con entrega pero sin dato de GPS: el ratio sale inflado porque
+      // hay ingreso sin los km que lo produjeron.
+      sinDato: [...new Set((rtxHistData || []).map(e => e.fecha_deposito).filter(Boolean))]
+        .filter(f => !fechasConKm.has(f)).length
+    }
+  } catch (e) {
+    rtxHistKm = null   // sin km la tarjeta no se muestra; el resto funciona igual
   }
 }
 
@@ -2501,10 +2631,11 @@ function rtxHistRenderShell() {
   const escA = s => String(s == null ? '' : s).replace(/"/g, '&quot;')
   root.innerHTML = `
     <div class="rtx-hist-form">
-      <div class="rtx-hist-field" style="flex:1;min-width:160px">
-        <label>Número de unidad</label>
-        <input id="rtx-hist-uni" class="rtx-inp" placeholder="Ej: 5400 (vacío = todas)" value="${escA(rtxHistUnidad)}" autocomplete="off"
-               oninput="rtxHistSet('unidad', this.value)" onkeydown="if(event.key==='Enter')rtxHistBuscar()">
+      <div class="rtx-hist-field" style="flex:1;min-width:160px;position:relative">
+        <label>Unidad o motorista</label>
+        <input id="rtx-hist-uni" class="rtx-inp" placeholder="5400, una cédula, o el nombre del motorista" value="${escA(rtxHistIdent ? rtxHistIdentNom : rtxHistUnidad)}" autocomplete="off"
+               oninput="rtxHistEscribir(this.value)" onkeydown="if(event.key==='Enter'){rtxHistCerrarSug();rtxHistBuscar()}">
+        <div id="rtx-hist-sug" class="rtx-hist-sug hidden"></div>
       </div>
       <div class="rtx-hist-field">
         <label>Fecha desde</label>
@@ -2563,7 +2694,18 @@ function rtxHistResultPintar() {
       <div><b style="color:#3fb950">L. ${rtxFmt(total)}</b><span>Total válido</span></div>
       <div><b>${validas.length}</b><span>Entregas</span></div>
       ${excluidas.length ? `<div><b style="color:#f85149">L. ${rtxFmt(totalExcl)}</b><span>${excluidas.length} no aprobada${excluidas.length === 1 ? '' : 's'}</span></div>` : ''}
-      <div><b>${uni ? '#' + uni : 'Todas'}</b><span>Unidad</span></div>
+      ${(() => {
+        // La tarjeta de "Unidad" repetía el filtro que ya está a la vista.
+        // En su lugar va el rendimiento: cuántos lempiras por kilómetro.
+        if (!uni && !rtxHistIdent) return `<div><b>Todas</b><span>Unidad</span></div>`
+        if (!rtxHistKm || !rtxHistKm.km) return `<div><b style="color:#8b93a3">sin GPS</b><span>L. por km</span></div>`
+        const lpk = total / rtxHistKm.km
+        const aviso = rtxHistKm.sinDato
+          ? ` title="${rtxHistKm.sinDato} día(s) con entrega pero sin dato de GPS: el ratio sale más alto de lo real"`
+          : ''
+        const uds = rtxHistKm.unidades > 1 ? ` · ${rtxHistKm.unidades} unidades` : ''
+        return `<div${aviso}><b style="color:#58a6ff">L. ${rtxFmt(lpk)}</b><span>por km · ${rtxFmt(rtxHistKm.km)} km${uds}${rtxHistKm.sinDato ? ' ⚠️' : ''}</span></div>`
+      })()}
     </div>
     ${cards}`
 }
