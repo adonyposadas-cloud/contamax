@@ -2517,7 +2517,16 @@ window.verPartida = async (id) => {
   const sb = getSb()
   const { data: p } = await sb.from('partidas_contables').select('*').eq('id', id).single()
   if (!p) { toast('Partida no encontrada', 'error'); return }
-  const { data: lineas } = await sb.from('lineas_partida').select('*').eq('partida_id', id).order('id')
+  // Orden contable: débitos primero, luego créditos; dentro de cada grupo por
+  // código de cuenta. Antes era .order('id') sobre un UUID, o sea orden
+  // arbitrario: las líneas de la misma cuenta salían dispersas y no se podía
+  // verificar el cuadre de un vistazo. 'debito' > 'credito' alfabéticamente,
+  // por eso el descendente. El id al final solo desempata para que dos visitas
+  // a la misma partida se vean idénticas.
+  const { data: lineas } = await sb.from('lineas_partida').select('*').eq('partida_id', id)
+    .order('tipo', { ascending: false })
+    .order('cuenta_codigo', { ascending: true })
+    .order('id', { ascending: true })
   const { data: ccData } = await sb.from('centros_costo').select('id, nombre')
   const ccMap = Object.fromEntries((ccData || []).map(c => [c.id, c.nombre]))
   const fmtM = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -2592,10 +2601,15 @@ window.editarPartida = async (id) => {
   if (pErr || !partida) { toast('Error al cargar partida', 'error'); _editPartidaEnCurso = false; return }
 
   // Cargar líneas
+  // Mismo orden que en verPartida, para que editar muestre lo mismo que
+  // consultar. Reordenar es seguro: cada fila guarda su UUID en _dbId y el
+  // guardado hace match por ahí, no por posición.
   const { data: lineas, error: lErr } = await sb.from('lineas_partida')
     .select('*')
     .eq('partida_id', id)
-    .order('id')
+    .order('tipo', { ascending: false })
+    .order('cuenta_codigo', { ascending: true })
+    .order('id', { ascending: true })
   if (lErr) { toast('Error al cargar líneas', 'error'); _editPartidaEnCurso = false; return }
 
   // Navegar al formulario
@@ -8670,6 +8684,26 @@ function bancoToCuenta(banco) {
   return d ? { codigo: d.cuenta_codigo, nombre: d.etiqueta } : null
 }
 
+// Cuenta contable de UNA entrega. Manda `destino_id`, que lo escribe la
+// conciliación con la cuenta donde el banco dice que entró la plata. El campo
+// `banco` es solo lo que el motorista creyó, y con varias cuentas del mismo
+// banco no alcanza: todos eligen "BAC" sin saber en cuál cayó el depósito.
+function entregaToCuenta(e) {
+  const dest = window.DESTINOS || []
+  if (e && e.destino_id) {
+    const d = dest.find(x => x.id === e.destino_id)
+    if (d) return { codigo: d.cuenta_codigo, nombre: d.etiqueta }
+  }
+  return bancoToCuenta(e && e.banco)
+}
+
+// ¿La entrega va a un banco? Las de caja no se concilian contra extracto, así
+// que nunca van a tener destino_id y no deben bloquear nada.
+function entregaEsBanco(e) {
+  const d = (window.DESTINOS || []).find(x => String(x.codigo).trim() === String((e && e.banco) || '').trim())
+  return !!d && d.tipo === 'banco'
+}
+
 let ptxData = null
 
 function initPartidasTaxis() {
@@ -8694,6 +8728,11 @@ window.consultarEntregasTaxis = async () => {
   const desde = document.getElementById('ptx-desde').value
   const hasta = document.getElementById('ptx-hasta').value
   if (!desde || !hasta) { toast('Selecciona el rango de fechas', 'error'); return }
+
+  // El catálogo de destinos hace falta para saber qué entrega es bancaria y cuál
+  // de caja. Sin él, la vista no podría marcar los días sin conciliar.
+  try { await window.cargarDestinos(true) }
+  catch (e) { toast('No se pudo leer el catálogo de destinos: ' + (e.message || e), 'error'); return }
 
   let data
   try {
@@ -8751,12 +8790,17 @@ window.consultarEntregasTaxis = async () => {
 
 function renderPartidasTaxis() {
   if (!ptxData) return
+  // Sin el catálogo cargado, entregaEsBanco() no puede distinguir banco de caja
+  // y marcaría todo como conciliable. Se carga al consultar (initPartidasTaxis).
   const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
 
   const totalEntregas = ptxData.reduce((s, d) => s + d.entregas.length, 0)
   const totalMonto = ptxData.reduce((s, d) => s + d.entregas.reduce((ss, e) => ss + (parseFloat(e.monto) || 0), 0), 0)
+  const _esBanco = e => entregaEsBanco(e)
+  const _sinConc = d => d.entregas.filter(e => (parseFloat(e.monto) || 0) > 0 && _esBanco(e) && !e.destino_id).length
   const diasNuevos = ptxData.filter(d => !d.tienePartida).length
   const diasExistentes = ptxData.filter(d => d.tienePartida).length
+  const diasBloqueados = ptxData.filter(d => !d.tienePartida && _sinConc(d) > 0).length
 
   document.getElementById('ptx-resumen').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
@@ -8780,6 +8824,10 @@ function renderPartidasTaxis() {
           const ficohsa = d.porBanco['Ficohsa']?.total || 0
           const cajas = (d.porBanco['Caja Tecnimax']?.total || 0) + (d.porBanco['Caja Yonker']?.total || 0) + (d.porBanco['Caja Taxis']?.total || 0)
           const total = d.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+          // Entregas bancarias sin destino_id = el día no se concilió. La
+          // generación las bloquea, así que conviene verlo antes de intentarlo.
+          const sinConc = d.entregas.filter(e => (parseFloat(e.monto) || 0) > 0 && entregaEsBanco(e) && !e.destino_id).length
+          d._sinConciliar = sinConc
           return `<tr style="${d.tienePartida ? 'opacity:0.5' : ''}">
             <td class="mono" style="font-size:12px">${d.fecha}</td>
             <td style="text-align:center;font-family:var(--mono)">${d.entregas.length}</td>
@@ -8787,13 +8835,17 @@ function renderPartidasTaxis() {
             <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(ficohsa)}</td>
             <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmt(cajas)}</td>
             <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:500">${fmt(total)}</td>
-            <td>${d.tienePartida ? '<span class="badge badge-green">✓ Creada</span>' : '<span class="badge badge-amber">Pendiente</span>'}</td>
+            <td>${d.tienePartida
+              ? '<span class="badge badge-green">✓ Creada</span>'
+              : (sinConc ? `<span class="badge badge-red" title="${sinConc} entrega(s) bancaria(s) sin conciliar">⛔ Sin conciliar</span>`
+                         : '<span class="badge badge-amber">Pendiente</span>')}</td>
           </tr>`
         }).join('')}
         </tbody>
       </table>
     </div>
-    ${diasExistentes ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)">Las fechas ya contabilizadas se omitirán.</div>` : ''}`
+    ${diasExistentes ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)">Las fechas ya contabilizadas se omitirán.</div>` : ''}
+    ${diasBloqueados ? `<div style="margin-top:10px;font-size:12px;color:#f5c451">⛔ ${diasBloqueados} día(s) no se pueden contabilizar todavía: tienen entregas bancarias sin conciliar. Sin la conciliación no se sabe en cuál cuenta del banco entró el depósito, y la partida quedaría en la cuenta equivocada. Conciliá esos días en <b>Conciliación Taxis</b>.</div>` : ''}`
 
   document.getElementById('ptx-resultado').classList.remove('hidden')
   document.getElementById('ptx-log-card').classList.add('hidden')
@@ -8835,13 +8887,28 @@ window.generarPartidasTaxis = async () => {
     const total = dia.entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
     if (total <= 0) continue
 
+    // ── Bloqueo: el día tiene que estar conciliado ──
+    // Una entrega bancaria sin `destino_id` es una entrega que nunca se cruzó
+    // contra el extracto, así que no se sabe en cuál de las cuentas del banco
+    // entró. Contabilizarla por el `banco` que declaró el motorista la mandaría
+    // a la cuenta principal aunque haya caído en otra, y el error es invisible:
+    // el total del día cuadra igual. Mejor no generar la partida.
+    const sinConciliar = dia.entregas.filter(e =>
+      (parseFloat(e.monto) || 0) > 0 && entregaEsBanco(e) && !e.destino_id)
+    if (sinConciliar.length) {
+      errores++
+      const montoSC = sinConciliar.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0)
+      log.push(`<span style="color:var(--red)">✕</span> ${dia.fecha}: ${sinConciliar.length} entrega(s) bancaria(s) por L. ${fmt(montoSC)} sin conciliar. Conciliá el día en Conciliación Taxis y volvé a generar.`)
+      continue
+    }
+
     // Agrupar por cuenta contable
     const porCuenta = {}
     let destinoDesconocido = null
     dia.entregas.forEach(e => {
       const monto = parseFloat(e.monto) || 0
       if (monto <= 0) return                   // entregas programadas en 0: no aportan nada
-      const cuenta = bancoToCuenta(e.banco)
+      const cuenta = entregaToCuenta(e)
       if (!cuenta) { destinoDesconocido = destinoDesconocido || (e.banco || '(vacío)'); return }
       const key = cuenta.codigo
       if (!porCuenta[key]) porCuenta[key] = { cuenta, total: 0, count: 0 }
