@@ -53,6 +53,7 @@ const RTX_ESTADOS_VALIDOS = ['Aprobada', 'Programado']
 const RTX_SEARCH_NUMERICO = true
 let rtxFEstado = 'todas'
 let rtxFMedio = 'todas'
+let rtxFGps = false     // solo unidades que entregaron sin movimiento de GPS
 let rtxFechaSol = ''   // día seleccionado en Solicitudes (yyyy-mm-dd)
 
 // Resuelve el teléfono de una entrega con prioridad: entrega → motorista → directorio
@@ -286,8 +287,16 @@ function rtxRender() {
     ${chipE('todas', 'Todas', totalAll)}${chipE('Pendiente', 'Pend', ce.Pendiente)}${chipE('Aprobada', 'Aprob', ce.Aprobada)}${chipE('Rechazada', 'Rech', ce.Rechazada)}
   </div>`
   const chipM = (val, label, n) => `<button class="rtx-chip ${rtxFMedio === val ? 'on' : ''}" onclick="rtxChipMedio('${String(val).replace(/'/g, '')}')">${label} <b>${n}</b></button>`
+  // Chip de GPS. Misma condición que el recuadro rojo de arriba: la unidad
+  // entregó ese día pero el GPS no reportó movimiento. Se cuenta sobre las
+  // entregas, no sobre unidades, para que el número calce con las tarjetas
+  // que se van a ver al filtrar.
+  const nGps = rtxEntregas.filter(e => rtxGpsDia[String(e.unidad) + '|' + e.fecha_deposito]).length
+  const chipGps = nGps
+    ? `<button class="rtx-chip rtx-chip-gps ${rtxFGps ? 'on' : ''}" onclick="rtxChipGps()" title="Entregaron sin que el GPS reportara movimiento">📡 GPS a revisar <b>${nGps}</b></button>`
+    : ''
   const chipsMedio = `<div class="rtx-chips">
-    ${chipM('todas', 'Todas', totalAll)}${Object.keys(medios).sort().map(m => chipM(m, m, medios[m])).join('')}
+    ${chipM('todas', 'Todas', totalAll)}${Object.keys(medios).sort().map(m => chipM(m, m, medios[m])).join('')}${chipGps}
   </div>`
   const search = `<input id="rtx-search" class="rtx-search" type="text"${RTX_SEARCH_NUMERICO ? ' inputmode="numeric"' : ''} placeholder="${RTX_SEARCH_NUMERICO ? 'Buscar por unidad o identidad…' : 'Buscar por unidad, nombre o identidad…'}" value="${rtxFBusqueda.replace(/"/g, '&quot;')}" oninput="rtxBuscar(this.value)" autocomplete="off">`
 
@@ -296,6 +305,7 @@ function rtxRender() {
   const filtradas = rtxEntregas.filter(e => {
     if (rtxFEstado !== 'todas' && (e.estado || 'Pendiente') !== rtxFEstado) return false
     if (rtxFMedio !== 'todas' && (e.banco || '—') !== rtxFMedio) return false
+    if (rtxFGps && !rtxGpsDia[String(e.unidad) + '|' + e.fecha_deposito]) return false
     if (q) {
       const hay = [e.unidad, e.nombre_conductor, e.identidad].some(x => String(x || '').toLowerCase().includes(q))
       if (!hay) return false
@@ -597,6 +607,10 @@ function rtx7dEnsure() {
     .rtx-chip b{color:#e8eaed;font-weight:700;margin-left:2px}
     .rtx-chip.on{background:rgba(240,165,0,.16);border-color:rgba(240,165,0,.5);color:#f0a500}
     .rtx-chip.on b{color:#f0a500}
+    .rtx-chip-gps{border-color:rgba(239,68,68,.45);color:#f87171}
+    .rtx-chip-gps b{color:#f87171}
+    .rtx-chip-gps.on{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.7);color:#f87171}
+    .rtx-chip-gps.on b{color:#f87171}
     /* Pestañas */
     .rtx-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 16px}
     .rtx-tab{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;color:#9aa0aa;cursor:pointer}
@@ -751,6 +765,9 @@ window.rtxCerrar7dias = () => document.getElementById('rtx-7d-overlay')?.classLi
 window.rtxBuscar = (v) => { rtxFBusqueda = v || ''; rtxRender() }
 window.rtxChipEstado = (v) => { rtxFEstado = v; rtxRender() }
 window.rtxChipMedio = (v) => { rtxFMedio = v; rtxRender() }
+// Alterna el filtro de GPS: volver a tocarlo lo apaga, que es lo que uno
+// espera de un chip que no tiene par "Todas" al lado.
+window.rtxChipGps = () => { rtxFGps = !rtxFGps; rtxRender() }
 
 // ── Pestañas (Solicitudes / Dashboard) ──
 let rtxDashFecha = ''  // yyyy-mm-dd
