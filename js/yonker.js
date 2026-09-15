@@ -1392,6 +1392,33 @@ window.ykOnAnioVeh = () => {
     if (hint) { hint.style.color = '#e0a800'; hint.textContent = `⚠ No hay generación para ${marca} ${modelo} ${anio}. Cotiza igual por año; si querés fijar la generación, agregala en la pestaña Generaciones.` }
   }
 }
+// ── Reglas de validación de generaciones ──
+// La tabla se ensució con 114 generaciones de un solo año y algunas con años
+// imposibles (1, 2). El origen es el guardado automático de acá abajo: si el
+// usuario cotiza un año suelto, los selects de "desde" y "hasta" traen el mismo
+// valor y se grababa tal cual.
+//
+// Dos pisos distintos a propósito:
+//   AUTOMÁTICO (cotizador) → 5 años, sin excepción. Nadie está decidiendo nada
+//     ahí; es un efecto secundario de cotizar y es de donde vino toda la basura.
+//   MANUAL (pestaña Generaciones) → 3 años, con aviso entre 3 y 4. Ahí hay una
+//     persona con el catálogo delante, y generaciones cortas reales existen:
+//     Honda Pilot 2016-2019 y Nissan Sentra 2006-2009 son de cuatro años.
+const YK_GEN_MIN_AUTO = 5;
+const YK_GEN_MIN_MANUAL = 3;
+const YK_ANIO_MIN = 1980, YK_ANIO_MAX = new Date().getFullYear() + 2;
+
+// Devuelve null si está bien, o el motivo del rechazo.
+function ykGenInvalida(d, h, min) {
+  if (!Number.isInteger(d) || !Number.isInteger(h)) return 'Años inválidos.'
+  if (d < YK_ANIO_MIN || h < YK_ANIO_MIN) return `El año no puede ser menor a ${YK_ANIO_MIN}.`
+  if (d > YK_ANIO_MAX || h > YK_ANIO_MAX) return `El año no puede ser mayor a ${YK_ANIO_MAX}.`
+  if (h < d) return 'El "hasta" no puede ser menor que el "desde".'
+  const amp = h - d + 1
+  if (amp < min) return `Una generación abarca al menos ${min} años (${d}–${h} son ${amp}).`
+  return null
+}
+
 window.ykGuardarGenSiFalta = async () => {
   const av = document.getElementById('yk-cot-anioveh'); const anio = av ? av.value.replace(/\D/g, '') : ''
   const marca = document.getElementById('yk-cot-mar')?.value || ''
@@ -1399,7 +1426,9 @@ window.ykGuardarGenSiFalta = async () => {
   if (!anio || !marca || !modelo || ykDetectarGen(marca, modelo, anio)) return
   const d = parseInt(document.getElementById('yk-cot-ad')?.value || '', 10)
   const h = parseInt(document.getElementById('yk-cot-ah')?.value || '', 10)
-  if (!d || !h || h < d) return
+  // Piso duro. No avisa ni pregunta: el usuario está cotizando, no editando el
+  // catálogo. Si hace falta una generación corta, se agrega en su pestaña.
+  if (ykGenInvalida(d, h, YK_GEN_MIN_AUTO)) return
   try {
     const prof = window._currentProfile?.()
     await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, traccion: ykDetalle.traccion || '', combustible: ykDetalle.combustible || '', motor: ykDetalle.motor || '', grupo_repuesto: ykDetalle.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
@@ -1484,7 +1513,13 @@ window.ykGenAdd = async () => {
   const d = parseInt(v('yk-gen-d').replace(/\D/g, ''), 10), h = parseInt(v('yk-gen-h').replace(/\D/g, ''), 10)
   const tr = v('yk-gen-tr'), co = v('yk-gen-co'), gr = v('yk-gen-gr'), mt = v('yk-gen-mt')
   if (!ma || !mo || !d || !h) { window.toast?.('Completá marca, modelo, desde y hasta', 'error'); return }
-  if (h < d) { window.toast?.('El "hasta" no puede ser menor que el "desde"', 'error'); return }
+  const motivo = ykGenInvalida(d, h, YK_GEN_MIN_MANUAL)
+  if (motivo) { window.toast?.(motivo, 'error'); return }
+  // Entre 3 y 4 años se deja pasar pero se pregunta: existen generaciones así,
+  // pero también es el rango donde se cuela una carga apurada.
+  const amp = h - d + 1
+  if (amp < YK_GEN_MIN_AUTO &&
+      !confirm(`${ma} ${mo} ${d}–${h} son ${amp} años.\n\nLas generaciones suelen durar 5 o más. ¿Está bien así?`)) return
   try {
     const prof = window._currentProfile?.()
     const { error } = await ykSb().from('modelo_generaciones').upsert({ marca: ma, modelo: mo, marca_norm: ykNorm(ma), modelo_norm: ykNorm(mo), anio_desde: d, anio_hasta: h, traccion: tr, combustible: co, motor: mt, grupo_repuesto: gr, creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
