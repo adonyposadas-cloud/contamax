@@ -1329,8 +1329,80 @@ window.jpNoVendidaOk = async function (id) {
     { p_id: id, p_motivo: sel.value, p_nota: nota || null })
   if (error) { window.toast?.(error.message, 'error'); return }
   document.getElementById('jp-nv-modal')?.remove()
-  window.toast?.('Registrado — entra en la lista de recontacto', 'success')
+
+  // Una no_vendida también termina el camino de la orden: el cliente no compró
+  // y no vuelve. Sin esto, su proforma 'solicitado' vacía se quedaba esperando
+  // el checklist indefinidamente — cinco de las que están hoy en la lista son
+  // exactamente ese caso.
+  const r = await jpCerrarSolicitadaDeOrden(id)
+  const pend = r && r.motivo !== 'CHECKLIST_HECHO'
+  window.toast?.(pend
+    ? (r.motivo === 'INSPECCION_INCOMPLETA'
+        ? 'Registrado — entra en recontacto · el checklist quedó a medias'
+        : 'Registrado — entra en recontacto · el checklist no se hizo')
+    : 'Registrado — entra en la lista de recontacto', 'success')
   jpCargar()
+}
+
+// Cierra la proforma 'solicitado' vacía hermana de una orden que ya terminó su
+// camino. Misma lógica que en cotizador.js al finalizar: se usa la RPC de
+// cierre para que el registro sea uno solo, venga de donde venga.
+// Qué pasó con el checklist de una orden. Mismas tres ramas que cotizador.js:
+//   cerrada    → CHECKLIST_HECHO        (no cuenta contra el técnico)
+//   en_proceso → INSPECCION_INCOMPLETA  (sí cuenta: la abrió y la abandonó)
+//   nada       → NO_INSPECCIONO         (sí cuenta: nunca la tocó)
+async function jpMotivoPorChecklist (orden) {
+  try {
+    const { data, error } = await jpSb().from('checklist_inspecciones')
+      .select('estado').eq('numero_orden', String(orden))
+    if (error) throw error
+    const est = (data || []).map(r => String(r.estado || '').toLowerCase())
+    if (est.includes('cerrada')) return 'CHECKLIST_HECHO'
+    if (est.includes('en_proceso')) return 'INSPECCION_INCOMPLETA'
+    return 'NO_INSPECCIONO'
+  } catch (e) {
+    console.warn('[jp chk] no se pudo leer checklist_inspecciones:', e)
+    try {
+      const { data: chk } = await jpSb().rpc('checklist_tecnicos_por_orden')
+      return (chk || []).some(r => String(r.numero_orden) === String(orden))
+        ? 'CHECKLIST_HECHO' : 'NO_INSPECCIONO'
+    } catch (e2) { return 'NO_INSPECCIONO' }
+  }
+}
+
+async function jpCerrarSolicitadaDeOrden (proformaId) {
+  try {
+    const { data: pf } = await jpSb().from('cotizador_proformas')
+      .select('numero_orden').eq('id', proformaId).single()
+    const orden = pf && pf.numero_orden
+    if (!orden) return null
+
+    const { data: hermanas } = await jpSb().from('cotizador_proformas')
+      .select('id, items, solicitados')
+      .eq('numero_orden', orden)
+      .eq('tipo_solicitud', 'solicitado')
+      .neq('estado', 'finalizada')
+    // Solo las vacías: si tienen ítems, son trabajo real y no se arrastran.
+    const vacias = (hermanas || []).filter(h =>
+      !(h.items || []).length && !(h.solicitados || []).length)
+    if (!vacias.length) return null
+
+    const motivo = await jpMotivoPorChecklist(orden)
+    let n = 0
+    for (const v of vacias) {
+      try {
+        const { error } = await jpSb().rpc('checklist_cierre_registrar',
+          { p_proforma_id: v.id, p_motivo: motivo, p_nota: 'Cierre automático: la orden quedó como no vendida' })
+        if (error) throw error
+        n++
+      } catch (e) {
+        const msg = String(e?.message || e)
+        if (/ya se cerr/i.test(msg)) continue   // alguien la cerró a mano antes
+        console.error('[jp chk] no se pudo cerrar la solicitada', v.id, msg)
+      }
+    }
+    return n ? { n, motivo } : null
+  } catch (e) { console.error('[jp chk] jpCerrarSolicitadaDeOrden:', e); return null }
 }
 /* ============================================================================
  * 👷 TÉCNICOS DE LA ORDEN — Fase 2, Etapa B

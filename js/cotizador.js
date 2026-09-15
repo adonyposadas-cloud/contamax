@@ -3317,6 +3317,33 @@
   //
   // Se cierra junto con la orden y se deja registrado si el mecánico alcanzó a
   // inspeccionar o no. NO afecta comisiones: es solo trazabilidad.
+  // Qué pasó con el checklist de una orden:
+  //   cerrada    → CHECKLIST_HECHO        (no cuenta contra el técnico)
+  //   en_proceso → INSPECCION_INCOMPLETA  (sí cuenta: la abrió y la abandonó)
+  //   nada       → NO_INSPECCIONO         (sí cuenta: nunca la tocó)
+  // Las dos últimas son responsabilidad del técnico, pero no la misma falta.
+  async function motivoPorChecklist (numeroOrden) {
+    try {
+      const { data, error } = await sb().from('checklist_inspecciones')
+        .select('estado').eq('numero_orden', String(numeroOrden))
+      if (error) throw error
+      const est = (data || []).map(r => String(r.estado || '').toLowerCase())
+      if (est.includes('cerrada')) return 'CHECKLIST_HECHO'
+      if (est.includes('en_proceso')) return 'INSPECCION_INCOMPLETA'
+      return 'NO_INSPECCIONO'
+    } catch (e) {
+      // Si no se puede leer la tabla (RLS, red), se cae al criterio viejo. En el
+      // peor caso la RPC rechaza el cierre por intentar culpar a alguien que sí
+      // inspeccionó, que es la falla segura.
+      console.warn('[chk] No se pudo leer checklist_inspecciones:', e)
+      try {
+        const { data: chk } = await sb().rpc('checklist_tecnicos_por_orden')
+        return (chk || []).some(r => String(r.numero_orden) === String(numeroOrden))
+          ? 'CHECKLIST_HECHO' : 'NO_INSPECCIONO'
+      } catch (e2) { return 'NO_INSPECCIONO' }
+    }
+  }
+
   async function cerrarSolicitadaDeOrden (numeroOrden) {
     if (!numeroOrden) return null
     try {
@@ -3330,23 +3357,36 @@
       const vacias = (hermanas || []).filter(h => !(h.items || []).length && !(h.solicitados || []).length)
       if (!vacias.length) return null
 
-      // ¿El mecánico llegó a inspeccionar? La prueba es que exista su checklist
-      // cerrado para esa orden. Misma RPC que usa el tablero del jefe de pista.
-      let tieneChecklist = false
-      try {
-        const { data: chk } = await sb().rpc('checklist_tecnicos_por_orden')
-        tieneChecklist = (chk || []).some(r => String(r.numero_orden) === String(numeroOrden))
-      } catch (e) { console.warn('[chk] No se pudo verificar el checklist:', e) }
+      // Tres desenlaces, no dos. Antes solo se preguntaba si existía un checklist
+      // CERRADO: si el mecánico lo había abierto y dejado a medias, se marcaba
+      // igual que si no hubiera tocado la orden. Con eso, dos mecánicos que
+      // abrieron todas sus inspecciones y no cerraron ninguna encabezaban el
+      // reporte de "no inspeccionó" sin tener un solo caso real.
+      const motivo = await motivoPorChecklist(numeroOrden)
 
-      const motivo = tieneChecklist ? 'hecho' : 'no_hecho'
-      const ids = vacias.map(v => v.id)
-      const { error } = await sb().from('cotizador_proformas').update({
-        estado: 'finalizada',
-        proc_completada: new Date().toISOString(),
-        chk_cierre_motivo: motivo
-      }).in('id', ids)
-      if (error) { console.error('[chk] No se pudo cerrar la solicitada:', error); return null }
-      return { n: ids.length, motivo }
+      // Se cierra por la MISMA vía que los botones del jefe de pista:
+      // checklist_cierre_registrar. Antes esto escribía la columna
+      // chk_cierre_motivo con 'hecho'/'no_hecho' por su cuenta, así que el
+      // cierre automático y el manual dejaban dos rastros distintos y el
+      // reporte de responsabilidad daba diferente según por dónde se cerró.
+      //
+      // La RPC además valida sola: rechaza si la orden ya se cerró, si tiene
+      // ítems, y no deja acusar al técnico de una orden que sí tiene checklist.
+      let n = 0
+      for (const v of vacias) {
+        try {
+          const { error } = await sb().rpc('checklist_cierre_registrar',
+            { p_proforma_id: v.id, p_motivo: motivo, p_nota: 'Cierre automático al finalizar la cotización' })
+          if (error) throw error
+          n++
+        } catch (e) {
+          // "ya se cerró antes" no es un fallo: alguien la cerró a mano primero.
+          const msg = String(e?.message || e)
+          if (/ya se cerr/i.test(msg)) continue
+          console.error('[chk] No se pudo cerrar la solicitada', v.id, msg)
+        }
+      }
+      return n ? { n, motivo } : null
     } catch (e) { console.error('[chk] cerrarSolicitadaDeOrden:', e); return null }
   }
 
@@ -3370,7 +3410,7 @@
     let sinChk = 0
     for (const ord of ordenesCerradas) {
       const r = await cerrarSolicitadaDeOrden(ord)
-      if (r && r.motivo === 'no_hecho') sinChk += r.n
+      if (r && r.motivo !== 'CHECKLIST_HECHO') sinChk += r.n
     }
     toast(sinChk
       ? `Cotizaciones finalizadas · ${sinChk} checklist(s) quedaron sin hacer`
@@ -3429,9 +3469,12 @@
       const upd = (solo && aprobada) ? { proc_completada: aprobada, proc_compra_ms: 0 } : { proc_completada: new Date().toISOString() }
       await sb().from('cotizador_proformas').update(upd).eq('id', id).is('proc_completada', null)  // detiene el reloj si aún corría
       const rChk = await cerrarSolicitadaDeOrden(numOrden)
-      toast(rChk && rChk.motivo === 'no_hecho'
-        ? 'Cotización finalizada · el checklist quedó sin hacer'
-        : 'Cotización finalizada', rChk && rChk.motivo === 'no_hecho' ? 'info' : 'success')
+      const pend = rChk && rChk.motivo !== 'CHECKLIST_HECHO'
+      toast(pend
+        ? (rChk.motivo === 'INSPECCION_INCOMPLETA'
+            ? 'Cotización finalizada · el checklist quedó a medias'
+            : 'Cotización finalizada · el checklist no se hizo')
+        : 'Cotización finalizada', pend ? 'info' : 'success')
       loadDashboard()
     }
   }
