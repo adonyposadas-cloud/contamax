@@ -21,7 +21,31 @@ function cuentaVacGasto(seccion) {
 }
 
 // ── Cargar lista de empleados con su saldo ──
+// Estilos del historial (una sola vez)
+function ensureHistVacStyles() {
+  if (document.getElementById('vac-hist-css')) return
+  const st = document.createElement('style')
+  st.id = 'vac-hist-css'
+  st.textContent = `
+    .vac-fila{cursor:pointer}
+    .vac-fila:hover{background:var(--bg3,#1a1d24)}
+    .vac-hist-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+    .vac-hist-kpis>div{background:var(--bg3,#15171c);border:0.5px solid var(--border);border-radius:9px;padding:9px 11px;text-align:center}
+    .vac-hist-kpis b{display:block;font-size:17px;font-weight:700}
+    .vac-hist-kpis span{display:block;font-size:10px;color:var(--text3);margin-top:2px}
+    .vac-hist-warn{background:rgba(245,196,81,.12);border:1px solid rgba(245,196,81,.4);color:#f5c451;
+      border-radius:8px;padding:9px 12px;font-size:12px;margin-bottom:12px;line-height:1.45}
+    .vac-hist-tw{max-height:420px;overflow:auto;border:0.5px solid var(--border);border-radius:9px}
+    .vac-hist-t{width:100%;border-collapse:collapse;font-size:12px}
+    .vac-hist-t th{position:sticky;top:0;background:var(--bg3,#15171c);text-align:left;padding:7px 9px;
+      font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);border-bottom:0.5px solid var(--border)}
+    .vac-hist-t td{padding:7px 9px;border-bottom:0.5px solid var(--border)}
+    .vac-hist-t tr:last-child td{border-bottom:none}`
+  document.head.appendChild(st)
+}
+
 window.loadVacaciones = async () => {
+  ensureHistVacStyles()
   ensureSumarDiasUI()  // inyecta botón "Sumar días" + modal (idempotente)
   const { data } = await getSb().from('empleados')
     .select('id, nombre, seccion, sueldo_mensual, vacaciones_saldo_dias, es_socio')
@@ -40,14 +64,96 @@ function renderVacaciones() {
   if (!tbody) return
   tbody.innerHTML = vacEmpleados.map(e => {
     const saldo = parseFloat(e.vacaciones_saldo_dias) || 0
-    return `<tr>
+    return `<tr class="vac-fila" onclick="verHistorialVac('${e.id}')" title="Ver el historial de movimientos">
       <td>${e.nombre}</td>
       <td><span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion || ''}</span></td>
       <td style="text-align:right">${fmt(e.sueldo_mensual)}</td>
       <td style="text-align:right;font-weight:600;color:${saldo > 0 ? 'var(--green)' : saldo < 0 ? 'var(--red)' : 'var(--text3)'}">${fmtDias(saldo)}</td>
-      <td style="text-align:right"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="openPagoVacaciones('${e.id}')">💵 Pagar</button></td>
+      <td style="text-align:right"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="event.stopPropagation();openPagoVacaciones('${e.id}')">💵 Pagar</button></td>
     </tr>`
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin empleados</td></tr>'
+}
+
+// ══════════════════════════════════════════════
+// ── HISTORIAL DE VACACIONES POR EMPLEADO
+// ── Los movimientos ya se registraban (ajustes, permisos a cuenta y pagos),
+// ── pero no había dónde verlos. Esto solo los muestra: no escribe nada.
+// ══════════════════════════════════════════════
+const VAC_TIPOS = {
+  ajuste:        { icono: '➕', nombre: 'Ajuste de saldo',       color: 'var(--blue)'  },
+  permiso:       { icono: '🌴', nombre: 'Vacaciones tomadas',    color: 'var(--amber)' },
+  pago_efectivo: { icono: '💵', nombre: 'Pagadas en efectivo',   color: 'var(--green)' },
+  apertura:      { icono: '🏁', nombre: 'Saldo inicial',         color: 'var(--text3)' }
+}
+
+window.verHistorialVac = async (empleadoId) => {
+  const emp = vacEmpleados.find(e => e.id === empleadoId)
+  if (!emp) return
+  const saldo = parseFloat(emp.vacaciones_saldo_dias) || 0
+
+  let bd = document.getElementById('modal-hist-vac')
+  if (!bd) {
+    bd = document.createElement('div')
+    bd.className = 'modal-backdrop'; bd.id = 'modal-hist-vac'
+    document.body.appendChild(bd)
+    bd.addEventListener('click', ev => { if (ev.target === bd) closeModal('modal-hist-vac') })
+  }
+  bd.innerHTML = `<div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <h3>🌴 Vacaciones · ${emp.nombre}</h3>
+        <button class="modal-close" onclick="closeModal('modal-hist-vac')">✕</button>
+      </div>
+      <div class="modal-body"><div style="text-align:center;padding:30px"><div class="spinner"></div></div></div>
+    </div>`
+  bd.classList.add('open')
+
+  const cuerpo = bd.querySelector('.modal-body')
+  try {
+    const { data, error } = await getSb().from('vacaciones_movimientos')
+      .select('fecha, tipo, dias, monto, saldo_resultante, motivo, referencia, partida_numero, created_by, created_at')
+      .eq('empleado_id', empleadoId)
+      .order('fecha', { ascending: false })
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    const movs = data || []
+
+    // Los movimientos deberían explicar el saldo. Si no suman, falta algo —
+    // típicamente el saldo inicial, que en varios empleados nunca se registró.
+    const suma = Math.round(movs.reduce((a, m) => a + (parseFloat(m.dias) || 0), 0) * 100) / 100
+    const descuadre = Math.round((saldo - suma) * 100) / 100
+
+    const tomados = movs.filter(m => m.tipo === 'permiso').reduce((a, m) => a + Math.abs(parseFloat(m.dias) || 0), 0)
+    const pagados = movs.filter(m => m.tipo === 'pago_efectivo').reduce((a, m) => a + Math.abs(parseFloat(m.dias) || 0), 0)
+    const montoPag = movs.filter(m => m.tipo === 'pago_efectivo').reduce((a, m) => a + (parseFloat(m.monto) || 0), 0)
+
+    const filas = movs.map(m => {
+      const t = VAC_TIPOS[m.tipo] || { icono: '•', nombre: m.tipo || '—', color: 'var(--text3)' }
+      const d = parseFloat(m.dias) || 0
+      return `<tr>
+        <td style="white-space:nowrap">${m.fecha || '—'}</td>
+        <td><span style="color:${t.color}">${t.icono} ${t.nombre}</span></td>
+        <td style="text-align:right;font-weight:600;color:${d >= 0 ? 'var(--green)' : 'var(--red)'}">${d >= 0 ? '+' : ''}${fmtDias(d)}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmtDias(m.saldo_resultante)}</td>
+        <td style="font-size:11px;color:var(--text3)">${(m.motivo || '')}${m.referencia ? ' · ' + m.referencia : ''}${m.partida_numero ? ` · <b style="color:var(--gold)">#${m.partida_numero}</b>` : ''}${m.monto ? ' · L. ' + fmt(m.monto) : ''}</td>
+        <td style="font-size:11px;color:var(--text3);white-space:nowrap">${m.created_by || '—'}</td>
+      </tr>`
+    }).join('')
+
+    cuerpo.innerHTML = `
+      <div class="vac-hist-kpis">
+        <div><b style="color:${saldo > 0 ? 'var(--green)' : 'var(--text3)'}">${fmtDias(saldo)}</b><span>saldo actual</span></div>
+        <div><b>${fmtDias(tomados)}</b><span>días tomados</span></div>
+        <div><b>${fmtDias(pagados)}</b><span>días pagados${montoPag ? ' · L. ' + fmt(montoPag) : ''}</span></div>
+        <div><b>${movs.length}</b><span>movimientos</span></div>
+      </div>
+      ${Math.abs(descuadre) > 0.01 ? `<div class="vac-hist-warn">⚠️ El saldo es ${fmtDias(saldo)} pero los movimientos suman ${fmtDias(suma)}. Faltan <b>${fmtDias(descuadre)}</b> días sin registrar — casi siempre es el saldo inicial, cargado antes de que existiera este historial.</div>` : ''}
+      ${movs.length ? `<div class="vac-hist-tw"><table class="vac-hist-t">
+        <thead><tr><th>Fecha</th><th>Movimiento</th><th style="text-align:right">Días</th><th style="text-align:right">Saldo</th><th>Detalle</th><th>Registró</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>`
+        : '<div style="text-align:center;padding:24px;color:var(--text3)">Sin movimientos registrados.</div>'}`
+  } catch (e) {
+    cuerpo.innerHTML = `<div class="vac-hist-warn">No se pudo leer el historial: ${String(e.message || e)}</div>`
+  }
 }
 
 // ── Abrir modal de pago ──

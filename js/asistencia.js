@@ -15,6 +15,10 @@ let permisosCache = []
 let _permisosLista = []
 let _novedades = null
 let incapacidadesCache = []
+// Fechas 'YYYY-MM-DD' que no se esperan marcadas y se pagan igual. Se carga
+// desde la tabla `feriados`.
+let feriadosCache = new Set()
+let feriadosNombre = {}
 
 // ── LOAD CONFIG ──
 async function loadConfig() {
@@ -141,6 +145,7 @@ window.procesarReloj = async () => {
   const fechaMin = fechas[0], fechaMax = fechas[fechas.length - 1]
   const { data: permisos } = await getSb().from('permisos_empleados')
     .select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
+  await cargarFeriados()   // sin esto, un feriado se cuenta como falta
   permisosCache = permisos || []
   const { data: incapsAll } = await getSb().from('permisos_empleados').select('*').eq('tipo', 'incapacidad')
   incapacidadesCache = incapsAll || []
@@ -238,6 +243,28 @@ function _periodoBounds(anio, mes, quincena) {
 }
 
 // Días laborables (Lun-Sáb) dentro del rango [inicioStr, finStr] inclusive.
+// Carga el catálogo de feriados. Si falla, el conjunto queda vacío y todo se
+// comporta como antes: el feriado volvería a contarse como falta, pero la
+// pantalla no se rompe.
+async function cargarFeriados(force = false) {
+  if (!force && feriadosCache.size) return feriadosCache
+  try {
+    const { data, error } = await getSb().from('feriados').select('fecha, nombre').eq('activo', true)
+    if (error) throw error
+    feriadosCache = new Set((data || []).map(f => String(f.fecha).slice(0, 10)))
+    feriadosNombre = {}
+    ;(data || []).forEach(f => { feriadosNombre[String(f.fecha).slice(0, 10)] = f.nombre })
+  } catch (e) {
+    console.warn('[asistencia] no se pudo leer el catálogo de feriados:', e)
+  }
+  return feriadosCache
+}
+window.cargarFeriados = cargarFeriados
+
+// Días que se esperan marcados: lunes a sábado, SIN los feriados.
+// Excluirlos acá resuelve dos cosas a la vez: no se cuenta la falta y, como
+// _aplicarSeptimo descuenta un domingo por cada semana con falta, tampoco se
+// pierde el séptimo día de esa semana. El 15/09/2026 costaba dos días, no uno.
 function _diasLaborablesEnRango(inicioStr, finStr) {
   const out = []
   const [yi, mi, di] = inicioStr.split('-').map(Number)
@@ -245,7 +272,8 @@ function _diasLaborablesEnRango(inicioStr, finStr) {
   const dt = new Date(yi, mi - 1, di), end = new Date(yf, mf - 1, df)
   while (dt <= end) {
     const dow = dt.getDay()
-    if (dow >= 1 && dow <= 6) out.push(_localYMD(dt)) // Lun(1)..Sáb(6)
+    const ymd = _localYMD(dt)
+    if (dow >= 1 && dow <= 6 && !feriadosCache.has(ymd)) out.push(ymd) // Lun(1)..Sáb(6), sin feriados
     dt.setDate(dt.getDate() + 1)
   }
   return out
@@ -978,6 +1006,11 @@ window.aplicarAsistenciaAPlanilla = () => {
 // La planilla usa esto para no depender de la variable en memoria, que no se comparte
 // entre pestañas/ventanas ni sobrevive a un refresh. Requiere haber guardado la asistencia.
 window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
+  // El catálogo de feriados tiene que estar cargado ANTES de evaluar faltas:
+  // si no, un feriado se cuenta como falta y además se pierde el domingo
+  // de esa semana. Esta pantalla recalcula por su cuenta, no reusa el proceso
+  // del archivo del reloj.
+  await cargarFeriados()
   const pad = n => String(n).padStart(2, '0')
   const periodo = `${anio}-${pad(mes)}-${quincena}`
   const { data, error } = await getSb().from('asistencia_reloj')
@@ -1355,6 +1388,11 @@ async function cargarPeriodosHistorial() {
 }
 
 window.cargarHistorialAsistencia = async () => {
+  // El catálogo de feriados tiene que estar cargado ANTES de evaluar faltas:
+  // si no, un feriado se cuenta como falta y además se pierde el domingo
+  // de esa semana. Esta pantalla recalcula por su cuenta, no reusa el proceso
+  // del archivo del reloj.
+  await cargarFeriados()
   const periodo = document.getElementById('hist-periodo').value
   if (!periodo) { window.toast?.('Seleccioná un período', 'error'); return }
 
@@ -1741,6 +1779,7 @@ window.procesarRelojOnline = async () => {
   const fechaMin = fechas[0], fechaMax = fechas[fechas.length - 1]
   const { data: empleados } = await sb.from('empleados').select('*').eq('activo', true)
   const { data: permisos } = await sb.from('permisos_empleados').select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
+  await cargarFeriados()   // sin esto, un feriado se cuenta como falta
   permisosCache = permisos || []
   const { data: incapsAll } = await sb.from('permisos_empleados').select('*').eq('tipo', 'incapacidad')
   incapacidadesCache = incapsAll || []
