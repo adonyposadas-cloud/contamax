@@ -595,15 +595,41 @@ window.generarPlanilla = async () => {
   // Es un auxiliar: traemos débitos (cargos) Y créditos (abonos) del período y los neteamos
   // por rubro, para no cobrar dos veces algo que ya se saldó dentro de la misma quincena
   // (ej. un cargo de tarifas que luego se abona con un crédito).
-  const { data: lineasCxC } = await getSb().from('lineas_partida')
-    .select('monto, tipo, cuenta_codigo, descripcion, partida:partidas_contables(fecha_partida, estado)')
-    .like('cuenta_codigo', '110301-%')
-
   const ini = fechaInicio.toISOString().slice(0, 10)
   const fin = fechaFin.toISOString().slice(0, 10)
-  const cxcFiltradas = (lineasCxC || []).filter(l =>
-    l.partida?.estado === 'aprobada' && l.partida.fecha_partida >= ini && l.partida.fecha_partida <= fin
-  )
+
+  // El filtro va EN LA CONSULTA, no en memoria.
+  //
+  // Antes se pedían TODAS las líneas históricas de las 64 subcuentas de 110301
+  // y recién después se filtraba por fecha en JavaScript. PostgREST corta en
+  // 1000 filas por defecto, y esa cuenta ya pasó las 1000: todo lo que caía
+  // después del corte desaparecía del cálculo. El resultado era que a unos
+  // empleados se les cobraban sus anticipos y a otros no, sin patrón aparente,
+  // y peor cada quincena porque el histórico sigue creciendo.
+  // En 2026-09-Q1 quedaron L. 31,118.76 sin cobrar por esto.
+  //
+  // `!inner` es obligatorio para poder filtrar por columnas de la tabla
+  // relacionada: sin él, .eq('partida.estado', …) no filtra nada.
+  const { data: lineasCxC, error: cxcErr } = await getSb().from('lineas_partida')
+    .select('monto, tipo, cuenta_codigo, descripcion, partida:partidas_contables!inner(fecha_partida, estado)')
+    .like('cuenta_codigo', '110301-%')
+    .eq('partida.estado', 'aprobada')
+    .gte('partida.fecha_partida', ini)
+    .lte('partida.fecha_partida', fin)
+    .limit(5000)
+  if (cxcErr) {
+    window.toast?.('No se pudieron leer los cargos CXC: ' + cxcErr.message, 'error')
+    alert('⚠️ No se pudieron leer los cargos de las cuentas 110301 (anticipos, cafetería, trucha).\n\n' +
+      cxcErr.message + '\n\nLa planilla se va a generar SIN esas deducciones. Revisá antes de aprobarla.')
+  }
+  // Si se llega al tope, algo quedó afuera otra vez. Avisar en vez de callar:
+  // este bug estuvo cobrando de menos durante meses sin dar ninguna señal.
+  if ((lineasCxC || []).length >= 5000) {
+    alert('⚠️ La consulta de cargos CXC llegó al límite de 5000 líneas.\n' +
+      'Puede que algunos anticipos no se estén descontando. Avisá para revisarlo.')
+  }
+
+  const cxcFiltradas = lineasCxC || []
 
   const cxcPorCuenta = {}
   for (const l of cxcFiltradas) {
