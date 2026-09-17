@@ -464,8 +464,15 @@ window.initPlanilla = async () => {
 }
 
 window.regenerarPlanilla = async () => {
-  if (!confirm('¿Regenerar la planilla? Se borrarán los datos actuales y se recalculará todo.')) return
   if (!currentPlanilla) return
+  // Segunda barrera: ocultar el botón no alcanza si la función queda expuesta.
+  if (currentPlanilla.estado === 'aprobada' || currentPlanilla.estado === 'pagada') {
+    alert(`Esta planilla está ${currentPlanilla.estado} y no se puede regenerar.\n\n` +
+      'Regenerar borraría el detalle de lo que realmente se pagó y lo recalcularía con los datos de hoy.\n\n' +
+      'Si de verdad hay que modificarla, usá "Reabrir planilla": revierte la partida con un contra-asiento y repone los saldos.')
+    return
+  }
+  if (!confirm('¿Regenerar la planilla? Se borrarán los datos actuales y se recalculará todo.')) return
   
   // Delete existing details and header
   await getSb().from('detalle_planilla').delete().eq('planilla_id', currentPlanilla.id)
@@ -496,6 +503,21 @@ window.generarPlanilla = async () => {
     document.getElementById('pl-existing').classList.remove('hidden')
     document.getElementById('pl-existing-msg').textContent =
       `Ya existe una planilla para este período (estado: ${existing.estado}). Se cargará para edición.`
+
+    // Regenerar BORRA el detalle guardado y recalcula con los datos de HOY:
+    // fichas editadas, permisos nuevos, correcciones de cálculo. En una planilla
+    // ya aprobada o pagada eso destruye el registro de lo que realmente se pagó,
+    // sin forma de recuperarlo. Para deshacer una aprobada está "Reabrir", que
+    // hace el contra-asiento y repone saldos.
+    const _btnRegen = document.getElementById('btn-regenerar-planilla')
+    if (_btnRegen) {
+      const _cerrada = existing.estado === 'aprobada' || existing.estado === 'pagada'
+      _btnRegen.style.display = _cerrada ? 'none' : ''
+      if (_cerrada) {
+        document.getElementById('pl-existing-msg').textContent =
+          `Planilla ${existing.estado} — se muestra tal como se pagó. Para modificarla hay que Reabrirla primero.`
+      }
+    }
     currentPlanilla = existing
     // Load existing details
     const { data: det } = await getSb().from('detalle_planilla')

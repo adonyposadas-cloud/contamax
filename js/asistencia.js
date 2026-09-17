@@ -144,10 +144,10 @@ window.procesarReloj = async () => {
   const fechas = dayRecords.map(d => d.fecha).sort()
   const fechaMin = fechas[0], fechaMax = fechas[fechas.length - 1]
   const { data: permisos } = await getSb().from('permisos_empleados')
-    .select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
+    .select('*').eq('eliminado', false).gte('fecha', fechaMin).lte('fecha', fechaMax)
   await cargarFeriados()   // sin esto, un feriado se cuenta como falta
   permisosCache = permisos || []
-  const { data: incapsAll } = await getSb().from('permisos_empleados').select('*').eq('tipo', 'incapacidad')
+  const { data: incapsAll } = await getSb().from('permisos_empleados').select('*').eq('eliminado', false).eq('tipo', 'incapacidad')
   incapacidadesCache = incapsAll || []
   asistenciaData = calcularAsistencia(dayRecords, permisosCache)
   // Límites reales del período (no los del archivo) para evaluar el séptimo día
@@ -367,6 +367,11 @@ function _fraccionMananaPerdida(fecha, entradaMin) {
 //  · permiso_dia / falta_justificada → si ese día marcó salida (trabajó parte del día),
 //    se cobra solo la fracción desde la salida hasta el fin de jornada (menos almuerzo);
 //    si no marcó (ausencia total), es 1 día completo.
+// Se expone para que la vista previa de la carga masiva calcule exactamente lo
+// mismo que después va a calcular la planilla. Una previa aproximada que no
+// coincide con el resultado es peor que no tener previa.
+window._diasDePermiso = (p, salidaMin) => _diasDePermiso(p, salidaMin)
+
 function _diasDePermiso(p, salidaMin) {
   if (p.tipo === 'salida_anticipada') {
     const exit = p.hora_salida ? _horaAMin(p.hora_salida) : salidaMin
@@ -764,7 +769,7 @@ async function calcularNovedades() {
   const mapaPin = {}
   for (const r of (mapas || [])) if (r.activo !== false && r.empleado_nombre) mapaPin[String(r.pin)] = r.empleado_nombre
   const { data: empleados } = await sb.from('empleados').select('id, nombre').eq('activo', true)
-  const { data: permisos } = await sb.from('permisos_empleados').select('*').gte('fecha', hace60).lte('fecha', fHoy)
+  const { data: permisos } = await sb.from('permisos_empleados').select('*').eq('eliminado', false).gte('fecha', hace60).lte('fecha', fHoy)
   const { data: marc } = await sb.from('marcaciones_raw').select('pin, fecha, hora').gte('fecha', fAyer).lte('fecha', fHoy).limit(20000)
 
   // Entrada/salida por empleado+día (mismo criterio que la planilla: corte mediodía)
@@ -1024,12 +1029,12 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
 
   // Permisos del período (justifican faltas → conservan el domingo)
   const { data: permisos } = await getSb().from('permisos_empleados')
-    .select('*').gte('fecha', bounds.inicio).lte('fecha', bounds.fin)
+    .select('*').eq('eliminado', false).gte('fecha', bounds.inicio).lte('fecha', bounds.fin)
 
   // Incapacidades: se traen TODAS (sin filtro de fecha) porque un episodio puede
   // empezar en otra quincena y/o encadenarse (continua_de) para el conteo 100%/34%.
   const { data: incapacidades } = await getSb().from('permisos_empleados')
-    .select('*').eq('tipo', 'incapacidad')
+    .select('*').eq('eliminado', false).eq('tipo', 'incapacidad')
 
   // es_socio por empleado (socios no sufren deducción de días)
   const empIds = [...new Set(data.map(r => r.empleado_id).filter(Boolean))]
@@ -1172,6 +1177,7 @@ window.onPermContinuacionChange = async () => {
   }
   const { data: previas } = await getSb().from('permisos_empleados')
     .select('id, fecha, dias, diagnostico')
+    .eq('eliminado', false)
     .eq('empleado_id', empleadoId).eq('tipo', 'incapacidad')
     .order('fecha', { ascending: false }).limit(20)
   if (!previas?.length) {
@@ -1272,17 +1278,29 @@ async function cargarPermisos() {
   const tipoLabel = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)', llegada_tarde: 'Llegada tarde justificada' }
 
   _permisosLista = data || []
-  tbody.innerHTML = (data || []).map(p => `
-    <tr style="cursor:pointer" onclick="window.verPermiso('${p.id}')">
-      <td>${p.fecha}</td>
-      <td><strong>${p.empleado_nombre}</strong></td>
-      <td>${p.tipo === 'incapacidad' ? (p.dias ? p.dias + ' día(s)' : '—') : (p.hora_salida || '—')}</td>
-      <td><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}${p.tipo === 'incapacidad' ? ' 🏥' : ''}${p.es_continuacion ? ' <span title="Continuación/prórroga IHSS">🔗</span>' : ''}</td>
-      <td style="font-size:12px;color:var(--text3)">${p.tipo === 'incapacidad' && p.diagnostico ? p.diagnostico : (p.motivo || '—')}</td>
-      <td style="font-size:11px;color:var(--text3)">${p.aprobado_por || '—'}</td>
-      <td><button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="event.stopPropagation(); eliminarPermiso('${p.id}')">✕</button></td>
-    </tr>
-  `).join('') || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">${filtroNombre ? 'Este empleado no tiene permisos registrados' : 'No hay permisos registrados'}</td></tr>`
+  const nEliminados = (data || []).filter(p => p.eliminado).length
+  const visibles = _permVerEliminados ? (data || []) : (data || []).filter(p => !p.eliminado)
+
+  tbody.innerHTML = visibles.map(p => {
+    // Los eliminados quedan como evidencia: se ven tachados y apagados, con
+    // quién los quitó y cuándo. Ya no cuentan en ningún cálculo.
+    const del = !!p.eliminado
+    const estilo = del ? 'opacity:.55;text-decoration:line-through' : ''
+    return `
+    <tr style="cursor:pointer${del ? ';background:rgba(248,81,73,.06)' : ''}" onclick="window.verPermiso('${p.id}')">
+      <td style="${estilo}">${p.fecha}</td>
+      <td style="${estilo}"><strong>${p.empleado_nombre}</strong></td>
+      <td style="${estilo}">${p.tipo === 'incapacidad' ? (p.dias ? p.dias + ' día(s)' : '—') : (p.hora_salida || '—')}</td>
+      <td style="${estilo}"><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}${p.tipo === 'incapacidad' ? ' 🏥' : ''}${p.es_continuacion ? ' <span title="Continuación/prórroga IHSS">🔗</span>' : ''}</td>
+      <td style="font-size:12px;color:var(--text3);${estilo}">${p.tipo === 'incapacidad' && p.diagnostico ? p.diagnostico : (p.motivo || '—')}</td>
+      <td style="font-size:11px;color:var(--text3)">${del
+          ? `<span style="color:#f85149">✕ eliminado</span><br><span style="font-size:10px">${p.eliminado_por || '—'}${p.eliminado_at ? ' · ' + String(p.eliminado_at).slice(0, 10) : ''}</span>${p.motivo_eliminacion ? `<br><span style="font-size:10px;font-style:italic">${p.motivo_eliminacion}</span>` : ''}`
+          : (p.aprobado_por || '—')}</td>
+      <td>${del ? '' : `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="event.stopPropagation(); eliminarPermiso('${p.id}')">✕</button>`}</td>
+    </tr>`
+  }).join('') || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">${filtroNombre ? 'Este empleado no tiene permisos registrados' : 'No hay permisos registrados'}</td></tr>`
+
+  _pintarChipEliminados(nEliminados)
 }
 
 // Inyecta (una sola vez) el selector de empleado arriba de la tabla de permisos
@@ -1301,7 +1319,7 @@ async function _ensureFiltroPermisos(seleccionado) {
     tabla.parentNode.insertBefore(cont, tabla)
     sel = document.getElementById('filtro-perm-empleado')
   }
-  const { data: noms } = await getSb().from('permisos_empleados').select('empleado_nombre').limit(2000)
+  const { data: noms } = await getSb().from('permisos_empleados').select('empleado_nombre').eq('eliminado', false).limit(2000)
   const unicos = [...new Set((noms || []).map(x => (x.empleado_nombre || '').trim()).filter(Boolean))].sort()
   const val = seleccionado || ''
   sel.innerHTML = `<option value="">Todos (${unicos.length} empleados con permisos)</option>` +
@@ -1309,17 +1327,132 @@ async function _ensureFiltroPermisos(seleccionado) {
 }
 window._onFiltroPermisos = () => cargarPermisos()
 
+// Por defecto los eliminados NO se muestran: en el día a día estorban. El chip
+// aparece solo cuando hay alguno, con su conteo, para que no pasen inadvertidos.
+let _permVerEliminados = false
+window._togglePermEliminados = () => { _permVerEliminados = !_permVerEliminados; cargarPermisos() }
+
+function _pintarChipEliminados(n) {
+  const cont = document.getElementById('filtro-perm-empleado')?.parentNode
+  if (!cont) return
+  let chip = document.getElementById('chip-perm-eliminados')
+  if (!n && !_permVerEliminados) { if (chip) chip.remove(); return }
+  if (!chip) {
+    chip = document.createElement('button')
+    chip.id = 'chip-perm-eliminados'
+    chip.className = 'btn btn-ghost'
+    chip.style.cssText = 'font-size:11px;padding:4px 10px;color:#f85149;border-color:rgba(248,81,73,.4)'
+    chip.onclick = window._togglePermEliminados
+    cont.appendChild(chip)
+  }
+  chip.textContent = _permVerEliminados ? `✕ Ocultar eliminados (${n})` : `✕ Ver eliminados (${n})`
+}
+
+// ══════════════════════════════════════════════
+// ── PERMISOS EN GRANDE
+// ── El panel de la pantalla deja ver dos renglones a la vez, y con 52
+// ── empleados con permisos eso obliga a desplazarse dentro de una cajita
+// ── mientras el resto de la página se mueve por detrás.
+// ──
+// ── En vez de duplicar la tabla, se MUEVE el mismo bloque al modal y se
+// ── devuelve a su lugar al cerrar. Así `cargarPermisos`, el filtro y el
+// ── botón de eliminar siguen funcionando sin tocar una línea: los ids son
+// ── los mismos porque es el mismo nodo.
+// ══════════════════════════════════════════════
+let _permHostPadre = null
+let _permHostSig = null
+
+window.abrirPermisosModal = () => {
+  const host = document.getElementById('perm-host-inline')
+  if (!host) return
+  _permHostPadre = host.parentNode
+  _permHostSig = host.nextSibling          // para devolverlo exactamente donde estaba
+
+  let bd = document.getElementById('modal-permisos-grande')
+  if (!bd) {
+    bd = document.createElement('div')
+    bd.className = 'modal-backdrop'
+    bd.id = 'modal-permisos-grande'
+    document.body.appendChild(bd)
+    bd.addEventListener('click', ev => { if (ev.target === bd) cerrarPermisosModal() })
+  }
+  bd.innerHTML = `<div class="modal perm-modal">
+      <div class="modal-header">
+        <h3>📋 Permisos registrados</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-ghost" onclick="openPermisoEmpleado()" style="font-size:12px;padding:5px 12px">+ Permiso</button>
+          <button class="modal-close" onclick="cerrarPermisosModal()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body"><div id="perm-modal-host"></div></div>
+    </div>`
+  bd.classList.add('open')
+  const dest = document.getElementById('perm-modal-host')
+  host.style.maxHeight = ''                 // adentro manda el alto del modal
+  dest.appendChild(host)
+  document.addEventListener('keydown', _permEsc)
+}
+
+window.cerrarPermisosModal = () => {
+  const host = document.getElementById('perm-host-inline')
+  if (host && _permHostPadre) {
+    host.style.maxHeight = '200px'          // devuelve la cajita a su tamaño
+    _permHostPadre.insertBefore(host, _permHostSig)
+  }
+  _permHostPadre = null; _permHostSig = null
+  document.removeEventListener('keydown', _permEsc)
+  const bd = document.getElementById('modal-permisos-grande')
+  if (bd) { bd.classList.remove('open'); bd.innerHTML = '' }
+}
+
+const _permEsc = (e) => { if (e.key === 'Escape') cerrarPermisosModal() }
+
+// Estilos del modal de permisos (una sola vez)
+;(function () {
+  const st = document.createElement('style')
+  st.textContent = `
+    .perm-modal{max-width:min(1200px, 96vw)!important; width:min(1200px, 96vw)!important}
+    .perm-modal .modal-body{max-height:min(70vh, 640px); overflow:auto}
+    #perm-modal-host{max-height:none!important; overflow:visible!important}
+    #perm-modal-host table{width:100%; font-size:13px}
+    /* La cabecera queda fija al desplazarse: con 300 permisos, perder los
+       títulos de columna a los tres renglones es lo que hace ilegible la lista. */
+    #perm-modal-host thead th{position:sticky; top:0; background:var(--bg2,#15171c); z-index:2}
+    #perm-modal-host td{padding:8px 10px; vertical-align:top}
+    #perm-modal-host tr:hover td{background:rgba(255,255,255,.03)}
+    @media (max-width:760px){ .perm-modal{width:96vw!important} }`
+  document.head.appendChild(st)
+})()
+
 window.eliminarPermiso = async (id) => {
-  if (!confirm('¿Eliminar este permiso?')) return
-  // Capturar los datos ANTES de borrar, para dejar rastro de qué se eliminó
   const _p = (_permisosLista || []).find(x => x.id === id) || null
-  await getSb().from('permisos_empleados').delete().eq('id', id)
-  window.toast?.('Permiso eliminado', 'success')
+
+  // Un permiso a cuenta de vacaciones ya consumió días del saldo. Eliminarlo NO
+  // los devuelve, y hacerlo automáticamente sería revertir en cadena un saldo
+  // que pudo moverse después. Se avisa y, si hay que reponerlos, va por
+  // "Ajustar días" en Vacaciones, que deja su propio movimiento.
+  const aviso = (_p && _p.a_cuenta_vacaciones)
+    ? `\n\n⚠️ Este permiso descontó ${_p.dias || 1} día(s) de vacaciones.\nEliminarlo NO devuelve esos días: si hay que reponerlos, hacelo desde Vacaciones → Ajustar días.`
+    : ''
+  if (!confirm(`¿Eliminar este permiso?\n\nLa fila NO se borra: queda tachada como evidencia, con tu nombre y la fecha. Deja de contar en asistencia, planilla y vacaciones.${aviso}`)) return
+
+  const motivo = (prompt('¿Por qué se elimina? (queda registrado)') || '').trim()
+  if (!motivo) { window.toast?.('Hace falta el motivo para eliminar', 'error'); return }
+
+  const quien = window._currentProfile?.()?.nombre || window._currentProfile?.()?.email || 'desconocido'
+  const { error } = await getSb().from('permisos_empleados').update({
+    eliminado: true,
+    eliminado_por: quien,
+    eliminado_at: new Date().toISOString(),
+    motivo_eliminacion: motivo
+  }).eq('id', id)
+  if (error) { window.toast?.('No se pudo eliminar: ' + error.message, 'error'); return }
+  window.toast?.('Permiso eliminado · queda registrado', 'success')
   // Auditoría
   if (_p) {
     const _tlPerm = { salida_anticipada: 'Salida anticipada', falta_justificada: 'Falta justificada', permiso_dia: 'Permiso día completo', incapacidad: 'Incapacidad (IHSS)', llegada_tarde: 'Llegada tarde justificada' }
     const _ex = _p.tipo === 'incapacidad' ? ` · ${_p.dias || 0} día(s)` : (_p.hora_salida ? ` · ${_p.hora_salida}` : '')
-    window.logActividad?.('permiso_eliminado', 'rrhh', `${_p.empleado_nombre} · ${_p.fecha} · ${_tlPerm[_p.tipo] || _p.tipo}${_ex}${_p.motivo ? ' · ' + _p.motivo : ''}`)
+    window.logActividad?.('permiso_eliminado', 'rrhh', `${_p.empleado_nombre} · ${_p.fecha} · ${_tlPerm[_p.tipo] || _p.tipo}${_ex}${_p.motivo ? ' · ' + _p.motivo : ''} · MOTIVO BAJA: ${motivo}`)
   } else {
     window.logActividad?.('permiso_eliminado', 'rrhh', `Permiso ${id} eliminado`)
   }
@@ -1454,9 +1587,9 @@ window.cargarHistorialAsistencia = async () => {
     for (const em of (emps || [])) sociosMap[em.id] = em.es_socio
   }
   const { data: permisosPeriodo } = await getSb().from('permisos_empleados')
-    .select('*').gte('fecha', histBounds.inicio).lte('fecha', histBounds.fin)
+    .select('*').eq('eliminado', false).gte('fecha', histBounds.inicio).lte('fecha', histBounds.fin)
   const { data: incapsHist } = await getSb().from('permisos_empleados')
-    .select('*').eq('tipo', 'incapacidad')
+    .select('*').eq('eliminado', false).eq('tipo', 'incapacidad')
   for (const e of Object.values(byEmp)) {
     e.es_socio = !!sociosMap[e.empleado_id]
     // HE: si un día no tuvo salida marcada pero el empleado estuvo presente, usar la hora de
@@ -1778,10 +1911,10 @@ window.procesarRelojOnline = async () => {
   const fechas = dayRecords.map(d => d.fecha).sort()
   const fechaMin = fechas[0], fechaMax = fechas[fechas.length - 1]
   const { data: empleados } = await sb.from('empleados').select('*').eq('activo', true)
-  const { data: permisos } = await sb.from('permisos_empleados').select('*').gte('fecha', fechaMin).lte('fecha', fechaMax)
+  const { data: permisos } = await sb.from('permisos_empleados').select('*').eq('eliminado', false).gte('fecha', fechaMin).lte('fecha', fechaMax)
   await cargarFeriados()   // sin esto, un feriado se cuenta como falta
   permisosCache = permisos || []
-  const { data: incapsAll } = await sb.from('permisos_empleados').select('*').eq('tipo', 'incapacidad')
+  const { data: incapsAll } = await sb.from('permisos_empleados').select('*').eq('eliminado', false).eq('tipo', 'incapacidad')
   incapacidadesCache = incapsAll || []
   asistenciaData = calcularAsistencia(dayRecords, permisosCache)
   const [refY, refM] = dayRecords[0].fecha.split('-').map(Number)

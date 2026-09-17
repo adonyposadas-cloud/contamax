@@ -1820,7 +1820,7 @@
           </div>
           <div id="pl-existing" class="hidden" style="padding:10px 14px;background:var(--bg1);border-radius:var(--radius);border:1px solid var(--gold);margin-top:8px;display:flex;justify-content:space-between;align-items:center">
             <div><span style="color:var(--gold)">⚠️</span> <span id="pl-existing-msg"></span></div>
-            <button class="btn btn-ghost" onclick="regenerarPlanilla()" style="font-size:11px;padding:4px 12px;color:var(--red)">🔄 Regenerar planilla</button>
+            <button class="btn btn-ghost" id="btn-regenerar-planilla" onclick="regenerarPlanilla()" style="font-size:11px;padding:4px 12px;color:var(--red)">🔄 Regenerar planilla</button>
           </div>
         </div>
 
@@ -1980,9 +1980,13 @@
           <div class="form-card">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
               <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;font-weight:500">Permisos registrados</label>
-              <button class="btn btn-ghost" onclick="openPermisoEmpleado()" style="font-size:11px;padding:4px 12px">+ Permiso</button>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-ghost" onclick="abrirPermisosModal()" style="font-size:11px;padding:4px 12px" title="Ver la lista completa en pantalla grande">⛶ Ampliar</button>
+                <button class="btn btn-ghost" onclick="abrirPermisoMasivo()" style="font-size:11px;padding:4px 12px" title="Aplicar el mismo permiso a varios empleados">👥 Varios</button>
+                <button class="btn btn-ghost" onclick="openPermisoEmpleado()" style="font-size:11px;padding:4px 12px">+ Permiso</button>
+              </div>
             </div>
-            <div style="max-height:200px;overflow-y:auto">
+            <div id="perm-host-inline" style="max-height:200px;overflow-y:auto">
               <table style="font-size:12px"><thead><tr><th>Fecha</th><th>Empleado</th><th>Hora</th><th>Tipo</th><th>Motivo</th><th>Aprobó</th><th></th></tr></thead>
               <tbody id="tbody-permisos"></tbody></table>
             </div>
@@ -2020,6 +2024,21 @@
           <div id="config-planilla-fields"></div>
           <div id="config-ihss-calc" style="margin:12px 0;padding:10px;background:var(--bg3);border-radius:var(--radius);font-size:13px"></div>
           <button class="btn btn-gold" onclick="guardarConfigPlanilla()">Guardar configuración</button>
+        </div>
+
+        <!-- Feriados: días que no exigen marca y se pagan igual -->
+        <div class="form-card" id="card-feriados" style="max-width:820px;margin-top:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <div>
+              <div style="font-weight:600">📅 Feriados</div>
+              <div style="font-size:12px;color:var(--text3);margin-top:2px">
+                Días que no se esperan marcados y se pagan igual. Sin esto, un feriado
+                cuenta como falta y además descuenta el domingo de esa semana.
+              </div>
+            </div>
+            <button class="btn btn-gold" id="btn-nuevo-feriado" onclick="abrirFeriadoModal()" style="font-size:12px;padding:6px 14px">+ Agregar feriado</button>
+          </div>
+          <div id="feriados-host" style="margin-top:12px"></div>
         </div>
       </div>
 
@@ -3659,7 +3678,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260914b"></script>
+<script type="module" src="js/app.js?v=20260917a"></script>
 <script type="module" src="js/reportes.js?v=20260905e"></script>
 <script defer src="js/concilia_puente.js?v=20260612d"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260612c"></script>
@@ -3673,9 +3692,11 @@
 <script defer src="js/financiamiento.js?v=20260613a"></script>
 <script defer src="js/cierre_recibos.js?v=20260619g"></script>
 <script defer src="js/vencimientos.js?v=20260619a"></script>
-<script defer src="js/rrhh.js?v=20260917a"></script>
-<script defer src="js/asistencia.js?v=20260917b"></script>
-<script defer src="js/vacaciones.js?v=20260917a"></script>
+<script defer src="js/rrhh.js?v=20260917b"></script>
+<script defer src="js/asistencia.js?v=20260917e"></script>
+<script defer src="js/vacaciones.js?v=20260917b"></script>
+<script defer src="js/feriados.js?v=20260917a"></script>
+<script defer src="js/permisos-masivo.js?v=20260917a"></script>
 <script defer src="js/cuentas-cobrar.js"></script>
 <script defer src="js/conciliacion.js?v=20260701e"></script>
 <script defer src="js/fiscal.js?v=20260707a"></script>

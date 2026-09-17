@@ -394,6 +394,7 @@ window.showView = (id, label) => {
   if (id === 'cotizador' && window.initCotizador) window.initCotizador()
   if (id === 'estados-fisicos' && window.initEstadosFisicos) window.initEstadosFisicos()
   if (id === 'destinos' && window.initDestinos) window.initDestinos()
+  if (id === 'config-planilla' && window.cargarFeriadosAdmin) window.cargarFeriadosAdmin()
   // Ajustar botones según rol
   applyRoleRestrictions(id)
 }

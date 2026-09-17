@@ -29,17 +29,30 @@ function ensureHistVacStyles() {
   st.textContent = `
     .vac-fila{cursor:pointer}
     .vac-fila:hover{background:var(--bg3,#1a1d24)}
+    /* En CPU la tabla tiene 6 columnas y una de detalle larga. El .modal del
+       sistema trae un max-width chico, así que acá se sobreescribe con !important
+       y se limita por viewport para que en el teléfono siga entrando. */
+    .vac-hist-modal{max-width:min(1100px, 96vw)!important; width:min(1100px, 96vw)!important}
+    @media (max-width: 760px){ .vac-hist-modal{width:96vw!important} }
     .vac-hist-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
     .vac-hist-kpis>div{background:var(--bg3,#15171c);border:0.5px solid var(--border);border-radius:9px;padding:9px 11px;text-align:center}
     .vac-hist-kpis b{display:block;font-size:17px;font-weight:700}
     .vac-hist-kpis span{display:block;font-size:10px;color:var(--text3);margin-top:2px}
     .vac-hist-warn{background:rgba(245,196,81,.12);border:1px solid rgba(245,196,81,.4);color:#f5c451;
       border-radius:8px;padding:9px 12px;font-size:12px;margin-bottom:12px;line-height:1.45}
-    .vac-hist-tw{max-height:420px;overflow:auto;border:0.5px solid var(--border);border-radius:9px}
+    .vac-hist-tw{max-height:min(560px, 60vh);overflow:auto;border:0.5px solid var(--border);border-radius:9px}
     .vac-hist-t{width:100%;border-collapse:collapse;font-size:12px}
     .vac-hist-t th{position:sticky;top:0;background:var(--bg3,#15171c);text-align:left;padding:7px 9px;
       font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);border-bottom:0.5px solid var(--border)}
-    .vac-hist-t td{padding:7px 9px;border-bottom:0.5px solid var(--border)}
+    .vac-hist-t td{padding:7px 9px;border-bottom:0.5px solid var(--border);vertical-align:top}
+    /* Anchos: fecha y montos no se parten; el detalle se queda con lo que sobre. */
+    .vac-hist-t td:nth-child(1), .vac-hist-t th:nth-child(1){white-space:nowrap;width:1%}
+    .vac-hist-t td:nth-child(2), .vac-hist-t th:nth-child(2){white-space:nowrap;width:1%}
+    .vac-hist-t td:nth-child(3), .vac-hist-t th:nth-child(3){white-space:nowrap;width:1%}
+    .vac-hist-t td:nth-child(4), .vac-hist-t th:nth-child(4){white-space:nowrap;width:1%}
+    .vac-hist-t td:nth-child(5){width:auto;line-height:1.4}
+    .vac-hist-t td:nth-child(6), .vac-hist-t th:nth-child(6){white-space:nowrap;width:1%}
+    .vac-hist-t tr:hover td{background:rgba(255,255,255,.03)}
     .vac-hist-t tr:last-child td{border-bottom:none}`
   document.head.appendChild(st)
 }
@@ -98,7 +111,7 @@ window.verHistorialVac = async (empleadoId) => {
     document.body.appendChild(bd)
     bd.addEventListener('click', ev => { if (ev.target === bd) closeModal('modal-hist-vac') })
   }
-  bd.innerHTML = `<div class="modal" style="max-width:720px">
+  bd.innerHTML = `<div class="modal vac-hist-modal">
       <div class="modal-header">
         <h3>🌴 Vacaciones · ${emp.nombre}</h3>
         <button class="modal-close" onclick="closeModal('modal-hist-vac')">✕</button>
@@ -131,7 +144,7 @@ window.verHistorialVac = async (empleadoId) => {
       const d = parseFloat(m.dias) || 0
       return `<tr>
         <td style="white-space:nowrap">${m.fecha || '—'}</td>
-        <td><span style="color:${t.color}">${t.icono} ${t.nombre}</span></td>
+        <td><span style="color:${t.color};white-space:nowrap">${t.icono} ${t.nombre}</span></td>
         <td style="text-align:right;font-weight:600;color:${d >= 0 ? 'var(--green)' : 'var(--red)'}">${d >= 0 ? '+' : ''}${fmtDias(d)}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmtDias(m.saldo_resultante)}</td>
         <td style="font-size:11px;color:var(--text3)">${(m.motivo || '')}${m.referencia ? ' · ' + m.referencia : ''}${m.partida_numero ? ` · <b style="color:var(--gold)">#${m.partida_numero}</b>` : ''}${m.monto ? ' · L. ' + fmt(m.monto) : ''}</td>
