@@ -5005,6 +5005,12 @@ const IMPORT_CUENTAS = {
   venta_tecnimax_int:{ codigo: '410301-001',  nombre: 'VENTA TECNIMAX 2' },
   venta_yonker_int:  { codigo: '410301-002',  nombre: 'VENTA YONKER TECNIMAX 2' },
   bono_tecnimax:     { codigo: '410301-003',  nombre: 'BONO POR VENTA TECNIMAX' },
+  // Yonker cambió de sistema de cobro. Su detalle de clientes y de depósitos
+  // vive en el sistema Yonker, así que acá entra consolidado por día: una sola
+  // línea de CxC y una sola de cuenta puente. El auxiliar solo necesita que
+  // caja y bancos cuadren.
+  cxc_yonker:        { codigo: '110201-031',  nombre: 'CUENTA PUENTE RECIBOS YONKER (CxC)' },
+  puente_yonker:     { codigo: '210101-031',  nombre: 'CUENTA PUENTE RECIBOS YONKER' },
 }
 
 let importFiles = []
@@ -5199,6 +5205,14 @@ function parseAlphaExcel(arrayBuffer) {
     facturasCredito.forEach(f => f.tipo_venta = 'Crédito')
   }
 
+  // ── Hoja Depósitos (cuenta puente) · solo la trae el reporte nuevo de Yonker ──
+  // Se lee por NOMBRE de encabezado, no por posición: el sistema Yonker ya
+  // insertó una columna ("Código") en medio y puede volver a hacerlo.
+  // Y se clasifica por la columna `Código` (RECIBIDO/APLICADO/DEVUELTO), que es
+  // estable, en vez del texto visible, que ya cambió una vez.
+  const depositos = parseDepositos(wb)
+  const netoPuente = depositos.reduce((a, d) => a + d.monto, 0)
+
   // Todas las facturas (contado + crédito) para validación de correlativos
   const todasFacturas = [...facturasContado, ...facturasCredito]
 
@@ -5216,7 +5230,52 @@ function parseAlphaExcel(arrayBuffer) {
     exento: facturasCredito.reduce((s, f) => s + f.total_exento, 0),
   }
 
-  return { empresaRaw, tipo, centro, facturas: facturasContado, facturasCredito, todasFacturas, totales, totalesCredito }
+  return { empresaRaw, tipo, centro, facturas: facturasContado, facturasCredito, todasFacturas, totales, totalesCredito, depositos, netoPuente }
+}
+
+// Lee la hoja "Depósitos" del reporte de Yonker. Devuelve [] si no existe,
+// que es el caso de los reportes de Tecnicentro y de los archivos viejos.
+function parseDepositos(wb) {
+  const nombre = wb.SheetNames.find(n => n.toLowerCase().includes('depósito') || n.toLowerCase().includes('deposito'))
+  if (!nombre) return []
+  const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, defval: null })
+
+  // El encabezado no está en una fila fija: se busca la que tenga 'Movimiento'.
+  const iHdr = rows.findIndex(r => (r || []).some(c => String(c || '').trim() === 'Movimiento'))
+  if (iHdr < 0) return []
+  const hdr = (rows[iHdr] || []).map(c => String(c || '').trim())
+  const col = (n) => hdr.indexOf(n)
+  const cCod = col('Código'), cMov = col('Movimiento'), cMonto = col('Monto')
+  const cDep = col('No. Depósito'), cDoc = col('Documento'), cForma = col('Forma')
+  const cRec = col('Recargo'), cFecha = col('Fecha')
+  if (cMonto < 0) return []
+
+  const out = []
+  for (let i = iHdr + 1; i < rows.length; i++) {
+    const r = rows[i] || []
+    const crudo = String(r[cCod] != null ? r[cCod] : (cMov >= 0 ? r[cMov] : '')).toUpperCase()
+    if (!crudo) continue
+    if (String(r[0] || '').toUpperCase().includes('SALDO DEL')) break   // fin de los datos
+
+    // Tolerante a la redacción: el texto visible ya cambió una vez
+    // ("Pago adelantado recibido" → "Recibido") y el cambio fue silencioso.
+    let mov = null
+    if (crudo.includes('RECIBID')) mov = 'recibido'
+    else if (crudo.includes('APLICAD')) mov = 'aplicado'
+    else if (crudo.includes('DEVUELT')) mov = 'devuelto'
+    if (!mov) continue
+
+    const monto = parseFloat(r[cMonto]) || 0
+    out.push({
+      mov, monto,
+      recargo: cRec >= 0 ? (parseFloat(r[cRec]) || 0) : 0,
+      deposito: cDep >= 0 ? String(r[cDep] || '') : '',
+      documento: cDoc >= 0 ? String(r[cDoc] || '') : '',
+      forma: cForma >= 0 ? String(r[cForma] || '') : '',
+      fecha: cFecha >= 0 ? String(r[cFecha] || '') : ''
+    })
+  }
+  return out
 }
 
 function validarCorrelativos(facturas) {
@@ -5304,6 +5363,37 @@ window.procesarImport = async () => {
       if (r.facturasCredito?.length) {
         const clientesCredito = r.facturasCredito.map(f => `${f.cliente} (L.${f.total.toLocaleString('es-HN',{minimumFractionDigits:2})})`).join(', ')
         alertas.push({ tipo: 'info', msg: `💳 ${r.empresaRaw}: ${r.facturasCredito.length} factura(s) a crédito: ${clientesCredito}` })
+      }
+
+      // ── Depósitos: lo que llegó y si cuadra contra las facturas ──
+      if (r.depositos?.length) {
+        const f2 = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+        const rec = r.depositos.filter(x => x.mov === 'recibido')
+        const apl = r.depositos.filter(x => x.mov === 'aplicado')
+        const dev = r.depositos.filter(x => x.mov === 'devuelto')
+        alertas.push({ tipo: 'info', msg: `🏦 ${r.empresaRaw}: ${rec.length} recibido(s), ${apl.length} aplicado(s), ${dev.length} devuelto(s) · neto L. ${f2(r.netoPuente)}` })
+
+        // El monto aplicado tiene que ser exactamente lo que falta en las
+        // formas de pago de las facturas. Si no coincide, el reporte trae el
+        // dinero contado dos veces (o de menos) y la caja no va a cuadrar.
+        const totalFact = r.facturas.reduce((a, f) => a + (f.total || 0), 0)
+        // Nombres reales del parser: efectivo, tarjeta y transferencia.
+        // El cheque no se captura hoy; si apareciera, saldría como diferencia
+        // y la alerta de abajo lo delata en vez de pasar inadvertido.
+        const totalFormas = r.facturas.reduce((a, f) =>
+          a + (f.monto_efectivo || 0) + (f.monto_tarjeta || 0) + (f.monto_transferencia || 0), 0)
+        const falta = Math.round((totalFact - totalFormas) * 100) / 100
+        const aplicado = Math.round(apl.reduce((a, x) => a + Math.abs(x.monto), 0) * 100) / 100
+        if (Math.abs(falta - aplicado) > 0.01) {
+          alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: a las facturas les faltan L. ${f2(falta)} de forma de pago, pero los depósitos aplicados suman L. ${f2(aplicado)}. Diferencia L. ${f2(Math.round((falta - aplicado) * 100) / 100)} — revisar el reporte antes de aprobar.` })
+        } else if (aplicado > 0) {
+          alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: los L. ${f2(aplicado)} aplicados cuadran con lo que falta en las formas de pago` })
+        }
+
+        const recargos = r.depositos.reduce((a, x) => a + (x.recargo || 0), 0)
+        if (recargos > 0) {
+          alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: hay L. ${f2(recargos)} de recargos por devolución que NO se están contabilizando. Registralos aparte como otros ingresos.` })
+        }
       }
     }
 
@@ -5617,6 +5707,23 @@ function renderImportPartida() {
 
   const r2 = (v) => Math.round(v * 100) / 100
 
+  // ── Yonker: crédito consolidado ──
+  // Tecnicentro sigue con una línea por cliente contra su propia subcuenta.
+  // Yonker va a una sola cuenta porque el detalle por cliente ya vive en el
+  // sistema Yonker y duplicarlo acá solo agrega líneas que nadie concilia.
+  const esYonker = (c) => String(c || '').toLowerCase().includes('yonker')
+  const creditoYonkerTotal = r2(facturasCredito.filter(f => esYonker(f.centro))
+    .reduce((a, f) => a + f.total, 0))
+  const creditosNoYonker = facturasCredito.filter(f => !esYonker(f.centro))
+
+  // ── Cuenta puente: el NETO del día ──
+  // recibido (+) − aplicado (−) − devuelto (−). El signo ya viene del reporte.
+  // Positivo = entró más de lo que se aplicó → sube el pasivo y sube la caja.
+  // Negativo = se aplicó o devolvió más de lo que entró → baja el pasivo.
+  const depsTodos = [d.yonker_fiscal, d.yonker_interno, d.tecnimax_fiscal, d.tecnimax_interno]
+    .flatMap(r => r?.depositos || [])
+  const netoPuente = r2(depsTodos.reduce((a, x) => a + x.monto, 0))
+
   // Calcular total haber primero para que caja cuadre por diferencia
   const totalHaber = r2(
     (tf.subtotal + creditoTecnimaxFiscalSub) +
@@ -5627,7 +5734,11 @@ function renderImportPartida() {
     (yi.total + creditoYonkerIntTotal)
   )
   const totalCxC = r2(totalCredito)
-  const totalCaja = r2(totalHaber - totalCxC)
+  // La caja cuadra por diferencia. El neto del puente entra acá porque ES
+  // dinero que se movió: si entraron depósitos, la caja subió por ellos aunque
+  // todavía no haya venta; si se aplicaron a facturas de hoy, ese dinero ya
+  // había entrado antes y no debe volver a sumarse.
+  const totalCaja = r2(totalHaber - totalCxC + netoPuente)
 
   const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const C = IMPORT_CUENTAS
@@ -5637,8 +5748,32 @@ function renderImportPartida() {
     { codigo: C.caja_general.codigo, nombre: C.caja_general.nombre, centro: '—', debe: totalCaja, haber: 0, fiscal: '—' },
   ]
 
-  // DÉBITO — Cuentas por cobrar (facturas a crédito)
-  for (const fc of facturasCredito) {
+  // DÉBITO — Yonker: una sola línea de CxC con el total del día
+  if (creditoYonkerTotal > 0) {
+    lineas.push({
+      codigo: C.cxc_yonker.codigo, nombre: C.cxc_yonker.nombre,
+      centro: 'Yonker', debe: creditoYonkerTotal, haber: 0, fiscal: '💳',
+      _esCxC: true, _encontrada: true, _consolidado: true
+    })
+  }
+
+  // HABER/DÉBITO — Cuenta puente de recibos Yonker (neto del día)
+  if (netoPuente !== 0) {
+    const nRec = depsTodos.filter(x => x.mov === 'recibido').length
+    const nApl = depsTodos.filter(x => x.mov === 'aplicado').length
+    const nDev = depsTodos.filter(x => x.mov === 'devuelto').length
+    lineas.push({
+      codigo: C.puente_yonker.codigo, nombre: C.puente_yonker.nombre,
+      centro: 'Yonker',
+      debe: netoPuente < 0 ? r2(-netoPuente) : 0,
+      haber: netoPuente > 0 ? netoPuente : 0,
+      fiscal: '—',
+      _nota: `${nRec} recibido(s) · ${nApl} aplicado(s) · ${nDev} devuelto(s)`
+    })
+  }
+
+  // DÉBITO — Cuentas por cobrar (facturas a crédito de Tecnicentro, por cliente)
+  for (const fc of creditosNoYonker) {
     const clienteNombre = fc.cliente.trim().toUpperCase()
     const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
     lineas.push({
