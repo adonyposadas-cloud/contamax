@@ -209,7 +209,7 @@
       const suma = factEF.reduce((a, r) => a + (Number(r.monto) || 0), 0)
       const prom = factEF.length ? suma / factEF.length : 0
       ESTADO = { total: rows.length, facturados: fact.length, pendientes: PEND.length, cerrados: cerr.length, descartados: desc.length }
-      const card = (n, l, color, sub) => `<div class="ef-stat"><div class="n" style="color:${color}">${n}</div><div class="l">${l}</div>${sub ? `<div class="l" style="color:${color};margin-top:2px">${sub}</div>` : ''}</div>`
+      const card = (n, l, color, sub) => `<div class="ef-stat"><div class="n" style="color:${tcol(color,'fg')}">${n}</div><div class="l">${l}</div>${sub ? `<div class="l" style="color:${tcol(color,'fg')};margin-top:2px">${sub}</div>` : ''}</div>`
       st.innerHTML =
         card(rows.length, 'Estados físicos', 'var(--text1,#e6edf3)') +
         card(fact.length, 'Facturados', 'var(--green,#16a34a)', `L. ${fmt(suma)} · prom L. ${fmt(prom)}`) +

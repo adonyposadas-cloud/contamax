@@ -115,7 +115,7 @@ function rvRender() {
     const a = rvAnalisis[r.id]
     const ests = rvEstado(r)
     const tieneAlerta = ests.some(e => e.alerta)
-    const badges = ests.map(e => `<span style="font-size:10px;color:${e.color};border:1px solid ${e.color};border-radius:3px;padding:1px 6px;margin-left:4px">${e.txt}</span>`).join('')
+    const badges = ests.map(e => `<span style="font-size:10px;color:${tcol(e.color,'fg')};border:1px solid ${tcol(e.color,'bd')};border-radius:3px;padding:1px 6px;margin-left:4px">${e.txt}</span>`).join('')
     const barra = a ? `
       <div style="margin-top:8px">
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:3px">

@@ -99,7 +99,7 @@ function pvRender() {
     const caisHtml = cais.length
       ? cais.map(c => {
           const ests = pvEstadoCai(c)
-          const badges = ests.map(e => `<span style="font-size:10px;color:${e.color};border:1px solid ${e.color};border-radius:3px;padding:1px 5px;margin-left:4px">${e.txt}</span>`).join('')
+          const badges = ests.map(e => `<span style="font-size:10px;color:${tcol(e.color,'fg')};border:1px solid ${tcol(e.color,'bd')};border-radius:3px;padding:1px 5px;margin-left:4px">${e.txt}</span>`).join('')
           return `<div style="font-size:11px;color:var(--text3);margin-top:3px;display:flex;align-items:center;flex-wrap:wrap;gap:2px">
             <span style="font-family:var(--mono)">${c.prefijo || ''} · ${c.rango_desde || '?'}→${c.rango_hasta || '?'}</span>
             ${c.sucursal ? `<span style="color:var(--text2)">· ${c.sucursal}</span>` : ''}

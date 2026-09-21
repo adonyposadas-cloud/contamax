@@ -100,7 +100,7 @@ window.__chkCfgBuild = '20260722a'
     // Los umbrales hacen falta si el punto mide por tipo O por 'medición siempre'
     const mide = p.tipo_punto === 'medicion' || !!p.medicion_siempre
     return `
-      <div id="chk-punto-${p.id}" data-pid="${p.id}" style="background:var(--bg2,#15171c);border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
+      <div id="chk-punto-${p.id}" data-pid="${p.id}" style="background:var(--bg2,#15171c);border:1px solid ${p.activo ? 'var(--border,#2a2e37)' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
           <span class="chk-grip" data-grip="${p.id}" title="Arrastrá para reordenar" style="cursor:grab;touch-action:none;user-select:none;color:#6b7280;font-size:17px;line-height:1;padding:2px 2px">⠿</span>
           <span style="display:inline-flex;flex-direction:column;gap:1px">
@@ -110,7 +110,7 @@ window.__chkCfgBuild = '20260722a'
           <span style="font-size:11px;color:#6b7280;min-width:24px">#${p.orden}</span>
           <input value="${esc(p.nombre)}" onchange="chkCfgEdit(${p.id},'nombre',this.value)"
                  style="flex:1;font-weight:600;background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:6px 9px;font-size:14px">
-          <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:${p.activo ? '#16a34a' : '#f85149'};cursor:pointer">
+          <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:${p.activo ? 'var(--green-fg,#16a34a)' : 'var(--red-fg,#f85149)'};cursor:pointer">
             <input type="checkbox" ${p.activo ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'activo',this.checked)"> ${p.activo ? 'activo' : 'apagado'}
           </label>
         </div>
@@ -131,11 +131,11 @@ window.__chkCfgBuild = '20260722a'
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:${mide ? '10' : '2'}px;font-size:12px">
           <label style="cursor:pointer"><input type="checkbox" ${p.foto_obligatoria ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'foto_obligatoria',this.checked)"> 📷 Foto obligatoria</label>
           <label style="cursor:pointer"><input type="checkbox" ${p.pide_medicion ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'pide_medicion',this.checked)"> 📏 Pide medición</label>
-          <label style="cursor:pointer;color:${p.medicion_siempre ? '#f0a500' : '#e6edf3'}" title="Pide el número SIEMPRE, aunque el punto salga en verde y aunque 'Pide medición' esté apagado. Se usa en frenos: el técnico ya desmontó la rueda y tiene el dato en la mano. Construye el historial de desgaste por placa.">
+          <label style="cursor:pointer;color:${p.medicion_siempre ? 'var(--gold,#f0a500)' : 'var(--text,#e6edf3)'}" title="Pide el número SIEMPRE, aunque el punto salga en verde y aunque 'Pide medición' esté apagado. Se usa en frenos: el técnico ya desmontó la rueda y tiene el dato en la mano. Construye el historial de desgaste por placa.">
             <input type="checkbox" ${p.medicion_siempre ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'medicion_siempre',this.checked)"> 📐 Medición siempre${p.medicion_siempre ? ' ⚠' : ''}
           </label>
           <label style="cursor:pointer"><input type="checkbox" ${p.nota_obligatoria ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'nota_obligatoria',this.checked)"> 📝 Nota obligatoria</label>
-          <label style="cursor:pointer;color:${sinPrecio ? '#f85149' : '#e6edf3'}" title="${sinPrecio ? 'Hay líneas de venta sin precio: la base no dejará activar comisión' : ''}">
+          <label style="cursor:pointer;color:${sinPrecio ? 'var(--red-fg,#f85149)' : 'var(--text,#e6edf3)'}" title="${sinPrecio ? 'Hay líneas de venta sin precio: la base no dejará activar comisión' : ''}">
             <input type="checkbox" ${p.paga_comision ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'paga_comision',this.checked)"> 💰 Paga comisión${sinPrecio ? ' 🔒' : ''}
           </label>
         </div>
@@ -171,11 +171,11 @@ window.__chkCfgBuild = '20260722a'
     const sev = l.severidad === 'rojo' ? '🔴' : (l.severidad === 'amarillo' ? '🟡' : '')
     return `<div style="display:flex;gap:8px;align-items:center;font-size:12px;padding:3px 0">
       <span>${sev}</span>
-      <span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:6px;background:${l.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${l.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${l.tipo === 's' ? 'SERV' : 'PROD'}</span>
+      <span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:6px;background:${l.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${l.tipo === 's' ? 'var(--purple-fg,#8b5cf6)' : 'var(--blue-fg,#3b82f6)'}">${l.tipo === 's' ? 'SERV' : 'PROD'}</span>
       <span style="flex:1">${esc(nombre)} <span style="color:#6b7280">×${fmt(l.cantidad_default)}</span></span>
-      <span style="color:${precio == null ? '#f85149' : '#8b949e'}">${precio == null ? 'SIN PRECIO' : 'L.' + fmt(precio)}</span>
+      <span style="color:${precio == null ? 'var(--red-fg,#f85149)' : 'var(--text2,#8b949e)'}">${precio == null ? 'SIN PRECIO' : 'L.' + fmt(precio)}</span>
       ${cod ? `<span style="color:var(--gold,#c8a24a)">cód ${cod}</span>` : ''}
-      ${pct != null ? `<span style="color:#16a34a">${pct}%</span>` : ''}
+      ${pct != null ? `<span style="color:var(--green-fg,#16a34a)">${pct}%</span>` : ''}
       <button onclick="chkLineaQuitar(${l.id})" title="Quitar esta línea" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:14px;padding:0 4px">✕</button>
     </div>`
   }

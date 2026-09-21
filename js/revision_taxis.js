@@ -655,7 +655,7 @@ function rtx7dEnsure() {
     .dash-pend-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
     .dash-pend-id{font-size:14px;color:var(--text,#e8eaed)}.dash-pend-id b{color:var(--gold,#f0a500)}
     .dash-pend-dias{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
-    .dash-pend-dias.rojo{background:#7f1d1d;color:#fca5a5}
+    .dash-pend-dias.rojo{background:#7f1d1d;color:var(--red-fg,#fca5a5)}
     .dash-pend-dias.amber{background:#78350f;color:var(--amber-fg,#fcd34d)}
     .dash-pend-dias.gris{background:rgba(120,128,140,.18);color:var(--text2,#9aa0aa)}
     .dash-pend-sub{font-size:12px;color:var(--text2,#9aa0aa);margin:7px 0 10px}
@@ -667,7 +667,7 @@ function rtx7dEnsure() {
     .dash-audit-hint{font-size:11px;color:var(--text2,#8b8f98)}
     .dash-audit-sub{font-size:12px;color:var(--text2,#9aa0aa);margin-bottom:12px}
     .dash-audit-km{font-size:13px;font-weight:700;color:var(--gold,#f0a500);background:rgba(240,165,0,.14);border-radius:8px;padding:3px 10px;white-space:nowrap}
-    .dash-audit-falta{color:#fca5a5}
+    .dash-audit-falta{color:var(--red-fg,#fca5a5)}
     .dash-audit-volver{margin-bottom:12px}
     .dash-audit-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
     .dash-audit-actions .dash-audit-volver{margin-bottom:0}
@@ -698,7 +698,7 @@ function rtx7dEnsure() {
     .rtx-b.notas.mia{background:rgba(59,130,246,.18)!important;color:#93c5fd!important;border:1px solid rgba(59,130,246,.5)!important}
     .rtx-b.notas.resp{background:rgba(34,197,94,.20)!important;color:var(--green-fg,#86efac)!important;border:1px solid rgba(34,197,94,.55)!important}
     .rtx-b.notas.otro{background:rgba(240,165,0,.18)!important;color:var(--amber-fg,#f5c451)!important;border:1px solid rgba(240,165,0,.5)!important}
-    .rtx-b.notas.super{background:rgba(239,68,68,.18)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,.55)!important}
+    .rtx-b.notas.super{background:rgba(239,68,68,.18)!important;color:var(--red-fg,#fca5a5)!important;border:1px solid rgba(239,68,68,.55)!important}
     .rtx-notas-modal{max-width:440px}
     .rtx-notas-lista{max-height:300px;overflow-y:auto;margin:14px 0}
     .rtx-nota{background:var(--bg-inset,#12131a);border-radius:7px;padding:9px 11px;margin-bottom:8px}
@@ -1485,9 +1485,9 @@ async function rtxNotasCargar() {
     cont.innerHTML = notas.map(n => {
       const color = rtxColorAutor(n.autor)
       const arch = esSuper ? `<button class="rtx-nota-arch" title="Archivar nota" onclick="rtxNotaArchivar('${n.id}')"><svg class=ico aria-hidden=true><use href=#i-package></use></svg></button>` : ''
-      return `<div class="rtx-nota" style="border-left:3px solid ${color}">
+      return `<div class="rtx-nota" style="border-left:3px solid ${tcol(color,'bd')}">
         <div class="rtx-nota-top">
-          <span class="rtx-nota-autor" style="background:${color}22;color:${color}">${n.autor}</span>
+          <span class="rtx-nota-autor" style="background:${color}22;color:${tcol(color,'fg')}">${n.autor}</span>
           <span class="rtx-nota-fecha">${n.fecha} ${n.hora}</span>${arch}
         </div>
         <div class="rtx-nota-txt">${(n.nota || '').replace(/</g, '&lt;')}</div>
@@ -2414,7 +2414,7 @@ function rtxHistPintar(data, body) {
       <div style="text-align:right"><div style="color:var(--text2,#8b8f98);font-size:11px;text-transform:uppercase">Saldo actual</div>
         <div style="font-weight:800;font-size:20px;${saldoCls}">L. ${rtxFmt(data.saldo_actual)}</div></div>
     </div>
-    <div style="font-size:12px;color:var(--text2,#8b8f98);margin-bottom:10px">Cómo se movió el saldo: <span style="color:#fca5a5">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:var(--green-fg,#7ee2a0)">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
+    <div style="font-size:12px;color:var(--text2,#8b8f98);margin-bottom:10px">Cómo se movió el saldo: <span style="color:var(--red-fg,#fca5a5)">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:var(--green-fg,#7ee2a0)">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
 
   const _esSuper = rtxEsSuper()
   const _nEsc = String(data.nombre || '').replace(/'/g, "\\'")
@@ -2440,8 +2440,8 @@ function rtxHistPintar(data, body) {
     const nota = rtxHistNota(m.nota)
     return `<tr>
       <td style="white-space:nowrap">${m.fecha}</td>
-      <td><span style="color:${col};font-weight:600">${etq}</span><div style="color:var(--text2,#8b8f98);font-size:11px">${nota}</div></td>
-      <td style="text-align:right;color:${col};font-weight:600;white-space:nowrap">${signo} L. ${rtxFmt(m.monto)}</td>
+      <td><span style="color:${tcol(col,'fg')};font-weight:600">${etq}</span><div style="color:var(--text2,#8b8f98);font-size:11px">${nota}</div></td>
+      <td style="text-align:right;color:${tcol(col,'fg')};font-weight:600;white-space:nowrap">${signo} L. ${rtxFmt(m.monto)}</td>
       <td style="text-align:right;white-space:nowrap;font-family:ui-monospace,monospace">L. ${rtxFmt(m.saldo)}</td>
     </tr>`
   }).join('')
@@ -2472,7 +2472,7 @@ async function rtxCargarSalidas(identidad) {
       <td style="text-align:right;white-space:nowrap">${s.monto_pendiente > 0 ? 'L. ' + rtxFmt(s.monto_pendiente) : '—'}</td>
     </tr>`).join('')
     cont.innerHTML = `
-      <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#fca5a5">🚪 Historial de salidas (${data.length})</div>
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:var(--red-fg,#fca5a5)">🚪 Historial de salidas (${data.length})</div>
       <table class="rtx-7d-tbl" style="width:100%">
         <thead><tr><th>Fecha</th><th>Unidad</th><th>Motivo</th><th style="text-align:right">Pendiente</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -3566,7 +3566,7 @@ function rtxGpsPintar() {
           ? `<span title="ya se recuperó" style="color:var(--green-fg,#4ade80)">${x.dias_caido} ✓</span>`
           : (x.dias_caido || '—')}</td>
       <td style="padding:9px 8px;text-align:center;font-family:var(--mono)">${x.entregas}</td>
-      <td style="padding:9px 8px"><span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;color:${m.c};background:${m.bg};border:1px solid ${m.c}55">${
+      <td style="padding:9px 8px"><span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;color:${tcol(m.c,'fg')};background:${tcol(m.bg,'bg')};border:1px solid ${m.c}55">${
         (ETIQ[x.estado] ? ETIQ[x.estado](x) : m.t)}</span></td>
     </tr>`
   }).join('')

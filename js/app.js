@@ -1034,7 +1034,7 @@ async function loadCentrosCosto() {
   const actBadge = (t) => {
     const m = { gravada: ['Gravada', 'var(--green)'], exenta: ['Exenta', 'var(--amber)'], personal: ['Personal', 'var(--red)'], comun: ['Común', 'var(--text2)'] }
     const [lbl, col] = m[t] || m.comun
-    return `<span title="Actividad fiscal (ISV)" style="display:inline-block;border:1px solid ${col};color:${col};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;margin-left:6px">${lbl}</span>`
+    return `<span title="Actividad fiscal (ISV)" style="display:inline-block;border:1px solid ${tcol(col,'bd')};color:${tcol(col,'fg')};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;margin-left:6px">${lbl}</span>`
   }
 
   tbody.innerHTML = allCentros.map(c => `
@@ -1338,7 +1338,7 @@ window.fcValidarRango = () => {
   if (!c || !numero || !/\d/.test(numero)) { hint.innerHTML = ''; return }
   const r = fcValidarCai(numero, c)
   const color = r.estado === 'ok' ? 'var(--green)' : 'var(--amber)'
-  hint.innerHTML = r.txt ? `<span style="color:${color};font-size:12px">${r.txt}</span>` : ''
+  hint.innerHTML = r.txt ? `<span style="color:${tcol(color,'fg')};font-size:12px">${r.txt}</span>` : ''
 }
 
 window.acCerrar = (input) => {
@@ -6518,7 +6518,7 @@ window._recalcArqueoFisico = () => {
     difDenom[d] = dif
     difTotalL += dif * d
     const color = dif === 0 ? 'var(--text3)' : (dif > 0 ? 'var(--green)' : 'var(--red)')
-    if (cell) cell.innerHTML = `<span style="color:${color}">${dif > 0 ? '+' : ''}${dif}</span>`
+    if (cell) cell.innerHTML = `<span style="color:${tcol(color,'fg')}">${dif > 0 ? '+' : ''}${dif}</span>`
   })
   const difEl = document.getElementById('arq-fis-diftot')
   if (difEl) {
@@ -9305,8 +9305,8 @@ async function loadVehiculos() {
       .sort((a, b) => b[1] - a[1])
       .map(([ub, count]) => {
         const color = chipColors[ub] || '#6b7280'
-        return `<span onclick="document.getElementById('vin-filtro-ubicacion').value='${ub === 'Sin asignar' ? '__NA__' : ub}';filtrarVehiculos()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:${color}22;border:1px solid ${color}44;color:${color};border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500">
-          <span style="width:8px;height:8px;border-radius:50%;background:${color}"></span>
+        return `<span onclick="document.getElementById('vin-filtro-ubicacion').value='${ub === 'Sin asignar' ? '__NA__' : ub}';filtrarVehiculos()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:${color}22;border:1px solid ${color}44;color:${tcol(color,'fg')};border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500">
+          <span style="width:8px;height:8px;border-radius:50%;background:${tcol(color,'bg')}"></span>
           ${ub} <strong>${count}</strong>
         </span>`
       }).join('')
@@ -11630,7 +11630,7 @@ function renderCxPAntiguedad() {
       <table style="width:100%;font-size:12px">
         <tbody>${tramos.map(t => `
           <tr>
-            <td style="padding:3px 0"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${t.color};margin-right:6px"></span>${t.lbl}</td>
+            <td style="padding:3px 0"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${tcol(t.color,'bg')};margin-right:6px"></span>${t.lbl}</td>
             <td style="text-align:center;color:var(--text3);width:60px">${t.n}</td>
             <td style="text-align:right;font-family:var(--mono);width:130px">L. ${fmt(r2(t.t))}</td>
             <td style="text-align:right;color:var(--text3);width:52px">${total ? Math.round(t.t / total * 100) : 0}%</td>

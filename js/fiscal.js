@@ -79,7 +79,7 @@
       personal: ['Personal', 'var(--red)'],
       comun:    sc ? ['Sin clasificar', 'var(--red)'] : ['Común', 'var(--text2)'],
     }[t] || ['Común', 'var(--text2)']
-    return `<span title="Actividad del centro de costo" style="display:inline-block;border:1px solid ${def[1]};color:${def[1]};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;white-space:nowrap">${def[0]}</span>`
+    return `<span title="Actividad del centro de costo" style="display:inline-block;border:1px solid ${tcol(def[1],'bd')};color:${tcol(def[1],'fg')};border-radius:5px;padding:1px 6px;font-size:10px;font-weight:600;white-space:nowrap">${def[0]}</span>`
   }
 
   function etiquetaMes(p) {
@@ -222,9 +222,9 @@
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         ${stat('Débito fiscal · ISV ventas', t.debito, 'var(--text)')}
         ${stat('Crédito ACREDITABLE · va a la declaración', t.creditoAcreditable, 'var(--green)', 'var(--green)')}
-        <div style="flex:1;min-width:170px;background:var(--bg2);border:1px solid ${netoColor};border-radius:10px;padding:14px 16px">
+        <div style="flex:1;min-width:170px;background:var(--bg2);border:1px solid ${tcol(netoColor,'bd')};border-radius:10px;padding:14px 16px">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">${netoLabel} · ${etiquetaMes(fPeriodo)}</div>
-          <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${netoColor}">L. ${fmt(Math.abs(t.neto))}</div>
+          <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${tcol(netoColor,'fg')}">L. ${fmt(Math.abs(t.neto))}</div>
         </div>
       </div>
 

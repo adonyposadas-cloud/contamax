@@ -123,7 +123,7 @@ window.__preciosBuild = '20260714d'
         <span style="font-size:12px;color:var(--text2,#8b949e)">${rows.length} de ${CAT.length}</span>
         ${!editable ? '<span style="font-size:12px;color:var(--gold,#f0a500)">👁 Solo lectura</span>' : ''}
         <div style="margin-left:auto;display:flex;gap:8px">
-          ${editable ? '<button class="btn btn-ghost" style="border-color:#16a34a;color:#16a34a" onclick="prNuevoItem()">+ Nuevo ítem</button>' : ''}
+          ${editable ? '<button class="btn btn-ghost" style="border-color:var(--green,#16a34a);color:var(--green-fg,#16a34a)" onclick="prNuevoItem()">+ Nuevo ítem</button>' : ''}
           <button class="btn btn-ghost" onclick="initPrecios()">↻ Recargar</button>
         </div>
       </div>
@@ -176,32 +176,32 @@ window.__preciosBuild = '20260714d'
 
     return `<tr>
       <td>
-        <div style="font-weight:600;color:${sinPrecio && paga ? '#f85149' : '#e6edf3'}">${esc(r.nombre)}
+        <div style="font-weight:600;color:${sinPrecio && paga ? 'var(--red-fg,#f85149)' : 'var(--text,#e6edf3)'}">${esc(r.nombre)}
           ${editable ? `<button onclick="prRenombrar('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', this)" data-nombre="${esc(r.nombre)}" title="Corregir el nombre" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
           <button onclick="prPrecio('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', ${r.precio_base ?? 'null'})" title="Editar precio base" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-currency-dollar></use></svg></button>` : ''}
         </div>
         <div style="font-size:10px;color:var(--text3,#6e7681);font-family:monospace">${esc(r.codigo)}</div>
       </td>
-      <td><span class="pr-badge" style="border-color:${r.tipo === 'servicio' ? '#3b82f6' : '#16a34a'};color:${r.tipo === 'servicio' ? '#3b82f6' : '#16a34a'}">
+      <td><span class="pr-badge" style="border-color:${r.tipo === 'servicio' ? 'var(--blue,#3b82f6)' : 'var(--green,#16a34a)'};color:${r.tipo === 'servicio' ? 'var(--blue-fg,#3b82f6)' : 'var(--green-fg,#16a34a)'}">
         ${r.tipo === 'servicio' ? 'SERVICIO' : 'PRODUCTO'}</span></td>
       <td style="text-align:center">
         ${r.tipo !== 'servicio'
           ? '<span style="color:var(--text3,#6e7681)" title="Los productos no llevan código: pagan 3% fijo">—</span>'
           : (editable
             ? `<select onchange="prCodigo('${r.id}', this.value)" style="background:var(--bg,#0d1117);color:var(--text,#e6edf3);
-                       border:1px solid ${sinCod ? '#f85149' : '#30363d'};border-radius:6px;padding:5px 6px;font-size:12px">
+                       border:1px solid ${sinCod ? 'var(--red,#f85149)' : 'var(--border,#30363d)'};border-radius:6px;padding:5px 6px;font-size:12px">
                  <option value="" ${sinCod ? 'selected' : ''}>— sin código —</option>
                  <option value="10" ${r.comision_codigo === '10' ? 'selected' : ''}>10 · rápido</option>
                  <option value="20" ${r.comision_codigo === '20' ? 'selected' : ''}>20 · destreza</option>
                  <option value="30" ${r.comision_codigo === '30' ? 'selected' : ''}>30 · diagnóstico</option>
                </select>`
-            : `<b style="color:${sinCod ? '#f85149' : '#e6edf3'}">${r.comision_codigo || '—'}</b>`)}
+            : `<b style="color:${sinCod ? 'var(--red-fg,#f85149)' : 'var(--text,#e6edf3)'}">${r.comision_codigo || '—'}</b>`)}
       </td>
       <td style="text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums">
         ${pctBase == null
           ? (r.tipo === 'servicio' ? '<span style="color:var(--red-fg,#f85149)" title="Sin código no paga comisión">⚠️</span>'
-                                   : `<b style="color:#16a34a">3%</b>`)
-          : `<span style="color:var(--text2,#8b949e)">${pctBase}%</span> <span style="color:var(--text3,#6e7681)">→</span> <b style="color:#16a34a">${pctBase + EXTRA}%</b>`}
+                                   : `<b style="color:var(--green-fg,#16a34a)">3%</b>`)
+          : `<span style="color:var(--text2,#8b949e)">${pctBase}%</span> <span style="color:var(--text3,#6e7681)">→</span> <b style="color:var(--green-fg,#16a34a)">${pctBase + EXTRA}%</b>`}
       </td>
       <td style="text-align:center">
         ${paga
@@ -255,7 +255,7 @@ window.__preciosBuild = '20260714d'
     if (cont.innerHTML) { cont.innerHTML = ''; return }   // toggle
 
     cont.innerHTML = `
-      <div style="border:1px solid #16a34a;border-radius:10px;padding:14px;margin-bottom:12px;background:rgba(22,163,74,.05)">
+      <div style="border:1px solid var(--green,#16a34a);border-radius:10px;padding:14px;margin-bottom:12px;background:rgba(22,163,74,.05)">
         <div style="font-size:13px;font-weight:600;margin-bottom:10px">Nuevo ítem del catálogo</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div>

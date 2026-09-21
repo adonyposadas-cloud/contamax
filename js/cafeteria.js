@@ -175,11 +175,11 @@ window.__cafBuild = '20260720b'
   function render () {
     const root = document.getElementById('view-cafeteria')
     if (!root) return
-    const tab = (k, ico, txt) => `<button onclick="cafTab('${k}')" style="background:${TAB === k ? '#c0632f' : 'transparent'};color:${TAB === k ? '#fff' : '#8b949e'};border:1px solid ${TAB === k ? '#c0632f' : '#2a2e37'};border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600">${ico} ${txt}</button>`
+    const tab = (k, ico, txt) => `<button onclick="cafTab('${k}')" style="background:${TAB === k ? '#c0632f' : 'transparent'};color:${TAB === k ? '#fff' : 'var(--text2,#8b949e)'};border:1px solid ${TAB === k ? '#c0632f' : 'var(--border,#2a2e37)'};border-radius:8px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:600">${ico} ${txt}</button>`
 
     const bajos = INSUMOS.filter(i => i.activo && i.bajo_minimo)
     const alerta = bajos.length
-      ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:14px;color:var(--red-fg,#f0c8c0);font-size:13px">
+      ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid var(--red,#b4472f);border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:14px;color:var(--red-fg,#f0c8c0);font-size:13px">
            <b>⚠ ${bajos.length} insumo${bajos.length > 1 ? 's' : ''} bajo el mínimo:</b> ${bajos.map(i => esc(i.nombre)).join(' · ')}
          </div>` : ''
 
@@ -254,7 +254,7 @@ window.__cafBuild = '20260720b'
 
   // Chip de filtro reutilizable
   function chipF (activo, txt, onclick) {
-    return `<button onclick="${onclick}" style="background:${activo ? '#c0632f22' : 'transparent'};border:1px solid ${activo ? '#c0632f' : '#2a2e37'};color:${activo ? '#c0632f' : '#8b949e'};border-radius:14px;padding:4px 11px;cursor:pointer;font-size:11.5px;white-space:nowrap">${txt}</button>`
+    return `<button onclick="${onclick}" style="background:${activo ? '#c0632f22' : 'transparent'};border:1px solid ${activo ? '#c0632f' : 'var(--border,#2a2e37)'};color:${activo ? '#c0632f' : 'var(--text2,#8b949e)'};border-radius:14px;padding:4px 11px;cursor:pointer;font-size:11.5px;white-space:nowrap">${txt}</button>`
   }
 
   window.cafFI = function (k, v) {
@@ -295,9 +295,9 @@ window.__cafBuild = '20260720b'
           <div style="color:var(--text3,#6e7681);font-size:11px">${esc(i.codigo)}</div>
         </td>
         <td style="padding:9px 8px;text-align:center">
-          <span title="${esc(g[1])}" style="background:${g[2]}22;color:${g[2]};border:1px solid ${g[2]}66;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700">${i.grupo}</span>
+          <span title="${esc(g[1])}" style="background:${g[2]}22;color:${tcol(g[2],'fg')};border:1px solid ${g[2]}66;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700">${i.grupo}</span>
         </td>
-        <td style="padding:9px 8px;text-align:right;color:${bajo ? '#f85149' : '#e6edf3'};font-weight:600">
+        <td style="padding:9px 8px;text-align:right;color:${bajo ? 'var(--red-fg,#f85149)' : 'var(--text,#e6edf3)'};font-weight:600">
           ${fmt(i.existencia)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(i.unidad_base)}</span>
           ${bajo ? ' <span title="Bajo el mínimo">⚠</span>' : ''}
         </td>
@@ -380,7 +380,7 @@ window.__cafBuild = '20260720b'
       }).join('')
 
       return `
-      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-left:3px solid ${c};border-radius:10px;padding:13px 15px;margin-bottom:10px;${r.activo ? '' : 'opacity:.5'}">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-left:3px solid ${tcol(c,'bd')};border-radius:10px;padding:13px 15px;margin-bottom:10px;${r.activo ? '' : 'opacity:.5'}">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;cursor:pointer" onclick="cafReceta(${r.id})">
           <div style="flex:1;min-width:170px">
             <div style="color:var(--text,#e6edf3);font-weight:600;font-size:14px">${esc(r.nombre)}
@@ -390,10 +390,10 @@ window.__cafBuild = '20260720b'
           </div>
           <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">PRECIO</div><div style="color:var(--text,#e6edf3);font-weight:600">L. ${fmt(r.precio_venta)}</div></div>
           <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">COSTO</div><div style="color:var(--text2,#8b949e)">L. ${fmt(r.costo)}</div></div>
-          <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">GANA</div><div style="color:#4e7a51;font-weight:600">L. ${fmt(r.ganancia)}</div></div>
+          <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">GANA</div><div style="color:var(--green-fg,#4e7a51);font-weight:600">L. ${fmt(r.ganancia)}</div></div>
           <div style="text-align:right;min-width:64px">
             <div style="color:var(--text3,#6e7681);font-size:10.5px">FOOD COST</div>
-            <div style="color:${c};font-weight:700">${r.food_cost_pct == null ? '—' : r.food_cost_pct + '%'}</div>
+            <div style="color:${tcol(c,'fg')};font-weight:700">${r.food_cost_pct == null ? '—' : r.food_cost_pct + '%'}</div>
           </div>
           <span style="color:var(--text3,#6e7681)">${abierta ? '▾' : '▸'}</span>
         </div>
@@ -428,7 +428,7 @@ window.__cafBuild = '20260720b'
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div style="color:var(--text2,#8b949e);font-size:12.5px">
-          ${vis.length !== RECETAS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${RECETAS.length} · ` : ''}Lo sano es un food cost entre <b style="color:#4e7a51">28% y 35%</b>.
+          ${vis.length !== RECETAS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${RECETAS.length} · ` : ''}Lo sano es un food cost entre <b style="color:var(--green-fg,#4e7a51)">28% y 35%</b>.
         </div>
         <div style="display:flex;gap:8px">
           ${!veTodo() ? '' : `<button onclick="cafReventaNueva()" title="Se compra hecho y se vende tal cual: sodas, galletas, snacks" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Producto de reventa</button>
@@ -448,9 +448,9 @@ window.__cafBuild = '20260720b'
       const ligado = m.venta_id || m.traslado_id     // tiene su propia anulación
       return `<tr style="border-bottom:1px solid var(--border,#21262d)">
         <td style="padding:8px;color:var(--text3,#6e7681);font-size:11.5px;white-space:nowrap">${new Date(m.fecha).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-        <td style="padding:8px"><span style="background:${t[1]}22;color:${t[1]};border:1px solid ${t[1]}55;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600">${t[0]}</span></td>
+        <td style="padding:8px"><span style="background:${t[1]}22;color:${tcol(t[1],'fg')};border:1px solid ${t[1]}55;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600">${t[0]}</span></td>
         <td style="padding:8px;color:var(--text,#e6edf3)">${esc(i ? i.nombre : '#' + m.insumo_id)}</td>
-        <td style="padding:8px;text-align:right;color:${q >= 0 ? '#4e7a51' : '#f85149'};font-weight:600">${q >= 0 ? '+' : ''}${fmt(q)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(unidad(i))}</span></td>
+        <td style="padding:8px;text-align:right;color:${q >= 0 ? 'var(--green-fg,#4e7a51)' : 'var(--red-fg,#f85149)'};font-weight:600">${q >= 0 ? '+' : ''}${fmt(q)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(unidad(i))}</span></td>
         <td style="padding:8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(Math.abs(q) * Number(m.costo_unitario || 0))}</td>
         <td style="padding:8px;color:var(--text3,#6e7681);font-size:11.5px">${esc(m.referencia || m.nota || '')}</td>
         <td style="padding:8px;text-align:right;white-space:nowrap">
@@ -566,7 +566,7 @@ window.__cafBuild = '20260720b'
              ['Costo', 'L. ' + fmt(DIA.costo), '#8b949e'], ['Ganancia', 'L. ' + fmt(DIA.ganancia), '#c0632f']]
              .map(([t, v, c]) => `<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:9px;padding:9px 11px">
                <div style="color:var(--text3,#6e7681);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px">${t}</div>
-               <div style="color:${c};font-weight:700;font-size:15px;margin-top:2px">${v}</div></div>`).join('')}
+               <div style="color:${tcol(c,'fg')};font-weight:700;font-size:15px;margin-top:2px">${v}</div></div>`).join('')}
          </div>
          ${DIA.food_cost_pct != null ? `<div style="color:var(--text3,#6e7681);font-size:11.5px;margin:-6px 0 12px 2px">Food cost de hoy: <b style="color:${colorFC(DIA.food_cost_pct)}">${DIA.food_cost_pct}%</b></div>` : ''}`
       : '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:9px;padding:14px;text-align:center;color:var(--text3,#6e7681);font-size:12.5px;margin-bottom:12px">Todavía no hay ventas registradas hoy.</div>'
@@ -583,7 +583,7 @@ window.__cafBuild = '20260720b'
         <td style="padding:7px 8px;color:var(--text,#e6edf3);font-size:12.5px">
           ${esc(ls || '—')}${v.anulada ? ' <span style="color:var(--red-fg,#f85149);font-size:11px">ANULADA</span>' : ''}
         </td>
-        <td style="padding:7px 8px;text-align:right;color:#4e7a51;font-weight:600">L. ${fmt(v.total)}</td>
+        <td style="padding:7px 8px;text-align:right;color:var(--green-fg,#4e7a51);font-weight:600">L. ${fmt(v.total)}</td>
         <td style="padding:7px 8px;text-align:right">
           ${v.anulada ? '' : `<button onclick="cafVentaAnular(${v.id})" title="Anular venta" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
         </td>
@@ -604,7 +604,7 @@ window.__cafBuild = '20260720b'
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas || '<tr><td style="padding:20px;text-align:center;color:var(--text3,#6e7681);font-size:12.5px">Ningún producto coincide.</td></tr>'}</tbody></table>
           <div style="padding:11px 14px;border-top:1px solid var(--border,#21262d)">
-            ${totalVenta > 0 ? `<div style="color:var(--text2,#8b949e);font-size:12.5px;margin-bottom:8px"><b id="caf-venta-unid" style="color:var(--text,#e6edf3);font-size:15px">${totalUnid}</b> <span id="caf-venta-unid-lbl">${totalUnid === 1 ? 'unidad' : 'unidades'}</span> · Total: <b style="color:#4e7a51;font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
+            ${totalVenta > 0 ? `<div style="color:var(--text2,#8b949e);font-size:12.5px;margin-bottom:8px"><b id="caf-venta-unid" style="color:var(--text,#e6edf3);font-size:15px">${totalUnid}</b> <span id="caf-venta-unid-lbl">${totalUnid === 1 ? 'unidad' : 'unidades'}</span> · Total: <b style="color:var(--green-fg,#4e7a51);font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
             <div style="display:flex;gap:8px">
               <button onclick="cafVentaLimpiar()" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
               <button onclick="cafVentaRegistrar()" style="flex:1;background:#4e7a51;color:#fff;border:0;border-radius:7px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">Registrar venta</button>
@@ -690,7 +690,7 @@ window.__cafBuild = '20260720b'
     const tarjetas = visibles.map(p => {
       const hay = Number(p.ventas) > 0
       return `
-      <div style="background:var(--bg2,#15171c);border:1px solid ${hay ? '#c0632f55' : '#2a2e37'};border-radius:10px;padding:13px 15px;margin-bottom:10px">
+      <div style="background:var(--bg2,#15171c);border:1px solid ${hay ? '#c0632f55' : 'var(--border,#2a2e37)'};border-radius:10px;padding:13px 15px;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="flex:1;min-width:150px">
             <div style="color:var(--text,#e6edf3);font-weight:600;font-size:14px">${p.ubicacion_tipo === 'central' ? '🏬' : '🏪'} ${esc(p.ubicacion)}</div>
@@ -698,13 +698,13 @@ window.__cafBuild = '20260720b'
           </div>
           <div style="text-align:right">
             <div style="color:var(--text3,#6e7681);font-size:10.5px">DEBE ENTREGAR</div>
-            <div style="color:${hay ? '#4e7a51' : '#6e7681'};font-weight:700;font-size:18px">L. ${fmt(p.esperado)}</div>
+            <div style="color:${hay ? 'var(--green-fg,#4e7a51)' : 'var(--text3,#6e7681)'};font-weight:700;font-size:18px">L. ${fmt(p.esperado)}</div>
           </div>
           ${admin && hay ? `<button onclick="cafCorteCerrar(${p.ubicacion_id})" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:13px;font-weight:600">Cerrar corte</button>` : ''}
         </div>
         ${hay ? `<div style="color:var(--text3,#6e7681);font-size:11px;margin-top:7px;border-top:1px solid var(--border,#21262d);padding-top:7px">
           Desde ${new Date(p.desde).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-          · costo L. ${fmt(p.costo)} · ganancia <b style="color:#4e7a51">L. ${fmt(p.ganancia)}</b>
+          · costo L. ${fmt(p.costo)} · ganancia <b style="color:var(--green-fg,#4e7a51)">L. ${fmt(p.ganancia)}</b>
         </div>` : ''}
       </div>`
     }).join('')
@@ -724,8 +724,8 @@ window.__cafBuild = '20260720b'
         <td style="padding:7px 8px;text-align:right;color:var(--text2,#8b949e);font-size:12px">L. ${fmt(c.esperado)}</td>
         <td style="padding:7px 8px;text-align:right;color:var(--text,#e6edf3);font-size:12px">L. ${fmt(c.entregado)}</td>
         <td style="padding:7px 8px;text-align:right;white-space:nowrap">
-          <span style="color:${col};font-weight:700;font-size:12.5px">${dif > 0 ? '+' : ''}${fmt(dif)}</span>
-          <div style="color:${col};font-size:10px">${et}</div>
+          <span style="color:${tcol(col,'fg')};font-weight:700;font-size:12.5px">${dif > 0 ? '+' : ''}${fmt(dif)}</span>
+          <div style="color:${tcol(col,'fg')};font-size:10px">${et}</div>
         </td>
         <td style="padding:7px 8px;text-align:right">
           ${(c.anulado || !admin) ? '' : `<button onclick="cafCorteAnular(${c.id})" title="Anular corte" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
@@ -743,7 +743,7 @@ window.__cafBuild = '20260720b'
           : 'Esto es lo que llevás vendido. El corte lo cierra la administración cuando entregues el efectivo.'}
       </div>
       ${tarjetas || '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:10px;padding:26px;text-align:center;color:var(--text3,#6e7681)">No hay ventas pendientes de cortar.</div>'}
-      ${admin && faltantes.length ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin:14px 0;color:var(--red-fg,#f0c8c0);font-size:13px">
+      ${admin && faltantes.length ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid var(--red,#b4472f);border-radius:0 8px 8px 0;padding:11px 15px;margin:14px 0;color:var(--red-fg,#f0c8c0);font-size:13px">
         <b>${faltantes.length} corte${faltantes.length > 1 ? 's' : ''} con faltante</b> · acumulado <b>L. ${fmt(Math.abs(totalFalt))}</b>
       </div>` : ''}
       <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden;margin-top:14px">
@@ -885,7 +885,7 @@ window.__cafBuild = '20260720b'
     const n = Math.max(0, Number(v) || 0)
     if (n > 0) ENVIO[id] = n; else delete ENVIO[id]
     const el = document.getElementById('caf-env-' + id)
-    if (el) el.style.borderColor = n > hay ? '#f85149' : '#2a2e37'
+    if (el) el.style.borderColor = n > hay ? 'var(--red,#f85149)' : 'var(--border,#2a2e37)'
   }
 
   window.cafEnvioLimpiar = function () { ENVIO = {}; pintarBody() }
@@ -976,11 +976,11 @@ window.__cafBuild = '20260720b'
       return `<tr style="border-bottom:1px solid var(--border,#21262d);${alcanza ? 'opacity:.55' : ''}">
         <td style="padding:8px">
           <span style="color:var(--text,#e6edf3);font-weight:${alcanza ? '400' : '600'}">${esc(r.nombre)}</span>
-          ${alcanza ? ' <span style="color:#4e7a51" title="Alcanza con lo que hay">✓</span>' : ''}
+          ${alcanza ? ' <span style="color:var(--green-fg,#4e7a51)" title="Alcanza con lo que hay">✓</span>' : ''}
         </td>
         <td style="padding:8px;text-align:right;color:var(--text2,#8b949e);font-size:12.5px">${fmt(r.necesita)}</td>
         <td style="padding:8px;text-align:right;color:var(--text2,#8b949e);font-size:12.5px">${fmt(r.hay)}</td>
-        <td style="padding:8px;text-align:right;color:${alcanza ? '#4e7a51' : '#f0a868'};font-weight:600">
+        <td style="padding:8px;text-align:right;color:${alcanza ? 'var(--green-fg,#4e7a51)' : '#f0a868'};font-weight:600">
           ${alcanza ? '—' : `${fmt(r.comprar)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(r.unidad_compra)}</span>`}
         </td>
         <td style="padding:8px;text-align:right;color:var(--text2,#8b949e)">${alcanza ? '—' : 'L. ' + fmt(r.costo_estimado)}</td>
@@ -991,10 +991,10 @@ window.__cafBuild = '20260720b'
     }).join('')
 
     const resumen = faltan.length
-      ? `<div style="background:var(--amber-soft,#2d2416);border-left:4px solid #b8860b;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:var(--amber-fg,#f0dcb0);font-size:13px">
+      ? `<div style="background:var(--amber-soft,#2d2416);border-left:4px solid var(--amber,#b8860b);border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:var(--amber-fg,#f0dcb0);font-size:13px">
            Faltan <b>${faltan.length}</b> insumo${faltan.length > 1 ? 's' : ''}. Estimado: <b>L. ${fmt(total)}</b>
          </div>`
-      : `<div style="background:var(--green-soft,#1a2e1c);border-left:4px solid #4e7a51;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:var(--green-fg,#c0e0c4);font-size:13px">
+      : `<div style="background:var(--green-soft,#1a2e1c);border-left:4px solid var(--green,#4e7a51);border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:var(--green-fg,#c0e0c4);font-size:13px">
            ✓ Alcanza con lo que hay en existencia. No hay que comprar nada.
          </div>`
 
@@ -1120,8 +1120,8 @@ window.__cafBuild = '20260720b'
         </td>
         <td style="padding:7px 4px;text-align:right">
           ${e.rol === 'cafeteria'
-            ? '<span style="color:#4e7a51;font-size:11.5px">ve todos los puntos</span>'
-            : `<select onchange="cafAsignar('${e.usuario_id}', this.value)" style="background:var(--bg,#0d1117);border:1px solid ${e.ubicacion_id ? '#2a2e37' : '#b4472f'};border-radius:6px;color:var(--text,#e6edf3);padding:5px 8px;font-size:12px">
+            ? '<span style="color:var(--green-fg,#4e7a51);font-size:11.5px">ve todos los puntos</span>'
+            : `<select onchange="cafAsignar('${e.usuario_id}', this.value)" style="background:var(--bg,#0d1117);border:1px solid ${e.ubicacion_id ? 'var(--border,#2a2e37)' : 'var(--red,#b4472f)'};border-radius:6px;color:var(--text,#e6edf3);padding:5px 8px;font-size:12px">
                  <option value="">— sin asignar —</option>${opciones}
                </select>`}
         </td>
@@ -1243,7 +1243,7 @@ window.__cafBuild = '20260720b'
         if (cerrar !== false) ov.remove()
       } catch (e) {
         const m = ov.querySelector('#cafm-msg')
-        if (m) { m.style.color = '#f85149'; m.textContent = e.message || String(e) }
+        if (m) { m.style.color = 'var(--red-fg,#f85149)'; m.textContent = e.message || String(e) }
       }
       okBtn.disabled = false; okBtn.textContent = 'Guardar'
     }

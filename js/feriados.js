@@ -136,7 +136,7 @@ window.fbPreviewDia = () => {
   if (dia === 'Domingo') txt += ' — el domingo ya no exige marca, así que cargarlo no cambia nada. Revisá la fecha.'
   else if (f < hoy) txt += ' — es una fecha pasada: no cambia las planillas ya generadas.'
   hint.textContent = txt
-  hint.style.color = (dia === 'Domingo') ? '#f5c451' : 'var(--text3)'
+  hint.style.color = (dia === 'Domingo') ? 'var(--amber-fg,#f5c451)' : 'var(--text3)'
 }
 
 window.fbGuardar = async () => {
@@ -229,7 +229,7 @@ function fbEnsureStyles() {
     .fb-f input[type=text],.fb-f input[type=date]{width:100%;padding:8px 11px;background:var(--bg3);
       border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px;outline:none}
     .fb-help{font-size:10px;color:var(--text3);margin-top:3px;line-height:1.4}
-    .fb-warn{background:rgba(239,68,68,.12);border:0.5px solid rgba(239,68,68,.4);color:#fca5a5;
+    .fb-warn{background:rgba(239,68,68,.12);border:0.5px solid rgba(239,68,68,.4);color:var(--red-fg,#fca5a5);
       border-radius:var(--radius);padding:9px 12px;font-size:12px}
     .fb-warn.hidden{display:none}`
   document.head.appendChild(st)

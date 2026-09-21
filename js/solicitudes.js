@@ -39,7 +39,7 @@ function solStyles() {
     #view-solicitudes .sol-bdg{font-size:11px;font-weight:700;padding:2px 9px;border-radius:12px}
     #view-solicitudes .sol-meta{font-size:11px;color:var(--text2,#8b8f98);margin:4px 0}
     #view-solicitudes .sol-desc{font-size:13px;color:var(--text,#c8ccd2);margin:6px 0;white-space:pre-wrap}
-    #view-solicitudes .sol-resp{font-size:13px;color:var(--text,#c8ccd2);margin-top:8px;padding:8px 10px;background:rgba(22,163,74,.1);border-left:3px solid #16a34a;border-radius:6px}
+    #view-solicitudes .sol-resp{font-size:13px;color:var(--text,#c8ccd2);margin-top:8px;padding:8px 10px;background:rgba(22,163,74,.1);border-left:3px solid var(--green,#16a34a);border-radius:6px}
     #view-solicitudes .sol-card-new{border-color:var(--gold,#f0a500)}
     #view-solicitudes .sol-nuevo{color:var(--gold,#f0a500);font-size:10px}
     #view-solicitudes .sol-pri{font-size:11px}
@@ -105,7 +105,7 @@ async function solCargar() {
 
 function solBadgeEstado(r) {
   const c = SOL_ESTADO_COLOR[r.estado] || '#8b8f98'
-  return `<span class="sol-bdg" style="background:${c}22;color:${c}">${SOL_ESTADOS[r.estado] || r.estado}</span>`
+  return `<span class="sol-bdg" style="background:${c}22;color:${tcol(c,'fg')}">${SOL_ESTADOS[r.estado] || r.estado}</span>`
 }
 
 function solRender() {
@@ -149,7 +149,7 @@ function solCardSuper(r) {
   const opP = ['', 'baja', 'media', 'alta'].map(k => `<option value="${k}" ${(r.prioridad || '') === k ? 'selected' : ''}>${k ? SOL_PRIOR[k] : '— prioridad —'}</option>`).join('')
   const cs = SOL_PRIOR_COLOR[r.prioridad_sugerida] || '#8b8f98'
   return `<div class="sol-card">
-    <div class="sol-card-h"><b>${solEsc(r.titulo)}</b> ${solBadgeEstado(r)} <span class="sol-pri" style="color:${cs}">sugerida: ${SOL_PRIOR[r.prioridad_sugerida] || '—'}</span></div>
+    <div class="sol-card-h"><b>${solEsc(r.titulo)}</b> ${solBadgeEstado(r)} <span class="sol-pri" style="color:${tcol(cs,'fg')}">sugerida: ${SOL_PRIOR[r.prioridad_sugerida] || '—'}</span></div>
     <div class="sol-meta">${solEsc(r.modulo)} · ${solEsc(r.creado_por || '—')} · ${solFecha(r.created_at)}</div>
     ${r.descripcion ? `<div class="sol-desc">${solEsc(r.descripcion)}</div>` : ''}
     ${solAdjuntosHTML(r)}

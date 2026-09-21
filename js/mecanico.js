@@ -721,7 +721,7 @@
         ${EXTRAS.map(x => `
           <div style="border:1px solid var(--border,#2a3340);border-radius:9px;padding:10px;margin-bottom:8px">
             <div style="display:flex;align-items:start;gap:8px">
-              <span style="font-size:17px;line-height:1.2">${x.severidad === 'rojo' ? '🔴' : '🟡'}</span>${x.enviado_at ? '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:rgba(22,163,74,.16);color:#16a34a;align-self:flex-start">✓</span>' : ''}
+              <span style="font-size:17px;line-height:1.2">${x.severidad === 'rojo' ? '🔴' : '🟡'}</span>${x.enviado_at ? '<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:8px;background:rgba(22,163,74,.16);color:var(--green-fg,#16a34a);align-self:flex-start">✓</span>' : ''}
               <div style="flex:1;min-width:0">
                 <div style="color:var(--text,#e6edf3);font-size:13.5px">${esc(x.descripcion)}</div>
                 <div style="margin-top:7px">
@@ -753,7 +753,7 @@
         <div class="mec-prog">
           <b style="color:${done === PUNTOS.length ? 'var(--green,#16a34a)' : 'var(--gold,#c8a24a)'}">${done}/${PUNTOS.length}</b> puntos
           ${filtrando ? `<div style="font-size:11.5px;color:var(--gold,#c8a24a)">👁 filtro activo — viendo ${VIS.length} de ${PUNTOS.length}</div>` : ''}
-          ${EXTRAS.length ? `<div style="font-size:11.5px;color:${extraSinFoto ? '#f0a500' : 'var(--text3,#8b949e)'}">+ ${EXTRAS.length} fuera de lista${extraSinFoto ? ` · ⚠ ${extraSinFoto} sin foto` : ''}</div>` : ''}
+          ${EXTRAS.length ? `<div style="font-size:11.5px;color:${extraSinFoto ? 'var(--gold,#f0a500)' : 'var(--text3,#8b949e)'}">+ ${EXTRAS.length} fuera de lista${extraSinFoto ? ` · ⚠ ${extraSinFoto} sin foto` : ''}</div>` : ''}
         </div>
         ${nPorEnviar
           ? `<button class="btn btn-gold" id="mec-enviar" style="padding:12px 16px;font-weight:700" onclick="mecEnviarHallazgos()"
@@ -846,7 +846,7 @@
     // allá: la línea que el cotizador tiene en la mano no se regenera, porque
     // quizás ya la bajó a ítem y le puso precio.
     const env = HALL[p.id]?.enviado_at
-      ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:rgba(22,163,74,.16);color:#16a34a;margin-left:6px"
+      ? `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:rgba(22,163,74,.16);color:var(--green-fg,#16a34a);margin-left:6px"
                title="Ya está con el cotizador. Si lo cambiás ahora, el cambio no viaja.">✓ ENVIADO</span>` : ''
     // En un checklist cerrado hay dos candados, y conviene que sean visibles ANTES
     // de tocar: un hallazgo que ya viajó al cotizador no se toca más, y ninguno
@@ -1198,7 +1198,7 @@
             <div style="font-size:13px">${SEV[r.severidad]?.icon || ''} ${esc(r.descripcion)}</div>
             <div style="font-size:11px;color:var(--text3,#8b949e)">
               ${esc(r.punto || '')} · orden #${esc(r.numero_orden || '')} ·
-              <span style="color:${r.rol_comision === 'encuentra' ? '#8b5cf6' : '#16a34a'}">${r.rol_comision === 'encuentra' ? 'lo encontré (20%)' : 'lo ejecuté (80%)'}</span>
+              <span style="color:${r.rol_comision === 'encuentra' ? 'var(--purple-fg,#8b5cf6)' : 'var(--green-fg,#16a34a)'}">${r.rol_comision === 'encuentra' ? 'lo encontré (20%)' : 'lo ejecuté (80%)'}</span>
             </div>
           </div>
           <b style="color:var(--green,#16a34a);white-space:nowrap">${fmtL(r.comision)}</b>

@@ -331,7 +331,7 @@
     .dst-help{font-size:10px;color:var(--text3);margin-top:3px}
     .dst-row{display:flex;gap:10px}
     .dst-error{background:rgba(239,68,68,.12);border:0.5px solid rgba(239,68,68,.4);
-      color:#fca5a5;border-radius:var(--radius);padding:9px 12px;font-size:12px}
+      color:var(--red-fg,#fca5a5);border-radius:var(--radius);padding:9px 12px;font-size:12px}
     .dst-error.hidden{display:none}
   `
   document.head.appendChild(st)

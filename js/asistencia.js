@@ -857,7 +857,7 @@ function renderNovedades(n) {
   const linea = (txt, extra = '') => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:5px 9px;background:var(--bg2);border-radius:6px"><span>${txt}</span><span style="color:var(--text3);font-family:var(--mono);font-size:12px">${extra}</span></div>`
   const sec = (color, icono, titulo, items, fmtItem, vacio) => `
     <div style="margin-bottom:16px">
-      <div style="font-weight:600;color:${color};margin-bottom:6px">${icono} ${titulo} (${items.length})</div>
+      <div style="font-weight:600;color:${tcol(color,'fg')};margin-bottom:6px">${icono} ${titulo} (${items.length})</div>
       ${items.length ? `<div style="display:flex;flex-direction:column;gap:4px">${items.map(fmtItem).join('')}</div>` : `<div style="font-size:12px;color:var(--text3);padding:2px 0">${vacio}</div>`}
     </div>`
   return `

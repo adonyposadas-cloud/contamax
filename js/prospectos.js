@@ -85,7 +85,7 @@ window.__prospBuild = '20260720c'
     const root = document.getElementById('view-prospectos')
     if (!root) return
     if (!puede()) { root.innerHTML = '<div style="padding:24px;color:var(--red-fg,#f85149)">No tenés permiso sobre este módulo.</div>'; return }
-    const tab = (k, t) => `<button onclick="prospTab('${k}')" style="flex:1;background:${TAB === k ? '#c8a24a' : 'transparent'};color:${TAB === k ? '#15171c' : '#8b949e'};border:1px solid ${TAB === k ? '#c8a24a' : '#2a2e37'};border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600">${t}</button>`
+    const tab = (k, t) => `<button onclick="prospTab('${k}')" style="flex:1;background:${TAB === k ? 'var(--gold-bg,#c8a24a)' : 'transparent'};color:${TAB === k ? '#15171c' : 'var(--text2,#8b949e)'};border:1px solid ${TAB === k ? 'var(--gold,#c8a24a)' : 'var(--border,#2a2e37)'};border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600">${t}</button>`
 
     root.innerHTML = `
       <div style="padding:14px 14px 30px;max-width:760px;margin:0 auto">
@@ -124,7 +124,7 @@ window.__prospBuild = '20260720c'
     const vis = filtrados()
 
     const chip = (activo, txt, onclick) =>
-      `<button onclick="${onclick}" style="background:${activo ? '#c8a24a22' : 'transparent'};border:1px solid ${activo ? '#c8a24a' : '#2a2e37'};color:${activo ? '#c8a24a' : '#8b949e'};border-radius:14px;padding:5px 12px;cursor:pointer;font-size:12px;white-space:nowrap">${txt}</button>`
+      `<button onclick="${onclick}" style="background:${activo ? '#c8a24a22' : 'transparent'};border:1px solid ${activo ? 'var(--gold,#c8a24a)' : 'var(--border,#2a2e37)'};color:${activo ? 'var(--gold,#c8a24a)' : 'var(--text2,#8b949e)'};border-radius:14px;padding:5px 12px;cursor:pointer;font-size:12px;white-space:nowrap">${txt}</button>`
 
     const cards = vis.map(t => {
       const e = etEstado(t.estado)
@@ -132,7 +132,7 @@ window.__prospBuild = '20260720c'
       const fotos = Array.isArray(t.ultimas_fotos) ? t.ultimas_fotos : []
       const sinVisitar = t.dias_sin_visitar
       return `
-      <div style="background:var(--bg2,#15171c);border:1px solid ${abierta ? '#c8a24a' : '#2a2e37'};border-radius:12px;margin-bottom:10px;overflow:hidden">
+      <div style="background:var(--bg2,#15171c);border:1px solid ${abierta ? 'var(--gold,#c8a24a)' : 'var(--border,#2a2e37)'};border-radius:12px;margin-bottom:10px;overflow:hidden">
         <div onclick="prospAbrir(${t.id})" style="padding:12px 14px;cursor:pointer">
           <div style="display:flex;align-items:start;gap:10px">
             <div style="flex:1;min-width:0">
@@ -141,12 +141,12 @@ window.__prospBuild = '20260720c'
                 ${esc(etTipo(t.tipo))}${t.zona ? ' · 📍 ' + esc(t.zona) : ''}
               </div>
             </div>
-            <span style="background:${e[2]}22;color:${e[2]};border:1px solid ${e[2]}66;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap">${e[1]}</span>
+            <span style="background:${e[2]}22;color:${tcol(e[2],'fg')};border:1px solid ${e[2]}66;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap">${e[1]}</span>
           </div>
           <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;font-size:11.5px;color:var(--text2,#8b949e)">
             <span>👤 ${esc(t.dueno || 'sin contacto')}</span>
             <span>🔁 ${t.visitas} visita${t.visitas === 1 ? '' : 's'}</span>
-            ${sinVisitar != null ? `<span style="color:${sinVisitar > 60 ? '#f0a868' : '#8b949e'}">hace ${sinVisitar} día${sinVisitar === 1 ? '' : 's'}</span>` : ''}
+            ${sinVisitar != null ? `<span style="color:${sinVisitar > 60 ? '#f0a868' : 'var(--text2,#8b949e)'}">hace ${sinVisitar} día${sinVisitar === 1 ? '' : 's'}</span>` : ''}
           </div>
           ${fotos.length ? (() => { const k = grupoFotos(fotos); return `<div style="display:flex;gap:5px;margin-top:9px;overflow-x:auto">
             ${fotos.slice(0, 3).map((f, i) => `<img src="${esc(f.url)}" onclick="event.stopPropagation();prospVisor('${k}',${i})" style="width:74px;height:56px;object-fit:cover;border-radius:7px;flex:0 0 auto;cursor:zoom-in" loading="lazy">`).join('')}
@@ -175,7 +175,7 @@ window.__prospBuild = '20260720c'
     const vs = VISITAS[t.id]
     const tel = normTel(t.telefono)
     const bt = (txt, onclick, color) =>
-      `<button onclick="${onclick}" style="flex:1;min-width:96px;background:var(--bg3,#1c2027);border:1px solid var(--border,#2a2e37);color:${color || '#8b949e'};border-radius:8px;padding:9px;cursor:pointer;font-size:12.5px">${txt}</button>`
+      `<button onclick="${onclick}" style="flex:1;min-width:96px;background:var(--bg3,#1c2027);border:1px solid var(--border,#2a2e37);color:${color || 'var(--text2,#8b949e)'};border-radius:8px;padding:9px;cursor:pointer;font-size:12.5px">${txt}</button>`
 
     return `
       <div style="border-top:1px solid var(--border,#21262d);padding:12px 14px;background:var(--bg-inset,#0f1115)">
@@ -472,10 +472,10 @@ window.__prospBuild = '20260720c'
     ok.onclick = async () => {
       ok.disabled = true; ok.textContent = 'Guardando…'
       try {
-        const cerrar = await onOk(leer(), (t) => { msg.style.color = '#8b949e'; msg.textContent = t })
+        const cerrar = await onOk(leer(), (t) => { msg.style.color = 'var(--text2,#8b949e)'; msg.textContent = t })
         if (cerrar !== false) ov.remove()
       } catch (e) {
-        msg.style.color = '#f85149'; msg.textContent = e.message || String(e)
+        msg.style.color = 'var(--red-fg,#f85149)'; msg.textContent = e.message || String(e)
       }
       ok.disabled = false; ok.textContent = 'Guardar'
     }
@@ -487,9 +487,9 @@ window.__prospBuild = '20260720c'
     try {
       const g = await tomarGPS()
       document.getElementById(id).value = JSON.stringify(g)
-      if (btn) { btn.textContent = `✓ Ubicación tomada (±${g.precision} m)`; btn.style.color = '#4e7a51' }
+      if (btn) { btn.textContent = `✓ Ubicación tomada (±${g.precision} m)`; btn.style.color = 'var(--green-fg,#4e7a51)' }
     } catch (e) {
-      if (btn) { btn.textContent = '📍 Tomar ubicación acá'; btn.style.color = '#c8a24a' }
+      if (btn) { btn.textContent = '📍 Tomar ubicación acá'; btn.style.color = 'var(--gold,#c8a24a)' }
       toast(e.message, 'error')
     }
     if (btn) btn.disabled = false

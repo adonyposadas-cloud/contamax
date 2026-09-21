@@ -257,7 +257,7 @@
         <div class="fld"><label>Teléfono <span style="font-weight:400;color:var(--text3,#8b949e);font-size:10px;text-transform:none">(para WhatsApp)</span></label>
           <div style="display:flex;gap:4px;align-items:center">
             <input id="cot-tel" class="cot-in" placeholder="Ej: 9704 5242" autocomplete="off" style="flex:1;min-width:0">
-            <a id="cot-tel-wa" class="btn" target="_blank" rel="noopener" title="Abrir WhatsApp" style="color:#25d366;padding:5px 8px;text-decoration:none;opacity:.4">💬</a>
+            <a id="cot-tel-wa" class="btn" target="_blank" rel="noopener" title="Abrir WhatsApp" style="color:var(--wa-fg,#25d366);padding:5px 8px;text-decoration:none;opacity:.4">💬</a>
           </div>
           <div id="cot-tel-hint" style="font-size:10px;color:var(--text3,#8b949e);margin-top:2px"></div>
         </div>
@@ -1789,7 +1789,7 @@
         : ''
       return `<div style="padding:5px 0;${done ? 'opacity:.55' : ''}">
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
+          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? 'var(--purple-fg,#8b5cf6)' : 'var(--blue-fg,#3b82f6)'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
           <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${sevTag} ${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${precioTxt}${s.nuevo ? ' <span style="color:var(--gold,#f0a500);font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
           ${done ? '<span style="color:var(--green,#16a34a);font-size:12px;font-weight:700">✓</span>' : ''}
           ${boton}
@@ -1886,7 +1886,7 @@
       const oc = !!it.oculto
       return `<div class="cot-row"${oc ? ' style="opacity:.5"' : ''}>
         <div>
-          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:var(--red-fg,#f85149)" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-eye></use></svg></button></div>
+          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:var(--red-fg,#f85149)" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:var(--green-fg,#16a34a)" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-eye></use></svg></button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
@@ -2642,7 +2642,7 @@
       const respLbl = f.fase === 'cotizacion' ? 'Cotizador' : (f.fase === 'autorizacion' ? 'Jefe de pista' : 'Resp')
       const acumMs = f.fase === 'cotizacion' ? (p.proc_cotiz_ms || 0) : (f.fase === 'autorizacion' ? (p.proc_autor_ms || 0) : (p.proc_compra_ms || 0))
       const ms = acumMs + (Date.now() - new Date(f.desde).getTime())
-      return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;background:${faseBg};margin-bottom:8px">
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;background:${tcol(faseBg,'bg')};margin-bottom:8px">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600">${esc([p.marca, p.modelo].filter(Boolean).join(' ') || 'Cotización')} · ${esc(p.placa || '')}</div>
           <div style="font-size:11px;color:var(--text3,#8b949e)">${faseLbl} · ${respLbl}: ${esc(resp)}${p.cliente ? ' · ' + esc(p.cliente) : ''}</div>
@@ -2828,7 +2828,7 @@
     if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin proveedores</div>'; return }
     cont.innerHTML = list.map((p, i) => {
       const msg = `Buen día${p.contacto ? ' ' + p.contacto : ''}, le consulto por el estado del envío de los repuestos que solicitamos. Gracias.`
-      const wa = p.telefono ? `<a class="btn" href="${waHref(p.telefono, msg)}" target="_blank" rel="noopener" style="color:#25d366;font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>` : ''
+      const wa = p.telefono ? `<a class="btn" href="${waHref(p.telefono, msg)}" target="_blank" rel="noopener" style="color:var(--wa-fg,#25d366);font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>` : ''
       const call = p.telefono ? `<a class="btn" href="${telHref(p.telefono)}" style="font-size:12px;padding:5px 10px;text-decoration:none">📞 Llamar</a>` : ''
       return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border,#2a3340)">
         <div style="min-width:180px;flex:1;font-weight:600;font-size:13px">${esc(p.nombre)}</div>
@@ -2897,7 +2897,7 @@
       } else if (p.estado === 'llegado') {
         const min = difMin(p.creado_en, p.fecha_llegada)
         reloj = `<span style="font-weight:700;color:${colorPrMin(min)}">✓ tardó ${fmtDur(min)}</span>`
-        estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(22,163,74,.18);color:#16a34a;font-weight:700">LLEGÓ</span>'
+        estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(22,163,74,.18);color:var(--green-fg,#16a34a);font-weight:700">LLEGÓ</span>'
         botones = `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-entregar="${p.id}"><svg class=ico aria-hidden=true><use href=#i-package></use></svg> Entregado</button>`
       } else {
         const min = difMin(p.creado_en, null)
@@ -3163,7 +3163,7 @@
     const dias = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000)
     const quedan = 30 - dias
     const col = quedan <= 0 ? 'var(--text3,#8b949e)' : quedan <= 7 ? 'var(--amber,#f59e0b)' : 'var(--text3,#8b949e)'
-    return `<span style="color:${col}">🗓 ${quedan > 0 ? `vence en ${quedan} día${quedan === 1 ? '' : 's'}` : 'vencida'}</span>`
+    return `<span style="color:${tcol(col,'fg')}">🗓 ${quedan > 0 ? `vence en ${quedan} día${quedan === 1 ? '' : 's'}` : 'vencida'}</span>`
   }
 
   window._cotMostradorVolvio = async function (id) {
@@ -3193,12 +3193,12 @@
     const esMost = p.tipo_solicitud === 'mostrador'
     const tipoCol = esMost ? '#8b949e' : (esRec ? '#f59e0b' : '#3b82f6')
     const tipoTxt = esMost ? '🏪 Mostrador' : (esRec ? '💡 Recomendado' : '🔧 Solicitado')
-    const tipoBadge = ` <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${tipoCol};color:${tipoCol}">${tipoTxt}</span>`
+    const tipoBadge = ` <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${tcol(tipoCol,'bd')};color:${tcol(tipoCol,'fg')}">${tipoTxt}</span>`
     const pr = progresoPedidos(p.items)
     const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
     const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
     const badge = (esAut && pr.total > 0)
-      ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
+      ? ` <span style="font-size:12px;font-weight:800;color:${tcol(pr.color,'fg')}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${tcol(pr.color,'fg')};font-weight:600">${pr.estado}</span>` : ''}`
       : ''
     const editar = lockOtro
       ? `<span style="font-size:11px;color:var(--amber,#f59e0b);white-space:nowrap;padding:4px 6px" title="La está editando ${esc(p.editando_por || '')}">🔒 En edición</span>`
@@ -3219,7 +3219,7 @@
       accion = editar + ` <button class="btn btn-ghost" data-dashact="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)">✓ Autorizar</button>`
     }
     const openAttr = esAut ? `data-ped="${p.id}"` : (lockOtro ? '' : `data-dashopen="${p.id}"`)
-    return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'};border-left:4px solid ${borderCol}">
+    return `<div class="cot-hrow" ${openAttr} style="cursor:${(esAut || !lockOtro) ? 'pointer' : 'default'};border-left:4px solid ${tcol(borderCol,'bd')}">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span class="cot-estado ${esc(p.estado)}">${esc(p.estado)}</span>${tipoBadge}${badge}${badgeNuevo}${lockBadge}</div>
         <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · L. ${fmt(p.total)}${esMost ? ' · ' + diasMostrador(p) : (clockCardHTML(p) ? ' · ' + clockCardHTML(p) : '')}</div>
@@ -3278,9 +3278,9 @@
     const pr = progresoPedidos(allItems)
     const totalMonto = grp.reduce((a, p) => a + (Number(p.total) || 0), 0)
     const progBadge = (pr.total > 0)
-      ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
+      ? ` <span style="font-size:12px;font-weight:800;color:${tcol(pr.color,'fg')}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${tcol(pr.color,'fg')};font-weight:600">${pr.estado}</span>` : ''}`
       : ''
-    const tb = (rec_) => `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${rec_ ? '#f59e0b' : '#3b82f6'};color:${rec_ ? '#f59e0b' : '#3b82f6'}">${rec_ ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
+    const tb = (rec_) => `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${rec_ ? 'var(--amber,#f59e0b)' : 'var(--blue,#3b82f6)'};color:${rec_ ? 'var(--amber-fg,#f59e0b)' : 'var(--blue-fg,#3b82f6)'}">${rec_ ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
     const tipos = (sol ? tb(false) + ' ' : '') + (rec ? tb(true) : '')
     const ids = grp.map(p => p.id)
     const completo = pr.total === 0 || pr.llegados === pr.total
@@ -3557,7 +3557,7 @@
   function pedOrigenChip (it) {
     if (!(PEDPF && PEDPF._merged && it && it._srcTipo)) return ''
     const rec = it._srcTipo === 'recomendado'
-    return `<span style="font-size:9px;font-weight:800;padding:0 5px;border-radius:6px;border:1px solid ${rec ? '#f59e0b' : '#3b82f6'};color:${rec ? '#f59e0b' : '#3b82f6'};margin-right:5px">${rec ? 'REC' : 'SOL'}</span>`
+    return `<span style="font-size:9px;font-weight:800;padding:0 5px;border-radius:6px;border:1px solid ${rec ? 'var(--amber,#f59e0b)' : 'var(--blue,#3b82f6)'};color:${rec ? 'var(--amber-fg,#f59e0b)' : 'var(--blue-fg,#3b82f6)'};margin-right:5px">${rec ? 'REC' : 'SOL'}</span>`
   }
 
   function renderPedidos () {
@@ -3573,7 +3573,7 @@
     const facturados = visibles.filter(it => it.facturado).length
     const fpct = totalItems ? Math.round(facturados / totalItems * 100) : 0
     const fcolor = (totalItems && facturados === totalItems) ? 'var(--green,#16a34a)' : (facturados > 0 ? 'var(--amber,#f59e0b)' : 'var(--text3,#8b949e)')
-    const barra = (lbl, a, b, p, color) => `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">${lbl}</span><span style="font-weight:700;color:${color}">${a}/${b} (${p}%)</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${p}%;background:${color}"></div></div></div>`
+    const barra = (lbl, a, b, p, color) => `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">${lbl}</span><span style="font-weight:700;color:${tcol(color,'fg')}">${a}/${b} (${p}%)</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${p}%;background:${tcol(color,'bg')}"></div></div></div>`
     $('ped-prog').innerHTML = barra('Productos llegados' + (pr.estado ? ' · ' + pr.estado : ''), pr.llegados, pr.total, pct, pr.color) + barra('📋 Facturados', facturados, totalItems, fpct, fcolor)
     const facBtn = (it, i) => it.facturado
       ? `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Desmarcar facturado" style="color:var(--text3,#8b949e)"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg></button>`
@@ -3603,7 +3603,7 @@
             const _min = it.seg_fecha_pedido ? difMin(it.seg_fecha_pedido) : null
             const _hace = _min != null ? ` (pedido hace ${fmtDur(_min)})` : ''
             const msg = `Buen día${c.contacto ? ' ' + c.contacto : ''}, de TECNIMAX consultamos por el estado del envío de: ${String(it.desc).toUpperCase()} (cantidad ${fmt(it.cantidad)})${_hace} que solicitamos. Gracias.`
-            estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:#25d366;text-decoration:none">💬</a> <a href="${telHref(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
+            estadoTxt += ` <a href="${waHref(c.telefono, msg)}" target="_blank" rel="noopener" title="Seguimiento por WhatsApp" style="color:var(--wa-fg,#25d366);text-decoration:none">💬</a> <a href="${telHref(c.telefono)}" title="Llamar" style="text-decoration:none">📞</a>`
           }
         }
         if (it.seg_fecha_pedido) {
@@ -3973,12 +3973,12 @@
       const col = p.cat === 'facturo_menos' ? 'var(--amber,#f59e0b)' : p.cat === 'sin_factura' ? 'var(--text3,#8b949e)' : 'var(--red,#f85149)'
       return `<div class="cot-hrow" data-seg="${p.id}" style="cursor:pointer">
         <div style="min-width:0">
-          <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:${col}22;color:${col}">${esc(CAT_LBL[p.cat])}</span></div>
+          <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:${col}22;color:${tcol(col,'fg')}">${esc(CAT_LBL[p.cat])}</span></div>
           <div style="font-size:11px;color:var(--text3,#8b949e)">${esc(veh || 's/vehículo')} · ${esc(p.cliente || 's/n')} · ${esc(fFecha(p.created_at))}${p.factura ? ' · Fact #' + esc(p.factura) : ''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="color:var(--gold,#c8a24a);font-weight:700;white-space:nowrap">Cotizado L. ${fmt(p.cotizado != null ? p.cotizado : p.total)}</div>
-          <div style="font-size:11px;color:${col}">Pendiente L. ${fmt(p.pendiente)}${p.facturado ? ` · facturado L. ${fmt(p.facturado)}` : ''}</div>
+          <div style="font-size:11px;color:${tcol(col,'fg')}">Pendiente L. ${fmt(p.pendiente)}${p.facturado ? ` · facturado L. ${fmt(p.facturado)}` : ''}</div>
         </div>
       </div>`
     }).join('')
@@ -4250,7 +4250,7 @@
           </select>
           <span id="det-oferta" style="font-size:12px;color:var(--text3,#8b949e)"></span>
           <span style="flex:1"></span>
-          <a id="det-wa" class="btn" target="_blank" rel="noopener" style="color:#25d366;font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>
+          <a id="det-wa" class="btn" target="_blank" rel="noopener" style="color:var(--wa-fg,#25d366);font-size:12px;padding:5px 10px;text-decoration:none">💬 WhatsApp</a>
           <a id="det-call" class="btn" style="font-size:12px;padding:5px 10px;text-decoration:none">📞 Llamar</a>
         </div>
         <div id="det-msg-prev" style="margin-top:8px;font-size:11px;color:var(--text3,#8b949e);white-space:pre-wrap;border-left:2px solid var(--border,#2a3340);padding-left:8px"></div>

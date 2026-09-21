@@ -26,6 +26,16 @@
   }
   raiz.setAttribute('data-theme', t)
   pintarMeta(t)
+  // tcol(color, 'fg'|'bg'|'bd'): convierte un color de paleta al token del tema según su uso.
+  // Deja pasar cualquier otro valor (var(), rgba, transparent…). Las paletas no se tocan,
+  // así siguen sirviendo para concatenar transparencia (`${c}22`).
+  var TCOL = {"243141":["bg4",0,0],"0d1117":["bg",0,0],"010409":["bg",0,0],"161b22":["bg2",0,0],"15171c":["bg2",0,0],"1a1a1a":["bg2",0,0],"1c1c1c":["bg2",0,0],"1a1d24":["bg3",0,0],"1c2027":["bg3",0,0],"1c2333":["bg3",0,0],"1e2530":["bg3",0,0],"21262d":["bg3",0,"border"],"252d3a":["bg4",0,0],"2a2e37":["bg4",0,"border"],"2a3340":["bg4",0,"border"],"30363d":["bg4",0,"border"],"2d3748":["bg4",0,"border"],"3a3a3a":[0,0,"border"],"3d4f65":[0,0,"border2"],"3d444d":[0,0,"border2"],"e6edf3":[0,"text",0],"e8eaed":[0,"text",0],"c9d1d9":[0,"text",0],"e6e6e6":[0,"text",0],"e2e8f0":[0,"text",0],"f0f6fc":[0,"text",0],"8b949e":[0,"text2","border2"],"8b8f98":[0,"text2",0],"9aa0aa":[0,"text2",0],"8b93a3":[0,"text2",0],"94a3b8":[0,"text2",0],"9198a1":[0,"text2",0],"6e7681":[0,"text3","border2"],"64748b":[0,"text3",0],"f0a500":["gold-bg","gold","gold"],"e0a800":["gold-bg","gold","gold"],"c8a24a":["gold-bg","gold","gold"],"d4af37":["gold-bg","gold","gold"],"d4a017":["gold-bg","gold","gold"],"d4a843":["gold-bg","gold","gold"],"f85149":["red","red-fg","red"],"ef4444":["red","red-fg","red"],"f87171":[0,"red-fg","red"],"e06060":[0,"red-fg","red"],"3fb950":["green","green-fg","green"],"22c55e":["green","green-fg","green"],"4ade80":[0,"green-fg","green"],"3b82f6":["blue","blue-fg","blue"],"4a90e2":["blue","blue-fg","blue"],"60a5fa":[0,"blue-fg","blue"],"f59e0b":["amber","amber-fg","amber"],"fbbf24":[0,"amber-fg","amber"],"f5c451":[0,"amber-fg","amber"],"8b5cf6":["purple","purple-fg","purple"],"a78bfa":[0,"purple-fg","purple"],"0f1115":["bg-inset",0,0],"0f1114":["bg-inset",0,0],"12131a":["bg-inset",0,0],"12151b":["bg-inset",0,0],"14161b":["bg-inset",0,0],"1c1f26":["bg3",0,0],"1f232b":["bg3",0,0],"21242b":["bg3",0,0],"1c2530":["bg3",0,0],"23262e":["bg3",0,0],"3a1d1d":["red-soft",0,0],"2d2416":["amber-soft",0,0],"1a2e1c":["green-soft",0,0],"f0c8c0":[0,"red-fg",0],"f0dcb0":[0,"amber-fg",0],"c0e0c4":[0,"green-fg",0],"7ee2a0":[0,"green-fg",0],"86efac":[0,"green-fg",0],"cfe3ff":[0,"blue-fg",0],"f0c674":[0,"amber-fg",0],"fcd34d":[0,"amber-fg",0],"d6d3d1":[0,"text",0],"c8ccd2":[0,"text",0],"e6e8ec":[0,"text",0],"c9d1e0":[0,"text",0],"e7e9ee":[0,"text",0],"d4d7dc":[0,"text",0],"cfd3da":[0,"text",0],"e5e7eb":[0,"text",0],"16a34a":[0,"green-fg","green"],"4e7a51":[0,"green-fg","green"],"b8860b":[0,"amber-fg","amber"],"b4472f":[0,"red-fg","red"],"fca5a5":[0,"red-fg","red"],"25d366":[0,"wa-fg","wa-fg"]}
+  window.tcol = function (c, cat) {
+    if (typeof c !== 'string' || c.length !== 7 || c.charAt(0) !== '#') return c
+    var t = TCOL[c.slice(1).toLowerCase()]
+    var k = t && t[cat === 'bg' ? 0 : cat === 'bd' ? 2 : 1]
+    return k ? 'var(--' + k + ',' + c + ')' : c
+  }
   window.toggleTema = function () {
     var n = raiz.getAttribute('data-theme') === 'light' ? 'dark' : 'light'
     raiz.setAttribute('data-theme', n)

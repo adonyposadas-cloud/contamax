@@ -86,16 +86,16 @@ window.__comDashBuild = '20260715c'
     const granTotal = tecnicos.reduce((s, t) => s + t.total, 0)
 
     const chipsMes = meses.map(m => `
-      <button onclick="comDashMes('${m}')" style="padding:5px 12px;border-radius:16px;font-size:12px;cursor:pointer;border:1px solid ${MES_SEL === m ? '#c8a24a' : '#2a2e37'};background:${MES_SEL === m ? 'rgba(200,162,74,.15)' : 'transparent'};color:${MES_SEL === m ? '#c8a24a' : '#8b949e'}">${mesLabel(m)}</button>`).join('')
+      <button onclick="comDashMes('${m}')" style="padding:5px 12px;border-radius:16px;font-size:12px;cursor:pointer;border:1px solid ${MES_SEL === m ? 'var(--gold,#c8a24a)' : 'var(--border,#2a2e37)'};background:${MES_SEL === m ? 'rgba(200,162,74,.15)' : 'transparent'};color:${MES_SEL === m ? 'var(--gold,#c8a24a)' : 'var(--text2,#8b949e)'}">${mesLabel(m)}</button>`).join('')
 
     const vis = window._comVisibleTec
     root.innerHTML = `
-      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;margin-bottom:14px;border:1px solid ${vis ? '#16a34a' : '#3a3f4a'};border-radius:10px;background:${vis ? 'rgba(22,163,74,.08)' : 'rgba(255,255,255,.02)'}">
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;margin-bottom:14px;border:1px solid ${vis ? 'var(--green,#16a34a)' : '#3a3f4a'};border-radius:10px;background:${vis ? 'rgba(22,163,74,.08)' : 'rgba(255,255,255,.02)'}">
         <div style="flex:1">
           <div style="font-size:13px;font-weight:600">${vis ? '✅ Los técnicos VEN su comisión' : '🔒 Comisión oculta a los técnicos (modo prueba)'}</div>
           <div style="font-size:11px;color:var(--text2,#8b949e)">${vis ? 'Cada técnico ve su "Mi comisión" en el celular.' : 'Podés cuadrar los números sin que ellos vean montos.'}</div>
         </div>
-        <button onclick="comDashToggleComision(${vis ? 'false' : 'true'})" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${vis ? '#f0a500' : '#16a34a'};background:transparent;color:${vis ? '#f0a500' : '#16a34a'}">
+        <button onclick="comDashToggleComision(${vis ? 'false' : 'true'})" style="padding:7px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid ${vis ? 'var(--gold,#f0a500)' : 'var(--green,#16a34a)'};background:transparent;color:${vis ? 'var(--gold,#f0a500)' : 'var(--green-fg,#16a34a)'}">
           ${vis ? 'Ocultar' : 'Activar para técnicos'}
         </button>
       </div>
@@ -103,7 +103,7 @@ window.__comDashBuild = '20260715c'
         <div style="display:flex;gap:6px;flex-wrap:wrap">${chipsMes || '<span style="color:var(--text2,#8b949e);font-size:12px">Sin datos aún</span>'}</div>
         <div style="text-align:right">
           <div style="font-size:11px;color:var(--text2,#8b949e);letter-spacing:.05em">TOTAL DEL MES</div>
-          <div style="font-size:24px;font-weight:800;color:#16a34a">${fmtL(granTotal)}</div>
+          <div style="font-size:24px;font-weight:800;color:var(--green-fg,#16a34a)">${fmtL(granTotal)}</div>
         </div>
       </div>
 
@@ -124,10 +124,10 @@ window.__comDashBuild = '20260715c'
   function filaTecnico (t) {
     const abierto = EXPANDIDO === t.tecnico_id
     return `
-      <div onclick="comDashDetalle('${esc(t.tecnico_id)}')" style="display:flex;align-items:center;padding:11px 14px;border-top:1px solid #1c1f26;cursor:pointer;background:${abierto ? '#1a1d24' : 'transparent'}">
+      <div onclick="comDashDetalle('${esc(t.tecnico_id)}')" style="display:flex;align-items:center;padding:11px 14px;border-top:1px solid #1c1f26;cursor:pointer;background:${abierto ? 'var(--bg3,#1a1d24)' : 'transparent'}">
         <div style="flex:1;font-size:14px;font-weight:600">${abierto ? '▾' : '▸'} ${esc(t.tecnico)}</div>
         <div style="width:90px;text-align:right;font-size:13px;color:var(--purple-fg,#8b5cf6)">${fmtL(t.encuentra)}</div>
-        <div style="width:90px;text-align:right;font-size:13px;color:#16a34a">${fmtL(t.ejecuta)}</div>
+        <div style="width:90px;text-align:right;font-size:13px;color:var(--green-fg,#16a34a)">${fmtL(t.ejecuta)}</div>
         <div style="width:100px;text-align:right;font-size:14px;font-weight:700;color:var(--text,#e6edf3)">${fmtL(t.total)}</div>
       </div>`
   }
@@ -165,13 +165,13 @@ window.__comDashBuild = '20260715c'
           <span style="color:#6b7280"> · orden #${esc(r.numero_orden || '')}${r.estado_comision === 'pendiente' ? ' · <span style=\"color:var(--gold,#f0a500)\">PENDIENTE</span>' : ''}</span>
         </span>
         <span style="font-size:12px;color:var(--text2,#8b949e)">${fmtL(r.precio_real)} × ${num(r.cantidad)} · ${num(r.pct)}%</span>
-        <span style="width:70px;text-align:right;font-size:13px;font-weight:600;color:#16a34a">${fmtL(r.comision)}</span>
+        <span style="width:70px;text-align:right;font-size:13px;font-weight:600;color:var(--green-fg,#16a34a)">${fmtL(r.comision)}</span>
       </div>`
 
     cont.innerHTML = `
       <div style="border:1px solid var(--border,#2a2e37);border-top:0;border-radius:0 0 12px 12px;padding:12px 16px;background:var(--bg-inset,#0f1115)">
         ${enc.length ? `<div style="font-size:11px;color:var(--purple-fg,#8b5cf6);font-weight:700;margin-bottom:2px">LO QUE ENCONTRÓ (20%)</div>${enc.map(filaDet).join('')}` : ''}
-        ${eje.length ? `<div style="font-size:11px;color:#16a34a;font-weight:700;margin:10px 0 2px">LO QUE EJECUTÓ (80%)</div>${eje.map(filaDet).join('')}` : ''}
+        ${eje.length ? `<div style="font-size:11px;color:var(--green-fg,#16a34a);font-weight:700;margin:10px 0 2px">LO QUE EJECUTÓ (80%)</div>${eje.map(filaDet).join('')}` : ''}
         ${!rows.length ? '<div style="color:var(--text2,#8b949e);font-size:12px">Sin detalle.</div>' : ''}
       </div>`
   }
@@ -182,7 +182,7 @@ window.__comDashBuild = '20260715c'
       const id = el.getAttribute('onclick').match(/'([^']+)'/)[1]
       const arrow = el.querySelector('div')
       if (arrow) arrow.textContent = arrow.textContent.replace(/^[▸▾]/, EXPANDIDO === id ? '▾' : '▸')
-      el.style.background = EXPANDIDO === id ? '#1a1d24' : 'transparent'
+      el.style.background = EXPANDIDO === id ? 'var(--bg3,#1a1d24)' : 'transparent'
     })
   }
 })()

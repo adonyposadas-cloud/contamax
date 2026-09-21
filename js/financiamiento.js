@@ -146,7 +146,7 @@ function renderPrestamosTable() {
       <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${saldo > 0 ? 'var(--red)' : 'var(--green)'}">L. ${getFmt(saldo)}</td>
       <td style="font-family:var(--mono);text-align:center">${p.num_recibos || 0}</td>
       <td style="font-size:12px;color:var(--text3)">${fechaUlt}</td>
-      <td style="text-align:center;font-family:var(--mono);font-weight:500;color:${diasColor}">${p.dias_sin_pago || 0}d</td>
+      <td style="text-align:center;font-family:var(--mono);font-weight:500;color:${tcol(diasColor,'fg')}">${p.dias_sin_pago || 0}d</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSA ? `<button onclick="abrirLiquidacion('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Generar recibo"><svg class=ico aria-hidden=true><use href=#i-receipt></use></svg></button>
           <button onclick="editarPrestamo('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : '👁'}
@@ -195,7 +195,7 @@ window.verDetallePrestamo = async (ref) => {
   const tarjeta = (etiqueta, valor, color) => `
     <div style="background:var(--bg3);border-radius:var(--radius);padding:12px 14px">
       <div style="color:var(--text3);font-size:11px;letter-spacing:.4px;text-transform:uppercase">${etiqueta}</div>
-      <div style="font-family:var(--mono);font-weight:700;font-size:16px;margin-top:4px;color:${color}">L. ${getFmt(valor)}</div>
+      <div style="font-family:var(--mono);font-weight:700;font-size:16px;margin-top:4px;color:${tcol(color,'fg')}">L. ${getFmt(valor)}</div>
     </div>`
 
   const resumen = `

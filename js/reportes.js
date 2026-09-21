@@ -1162,7 +1162,7 @@ window.generarEstadoResultados = async () => {
     const total = items.reduce((s, c) => s + c.saldo, 0)
     const fmtSigned = (v) => (v < 0 ? '(' + fmtL(Math.abs(v)) + ')' : fmtL(v))
     return `
-      <tr style="background:var(--bg3)"><td colspan="4" style="font-weight:600;color:${color};padding:10px 14px">${titulo}</td></tr>
+      <tr style="background:var(--bg3)"><td colspan="4" style="font-weight:600;color:${tcol(color,'fg')};padding:10px 14px">${titulo}</td></tr>
       ${items.map(c => `<tr${c._privado ? ' style="background:rgba(239,68,68,0.04)"' : ` class="er-row-dd" style="cursor:pointer" onclick="erDrillDown('${c.codigo}')" title="Click para ver las transacciones que componen este monto"`}>
         <td style="font-family:var(--mono);color:var(--gold);font-size:12px;padding-left:24px">${c.codigo}</td>
         <td>${c.nombre}${c._privado ? '' : ' <span style="font-size:10px;color:var(--text3)">🔍</span>'}</td>
@@ -1171,7 +1171,7 @@ window.generarEstadoResultados = async () => {
       </tr>`).join('')}
       <tr style="border-top:1px solid var(--border)">
         <td></td><td style="text-align:right;font-weight:500">Total ${titulo.toLowerCase()}</td>
-        <td></td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${color}">L. ${fmtSigned(total)}</td>
+        <td></td><td style="text-align:right;font-family:var(--mono);font-weight:600;color:${tcol(color,'fg')}">L. ${fmtSigned(total)}</td>
       </tr>`
   }
 
@@ -2038,7 +2038,7 @@ function _scPintarTabla(cuentas, totalGrupo, filtrado) {
         return `<tr${rowStyle}>
           <td style="font-family:var(--mono);color:var(--gold);font-size:12px">${c.codigo}</td>
           <td>${c.nombre}${c._sensible ? ' <span style="font-size:10px;color:var(--text3)">(restringido)</span>' : ''}</td>
-          <td style="text-align:right;font-family:var(--mono);color:${color}">${val}</td>
+          <td style="text-align:right;font-family:var(--mono);color:${tcol(color,'fg')}">${val}</td>
         </tr>`
       }).join('')}</tbody>
       <tfoot>

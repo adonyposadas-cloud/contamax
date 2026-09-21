@@ -619,7 +619,7 @@ window.ykDrillM = (filtros, sub, titulo) => {
       const nf = filtros.concat(sub === 'modelosolo' ? [['modelo', r.raw.modelo]] : [['marca', r.raw.marca], ['modelo', r.raw.modelo]])
       cell = ykDrillCell(nf, 'anio', `${titulo} · ${r.k}`, r.k, 'M')
     }
-    return `<tr><td>${cell}</td><td class="yk-num">${ykFmt0(r.veh)}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? '#e06060' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`
+    return `<tr><td>${cell}</td><td class="yk-num">${ykFmt0(r.veh)}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? 'var(--red-fg,#e06060)' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`
   }).join('')
 
   ykOpenModal(`${titulo} · por ${subLabel.toLowerCase()}`, `
@@ -696,7 +696,7 @@ function ykReporteMargen() {
   document.getElementById('yk-rep-tabla').innerHTML = `
     <div class="table-wrap" style="max-height:520px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>${dimLabel}</th><th class="yk-num">Items</th><th class="yk-num">Venta</th><th class="yk-num">Costo</th><th class="yk-num">Utilidad</th><th class="yk-num">% recup.</th></tr></thead>
-      <tbody>${rows.map(r => `<tr><td>${(() => { if (dim === 'contenedor') return `<button class="yk-link" onclick="ykContenedorDetalle('${r.k}')">${r.k}</button>`; const _s = ykDimDrillM(dim, r.raw); return _s ? ykDrillCell(_s.filtros, _s.sub, r.k, r.k, 'M') : r.k })()}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? '#e06060' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`).join('')}
+      <tbody>${rows.map(r => `<tr><td>${(() => { if (dim === 'contenedor') return `<button class="yk-link" onclick="ykContenedorDetalle('${r.k}')">${r.k}</button>`; const _s = ykDimDrillM(dim, r.raw); return _s ? ykDrillCell(_s.filtros, _s.sub, r.k, r.k, 'M') : r.k })()}</td><td class="yk-num">${ykFmt0(r.lineas)}</td><td class="yk-num">${ykFmt(r.venta)}</td><td class="yk-num">${ykFmt(r.costo)}</td><td class="yk-num" style="color:${r.utilidad < 0 ? 'var(--red-fg,#e06060)' : 'inherit'}">${ykFmt(r.utilidad)}</td><td class="yk-num">${ykPct(r.pct)}</td></tr>`).join('')}
         <tr class="tot"><td>TOTAL</td><td class="yk-num"></td><td class="yk-num">${ykFmt(tV)}</td><td class="yk-num">${ykFmt(tC)}</td><td class="yk-num">${ykFmt(tU)}</td><td class="yk-num">${tC ? ykPct(tV / tC) : '—'}</td></tr>
       </tbody></table></div>`
   ykRepActual = { tipo: 'margen', dimLabel, rows: rows.map(r => ({ [dimLabel]: r.k, Items: r.lineas, Venta: r.venta, Costo: r.costo, Utilidad: r.utilidad, Pct_recuperado: r.pct })) }
@@ -908,7 +908,7 @@ window.ykContenedorDetalle = (contenedor) => {
       <td>${(u.marca || '')} ${(u.modelo || '')} ${(u.anio_vehiculo || '')}</td>
       <td class="yk-num">${ykFmt(u.costo_hnl)}</td>
       <td class="yk-num">${ykFmt(u.venta)}</td>
-      <td class="yk-num" style="color:${rec ? '#4ade80' : '#e0a800'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+      <td class="yk-num" style="color:${rec ? 'var(--green-fg,#4ade80)' : 'var(--gold,#e0a800)'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
       <td>${rec ? '<span style="color:var(--green-fg,#4ade80)">✓</span>' : '<span style="color:var(--gold,#e0a800)">pendiente</span>'}</td>
     </tr>`
   }).join('')
@@ -1042,8 +1042,8 @@ window.ykVendeRender = () => {
       <td>${esc(u.contenedor || '')}</td>
       <td class="yk-num">${ykFmt(costo)}</td>
       <td class="yk-num">${ykFmt(venta)}</td>
-      <td class="yk-num" style="color:${faltante <= 0 ? '#4ade80' : '#e0a800'}">${faltante <= 0 ? '+' + ykFmt(-faltante) : ykFmt(faltante)}</td>
-      <td class="yk-num" style="color:${rec ? '#4ade80' : '#e0a800'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+      <td class="yk-num" style="color:${faltante <= 0 ? 'var(--green-fg,#4ade80)' : 'var(--gold,#e0a800)'}">${faltante <= 0 ? '+' + ykFmt(-faltante) : ykFmt(faltante)}</td>
+      <td class="yk-num" style="color:${rec ? 'var(--green-fg,#4ade80)' : 'var(--gold,#e0a800)'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
       <td>${rec ? '<span style="color:var(--green-fg,#4ade80)">✓ recuperado</span>' : '<span style="color:var(--gold,#e0a800)">pendiente</span>'}</td>
     </tr>`
   }).join('')
@@ -1386,10 +1386,10 @@ window.ykOnAnioVeh = () => {
   if (gen) {
     ykEnsureOption(ad, gen.desde); ykEnsureOption(ah, gen.hasta)
     if (ad) ad.value = String(gen.desde); if (ah) ah.value = String(gen.hasta)
-    if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${gen.desde}–${gen.hasta} (año ${anio}) — cotizando repuestos de toda la generación.` }
+    if (hint) { hint.style.color = 'var(--green-fg,#16a34a)'; hint.textContent = `🚗 Generación ${gen.desde}–${gen.hasta} (año ${anio}) — cotizando repuestos de toda la generación.` }
     if (window.ykUnidadesPanel) ykUnidadesPanel('yk-cot')
   } else {
-    if (hint) { hint.style.color = '#e0a800'; hint.textContent = `⚠ No hay generación para ${marca} ${modelo} ${anio}. Cotiza igual por año; si querés fijar la generación, agregala en la pestaña Generaciones.` }
+    if (hint) { hint.style.color = 'var(--gold,#e0a800)'; hint.textContent = `⚠ No hay generación para ${marca} ${modelo} ${anio}. Cotiza igual por año; si querés fijar la generación, agregala en la pestaña Generaciones.` }
   }
 }
 // ── Reglas de validación de generaciones ──
@@ -1433,7 +1433,7 @@ window.ykGuardarGenSiFalta = async () => {
     const prof = window._currentProfile?.()
     await ykSb().from('modelo_generaciones').upsert({ marca, modelo, marca_norm: ykNorm(marca), modelo_norm: ykNorm(modelo), anio_desde: d, anio_hasta: h, traccion: ykDetalle.traccion || '', combustible: ykDetalle.combustible || '', motor: ykDetalle.motor || '', grupo_repuesto: ykDetalle.grupo || '', creado_por: prof ? (prof.nombre || prof.email || '') : '' }, { onConflict: 'marca_norm,modelo_norm,traccion,combustible,motor,grupo_repuesto,anio_desde,anio_hasta', ignoreDuplicates: true })
     await ykLoadGeneraciones()
-    const hint = document.getElementById('yk-cot-genhint'); if (hint) { hint.style.color = '#16a34a'; hint.textContent = `🚗 Generación ${d}–${h} guardada para ${marca} ${modelo}.` }
+    const hint = document.getElementById('yk-cot-genhint'); if (hint) { hint.style.color = 'var(--green-fg,#16a34a)'; hint.textContent = `🚗 Generación ${d}–${h} guardada para ${marca} ${modelo}.` }
   } catch (e) { console.error('[yk gen save]', e) }
 }
 
@@ -1576,7 +1576,7 @@ window.ykCorRender = async () => {
   try {
     const { data } = await ykSb().from('correcciones_texto').select('id,mal,bien').order('mal')
     const sup = ykEsSuper()
-    cont.innerHTML = (data || []).map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#3a3a3a);font-size:13px"><div style="flex:1"><span style="color:#e05353">${ykEsc(r.mal)}</span> → <b style="color:#16a34a">${ykEsc(r.bien)}</b></div>${sup ? `<span onclick="ykCorDel('${r.id}')" style="cursor:pointer;color:#e05353">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#888);padding:8px">Sin correcciones</div>'
+    cont.innerHTML = (data || []).map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#3a3a3a);font-size:13px"><div style="flex:1"><span style="color:#e05353">${ykEsc(r.mal)}</span> → <b style="color:var(--green-fg,#16a34a)">${ykEsc(r.bien)}</b></div>${sup ? `<span onclick="ykCorDel('${r.id}')" style="cursor:pointer;color:#e05353">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#888);padding:8px">Sin correcciones</div>'
   } catch (e) { cont.innerHTML = 'Error' }
 }
 window.ykCorAdd = async () => {
@@ -1613,10 +1613,10 @@ window.ykHintPieza = () => {
   const grupo = ykPALABRAS[palabra]
   if (grupo) {
     const g = document.getElementById('yk-det-gr'); if (g) g.value = grupo
-    if (h) { h.style.color = '#16a34a'; h.textContent = `→ "${palabra}" es del grupo ${grupo}` }
+    if (h) { h.style.color = 'var(--green-fg,#16a34a)'; h.textContent = `→ "${palabra}" es del grupo ${grupo}` }
   } else {
     _ykPiezaAdd = palabra
-    if (h) { h.style.color = '#e0a800'; h.innerHTML = `"${palabra}" no está en el diccionario. Elegí grupo arriba y tocá <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="ykAgregarPalabra()"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Agregar</button>` }
+    if (h) { h.style.color = 'var(--gold,#e0a800)'; h.innerHTML = `"${palabra}" no está en el diccionario. Elegí grupo arriba y tocá <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="ykAgregarPalabra()"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Agregar</button>` }
   }
 }
 window.ykAgregarPalabra = async () => {

@@ -58,6 +58,10 @@
   --scroll:#a3adb8;
   color-scheme:light;
 }
+/* Alias de variables que el código usaba sin que existieran (siempre caían al respaldo oscuro) */
+:root{--card:var(--bg2);--muted:var(--text2);--text1:var(--text);--bg1:var(--bg3)}
+:root,[data-theme="dark"]{--wa-fg:#25d366}
+[data-theme="light"]{--wa-fg:#0b7a3e}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
 
 /* ── UTILS ── */

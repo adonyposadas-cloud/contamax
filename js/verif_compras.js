@@ -130,7 +130,7 @@ function vcRender() {
       <td style="font-size:12px">${provCell}</td>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(f.descripcion_compra || '').replace(/"/g, '&quot;')}">${f.descripcion_compra || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${vcFmt(f.total)}${f.tiene_isv ? ' <span style="font-size:9px;color:var(--gold)">ISV</span>' : ''}</td>
-      <td style="font-size:11px;color:${color}">${v.txt || ''}</td>
+      <td style="font-size:11px;color:${tcol(color,'fg')}">${v.txt || ''}</td>
       <td style="text-align:right">${accion}</td>
     </tr>`
   }).join('') || `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Sin facturas${q ? ' para "' + q + '"' : ''}</td></tr>`

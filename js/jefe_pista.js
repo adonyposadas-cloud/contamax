@@ -98,7 +98,7 @@ function jpStyles() {
     #view-jefe-pista .jp-b{background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 14px;color:var(--text,#e6e6e6);font-size:13px;cursor:pointer}
     #view-jefe-pista .jp-b:hover{border-color:#3a3f4a}
     #view-jefe-pista .jp-b.ok{background:var(--gold-bg,#f0a500);border-color:var(--gold,#f0a500);color:#1a1a1a;font-weight:700}
-    #view-jefe-pista .jp-b.green{background:#16a34a;border-color:#16a34a;color:#fff;font-weight:700}
+    #view-jefe-pista .jp-b.green{background:#16a34a;border-color:var(--green,#16a34a);color:#fff;font-weight:700}
     #view-jefe-pista .jp-b.del{color:var(--red-fg,#f85149);padding:6px 9px}
     #view-jefe-pista .jp-itrow{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;margin-bottom:6px;font-size:13px}
     #view-jefe-pista .jp-tag{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:700}
@@ -232,7 +232,7 @@ window.jpTecInput = () => {
   const q = (inp.value || '').trim().toUpperCase()
   if (q.length < 2) { drop.style.display = 'none'; drop.innerHTML = ''; return }
   const matches = jpTecnicos.filter(t => t.nombre.toUpperCase().includes(q.toUpperCase())).slice(0, 25)
-  let html = matches.map(t => `<div data-tec="${jpEsc(t.nombre)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(t.nombre)}</div>`).join('')
+  let html = matches.map(t => `<div data-tec="${jpEsc(t.nombre)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='var(--bg3,#1a1d24)'" onmouseout="this.style.background='transparent'">${jpEsc(t.nombre)}</div>`).join('')
   // El técnico se ELIGE de la lista, no se crea al vuelo. Crear técnicos desde acá
   // ensuciaba el catálogo con nombres cortos y duplicados ("DAG", "CAR") — y ahora que
   // la comisión depende de tecnico_id, un duplicado paga al técnico equivocado.
@@ -287,9 +287,9 @@ window.jpDescInput = () => {
   const q = (inp.value || '').trim().toUpperCase()
   if (q.length < 2) { drop.style.display = 'none'; drop.innerHTML = ''; return }
   const matches = jpDescripciones.filter(d => d.includes(q)).slice(0, 40)
-  let html = matches.map(d => `<div data-d="${jpEsc(d)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(d)}</div>`).join('')
+  let html = matches.map(d => `<div data-d="${jpEsc(d)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='var(--bg3,#1a1d24)'" onmouseout="this.style.background='transparent'">${jpEsc(d)}</div>`).join('')
   if (!jpDescripciones.includes(q)) {
-    html += `<div data-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:var(--gold,#f0a500);font-weight:600" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}» al catálogo</div>`
+    html += `<div data-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:var(--gold,#f0a500);font-weight:600" onmouseover="this.style.background='var(--bg3,#1a1d24)'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}» al catálogo</div>`
   }
   drop.innerHTML = html
   drop.style.display = html ? 'block' : 'none'
@@ -333,7 +333,7 @@ function jpRenderItems() {
 window.jpSetTipo = (t) => {
   jpTipo = (t === 'recomendado') ? 'recomendado' : 'solicitado'
   const sol = document.getElementById('jp-tipo-sol'); const rec = document.getElementById('jp-tipo-rec')
-  const on = (el, color) => { if (el) el.style.cssText = `cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid ${color};background:${color}22;color:${color}` }
+  const on = (el, color) => { if (el) el.style.cssText = `cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid ${tcol(color,'bd')};background:${color}22;color:${tcol(color,'fg')}` }
   const off = (el) => { if (el) el.style.cssText = 'cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:var(--text2,#8b8f98)' }
   if (jpTipo === 'recomendado') { on(rec, '#f59e0b'); off(sol) } else { on(sol, '#3b82f6'); off(rec) }
 }
@@ -353,12 +353,12 @@ window.jpCheckOrden = async () => {
     const tieneSol = data.some(d => (d.tipo_solicitud || 'solicitado') === 'solicitado')
     const tieneRec = data.some(d => d.tipo_solicitud === 'recomendado')
     if (tieneSol && tieneRec) {
-      if (hint) { hint.style.color = '#f85149'; hint.textContent = `⚠ La orden #${orden} ya tiene Solicitado y Recomendado.` }
+      if (hint) { hint.style.color = 'var(--red-fg,#f85149)'; hint.textContent = `⚠ La orden #${orden} ya tiene Solicitado y Recomendado.` }
       return
     }
     if (tieneSol && !tieneRec) {
       jpSetTipo('recomendado')
-      if (hint) { hint.style.color = '#f59e0b'; hint.textContent = `Ya existe la Solicitado de #${orden} — esta se enviará como Recomendado.` }
+      if (hint) { hint.style.color = 'var(--amber-fg,#f59e0b)'; hint.textContent = `Ya existe la Solicitado de #${orden} — esta se enviará como Recomendado.` }
       const base = data.find(d => (d.tipo_solicitud || 'solicitado') === 'solicitado') || data[0]
       // Guardar cliente/placa/km para que la Recomendado nazca con ellos
       jpPrefill = { cliente: base.cliente || null, placa: base.placa || null, kilometraje: base.kilometraje || null }
@@ -367,7 +367,7 @@ window.jpCheckOrden = async () => {
       setIf('jp-anio', base.anio_vehiculo); setIf('jp-tecnico', base.mecanico)
     } else if (tieneRec && !tieneSol) {
       jpSetTipo('solicitado')
-      if (hint) { hint.style.color = '#f59e0b'; hint.textContent = `La orden #${orden} ya tiene Recomendado; esta será la Solicitado.` }
+      if (hint) { hint.style.color = 'var(--amber-fg,#f59e0b)'; hint.textContent = `La orden #${orden} ya tiene Recomendado; esta será la Solicitado.` }
     }
   } catch (e) { /* silencioso */ }
 }
@@ -491,7 +491,7 @@ function jpRenderOrdenes() {
     const btnLote = ((g.fase === 'checklist' || g.fase === 'cumplida') && lista.length)
       ? `<button class="jp-b" style="margin-left:10px;font-size:11px;padding:3px 10px;border-color:var(--border2,#8b949e);color:var(--text2,#8b949e)"
                 onclick="jpCerrarLote('${g.fase}')">Cerrar las ${lista.length}…</button>` : ''
-    html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span>${btnLote}</div>`
+    html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${tcol(g.color,'fg')};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span>${btnLote}</div>`
     html += lista.length ? lista.map(jpOrdenCard).join('') : '<div class="jp-empty" style="padding:4px 0;font-size:12px;color:var(--text2,#8b8f98)">— ninguna —</div>'
   })
   // Cualquier fase no contemplada (por si acaso), al final
@@ -601,7 +601,7 @@ function jpOrdenCard(p) {
   const ms = running ? (Date.now() - new Date(f.desde).getTime()) : 0
   const reloj = running
     ? `<div class="jp-clock" data-jp-desde="${jpEsc(f.desde)}" data-jp-fase="${f.fase}" style="color:${jpColor(ms, f.fase)}">${jpCrono(ms)}</div>`
-    : `<div class="jp-clock" style="color:#16a34a">✓</div>`
+    : `<div class="jp-clock" style="color:var(--green-fg,#16a34a)">✓</div>`
   const btnAut = f.fase === 'autorizacion'
     ? `<button class="jp-b green" onclick="jpAutorizar('${p.id}')" title="El cliente autorizó — pasar al cotizador para pedir repuestos">✓ Autorizado</button>` : ''
   const btnAdd = f.fase !== 'completado'
@@ -627,7 +627,7 @@ function jpOrdenCard(p) {
   const btnNV = (esRec && p.proc_cotizada && !['autorizada', 'no_vendida', 'finalizada', 'anulada'].includes(p.estado))
     ? `<button class="jp-b" style="border-color:var(--red,#f85149);color:var(--red-fg,#f85149)" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo"><svg class=ico aria-hidden=true><use href=#i-x></use></svg> No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
-    ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Arma el WhatsApp al cliente con el mismo PDF, su teléfono y el total ya escritos"><svg class=ico aria-hidden=true><use href=#i-device-mobile-message></use></svg> Enviar al cliente</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--wa-fg,#25D366);color:var(--wa-fg,#25D366)" onclick="jpEnviarHallazgos('${p.id}')" title="Arma el WhatsApp al cliente con el mismo PDF, su teléfono y el total ya escritos"><svg class=ico aria-hidden=true><use href=#i-device-mobile-message></use></svg> Enviar al cliente</button>` : ''
   // Habilitar técnicos en la orden (Fase 2). Aparece cuando ya hay trabajo autorizado:
   // sin trabajo que ejecutar, no hay a quién asignar. La comisión de ejecución (80%)
   // sale de acá.
@@ -645,13 +645,13 @@ function jpOrdenCard(p) {
     ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpCambiarTecnico('${p.id}')" title="Pasar la inspección a otro técnico"><svg class=ico aria-hidden=true><use href=#i-user></use></svg> Cambiar técnico</button>` : ''
   const btnTec = (esRec && p.proc_aprobada)
     ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden"><svg class=ico aria-hidden=true><use href=#i-user-cog></use></svg> Técnicos</button>` : ''
-  const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
+  const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? 'var(--amber,#f59e0b)' : 'var(--blue,#3b82f6)'};color:${esRec ? 'var(--amber-fg,#f59e0b)' : 'var(--blue-fg,#3b82f6)'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
   // Borde izquierdo por fase (mismos colores del cotizador): rojo=cotización, amarillo=autorización, verde=pedido/completado
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
-  return `<div class="jp-ordcard" style="border-left:4px solid ${bCol}">
+  return `<div class="jp-ordcard" style="border-left:4px solid ${tcol(bCol,'bd')}">
     <div class="jp-ordinfo">
       <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:var(--text2,#8b8f98);font-weight:400;font-size:12px">${jpEsc(corre)} · ${nSol && nIt ? `${nSol} por cotizar · ${nIt} cotizado(s)` : (nIt && !nSol ? `${nIt} cotizado(s)` : `${nProd} ítem(s)`)}</span>${tipoBadge}</div>
-      <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${
+      <div style="font-size:12px;color:${tcol(f.color,'fg')};margin-top:2px">${f.lbl}${
         // En "esperando el checklist" lo útil es a QUIÉN reclamarle, no el cliente:
         // es el mecánico el que tiene el carro parado.
         f.fase === 'checklist'
@@ -712,7 +712,7 @@ function jpModalCierre(titulo, sub, motivos, onOk) {
             <input type="radio" name="jp-cc-m" value="${jpEsc(m.codigo)}" data-nota="${m.exige_nota ? 1 : 0}" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
             <span style="flex:1;min-width:0">
               ${jpEsc(m.nombre)}
-              <div style="font-size:11px;color:${m.cuenta_tecnico ? '#f0a500' : '#8b949e'};margin-top:2px">
+              <div style="font-size:11px;color:${m.cuenta_tecnico ? 'var(--gold,#f0a500)' : 'var(--text2,#8b949e)'};margin-top:2px">
                 ${m.cuenta_tecnico ? '⚠ Cuenta contra el técnico' : 'No cuenta contra nadie'}
               </div>
             </span>
@@ -730,12 +730,12 @@ function jpModalCierre(titulo, sub, motivos, onOk) {
   ov.querySelector('#jp-cc-ok').onclick = async () => {
     const sel = ov.querySelector('input[name="jp-cc-m"]:checked')
     const msg = ov.querySelector('#jp-cc-msg')
-    if (!sel) { msg.style.color = '#f85149'; msg.textContent = 'Elegí el motivo'; return }
+    if (!sel) { msg.style.color = 'var(--red-fg,#f85149)'; msg.textContent = 'Elegí el motivo'; return }
     const nota = (ov.querySelector('#jp-cc-nota').value || '').trim()
-    if (sel.dataset.nota === '1' && !nota) { msg.style.color = '#f85149'; msg.textContent = 'Ese motivo pide que expliques cuál'; return }
+    if (sel.dataset.nota === '1' && !nota) { msg.style.color = 'var(--red-fg,#f85149)'; msg.textContent = 'Ese motivo pide que expliques cuál'; return }
     const btn = ov.querySelector('#jp-cc-ok'); btn.disabled = true; btn.textContent = 'Cerrando…'
     try { await onOk(sel.value, nota || null); ov.remove() }
-    catch (e) { msg.style.color = '#f85149'; msg.textContent = e.message || String(e); btn.disabled = false; btn.textContent = 'Cerrar' }
+    catch (e) { msg.style.color = 'var(--red-fg,#f85149)'; msg.textContent = e.message || String(e); btn.disabled = false; btn.textContent = 'Cerrar' }
   }
 }
 
@@ -842,7 +842,7 @@ window.jpAbrirAgregar = async (id) => {
   const ex = document.getElementById('jp-ag-existentes')
   const items = Array.isArray(p.solicitados) ? p.solicitados : []
   ex.innerHTML = items.length
-    ? '<div class="jp-sub" style="margin-bottom:4px">Ya solicitado:</div>' + items.map(it => `<div style="font-size:12px;color:var(--text2,#8b8f98);padding:2px 0">• ${jpEsc(it.desc)} x${it.cantidad || 1}${it.agregado ? ' <span style="color:#16a34a">(agregado)</span>' : ''}${it.nuevo ? ' <span style="color:var(--gold,#f0a500)">(nuevo)</span>' : ''}</div>`).join('')
+    ? '<div class="jp-sub" style="margin-bottom:4px">Ya solicitado:</div>' + items.map(it => `<div style="font-size:12px;color:var(--text2,#8b8f98);padding:2px 0">• ${jpEsc(it.desc)} x${it.cantidad || 1}${it.agregado ? ' <span style="color:var(--green-fg,#16a34a)">(agregado)</span>' : ''}${it.nuevo ? ' <span style="color:var(--gold,#f0a500)">(nuevo)</span>' : ''}</div>`).join('')
     : '<div class="jp-sub">Esta orden aún no tiene ítems solicitados.</div>'
   jpAgRender()
   const d = document.getElementById('jp-ag-desc'); if (d) d.value = ''
@@ -1239,9 +1239,9 @@ async function jpRenderSwitch () {
     box.innerHTML = `
       <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;margin-bottom:12px;border-radius:10px;
                   background:${on ? 'rgba(22,163,74,.10)' : 'rgba(240,165,0,.10)'};
-                  border:1px solid ${on ? '#16a34a' : '#f0a500'}">
+                  border:1px solid ${on ? 'var(--green,#16a34a)' : 'var(--gold,#f0a500)'}">
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:700;color:${on ? '#16a34a' : '#f0a500'}">
+          <div style="font-size:13px;font-weight:700;color:${on ? 'var(--green-fg,#16a34a)' : 'var(--gold,#f0a500)'}">
             ${on ? '🔒 Checklist OBLIGATORIO' : '🔓 Checklist opcional (piloto)'}
           </div>
           <div style="font-size:11px;color:var(--text2,#8b8f98);margin-top:1px">
@@ -1501,11 +1501,11 @@ function jpModalTecnicos (numeroOrden, trabajos, habilitados, tomados) {
         const tag = t.tipo === 's' ? 'SERV' : 'PROD'
         const tagCol = t.tipo === 's' ? '#8b5cf6' : '#3b82f6'
         const estado = tom
-          ? `<span style="color:#16a34a;font-weight:600">✓ ${jpEsc(jpNombreTec(tom.tecnico_id))}</span>
+          ? `<span style="color:var(--green-fg,#16a34a);font-weight:600">✓ ${jpEsc(jpNombreTec(tom.tecnico_id))}</span>
              <button onclick="jpReasignar('${jpEsc(t.id)}','${jpEsc(numeroOrden)}')" style="background:none;border:1px solid var(--border,#2a2e37);color:var(--text2,#8b8f98);border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:6px">cambiar</button>`
           : '<span style="color:var(--text2,#8b8f98);font-size:12px">sin tomar</span>'
         return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1c1f26">
-          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:${tagCol}22;color:${tagCol}">${tag}</span>
+          <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:${tagCol}22;color:${tcol(tagCol,'fg')}">${tag}</span>
           <span style="flex:1;font-size:13px">${jpEsc(t.descripcion || '')}</span>
           ${estado}
         </div>`
@@ -1661,7 +1661,7 @@ function jpRenderEditModal () {
         <div style="font-size:11px;color:#6b7280">${cant} × ${fmt(precio)}</div>
       </div>
       ${oculto
-        ? `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #16a34a;color:#16a34a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg> Regresar</button>`
+        ? `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid var(--green,#16a34a);color:var(--green-fg,#16a34a);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg> Regresar</button>`
         : `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid var(--red,#f85149);color:var(--red-fg,#f85149);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">✕ Quitar</button>`}
     </div>`
   }
@@ -1686,7 +1686,7 @@ function jpRenderEditModal () {
       <div style="padding:14px 18px;border-top:1px solid var(--border,#2a2e37);display:flex;align-items:center;gap:12px">
         <div style="flex:1">
           <div style="font-size:11px;color:var(--text2,#8b949e)">TOTAL con lo aceptado</div>
-          <div style="font-size:20px;font-weight:800;color:#16a34a">${fmt(total)}</div>
+          <div style="font-size:20px;font-weight:800;color:var(--green-fg,#16a34a)">${fmt(total)}</div>
         </div>
         <button onclick="jpEditCancelar()" style="background:none;border:1px solid #3a3f4a;color:var(--text2,#8b949e);border-radius:8px;padding:9px 16px;cursor:pointer">Cancelar</button>
         <button onclick="jpEditGuardar()" style="background:#16a34a;border:0;color:#fff;border-radius:8px;padding:9px 18px;font-weight:600;cursor:pointer">Guardar y generar PDF</button>

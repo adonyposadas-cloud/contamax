@@ -144,7 +144,7 @@ window.verHistorialVac = async (empleadoId) => {
       const d = parseFloat(m.dias) || 0
       return `<tr>
         <td style="white-space:nowrap">${m.fecha || '—'}</td>
-        <td><span style="color:${t.color};white-space:nowrap">${t.icono} ${t.nombre}</span></td>
+        <td><span style="color:${tcol(t.color,'fg')};white-space:nowrap">${t.icono} ${t.nombre}</span></td>
         <td style="text-align:right;font-weight:600;color:${d >= 0 ? 'var(--green)' : 'var(--red)'}">${d >= 0 ? '+' : ''}${fmtDias(d)}</td>
         <td style="text-align:right;font-family:var(--mono)">${fmtDias(m.saldo_resultante)}</td>
         <td style="font-size:11px;color:var(--text3)">${(m.motivo || '')}${m.referencia ? ' · ' + m.referencia : ''}${m.partida_numero ? ` · <b style="color:var(--gold)">#${m.partida_numero}</b>` : ''}${m.monto ? ' · L. ' + fmt(m.monto) : ''}</td>
