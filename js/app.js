@@ -3254,6 +3254,14 @@ window.guardarPartida = async (estado) => {
   const tipo_origen = document.getElementById('pn-origen').value
   if (!fecha) { toast('Selecciona la fecha', 'error'); return }
   if (!descripcion) { toast('Ingresa una descripción', 'error'); return }
+  // Antes una línea con monto pero sin cuenta se descartaba acá sin aviso y la
+  // partida se grababa descuadrada (caso #5486: se perdieron dos CxC).
+  const sinCuenta = partidaLineas.filter(l => !l.cuenta_id && l.monto > 0)
+  if (sinCuenta.length) {
+    toast(`Hay ${sinCuenta.length} línea(s) con monto pero sin cuenta: ` +
+      sinCuenta.map(l => `${l.descripcion || 'sin descripción'} (L.${Number(l.monto).toFixed(2)})`).join(' · '), 'error')
+    return
+  }
   const lineasValidas = partidaLineas.filter(l => l.cuenta_id && l.monto > 0)
   if (lineasValidas.length < 2) { toast('Necesitas al menos 2 líneas con cuenta y monto', 'error'); return }
   // Validar centro de costo obligatorio para gastos, ingresos y costos
@@ -5797,6 +5805,10 @@ function renderImportPartida() {
   )
 
   const filtered = lineas.filter(l => l.debe > 0 || l.haber > 0)
+  // guardarImportPartida arma el formulario con ESTOS montos. Antes los recalculaba
+  // por su cuenta y dejaba afuera la CxC consolidada de Yonker y la cuenta puente:
+  // la vista previa cuadraba y la partida guardada no (caso #5486).
+  window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente }
 
   const tbody = document.getElementById('tbody-import-partida')
   tbody.innerHTML = filtered.map(l => {
@@ -5906,7 +5918,29 @@ window.guardarImportPartida = async () => {
   lineaCounter = 0
 
   // ── DÉBITO: Líneas de CxC para facturas a crédito ──
-  for (const fc of facturasCredito) {
+  const pv = window._importPreview || {}
+  const esYonkerCC = (c) => String(c || '').toLowerCase().includes('yonker')
+
+  // Yonker: una sola línea contra la CxC puente, como en la vista previa.
+  if (pv.creditoYonkerTotal > 0) {
+    lineaCounter++
+    partidaLineas.push({ id: lineaCounter, cuenta_id: getCuenta(C.cxc_yonker.codigo)?.id || '',
+      cuenta_codigo: C.cxc_yonker.codigo, cuenta_nombre: C.cxc_yonker.nombre, tipo: 'debito',
+      monto: r2(pv.creditoYonkerTotal), centro_costo_id: ccYonker?.id || '',
+      descripcion: 'CXC YONKER CREDITOS DEL DIA', aplica_fiscal: true })
+  }
+
+  // Cuenta puente: neto del día (negativo = baja el pasivo = débito).
+  if (pv.netoPuente) {
+    lineaCounter++
+    partidaLineas.push({ id: lineaCounter, cuenta_id: getCuenta(C.puente_yonker.codigo)?.id || '',
+      cuenta_codigo: C.puente_yonker.codigo, cuenta_nombre: C.puente_yonker.nombre,
+      tipo: pv.netoPuente < 0 ? 'debito' : 'credito', monto: r2(Math.abs(pv.netoPuente)),
+      centro_costo_id: ccYonker?.id || '', descripcion: 'NETO RECIBOS YONKER DEL DIA', aplica_fiscal: false })
+  }
+
+  // Tecnicentro: una línea por cliente contra su subcuenta.
+  for (const fc of facturasCredito.filter(f => !esYonkerCC(f.centro))) {
     const clienteNombre = fc.cliente.trim().toUpperCase()
     const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
     if (cxcCuenta) {
@@ -5939,9 +5973,12 @@ window.guardarImportPartida = async () => {
     }
   }
 
-  // Agregar 2 líneas vacías para débitos (el usuario las llena manualmente)
+  // Formas de pago: el monto de caja viene prellenado y SIN cuenta a propósito.
+  // El usuario elige la cuenta (o lo reparte en varias líneas); guardarPartida no
+  // deja grabar una línea con monto y sin cuenta, así que no se puede olvidar.
   lineaCounter++
-  partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
+  partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito',
+    monto: r2(pv.totalCaja || 0), centro_costo_id:'', descripcion:'FORMAS DE PAGO - ELEGIR CUENTA', aplica_fiscal:true })
   lineaCounter++
   partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
 
