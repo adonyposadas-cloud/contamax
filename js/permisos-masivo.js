@@ -299,7 +299,7 @@ function pmEnsureStyles() {
     .pm-prev-g>div{background:var(--bg3);border:0.5px solid var(--border);border-radius:9px;padding:9px;text-align:center}
     .pm-prev-g b{display:block;font-size:15px}
     .pm-prev-g span{display:block;font-size:10px;color:var(--text3);margin-top:2px}
-    .pm-warn{background:rgba(245,196,81,.12);border:0.5px solid rgba(245,196,81,.4);color:#f5c451;
+    .pm-warn{background:rgba(245,196,81,.12);border:0.5px solid rgba(245,196,81,.4);color:var(--amber-fg,#f5c451);
       border-radius:var(--radius);padding:9px 12px;font-size:12px;margin-top:10px}
     .pm-warn.hidden{display:none}
     @media (max-width:760px){ .pm-modal{width:96vw!important} .pm-prev-g{grid-template-columns:repeat(2,1fr)} }`

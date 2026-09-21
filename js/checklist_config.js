@@ -43,8 +43,8 @@ window.__chkCfgBuild = '20260722a'
   window.initChecklistConfig = async function () {
     const root = document.getElementById('view-checklist-config')
     if (!root) return
-    if (!esSuper()) { root.innerHTML = '<div style="padding:24px;color:#f85149">Solo super_admin puede configurar el checklist.</div>'; return }
-    root.innerHTML = '<div style="padding:24px;color:#8b949e">Cargando…</div>'
+    if (!esSuper()) { root.innerHTML = '<div style="padding:24px;color:var(--red-fg,#f85149)">Solo super_admin puede configurar el checklist.</div>'; return }
+    root.innerHTML = '<div style="padding:24px;color:var(--text2,#8b949e)">Cargando…</div>'
     try {
       const [rp, rl, rt] = await Promise.all([
         sb().from('checklist_puntos').select('*').order('orden'),
@@ -60,7 +60,7 @@ window.__chkCfgBuild = '20260722a'
       await cargarNombres()
       render()
     } catch (e) {
-      root.innerHTML = `<div style="padding:24px;color:#f85149">Error: ${esc(e.message || e)}</div>`
+      root.innerHTML = `<div style="padding:24px;color:var(--red-fg,#f85149)">Error: ${esc(e.message || e)}</div>`
     }
   }
 
@@ -78,9 +78,9 @@ window.__chkCfgBuild = '20260722a'
   function render () {
     const root = document.getElementById('view-checklist-config')
     root.innerHTML = `
-      <div style="background:rgba(200,162,74,.08);border-left:3px solid #c8a24a;padding:11px 14px;margin-bottom:14px;font-size:12px;color:#8b949e">
+      <div style="background:rgba(200,162,74,.08);border-left:3px solid var(--gold,#c8a24a);padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text2,#8b949e)">
         El checklist es un ser vivo: agregá puntos por temporada y apagalos cuando pase.
-        <b style="color:#e6edf3">Desactivar un punto no borra nada</b> — solo deja de aparecer en inspecciones nuevas.
+        <b style="color:var(--text,#e6edf3)">Desactivar un punto no borra nada</b> — solo deja de aparecer en inspecciones nuevas.
         Un punto que paga comisión no puede quedar sin precio (la base lo impide).
       </div>
 
@@ -100,29 +100,29 @@ window.__chkCfgBuild = '20260722a'
     // Los umbrales hacen falta si el punto mide por tipo O por 'medición siempre'
     const mide = p.tipo_punto === 'medicion' || !!p.medicion_siempre
     return `
-      <div id="chk-punto-${p.id}" data-pid="${p.id}" style="background:#15171c;border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
+      <div id="chk-punto-${p.id}" data-pid="${p.id}" style="background:var(--bg2,#15171c);border:1px solid ${p.activo ? '#2a2e37' : '#4a2a2a'};border-radius:12px;padding:14px;margin-bottom:12px;${p.activo ? '' : 'opacity:.7'}">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
           <span class="chk-grip" data-grip="${p.id}" title="Arrastrá para reordenar" style="cursor:grab;touch-action:none;user-select:none;color:#6b7280;font-size:17px;line-height:1;padding:2px 2px">⠿</span>
           <span style="display:inline-flex;flex-direction:column;gap:1px">
-            <button onclick="chkMover(${p.id},'arriba')" title="Subir" style="background:none;border:0;color:#8b949e;cursor:pointer;font-size:11px;line-height:1;padding:0">▲</button>
-            <button onclick="chkMover(${p.id},'abajo')" title="Bajar" style="background:none;border:0;color:#8b949e;cursor:pointer;font-size:11px;line-height:1;padding:0">▼</button>
+            <button onclick="chkMover(${p.id},'arriba')" title="Subir" style="background:none;border:0;color:var(--text2,#8b949e);cursor:pointer;font-size:11px;line-height:1;padding:0">▲</button>
+            <button onclick="chkMover(${p.id},'abajo')" title="Bajar" style="background:none;border:0;color:var(--text2,#8b949e);cursor:pointer;font-size:11px;line-height:1;padding:0">▼</button>
           </span>
           <span style="font-size:11px;color:#6b7280;min-width:24px">#${p.orden}</span>
           <input value="${esc(p.nombre)}" onchange="chkCfgEdit(${p.id},'nombre',this.value)"
-                 style="flex:1;font-weight:600;background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:6px 9px;font-size:14px">
+                 style="flex:1;font-weight:600;background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:6px 9px;font-size:14px">
           <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:${p.activo ? '#16a34a' : '#f85149'};cursor:pointer">
             <input type="checkbox" ${p.activo ? 'checked' : ''} onchange="chkCfgEdit(${p.id},'activo',this.checked)"> ${p.activo ? 'activo' : 'apagado'}
           </label>
         </div>
 
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">
-          <label style="color:#8b949e">Tipo
-            <select onchange="chkCfgEdit(${p.id},'tipo_punto',this.value)" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px;margin-left:4px">
+          <label style="color:var(--text2,#8b949e)">Tipo
+            <select onchange="chkCfgEdit(${p.id},'tipo_punto',this.value)" style="background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:4px 6px;margin-left:4px">
               ${TIPOS.map(([v, l]) => `<option value="${v}" ${p.tipo_punto === v ? 'selected' : ''}>${l}</option>`).join('')}
             </select>
           </label>
-          <label style="color:#8b949e">Sistema
-            <select onchange="chkCfgEdit(${p.id},'sistema',this.value)" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px;margin-left:4px">
+          <label style="color:var(--text2,#8b949e)">Sistema
+            <select onchange="chkCfgEdit(${p.id},'sistema',this.value)" style="background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:4px 6px;margin-left:4px">
               ${SISTEMAS.map(sis => `<option value="${sis}" ${p.sistema === sis ? 'selected' : ''}>${sis}</option>`).join('')}
             </select>
           </label>
@@ -141,23 +141,23 @@ window.__chkCfgBuild = '20260722a'
         </div>
 
         ${(p.medicion_siempre && !p.pide_medicion) ? `
-        <div style="font-size:11.5px;color:#f0a500;margin:-4px 0 8px">
+        <div style="font-size:11.5px;color:var(--gold,#f0a500);margin:-4px 0 8px">
           ⚠ Aunque «Pide medición» esté apagado, este punto <b>sigue pidiendo el número</b> por «Medición siempre».
         </div>` : ''}
 
         ${mide ? `
-        <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:#8b949e;margin-bottom:10px">
+        <div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text2,#8b949e);margin-bottom:10px">
           <span>Umbrales:</span>
-          🟡 &lt;<input type="number" step="0.1" value="${p.umbral_amarillo ?? ''}" onchange="chkCfgEdit(${p.id},'umbral_amarillo',this.value)" style="width:60px;background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px">
-          🔴 &lt;<input type="number" step="0.1" value="${p.umbral_rojo ?? ''}" onchange="chkCfgEdit(${p.id},'umbral_rojo',this.value)" style="width:60px;background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px">
-          <input value="${esc(p.unidad_medicion || 'mm')}" onchange="chkCfgEdit(${p.id},'unidad_medicion',this.value)" style="width:44px;background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:4px 6px" title="unidad">
+          🟡 &lt;<input type="number" step="0.1" value="${p.umbral_amarillo ?? ''}" onchange="chkCfgEdit(${p.id},'umbral_amarillo',this.value)" style="width:60px;background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:4px 6px">
+          🔴 &lt;<input type="number" step="0.1" value="${p.umbral_rojo ?? ''}" onchange="chkCfgEdit(${p.id},'umbral_rojo',this.value)" style="width:60px;background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:4px 6px">
+          <input value="${esc(p.unidad_medicion || 'mm')}" onchange="chkCfgEdit(${p.id},'unidad_medicion',this.value)" style="width:44px;background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:4px 6px" title="unidad">
         </div>` : ''}
 
-        <div style="border-top:1px solid #2a2e37;padding-top:9px">
-          <div style="font-size:11px;color:#8b949e;margin-bottom:5px">QUÉ VENDE cuando sale 🟡 / 🔴:</div>
+        <div style="border-top:1px solid var(--border,#2a2e37);padding-top:9px">
+          <div style="font-size:11px;color:var(--text2,#8b949e);margin-bottom:5px">QUÉ VENDE cuando sale 🟡 / 🔴:</div>
           ${lineas.length ? lineas.map(lineaRow).join('') : '<div style="font-size:11px;color:#6b7280;font-style:italic">Ninguna línea de venta. Este punto es solo informativo mientras no tenga qué vender.</div>'}
           <div id="chk-add-linea-${p.id}" style="margin-top:6px"></div>
-          <button onclick="chkLineaFormAbrir(${p.id})" style="margin-top:4px;font-size:11px;background:none;border:1px dashed #3a3f4a;color:#8b949e;border-radius:6px;padding:4px 10px;cursor:pointer">+ Agregar línea de venta</button>
+          <button onclick="chkLineaFormAbrir(${p.id})" style="margin-top:4px;font-size:11px;background:none;border:1px dashed #3a3f4a;color:var(--text2,#8b949e);border-radius:6px;padding:4px 10px;cursor:pointer">+ Agregar línea de venta</button>
         </div>
       </div>`
   }
@@ -174,9 +174,9 @@ window.__chkCfgBuild = '20260722a'
       <span style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:6px;background:${l.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${l.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${l.tipo === 's' ? 'SERV' : 'PROD'}</span>
       <span style="flex:1">${esc(nombre)} <span style="color:#6b7280">×${fmt(l.cantidad_default)}</span></span>
       <span style="color:${precio == null ? '#f85149' : '#8b949e'}">${precio == null ? 'SIN PRECIO' : 'L.' + fmt(precio)}</span>
-      ${cod ? `<span style="color:#c8a24a">cód ${cod}</span>` : ''}
+      ${cod ? `<span style="color:var(--gold,#c8a24a)">cód ${cod}</span>` : ''}
       ${pct != null ? `<span style="color:#16a34a">${pct}%</span>` : ''}
-      <button onclick="chkLineaQuitar(${l.id})" title="Quitar esta línea" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:14px;padding:0 4px">✕</button>
+      <button onclick="chkLineaQuitar(${l.id})" title="Quitar esta línea" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:14px;padding:0 4px">✕</button>
     </div>`
   }
 
@@ -217,19 +217,19 @@ window.__chkCfgBuild = '20260722a'
       .map(x => `<option value="${x.id}">${esc(x.nombre)}</option>`).join('')
 
     cont.innerHTML = `
-      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px">
-        <select id="nl-sev-${puntoId}" style="background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:8px">
+        <select id="nl-sev-${puntoId}" style="background:var(--bg2,#161b22);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:5px">
           <option value="amarillo">🟡 Recomendado</option>
           <option value="rojo">🔴 Urgente</option>
         </select>
-        <select id="nl-tipo-${puntoId}" onchange="chkLineaTipoCambio(${puntoId})" style="background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+        <select id="nl-tipo-${puntoId}" onchange="chkLineaTipoCambio(${puntoId})" style="background:var(--bg2,#161b22);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:5px">
           <option value="s">Servicio</option>
           <option value="p">Producto</option>
         </select>
-        <select id="nl-cat-${puntoId}" style="flex:1;min-width:180px;background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+        <select id="nl-cat-${puntoId}" style="flex:1;min-width:180px;background:var(--bg2,#161b22);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:5px">
           ${opts(NOMB.s)}
         </select>
-        <input id="nl-cant-${puntoId}" type="number" step="0.1" min="0.1" value="1" title="cantidad" style="width:60px;background:#161b22;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:5px">
+        <input id="nl-cant-${puntoId}" type="number" step="0.1" min="0.1" value="1" title="cantidad" style="width:60px;background:var(--bg2,#161b22);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:5px">
         <button onclick="chkLineaGuardar(${puntoId})" style="background:#16a34a;border:0;color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px">Agregar</button>
       </div>`
   }
@@ -429,7 +429,7 @@ window.__chkCfgBuild = '20260722a'
     }
     const ph = document.createElement('div')
     ph.className = 'chk-ph'
-    ph.style.cssText = `height:${rect.height}px;margin-bottom:12px;border:2px dashed #c8a24a;border-radius:12px;background:rgba(200,162,74,.06)`
+    ph.style.cssText = `height:${rect.height}px;margin-bottom:12px;border:2px dashed var(--gold,#c8a24a);border-radius:12px;background:rgba(200,162,74,.06)`
     card.parentNode.insertBefore(ph, card)
     DS.ph = ph
 

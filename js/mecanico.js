@@ -108,7 +108,7 @@
         .mec-chip{flex:0 0 auto;padding:7px 11px;border-radius:999px;border:1px solid var(--border,#2a3340);
                   background:var(--bg2,#161b22);color:var(--text2,#c9d1d9);font-size:12px;font-weight:600;
                   cursor:pointer;white-space:nowrap;line-height:1.1}
-        .mec-chip.on{background:var(--gold,#c8a24a);border-color:var(--gold,#c8a24a);color:#1a1a1a}
+        .mec-chip.on{background:var(--gold-bg,#c8a24a);border-color:var(--gold,#c8a24a);color:#1a1a1a}
         .mec-chip b{font-weight:800;opacity:.7;margin-left:3px}
         .mec-prog{flex:1;font-size:13px;color:var(--text3,#8b949e)}
         .mec-ruedas{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -446,7 +446,7 @@
         const mio = tomadoPor[l.id] === yo.tecnico_id
         const tag = l.tipo === 's' ? 'MO' : 'Pieza'
         h += `<div class="mec-card" style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(139,92,246,.15);color:#8b5cf6">${tag}</span>
+          <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(139,92,246,.15);color:var(--purple-fg,#8b5cf6)">${tag}</span>
           <span style="flex:1;font-size:13px">${esc(l.descripcion || '')}</span>
           ${mio
             ? '<span style="color:var(--green,#16a34a);font-weight:700">✓ Lo hice</span>'
@@ -619,8 +619,8 @@
 
     // Este checklist ya se entregó. Se puede sumar, no reescribir.
     if (INSP.estado === 'cerrada') {
-      html += `<div class="mec-card" style="border-color:#f0a500;background:rgba(240,165,0,.07)">
-        <div style="font-weight:700;color:#f0a500;margin-bottom:4px">Checklist ya entregado</div>
+      html += `<div class="mec-card" style="border-color:var(--gold,#f0a500);background:rgba(240,165,0,.07)">
+        <div style="font-weight:700;color:var(--gold,#f0a500);margin-bottom:4px">Checklist ya entregado</div>
         <div style="font-size:12.5px;color:var(--text2,#c9d1d9);line-height:1.45">
           Podés subir un punto que habías dado por <b>Bien</b> si viste algo después, con su foto,
           y se suma a la cotización que ya está en curso. Lo que ya reportaste no se puede cambiar.
@@ -727,18 +727,18 @@
                 <div style="margin-top:7px">
                   ${x.foto_url
                     ? `<img data-foto="${esc(x.foto_url)}" style="width:92px;height:70px;object-fit:cover;border-radius:7px">`
-                    : `<label class="btn btn-ghost" style="font-size:12px;padding:7px 12px;cursor:pointer;color:#f0a500;border-color:#f0a500">
+                    : `<label class="btn btn-ghost" style="font-size:12px;padding:7px 12px;cursor:pointer;color:var(--gold,#f0a500);border-color:var(--gold,#f0a500)">
                          📷 Falta la foto
                          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="mecExtraFoto('${x.id}', this)">
                        </label>`}
                 </div>
               </div>
-              <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:#f85149" onclick="mecExtraQuitar('${x.id}')">✕</button>
+              <button class="btn btn-ghost" style="padding:3px 9px;font-size:11px;color:var(--red-fg,#f85149)" onclick="mecExtraQuitar('${x.id}')">✕</button>
             </div>
           </div>`).join('')}
         ${EXTRAS.length < 10
           ? `<button class="btn btn-ghost" style="width:100%;padding:11px;font-size:13px" onclick="mecExtraNuevo()">+ Agregar hallazgo</button>`
-          : `<div style="font-size:12px;color:#f0a500">Llegaste al tope de 10. Si de verdad hay más, avisale a gerencia: probablemente falte un punto en el checklist.</div>`}
+          : `<div style="font-size:12px;color:var(--gold,#f0a500)">Llegaste al tope de 10. Si de verdad hay más, avisale a gerencia: probablemente falte un punto en el checklist.</div>`}
       </div>`
 
     const done = PUNTOS.filter(p => HALL[p.id]).length
@@ -795,7 +795,7 @@
         </label>
         ${est ? `<input class="mec-in" style="margin-top:6px" placeholder="¿Por qué? (obligatorio)"
                    value="${esc(h.motivo_estimada || '')}" onchange="mecMotivo(${p.id}, this.value)">
-                 <div style="font-size:11px;color:#f0a500;margin-top:4px">⚠️ Sin medición este punto no paga comisión</div>` : ''}
+                 <div style="font-size:11px;color:var(--gold,#f0a500);margin-top:4px">⚠️ Sin medición este punto no paga comisión</div>` : ''}
       </div>`
       if (p.foto_obligatoria && (sev === 'amarillo' || sev === 'rojo')) extra += fotoHTML(p, h)
       extra += '</div>'

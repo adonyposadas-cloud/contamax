@@ -268,7 +268,7 @@ function rtxRender() {
         if (!u.size) return ''
         const graves = [...u].filter(x => (rtxGpsRacha[x] || 0) >= 3).length
         return `<div class="rtx-stat" style="border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.08)">
-          <div class="rtx-stat-n" style="color:#f87171">${u.size}</div>
+          <div class="rtx-stat-n" style="color:var(--red-fg,#f87171)">${u.size}</div>
           <div class="rtx-stat-l">GPS a revisar${graves ? ` · ${graves} con 3+ días` : ''}</div>
         </div>`
       })()}
@@ -333,13 +333,13 @@ function rtxRender() {
     const prevU = rtxUltUnidad[e.identidad]
     const cambioUni = prevU && e.unidad != null && String(e.unidad) !== prevU
     const cambioBadge = cambioUni
-      ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.45);color:#f0a500;font-size:12px;font-weight:600">🔁 Cambio de unidad: venía en #${prevU}, entregó en #${e.unidad}</div>`
+      ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.45);color:var(--gold,#f0a500);font-size:12px;font-weight:600">🔁 Cambio de unidad: venía en #${prevU}, entregó en #${e.unidad}</div>`
       : ''
     // GPS caído: la unidad entregó pero el GPS no reportó movimiento ese día.
     const gpsCaido = !!rtxGpsDia[String(e.unidad) + '|' + e.fecha_deposito]
     const gpsDias = rtxGpsRacha[String(e.unidad)] || 0
     const gpsBadge = gpsCaido
-      ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(239,68,68,${gpsDias >= 3 ? '.16' : '.10'});border:1px solid rgba(239,68,68,${gpsDias >= 3 ? '.55' : '.35'});color:#f87171;font-size:12px;font-weight:600">
+      ? `<div style="margin:6px 0;padding:6px 10px;border-radius:8px;background:rgba(239,68,68,${gpsDias >= 3 ? '.16' : '.10'});border:1px solid rgba(239,68,68,${gpsDias >= 3 ? '.55' : '.35'});color:var(--red-fg,#f87171);font-size:12px;font-weight:600">
            📡 Revisar GPS de la unidad · entregó pero el GPS no reportó movimiento${gpsDias >= 3
              ? `<div style="font-weight:400;font-size:11px;margin-top:3px;opacity:.9">Van ${gpsDias} días así en el último mes — no parece un fallo puntual</div>` : ''}
          </div>`
@@ -568,157 +568,157 @@ function rtx7dEnsure() {
   st.textContent = `
     .rtx-7d-ov{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
     .rtx-7d-ov.show{display:flex}
-    .rtx-7d-modal{background:#15171c;border:1px solid #2a2e37;border-radius:14px;max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5)}
-    .rtx-lbl{display:block;font-size:12px;color:#9aa0aa;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
-    .rtx-inp{width:100%;padding:9px 11px;background:#1a1d24;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:14px;box-sizing:border-box}
-    .rtx-inp:focus{outline:none;border-color:#4a90e2}
-    .rtx-caja-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 11px;background:#1a1d24;border:1px solid #2a2e37;border-radius:9px;margin-bottom:7px}
+    .rtx-7d-modal{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:14px;max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+    .rtx-lbl{display:block;font-size:12px;color:var(--text2,#9aa0aa);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+    .rtx-inp{width:100%;padding:9px 11px;background:var(--bg3,#1a1d24);border:1px solid var(--border,#2a2e37);border-radius:9px;color:var(--text,#e8eaed);font-size:14px;box-sizing:border-box}
+    .rtx-inp:focus{outline:none;border-color:var(--blue,#4a90e2)}
+    .rtx-caja-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 11px;background:var(--bg3,#1a1d24);border:1px solid var(--border,#2a2e37);border-radius:9px;margin-bottom:7px}
     .rtx-caja-row.off{opacity:.55}
     .rtx-caja-acc{display:flex;gap:6px}
-    .rtx-7d-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #2a2e37;position:sticky;top:0;background:#15171c}
-    .rtx-7d-head h3{margin:0;font-size:14px;color:#f0a500;font-weight:700}
-    .rtx-7d-head button{background:none;border:none;color:#9aa0aa;font-size:18px;cursor:pointer;line-height:1}
-    .rtx-7d-load{padding:30px;text-align:center;color:#9aa0aa}
+    .rtx-7d-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border,#2a2e37);position:sticky;top:0;background:var(--bg2,#15171c)}
+    .rtx-7d-head h3{margin:0;font-size:14px;color:var(--gold,#f0a500);font-weight:700}
+    .rtx-7d-head button{background:none;border:none;color:var(--text2,#9aa0aa);font-size:18px;cursor:pointer;line-height:1}
+    .rtx-7d-load{padding:30px;text-align:center;color:var(--text2,#9aa0aa)}
     .rtx-7d-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:16px 18px}
-    .rtx-7d-cards>div{background:#1c1f26;border:1px solid #2a2e37;border-radius:10px;padding:10px 12px}
+    .rtx-7d-cards>div{background:var(--bg3,#1c1f26);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:10px 12px}
     .rtx-7d-cards span{display:block;font-size:10px;letter-spacing:.5px;color:#8b919b;text-transform:uppercase;margin-bottom:4px}
-    .rtx-7d-cards b{font-size:14px;color:#e8eaed}
+    .rtx-7d-cards b{font-size:14px;color:var(--text,#e8eaed)}
     .rtx-7d-tbl{width:100%;border-collapse:collapse}
     .rtx-7d-tbl th,.rtx-7d-tbl td{padding:9px 18px;font-size:13px;border-bottom:1px solid #23262e;text-align:left}
     .rtx-7d-tbl th{color:#8b919b;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
     .rtx-7d-tbl td.r,.rtx-7d-tbl th.r{text-align:right}
     .rtx-7d-tbl td.c,.rtx-7d-tbl th.c{text-align:center}
-    .rtx-7d-tbl td{color:#d4d7dc}
+    .rtx-7d-tbl td{color:var(--text,#d4d7dc)}
     .rtx-est{display:inline-flex;width:22px;height:22px;align-items:center;justify-content:center;border-radius:6px;font-size:12px;font-weight:700}
-    .rtx-est.e-ok{background:rgba(46,160,67,.18);color:#3fb950}
+    .rtx-est.e-ok{background:rgba(46,160,67,.18);color:var(--green-fg,#3fb950)}
     .rtx-est.e-menos{background:rgba(210,153,34,.18);color:#d29922}
-    .rtx-est.e-trab{background:rgba(218,54,51,.18);color:#f85149}
+    .rtx-est.e-trab{background:rgba(218,54,51,.18);color:var(--red-fg,#f85149)}
     .rtx-est.e-sin{background:rgba(56,139,253,.18);color:#58a6ff}
     .rtx-7d-leg{display:flex;flex-wrap:wrap;gap:12px;padding:12px 18px 18px;font-size:11px;color:#8b919b}
     .rtx-7d-leg i{font-style:normal;font-weight:700;margin-right:3px}
-    .rtx-7d-leg .e-ok{color:#3fb950}.rtx-7d-leg .e-menos{color:#d29922}
-    .rtx-7d-leg .e-trab{color:#f85149}.rtx-7d-leg .e-sin{color:#58a6ff}
-    .rtx-b.wa{background:rgba(22,163,74,.16)!important;color:#3fb950!important;border:1px solid rgba(22,163,74,.45)!important}
+    .rtx-7d-leg .e-ok{color:var(--green-fg,#3fb950)}.rtx-7d-leg .e-menos{color:#d29922}
+    .rtx-7d-leg .e-trab{color:var(--red-fg,#f85149)}.rtx-7d-leg .e-sin{color:#58a6ff}
+    .rtx-b.wa{background:rgba(22,163,74,.16)!important;color:var(--green-fg,#3fb950)!important;border:1px solid rgba(22,163,74,.45)!important}
     .rtx-b.conex{background:rgba(210,153,34,.16)!important;color:#d29922!important;border:1px solid rgba(210,153,34,.45)!important}
-    .rtx-search{width:100%;padding:10px 14px;margin:12px 0 10px;background:#15171c;border:1px solid #2a2e37;border-radius:10px;color:#e8eaed;font-size:14px;box-sizing:border-box}
+    .rtx-search{width:100%;padding:10px 14px;margin:12px 0 10px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;color:var(--text,#e8eaed);font-size:14px;box-sizing:border-box}
     .rtx-search::placeholder{color:#6b7280}
     .rtx-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px}
-    .rtx-chip{background:#15171c;border:1px solid #2a2e37;border-radius:20px;padding:5px 13px;font-size:12px;color:#9aa0aa;cursor:pointer}
-    .rtx-chip b{color:#e8eaed;font-weight:700;margin-left:2px}
-    .rtx-chip.on{background:rgba(240,165,0,.16);border-color:rgba(240,165,0,.5);color:#f0a500}
-    .rtx-chip.on b{color:#f0a500}
-    .rtx-hist-sug{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:4px;background:#15171c;
-      border:1px solid #2a2e37;border-radius:10px;overflow:hidden;max-height:280px;overflow-y:auto;
+    .rtx-chip{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:20px;padding:5px 13px;font-size:12px;color:var(--text2,#9aa0aa);cursor:pointer}
+    .rtx-chip b{color:var(--text,#e8eaed);font-weight:700;margin-left:2px}
+    .rtx-chip.on{background:rgba(240,165,0,.16);border-color:rgba(240,165,0,.5);color:var(--gold,#f0a500)}
+    .rtx-chip.on b{color:var(--gold,#f0a500)}
+    .rtx-hist-sug{position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:4px;background:var(--bg2,#15171c);
+      border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden;max-height:280px;overflow-y:auto;
       box-shadow:0 8px 24px rgba(0,0,0,.5)}
     .rtx-hist-sug.hidden{display:none}
     .rtx-hist-sug-i{display:block;width:100%;text-align:left;background:none;border:none;
       border-bottom:1px solid #22252c;padding:8px 11px;cursor:pointer}
     .rtx-hist-sug-i:last-child{border-bottom:none}
-    .rtx-hist-sug-i:hover{background:#1c1f26}
-    .rtx-hist-sug-nm{display:block;color:#e8eaed;font-size:13px}
-    .rtx-hist-sug-md{display:block;color:#8b93a3;font-size:11px;margin-top:1px}
-    .rtx-hist-sug-n{padding:9px 11px;color:#8b93a3;font-size:12px}
+    .rtx-hist-sug-i:hover{background:var(--bg3,#1c1f26)}
+    .rtx-hist-sug-nm{display:block;color:var(--text,#e8eaed);font-size:13px}
+    .rtx-hist-sug-md{display:block;color:var(--text2,#8b93a3);font-size:11px;margin-top:1px}
+    .rtx-hist-sug-n{padding:9px 11px;color:var(--text2,#8b93a3);font-size:12px}
     .mot-lpk{margin-top:5px;font-size:12px;padding:4px 9px;border-radius:7px;display:inline-block}
     .mot-lpk b{font-weight:700}
-    .mot-lpk span{color:#8b93a3;margin-left:6px;font-size:11px}
-    .mot-lpk.ok{background:rgba(63,185,80,.10);border:1px solid rgba(63,185,80,.35);color:#3fb950}
-    .mot-lpk.bad{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.5);color:#f85149}
-    .mot-lpk.none{background:#15171c;border:1px solid #2a2e37;color:#8b93a3}
-    .mot-bajos{border-color:rgba(248,81,73,.45)!important;color:#f85149!important}
-    .mot-bajos b{color:#f85149;font-weight:700;margin-left:3px}
+    .mot-lpk span{color:var(--text2,#8b93a3);margin-left:6px;font-size:11px}
+    .mot-lpk.ok{background:rgba(63,185,80,.10);border:1px solid rgba(63,185,80,.35);color:var(--green-fg,#3fb950)}
+    .mot-lpk.bad{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.5);color:var(--red-fg,#f85149)}
+    .mot-lpk.none{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);color:var(--text2,#8b93a3)}
+    .mot-bajos{border-color:rgba(248,81,73,.45)!important;color:var(--red-fg,#f85149)!important}
+    .mot-bajos b{color:var(--red-fg,#f85149);font-weight:700;margin-left:3px}
     .mot-bajos.on{background:rgba(248,81,73,.16)!important;border-color:rgba(248,81,73,.7)!important}
-    .mot-bajos-res{font-size:12px;color:#f85149;margin:2px 0 8px}
-    .rtx-chip-gps{border-color:rgba(239,68,68,.45);color:#f87171}
-    .rtx-chip-gps b{color:#f87171}
-    .rtx-chip-gps.on{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.7);color:#f87171}
-    .rtx-chip-gps.on b{color:#f87171}
+    .mot-bajos-res{font-size:12px;color:var(--red-fg,#f85149);margin:2px 0 8px}
+    .rtx-chip-gps{border-color:rgba(239,68,68,.45);color:var(--red-fg,#f87171)}
+    .rtx-chip-gps b{color:var(--red-fg,#f87171)}
+    .rtx-chip-gps.on{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.7);color:var(--red-fg,#f87171)}
+    .rtx-chip-gps.on b{color:var(--red-fg,#f87171)}
     /* Pestañas */
     .rtx-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 16px}
-    .rtx-tab{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;color:#9aa0aa;cursor:pointer}
+    .rtx-tab{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:9px 18px;font-size:14px;font-weight:600;color:var(--text2,#9aa0aa);cursor:pointer}
     .rtx-tab.on{background:#2563eb;border-color:#2563eb;color:#fff}
     /* Dashboard */
-    .dash-fecha{display:flex;align-items:center;gap:8px;background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:8px 10px;margin-bottom:14px}
-    .dash-nav{background:#1f232b;border:1px solid #2a2e37;border-radius:8px;color:#e8eaed;width:34px;height:34px;font-size:18px;cursor:pointer}
-    .dash-date{flex:1;background:transparent;border:none;color:#e8eaed;font-size:14px;text-align:center}
-    .dash-hoy{background:rgba(22,163,74,.18);border:1px solid rgba(22,163,74,.5);border-radius:8px;color:#3fb950;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+    .dash-fecha{display:flex;align-items:center;gap:8px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:8px 10px;margin-bottom:14px}
+    .dash-nav{background:var(--bg3,#1f232b);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text,#e8eaed);width:34px;height:34px;font-size:18px;cursor:pointer}
+    .dash-date{flex:1;background:transparent;border:none;color:var(--text,#e8eaed);font-size:14px;text-align:center}
+    .dash-hoy{background:rgba(22,163,74,.18);border:1px solid rgba(22,163,74,.5);border-radius:8px;color:var(--green-fg,#3fb950);padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
     .dash-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
-    .dash-stat{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;text-align:center}
+    .dash-stat{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;padding:16px;text-align:center}
     .dash-n{font-size:22px;font-weight:800}
-    .dash-n.green{color:#3fb950}.dash-n.blue{color:#4a90e2}.dash-n.amber{color:#f0a500}
-    .dash-l{font-size:12px;color:#9aa0aa;margin-top:4px}
-    .dash-card{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;margin-bottom:14px}
-    .dash-card-t{font-size:14px;font-weight:700;color:#e8eaed;margin-bottom:12px}
-    .dash-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #21242b;font-size:14px;color:#cfd3da}
+    .dash-n.green{color:var(--green-fg,#3fb950)}.dash-n.blue{color:var(--blue-fg,#4a90e2)}.dash-n.amber{color:var(--gold,#f0a500)}
+    .dash-l{font-size:12px;color:var(--text2,#9aa0aa);margin-top:4px}
+    .dash-card{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;padding:16px;margin-bottom:14px}
+    .dash-card-t{font-size:14px;font-weight:700;color:var(--text,#e8eaed);margin-bottom:12px}
+    .dash-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #21242b;font-size:14px;color:var(--text,#cfd3da)}
     .dash-row:last-child{border-bottom:none}
-    .dash-row b{color:#e8eaed}.dash-row small{color:#8b8f98;font-weight:400}
-    .dash-pend{background:#1a1d24;border:1px solid #2a2e37;border-radius:10px;padding:12px;margin-bottom:10px}
+    .dash-row b{color:var(--text,#e8eaed)}.dash-row small{color:var(--text2,#8b8f98);font-weight:400}
+    .dash-pend{background:var(--bg3,#1a1d24);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:12px;margin-bottom:10px}
     .dash-pend-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-    .dash-pend-id{font-size:14px;color:#e8eaed}.dash-pend-id b{color:#f0a500}
+    .dash-pend-id{font-size:14px;color:var(--text,#e8eaed)}.dash-pend-id b{color:var(--gold,#f0a500)}
     .dash-pend-dias{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
     .dash-pend-dias.rojo{background:#7f1d1d;color:#fca5a5}
-    .dash-pend-dias.amber{background:#78350f;color:#fcd34d}
-    .dash-pend-dias.gris{background:rgba(120,128,140,.18);color:#9aa0aa}
-    .dash-pend-sub{font-size:12px;color:#9aa0aa;margin:7px 0 10px}
+    .dash-pend-dias.amber{background:#78350f;color:var(--amber-fg,#fcd34d)}
+    .dash-pend-dias.gris{background:rgba(120,128,140,.18);color:var(--text2,#9aa0aa)}
+    .dash-pend-sub{font-size:12px;color:var(--text2,#9aa0aa);margin:7px 0 10px}
     .dash-pend-acc{display:flex;flex-wrap:wrap;gap:7px}
     .dash-audit-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
-    .dash-audit-btn{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;color:#cfd3da;cursor:pointer}
-    .dash-audit-btn:hover{border-color:#4a90e2}
+    .dash-audit-btn{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:9px 14px;font-size:13px;font-weight:600;color:var(--text,#cfd3da);cursor:pointer}
+    .dash-audit-btn:hover{border-color:var(--blue,#4a90e2)}
     .dash-audit-btn.on{background:#b45309;border-color:#b45309;color:#fff}
-    .dash-audit-hint{font-size:11px;color:#8b8f98}
-    .dash-audit-sub{font-size:12px;color:#9aa0aa;margin-bottom:12px}
-    .dash-audit-km{font-size:13px;font-weight:700;color:#f0a500;background:rgba(240,165,0,.14);border-radius:8px;padding:3px 10px;white-space:nowrap}
+    .dash-audit-hint{font-size:11px;color:var(--text2,#8b8f98)}
+    .dash-audit-sub{font-size:12px;color:var(--text2,#9aa0aa);margin-bottom:12px}
+    .dash-audit-km{font-size:13px;font-weight:700;color:var(--gold,#f0a500);background:rgba(240,165,0,.14);border-radius:8px;padding:3px 10px;white-space:nowrap}
     .dash-audit-falta{color:#fca5a5}
     .dash-audit-volver{margin-bottom:12px}
     .dash-audit-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
     .dash-audit-actions .dash-audit-volver{margin-bottom:0}
-    .dash-audit-export{border-color:rgba(63,185,80,.4);color:#3fb950}
-    .rtx-b.call{background:rgba(74,144,226,.16)!important;color:#4a90e2!important;border:1px solid rgba(74,144,226,.45)!important;text-decoration:none;display:inline-flex;align-items:center}
+    .dash-audit-export{border-color:rgba(63,185,80,.4);color:var(--green-fg,#3fb950)}
+    .rtx-b.call{background:rgba(74,144,226,.16)!important;color:var(--blue-fg,#4a90e2)!important;border:1px solid rgba(74,144,226,.45)!important;text-decoration:none;display:inline-flex;align-items:center}
     .rtx-b.edit{background:rgba(168,85,247,.16)!important;color:#c084fc!important;border:1px solid rgba(168,85,247,.45)!important}
-    .rtx-b.ok{background:rgba(22,163,74,.2)!important;color:#3fb950!important;border:1px solid rgba(22,163,74,.5)!important}
+    .rtx-b.ok{background:rgba(22,163,74,.2)!important;color:var(--green-fg,#3fb950)!important;border:1px solid rgba(22,163,74,.5)!important}
     .rtx-edit-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
-    .rtx-edit-modal{background:#1a1d24;border:1px solid #2a2e37;border-radius:14px;padding:22px;width:100%;max-width:380px}
-    .rtx-edit-modal h3{margin:0 0 4px;font-size:17px;color:#e8eaed}
-    .rtx-edit-sub{font-size:13px;color:#9aa0aa;margin-bottom:16px}
-    .rtx-edit-modal label{display:block;font-size:12px;color:#9aa0aa;margin:12px 0 5px;text-transform:uppercase;letter-spacing:.04em}
-    .rtx-edit-modal input,.rtx-edit-modal select{width:100%;padding:11px 12px;background:#15171c;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:15px;box-sizing:border-box}
-    .rtx-edit-warn{background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.35);color:#f0a500;font-size:12px;padding:10px;border-radius:9px;margin-top:14px;line-height:1.4}
+    .rtx-edit-modal{background:var(--bg3,#1a1d24);border:1px solid var(--border,#2a2e37);border-radius:14px;padding:22px;width:100%;max-width:380px}
+    .rtx-edit-modal h3{margin:0 0 4px;font-size:17px;color:var(--text,#e8eaed)}
+    .rtx-edit-sub{font-size:13px;color:var(--text2,#9aa0aa);margin-bottom:16px}
+    .rtx-edit-modal label{display:block;font-size:12px;color:var(--text2,#9aa0aa);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.04em}
+    .rtx-edit-modal input,.rtx-edit-modal select{width:100%;padding:11px 12px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:9px;color:var(--text,#e8eaed);font-size:15px;box-sizing:border-box}
+    .rtx-edit-warn{background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.35);color:var(--gold,#f0a500);font-size:12px;padding:10px;border-radius:9px;margin-top:14px;line-height:1.4}
     .rtx-edit-acts{display:flex;gap:9px;margin-top:18px}
     .rtx-edit-acts .rtx-b{flex:1;justify-content:center;padding:11px}
-    .dash-subtotal{text-align:right;color:#3fb950;font-weight:700;font-size:14px;margin:4px 0 12px}
-    .dash-subtotal small{color:#8b8f98;font-weight:400}
-    .dash-orden{background:#1f232b;border:1px solid #2a2e37;border-radius:8px;color:#9aa0aa;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer}
-    .dash-orden.on{background:rgba(74,144,226,.16);border-color:rgba(74,144,226,.5);color:#4a90e2}
+    .dash-subtotal{text-align:right;color:var(--green-fg,#3fb950);font-weight:700;font-size:14px;margin:4px 0 12px}
+    .dash-subtotal small{color:var(--text2,#8b8f98);font-weight:400}
+    .dash-orden{background:var(--bg3,#1f232b);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text2,#9aa0aa);padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer}
+    .dash-orden.on{background:rgba(74,144,226,.16);border-color:rgba(74,144,226,.5);color:var(--blue-fg,#4a90e2)}
     .dash-dep{padding:9px 0;border-bottom:1px solid #21242b}
     .dash-dep:last-child{border-bottom:none}
-    .dash-dep-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;color:#e8eaed}
-    .dash-dep-top b{color:#f0a500}
-    .dash-dep-amt{color:#3fb950;font-weight:700;white-space:nowrap}
-    .dash-dep-sub{font-size:12px;color:#8b8f98;margin-top:3px}
-    .rtx-b.notas{background:rgba(120,113,108,.18)!important;color:#d6d3d1!important;border:1px solid rgba(120,113,108,.45)!important}
+    .dash-dep-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;color:var(--text,#e8eaed)}
+    .dash-dep-top b{color:var(--gold,#f0a500)}
+    .dash-dep-amt{color:var(--green-fg,#3fb950);font-weight:700;white-space:nowrap}
+    .dash-dep-sub{font-size:12px;color:var(--text2,#8b8f98);margin-top:3px}
+    .rtx-b.notas{background:rgba(120,113,108,.18)!important;color:var(--text,#d6d3d1)!important;border:1px solid rgba(120,113,108,.45)!important}
     .rtx-b.notas.mia{background:rgba(59,130,246,.18)!important;color:#93c5fd!important;border:1px solid rgba(59,130,246,.5)!important}
-    .rtx-b.notas.resp{background:rgba(34,197,94,.20)!important;color:#86efac!important;border:1px solid rgba(34,197,94,.55)!important}
-    .rtx-b.notas.otro{background:rgba(240,165,0,.18)!important;color:#f5c451!important;border:1px solid rgba(240,165,0,.5)!important}
+    .rtx-b.notas.resp{background:rgba(34,197,94,.20)!important;color:var(--green-fg,#86efac)!important;border:1px solid rgba(34,197,94,.55)!important}
+    .rtx-b.notas.otro{background:rgba(240,165,0,.18)!important;color:var(--amber-fg,#f5c451)!important;border:1px solid rgba(240,165,0,.5)!important}
     .rtx-b.notas.super{background:rgba(239,68,68,.18)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,.55)!important}
     .rtx-notas-modal{max-width:440px}
     .rtx-notas-lista{max-height:300px;overflow-y:auto;margin:14px 0}
-    .rtx-nota{background:#12131a;border-radius:7px;padding:9px 11px;margin-bottom:8px}
+    .rtx-nota{background:var(--bg-inset,#12131a);border-radius:7px;padding:9px 11px;margin-bottom:8px}
     .rtx-nota-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
     .rtx-nota-autor{font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px}
-    .rtx-nota-fecha{font-size:11px;color:#8b8f98;flex:1}
-    .rtx-nota-arch{background:none;border:none;color:#8b8f98;cursor:pointer;font-size:14px;padding:0 2px}
-    .rtx-nota-txt{font-size:14px;color:#e5e7eb;line-height:1.45}
-    .rtx-notas-input{width:100%;padding:11px;background:#15171c;border:1px solid #2a2e37;border-radius:9px;color:#e8eaed;font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit}
+    .rtx-nota-fecha{font-size:11px;color:var(--text2,#8b8f98);flex:1}
+    .rtx-nota-arch{background:none;border:none;color:var(--text2,#8b8f98);cursor:pointer;font-size:14px;padding:0 2px}
+    .rtx-nota-txt{font-size:14px;color:var(--text,#e5e7eb);line-height:1.45}
+    .rtx-notas-input{width:100%;padding:11px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:9px;color:var(--text,#e8eaed);font-size:14px;box-sizing:border-box;resize:vertical;font-family:inherit}
     .mot-lista{margin-top:4px}
     .mot-barra{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
-    .mot-row{background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:13px;margin-bottom:9px}
+    .mot-row{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:13px;margin-bottom:9px}
     .mot-row.off{opacity:.6}
     .mot-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
-    .mot-id{font-size:14px;color:#e8eaed}.mot-id b{color:#f0a500}
+    .mot-id{font-size:14px;color:var(--text,#e8eaed)}.mot-id b{color:var(--gold,#f0a500)}
     .mot-estado{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
-    .mot-estado.on{background:rgba(22,163,74,.18);color:#3fb950}
-    .mot-estado.off{background:rgba(120,128,140,.18);color:#9aa0aa}
-    .mot-sub{font-size:12px;color:#9aa0aa;margin:7px 0}
-    .mot-sub b{color:#cfd3da}.mot-sub b.mot-debe{color:#f0a500}
+    .mot-estado.on{background:rgba(22,163,74,.18);color:var(--green-fg,#3fb950)}
+    .mot-estado.off{background:rgba(120,128,140,.18);color:var(--text2,#9aa0aa)}
+    .mot-sub{font-size:12px;color:var(--text2,#9aa0aa);margin:7px 0}
+    .mot-sub b{color:var(--text,#cfd3da)}.mot-sub b.mot-debe{color:var(--gold,#f0a500)}
     .mot-acts{display:flex;gap:7px;margin-top:6px}
   `
   document.head.appendChild(st)
@@ -1215,19 +1215,19 @@ function rtxAudEnsure() {
   st.textContent = `
     .rtx-aud-ov{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
     .rtx-aud-ov.show{display:flex}
-    .rtx-aud-modal{background:#15171c;border:1px solid #262a32;border-radius:14px;max-width:820px;width:100%;max-height:88vh;overflow:auto}
-    .rtx-aud-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #262a32;position:sticky;top:0;background:#15171c}
+    .rtx-aud-modal{background:var(--bg2,#15171c);border:1px solid #262a32;border-radius:14px;max-width:820px;width:100%;max-height:88vh;overflow:auto}
+    .rtx-aud-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #262a32;position:sticky;top:0;background:var(--bg2,#15171c)}
     .rtx-aud-head h3{margin:0;font-size:15px}
-    .rtx-aud-head button{background:none;border:none;color:#9aa0aa;font-size:18px;cursor:pointer}
+    .rtx-aud-head button{background:none;border:none;color:var(--text2,#9aa0aa);font-size:18px;cursor:pointer}
     .rtx-aud-body{padding:14px 16px}
-    .rtx-aud-row{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#0f1115;border:1px solid #262a32;border-radius:9px;padding:10px 12px;margin-bottom:8px}
+    .rtx-aud-row{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg-inset,#0f1115);border:1px solid #262a32;border-radius:9px;padding:10px 12px;margin-bottom:8px}
     .rtx-aud-row .t{font-size:13px}
     .rtx-aud-row .m{font-size:11px;color:#8a8f98;margin-top:2px}
     .rtx-aud-tbl{width:100%;border-collapse:collapse;font-size:12px}
     .rtx-aud-tbl th,.rtx-aud-tbl td{border-bottom:1px solid #23262d;padding:6px 8px;text-align:left}
     .rtx-aud-tbl td.r,.rtx-aud-tbl th.r{text-align:right}
     .rtx-aud-load{padding:24px;text-align:center;color:#8a8f98}
-    .rtx-aud-back{background:none;border:1px solid #2a2e37;color:#9aa0aa;border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;margin-bottom:10px}`
+    .rtx-aud-back{background:none;border:1px solid var(--border,#2a2e37);color:var(--text2,#9aa0aa);border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer;margin-bottom:10px}`
   document.head.appendChild(st)
   const ov = document.createElement('div')
   ov.id = 'rtx-aud-overlay'; ov.className = 'rtx-aud-ov'
@@ -1269,7 +1269,7 @@ window.rtxAudGuardadas = async (solo) => {
       if (cx !== cy) return cy.localeCompare(cx)
       return String(x.tipo || '').localeCompare(String(y.tipo || ''))  // orden estable
     })
-    const sel = on => on ? 'border-color:#d4af37;color:#d4af37' : ''
+    const sel = on => on ? 'border-color:var(--gold,#d4af37);color:var(--gold,#d4af37)' : ''
     const toggle = `<div style="display:flex;gap:6px;margin-bottom:12px">
       <button class="rtx-aud-back" style="${sel(!rtxAudSoloFecha)}" onclick="rtxAudGuardadas(false)">📅 Todas las fechas</button>
       <button class="rtx-aud-back" style="${sel(rtxAudSoloFecha)}" onclick="rtxAudGuardadas(true)">Solo ${rtxDashFecha}</button>
@@ -1796,7 +1796,7 @@ function rtxSalidaModal(m) {
       <button onclick="rtxSalidaCerrar()">✕</button></div>
     <div style="padding:16px 18px">
       <div style="font-weight:700">${m.nombre}</div>
-      <div style="color:#8b8f98;font-size:12px;margin-bottom:14px">Cédula: ${m.identidad} · Saldo: L. ${rtxFmt(m.saldo)}</div>
+      <div style="color:var(--text2,#8b8f98);font-size:12px;margin-bottom:14px">Cédula: ${m.identidad} · Saldo: L. ${rtxFmt(m.saldo)}</div>
       <label class="rtx-lbl">Fecha de salida</label>
       <input type="date" id="rtx-sal-fecha" value="${hoy}" class="rtx-inp">
       <label class="rtx-lbl">Motivo</label>
@@ -1829,7 +1829,7 @@ window.rtxSalidasGlobal = async () => {
       <button onclick="rtxSalGlobCerrar()">✕</button></div>
     <div style="padding:14px 18px">
       <input id="rtx-salglob-search" class="rtx-inp" type="text" placeholder="Buscar por nombre, cédula o unidad…" oninput="rtxSalGlobBuscar(this.value)" autocomplete="off" style="margin-bottom:12px">
-      <div id="rtx-salglob-body"><div style="color:#9aa0aa">Cargando…</div></div>
+      <div id="rtx-salglob-body"><div style="color:var(--text2,#9aa0aa)">Cargando…</div></div>
     </div></div>`
   ov.onclick = (e) => { if (e.target === ov) rtxSalGlobCerrar() }
   document.body.appendChild(ov); rtxSalGlobOv = ov
@@ -1848,10 +1848,10 @@ async function rtxSalGlobCargar() {
     const { data, error } = await rtxSb().rpc('tx_salidas_listar', { p_busqueda: rtxSalGlobBusq || null })
     if (error) throw error
     const arr = Array.isArray(data) ? data : []
-    if (!arr.length) { body.innerHTML = '<div style="color:#8b8f98;padding:8px">Sin salidas registradas.</div>'; return }
+    if (!arr.length) { body.innerHTML = '<div style="color:var(--text2,#8b8f98);padding:8px">Sin salidas registradas.</div>'; return }
     const rows = arr.map(s => `<tr>
       <td style="white-space:nowrap">${s.fecha_salida}</td>
-      <td>${s.nombre || '—'}<div style="color:#8b8f98;font-size:11px">${s.identidad}</div></td>
+      <td>${s.nombre || '—'}<div style="color:var(--text2,#8b8f98);font-size:11px">${s.identidad}</div></td>
       <td>${s.unidad ? '#' + s.unidad : '—'}</td>
       <td>${s.motivo || '—'}</td>
       <td style="text-align:right;white-space:nowrap">${s.monto_pendiente > 0 ? 'L. ' + rtxFmt(s.monto_pendiente) : '—'}</td>
@@ -1861,9 +1861,9 @@ async function rtxSalGlobCargar() {
         <thead><tr><th>Fecha</th><th>Motorista</th><th>Unidad</th><th>Motivo</th><th style="text-align:right">Pendiente</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div style="color:#8b8f98;font-size:11px;margin-top:8px">${arr.length} salida(s).</div>`
+      <div style="color:var(--text2,#8b8f98);font-size:11px;margin-top:8px">${arr.length} salida(s).</div>`
   } catch (e) {
-    body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+    body.innerHTML = `<div style="color:var(--gold,#f0a500)">Error: ${e.message || e}</div>`
   }
 }
 
@@ -1879,7 +1879,7 @@ window.rtxCambiosUnidad = async () => {
       <button onclick="rtxCambiosCerrar()">✕</button></div>
     <div style="padding:14px 18px">
       <input id="rtx-cambios-search" class="rtx-inp" type="text" placeholder="Buscar por nombre, cédula o unidad…" oninput="rtxCambiosBuscar(this.value)" autocomplete="off" style="margin-bottom:12px">
-      <div id="rtx-cambios-body"><div style="color:#9aa0aa">Cargando…</div></div>
+      <div id="rtx-cambios-body"><div style="color:var(--text2,#9aa0aa)">Cargando…</div></div>
     </div></div>`
   ov.onclick = (e) => { if (e.target === ov) rtxCambiosCerrar() }
   document.body.appendChild(ov); rtxCambiosOv = ov
@@ -1898,7 +1898,7 @@ async function rtxCambiosCargar() {
     const { data, error } = await rtxSb().rpc('tx_cambios_unidad_listar', { p_busqueda: rtxCambiosBusq || null })
     if (error) throw error
     const arr = Array.isArray(data) ? data : []
-    if (!arr.length) { body.innerHTML = '<div style="color:#8b8f98;padding:8px">Sin cambios de unidad registrados.</div>'; return }
+    if (!arr.length) { body.innerHTML = '<div style="color:var(--text2,#8b8f98);padding:8px">Sin cambios de unidad registrados.</div>'; return }
     // El origen se muestra tal como quedo guardado. Antes cualquier valor que no
     // fuera 'caja' se pintaba como "Motorista", asi que los cambios administrativos
     // (la consolidacion del directorio) aparecian como si los hubiera hecho un
@@ -1911,15 +1911,15 @@ async function rtxCambiosCargar() {
     }
     const pintaOrigen = (o) => {
       const k = String(o || '').trim()
-      if (!k) return '<span style="color:#8b8f98">—</span>'
+      if (!k) return '<span style="color:var(--text2,#8b8f98)">—</span>'
       const txt = ORIGEN[k] || k
       const admin = (k === 'consolidacion')
-      return `<span style="${admin ? 'color:#8b8f98;font-style:italic' : ''}">${txt}</span>`
+      return `<span style="${admin ? 'color:var(--text2,#8b8f98);font-style:italic' : ''}">${txt}</span>`
     }
     const rows = arr.map(c => `<tr>
       <td style="white-space:nowrap">${c.fecha || '—'}</td>
-      <td>${c.nombre || '—'}<div style="color:#8b8f98;font-size:11px">${c.identidad}</div></td>
-      <td style="white-space:nowrap">#${c.unidad_anterior || '—'} → <b style="color:#f0a500">#${c.unidad_nueva || '—'}</b></td>
+      <td>${c.nombre || '—'}<div style="color:var(--text2,#8b8f98);font-size:11px">${c.identidad}</div></td>
+      <td style="white-space:nowrap">#${c.unidad_anterior || '—'} → <b style="color:var(--gold,#f0a500)">#${c.unidad_nueva || '—'}</b></td>
       <td>${pintaOrigen(c.origen)}</td>
     </tr>`).join('')
     body.innerHTML = `
@@ -1927,9 +1927,9 @@ async function rtxCambiosCargar() {
         <thead><tr><th>Fecha</th><th>Motorista</th><th>Unidad</th><th>Origen</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div style="color:#8b8f98;font-size:11px;margin-top:8px">${arr.length} cambio(s) de unidad.</div>`
+      <div style="color:var(--text2,#8b8f98);font-size:11px;margin-top:8px">${arr.length} cambio(s) de unidad.</div>`
   } catch (e) {
-    body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+    body.innerHTML = `<div style="color:var(--gold,#f0a500)">Error: ${e.message || e}</div>`
   }
 }
 
@@ -1942,7 +1942,7 @@ window.rtxCajasAdmin = async () => {
   ov.innerHTML = `<div class="rtx-7d-modal" style="max-width:560px">
     <div class="rtx-7d-head"><h3 style="margin:0;font-size:15px">🔐 Cajas y PINs</h3>
       <button onclick="rtxCajasCerrar()">✕</button></div>
-    <div style="padding:14px 18px" id="rtx-cajas-body"><div style="color:#9aa0aa">Cargando…</div></div></div>`
+    <div style="padding:14px 18px" id="rtx-cajas-body"><div style="color:var(--text2,#9aa0aa)">Cargando…</div></div></div>`
   ov.onclick = (e) => { if (e.target === ov) rtxCajasCerrar() }
   document.body.appendChild(ov); rtxCajasOv = ov
   rtxCajasCargar()
@@ -1959,7 +1959,7 @@ async function rtxCajasCargar() {
     const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
     const rows = arr.map(c => `
       <div class="rtx-caja-row ${c.activo ? '' : 'off'}">
-        <div><b>${c.nombre}</b>${c.activo ? '' : ' <span style="color:#8b8f98;font-size:11px">(inactiva)</span>'}</div>
+        <div><b>${c.nombre}</b>${c.activo ? '' : ' <span style="color:var(--text2,#8b8f98);font-size:11px">(inactiva)</span>'}</div>
         <div class="rtx-caja-acc">
           <button class="rtx-b" onclick="rtxCajaEditar('${c.id}','${esc(c.nombre)}')">✏️</button>
           <button class="rtx-b" onclick="rtxCajaPin('${c.id}','${esc(c.nombre)}')">🔑 PIN</button>
@@ -1967,8 +1967,8 @@ async function rtxCajasCargar() {
         </div>
       </div>`).join('')
     body.innerHTML = `
-      <div style="margin-bottom:12px">${rows || '<div style="color:#8b8f98">Sin cajas. Agregá la primera abajo.</div>'}</div>
-      <div style="border-top:1px solid #2a2e37;padding-top:12px">
+      <div style="margin-bottom:12px">${rows || '<div style="color:var(--text2,#8b8f98)">Sin cajas. Agregá la primera abajo.</div>'}</div>
+      <div style="border-top:1px solid var(--border,#2a2e37);padding-top:12px">
         <div style="font-weight:600;font-size:13px;margin-bottom:8px">Agregar caja nueva</div>
         <label class="rtx-lbl">Nombre</label>
         <input id="rtx-caja-nombre" class="rtx-inp" placeholder="Ej: Caja Tecnimax" autocomplete="off">
@@ -1976,13 +1976,13 @@ async function rtxCajasCargar() {
         <input id="rtx-caja-pin" class="rtx-inp" type="text" inputmode="numeric" placeholder="••••" autocomplete="off">
         <button class="rtx-b ok" style="margin-top:10px;width:100%" onclick="rtxCajaAgregar()">+ Agregar caja</button>
       </div>
-      <div id="rtx-puntos-sec" style="border-top:2px solid #2a2e37;margin-top:16px;padding-top:14px">
+      <div id="rtx-puntos-sec" style="border-top:2px solid var(--border,#2a2e37);margin-top:16px;padding-top:14px">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px">📍 Puntos de recolección</div>
-        <div style="color:#8b8f98;font-size:11px;margin-bottom:10px">Banco = aparece a los motoristas para subir comprobante. Efectivo = solo a las cajas-PIN.</div>
-        <div id="rtx-puntos-body"><div style="color:#9aa0aa">Cargando…</div></div>
+        <div style="color:var(--text2,#8b8f98);font-size:11px;margin-bottom:10px">Banco = aparece a los motoristas para subir comprobante. Efectivo = solo a las cajas-PIN.</div>
+        <div id="rtx-puntos-body"><div style="color:var(--text2,#9aa0aa)">Cargando…</div></div>
       </div>`
     rtxPuntosCargar()
-  } catch (e) { body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>` }
+  } catch (e) { body.innerHTML = `<div style="color:var(--gold,#f0a500)">Error: ${e.message || e}</div>` }
 }
 
 window.rtxCajaAgregar = async () => {
@@ -2063,11 +2063,11 @@ async function rtxPuntosCargar() {
       const esBanco = p.tipo === 'banco'
       const badge = esBanco
         ? '<span style="background:rgba(37,99,235,.18);color:#6ea8ff;border-radius:5px;padding:1px 7px;font-size:11px">🏦 Banco</span>'
-        : '<span style="background:rgba(22,163,74,.18);color:#7ee2a0;border-radius:5px;padding:1px 7px;font-size:11px">💵 Efectivo</span>'
+        : '<span style="background:rgba(22,163,74,.18);color:var(--green-fg,#7ee2a0);border-radius:5px;padding:1px 7px;font-size:11px">💵 Efectivo</span>'
       const avisos = []
       if (esBanco && !p.formato) avisos.push('falta formato')
       if (!p.cuenta_contable) avisos.push('falta cuenta')
-      const aviso = avisos.length ? `<span style="color:#f0a500;font-size:11px"> ⚠ ${avisos.join(' · ')}</span>` : ''
+      const aviso = avisos.length ? `<span style="color:var(--gold,#f0a500);font-size:11px"> ⚠ ${avisos.join(' · ')}</span>` : ''
       const formatoRow = esBanco ? `
         <div class="rtx-punto-fld">
           <label class="rtx-punto-lbl">Formato (lector)</label>
@@ -2075,7 +2075,7 @@ async function rtxPuntosCargar() {
         </div>` : ''
       return `<div class="rtx-caja-row rtx-punto ${p.activo ? '' : 'off'}">
         <div class="rtx-punto-head">
-          <div><b>${p.nombre}</b> ${badge}${p.activo ? '' : ' <span style="color:#8b8f98;font-size:11px">(inactivo)</span>'}${aviso}</div>
+          <div><b>${p.nombre}</b> ${badge}${p.activo ? '' : ' <span style="color:var(--text2,#8b8f98);font-size:11px">(inactivo)</span>'}${aviso}</div>
           <div class="rtx-caja-acc">
             <button class="rtx-b" onclick="rtxPuntoEditar('${p.id}','${esc(p.nombre)}','${p.tipo}')">✏️</button>
             <button class="rtx-b ${p.activo ? 'rec' : 'ok'}" onclick="rtxPuntoToggle('${p.id}', ${!p.activo})">${p.activo ? '⏸' : '▶'}</button>
@@ -2092,8 +2092,8 @@ async function rtxPuntosCargar() {
     }).join('')
 
     body.innerHTML = `
-      <div style="margin-bottom:12px">${rows || '<div style="color:#8b8f98">Sin puntos.</div>'}</div>
-      <div style="border-top:1px solid #2a2e37;padding-top:12px">
+      <div style="margin-bottom:12px">${rows || '<div style="color:var(--text2,#8b8f98)">Sin puntos.</div>'}</div>
+      <div style="border-top:1px solid var(--border,#2a2e37);padding-top:12px">
         <div style="font-weight:600;font-size:13px;margin-bottom:8px">Agregar punto nuevo</div>
         <label class="rtx-lbl">Nombre</label>
         <input id="rtx-punto-nombre" class="rtx-inp" placeholder="Ej: BAC 72XXXXX / Caja Centro" autocomplete="off">
@@ -2103,10 +2103,10 @@ async function rtxPuntosCargar() {
           <option value="efectivo">💵 Efectivo (solo cajas-PIN)</option>
         </select>
         <button class="rtx-b ok" style="margin-top:10px;width:100%" onclick="rtxPuntoAgregar()">+ Agregar punto</button>
-        <div style="color:#8b8f98;font-size:11px;margin-top:8px">Tras agregar un banco, asignale su <b>formato</b> y <b>cuenta</b> en la fila.</div>
+        <div style="color:var(--text2,#8b8f98);font-size:11px;margin-top:8px">Tras agregar un banco, asignale su <b>formato</b> y <b>cuenta</b> en la fila.</div>
       </div>`
     rtxPuntosEnsureStyles()
-  } catch (e) { body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>` }
+  } catch (e) { body.innerHTML = `<div style="color:var(--gold,#f0a500)">Error: ${e.message || e}</div>` }
 }
 
 function rtxPuntosEnsureStyles() {
@@ -2117,7 +2117,7 @@ function rtxPuntosEnsureStyles() {
     .rtx-punto-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
     .rtx-punto-grid{display:flex;gap:10px;margin-top:9px;flex-wrap:wrap}
     .rtx-punto-fld{flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px}
-    .rtx-punto-lbl{font-size:11px;color:#9aa0aa;text-transform:uppercase;letter-spacing:.04em}
+    .rtx-punto-lbl{font-size:11px;color:var(--text2,#9aa0aa);text-transform:uppercase;letter-spacing:.04em}
     .rtx-punto-sel{padding:7px 9px;font-size:13px}`
   document.head.appendChild(s)
 }
@@ -2203,7 +2203,7 @@ window.rtxHistorial = async (identidad) => {
   ov.innerHTML = `<div class="rtx-7d-modal"><div class="rtx-7d-head">
       <h3 style="margin:0;font-size:15px">📋 Estado de cuenta</h3>
       <button onclick="rtxHistCerrar()">✕</button></div>
-      <div id="rtx-hist-body" style="padding:14px 18px"><div style="color:#9aa0aa">Cargando…</div></div></div>`
+      <div id="rtx-hist-body" style="padding:14px 18px"><div style="color:var(--text2,#9aa0aa)">Cargando…</div></div></div>`
   ov.onclick = (e) => { if (e.target === ov) rtxHistCerrar() }
   document.body.appendChild(ov)
   rtxHistOv = ov
@@ -2211,10 +2211,10 @@ window.rtxHistorial = async (identidad) => {
   try {
     const { data, error } = await rtxSb().rpc('tx_historial_saldo', { p_identidad: identidad })
     if (error) throw error
-    if (!data?.ok) { body.innerHTML = `<div style="color:#f0a500">${data?.error || 'No se pudo cargar'}</div>`; return }
+    if (!data?.ok) { body.innerHTML = `<div style="color:var(--gold,#f0a500)">${data?.error || 'No se pudo cargar'}</div>`; return }
     rtxHistPintar(data, body)
   } catch (e) {
-    if (body) body.innerHTML = `<div style="color:#f0a500">Error: ${e.message || e}</div>`
+    if (body) body.innerHTML = `<div style="color:var(--gold,#f0a500)">Error: ${e.message || e}</div>`
   }
 }
 window.rtxHistCerrar = () => { if (rtxHistOv) { rtxHistOv.remove(); rtxHistOv = null } }
@@ -2265,27 +2265,27 @@ window.rtxPrestamo = async (identidad, nombre, saldo) => {
       <button onclick="rtxPrestCerrar()">✕</button></div>
       <div style="padding:16px 18px">
         <div style="font-weight:700;margin-bottom:2px">${nombre}</div>
-        <div style="color:#8b8f98;font-size:12px;margin-bottom:14px">Saldo actual: <b style="color:#f0a500">L. ${rtxFmt(saldo)}</b> → el préstamo lo aumenta (queda debiendo más).</div>
-        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monto del préstamo</label>
+        <div style="color:var(--text2,#8b8f98);font-size:12px;margin-bottom:14px">Saldo actual: <b style="color:var(--gold,#f0a500)">L. ${rtxFmt(saldo)}</b> → el préstamo lo aumenta (queda debiendo más).</div>
+        <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monto del préstamo</label>
         <input id="rtx-prest-monto" type="number" step="0.01" min="0" placeholder="0.00" style="width:100%;margin-bottom:14px">
-        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Motivo (obligatorio)</label>
+        <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Motivo (obligatorio)</label>
         <textarea id="rtx-prest-motivo" rows="2" placeholder="Ej: Adelanto para reparación de la unidad; se descuenta de sus entregas." style="width:100%;resize:vertical"></textarea>
 
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #2a2e37">
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#2a2e37)">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="rtx-prest-partida" onchange="rtxPrestTogglePartida()"> Generar partida contable (borrador)</label>
           <div id="rtx-prest-part-box" style="display:none;margin-top:12px">
-            <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Débito — lo que el motorista debe (préstamo / CxC)</label>
+            <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Débito — lo que el motorista debe (préstamo / CxC)</label>
             <select id="rtx-prest-deb" style="width:100%;margin-bottom:10px"><option value="">— elegí cuenta —</option>${optCuentas}</select>
-            <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Crédito — de dónde sale el efectivo (caja / banco)</label>
+            <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Crédito — de dónde sale el efectivo (caja / banco)</label>
             <select id="rtx-prest-cred" style="width:100%;margin-bottom:10px"><option value="">— elegí cuenta —</option>${optCuentas}</select>
-            <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Tipo de origen</label>
+            <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Tipo de origen</label>
             <select id="rtx-prest-origen" style="width:100%;margin-bottom:6px"><option value="">— elegí —</option>${optOrigen}</select>
-            <div style="color:#8b8f98;font-size:11px">Centro de costo: <b>${ccTxt}</b> · Fecha: hoy · Queda en borrador para aprobar.</div>
+            <div style="color:var(--text2,#8b8f98);font-size:11px">Centro de costo: <b>${ccTxt}</b> · Fecha: hoy · Queda en borrador para aprobar.</div>
           </div>
         </div>
 
-        <div id="rtx-prest-msg" style="color:#f0a500;font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div id="rtx-prest-msg" style="color:var(--gold,#f0a500);font-size:12px;margin-top:8px;min-height:16px"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
           <button class="rtx-b" onclick="rtxPrestCerrar()">Cancelar</button>
           <button class="rtx-b ok" id="rtx-prest-ok" onclick="rtxPrestConfirmar('${identidad}','${String(nombre).replace(/'/g, "\\'")}')">Confirmar préstamo</button>
@@ -2359,15 +2359,15 @@ window.rtxCondonar = (identidad, nombre, saldo) => {
       <button onclick="rtxCondCerrar()">✕</button></div>
       <div style="padding:16px 18px">
         <div style="font-weight:700;margin-bottom:2px">${nombre}</div>
-        <div style="color:#8b8f98;font-size:12px;margin-bottom:14px">Saldo actual: <b style="color:#f0a500">L. ${rtxFmt(saldo)}</b></div>
-        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monto a condonar</label>
+        <div style="color:var(--text2,#8b8f98);font-size:12px;margin-bottom:14px">Saldo actual: <b style="color:var(--gold,#f0a500)">L. ${rtxFmt(saldo)}</b></div>
+        <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monto a condonar</label>
         <div style="display:flex;gap:8px;margin-bottom:14px">
           <input id="rtx-cond-monto" type="number" step="0.01" min="0" max="${saldo}" placeholder="0.00" style="flex:1">
           <button class="rtx-b" onclick="document.getElementById('rtx-cond-monto').value='${saldo}'">Saldo completo</button>
         </div>
-        <label style="display:block;font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Motivo (obligatorio)</label>
+        <label style="display:block;font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Motivo (obligatorio)</label>
         <textarea id="rtx-cond-motivo" rows="3" placeholder="Ej: Hijo hospitalizado; no se cobró tarifa del 12 al 15 de junio." style="width:100%;resize:vertical"></textarea>
-        <div id="rtx-cond-msg" style="color:#f0a500;font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div id="rtx-cond-msg" style="color:var(--gold,#f0a500);font-size:12px;margin-top:8px;min-height:16px"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
           <button class="rtx-b" onclick="rtxCondCerrar()">Cancelar</button>
           <button class="rtx-b ok" id="rtx-cond-ok" onclick="rtxCondConfirmar('${identidad}')">Confirmar condonación</button>
@@ -2406,30 +2406,30 @@ function rtxHistPintar(data, body) {
   body = body || document.getElementById('rtx-hist-body')
   if (!body) return
   const movs = data.movimientos || []
-  const saldoCls = data.saldo_actual > 0.01 ? 'color:#f0a500' : 'color:#3fb950'
+  const saldoCls = data.saldo_actual > 0.01 ? 'color:var(--gold,#f0a500)' : 'color:var(--green-fg,#3fb950)'
   const head = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
       <div><div style="font-weight:700;font-size:15px">${data.nombre}</div>
-        <div style="color:#8b8f98;font-size:12px">Cédula: ${data.identidad}</div></div>
-      <div style="text-align:right"><div style="color:#8b8f98;font-size:11px;text-transform:uppercase">Saldo actual</div>
+        <div style="color:var(--text2,#8b8f98);font-size:12px">Cédula: ${data.identidad}</div></div>
+      <div style="text-align:right"><div style="color:var(--text2,#8b8f98);font-size:11px;text-transform:uppercase">Saldo actual</div>
         <div style="font-weight:800;font-size:20px;${saldoCls}">L. ${rtxFmt(data.saldo_actual)}</div></div>
     </div>
-    <div style="font-size:12px;color:#8b8f98;margin-bottom:10px">Cómo se movió el saldo: <span style="color:#fca5a5">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:#7ee2a0">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
+    <div style="font-size:12px;color:var(--text2,#8b8f98);margin-bottom:10px">Cómo se movió el saldo: <span style="color:#fca5a5">cargo</span> = día que no pagó lo esperado (subió) · <span style="color:var(--green-fg,#7ee2a0)">abono</span> = día que pagó de más o reconcilió (bajó).</div>`
 
   const _esSuper = rtxEsSuper()
   const _nEsc = String(data.nombre || '').replace(/'/g, "\\'")
   const _sAct = Number(data.saldo_actual) || 0
   const _prestBtn = _esSuper
-    ? `<button class="rtx-b" style="border-color:#f0a500;color:#f0a500" onclick="rtxPrestamo('${data.identidad}','${_nEsc}',${_sAct})">➕ Préstamo (subir saldo)</button>`
+    ? `<button class="rtx-b" style="border-color:var(--gold,#f0a500);color:var(--gold,#f0a500)" onclick="rtxPrestamo('${data.identidad}','${_nEsc}',${_sAct})">➕ Préstamo (subir saldo)</button>`
     : ''
   const _condBtnEl = (_esSuper && _sAct > 0.01)
-    ? `<button class="rtx-b" style="border-color:#7ee2a0;color:#7ee2a0" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${_sAct})">➖ Condonar saldo</button>`
+    ? `<button class="rtx-b" style="border-color:#7ee2a0;color:var(--green-fg,#7ee2a0)" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${_sAct})">➖ Condonar saldo</button>`
     : ''
   const _condBtn = (_prestBtn || _condBtnEl)
     ? `<div style="margin:2px 0 12px;display:flex;gap:8px;flex-wrap:wrap">${_prestBtn}${_condBtnEl}</div>`
     : ''
   if (!movs.length) {
-    body.innerHTML = head + _condBtn + '<div style="color:#8b8f98;padding:8px">Sin movimientos de saldo registrados.</div>'
+    body.innerHTML = head + _condBtn + '<div style="color:var(--text2,#8b8f98);padding:8px">Sin movimientos de saldo registrados.</div>'
     return
   }
   const rows = movs.map(m => {
@@ -2440,7 +2440,7 @@ function rtxHistPintar(data, body) {
     const nota = rtxHistNota(m.nota)
     return `<tr>
       <td style="white-space:nowrap">${m.fecha}</td>
-      <td><span style="color:${col};font-weight:600">${etq}</span><div style="color:#8b8f98;font-size:11px">${nota}</div></td>
+      <td><span style="color:${col};font-weight:600">${etq}</span><div style="color:var(--text2,#8b8f98);font-size:11px">${nota}</div></td>
       <td style="text-align:right;color:${col};font-weight:600;white-space:nowrap">${signo} L. ${rtxFmt(m.monto)}</td>
       <td style="text-align:right;white-space:nowrap;font-family:ui-monospace,monospace">L. ${rtxFmt(m.saldo)}</td>
     </tr>`
@@ -2453,7 +2453,7 @@ function rtxHistPintar(data, body) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div style="color:#8b8f98;font-size:11px;margin-top:8px">Mostrando ${movs.length} movimiento(s), del más reciente al más antiguo.</div>
+    <div style="color:var(--text2,#8b8f98);font-size:11px;margin-top:8px">Mostrando ${movs.length} movimiento(s), del más reciente al más antiguo.</div>
     <div id="rtx-hist-salidas" style="margin-top:16px"></div>`
   rtxCargarSalidas(data.identidad)
 }
@@ -2689,7 +2689,7 @@ window.rtxHistBuscar = async () => {
     await rtxHistCargarKm()
     rtxHistResultPintar()
   } catch (e) {
-    if (cont) cont.innerHTML = `<div class="rtx-hist-info" style="color:#f0a500">Error: ${e.message || e}</div>`
+    if (cont) cont.innerHTML = `<div class="rtx-hist-info" style="color:var(--gold,#f0a500)">Error: ${e.message || e}</div>`
   }
 }
 
@@ -2904,14 +2904,14 @@ function rtxHistResultPintar() {
   }).join('')
   cont.innerHTML = `
     <div class="rtx-hist-stats"${excluidas.length ? ' style="grid-template-columns:repeat(4,1fr)"' : ''}>
-      <div><b style="color:#3fb950">L. ${rtxFmt(total)}</b><span>Total válido</span></div>
+      <div><b style="color:var(--green-fg,#3fb950)">L. ${rtxFmt(total)}</b><span>Total válido</span></div>
       <div><b>${validas.length}</b><span>Entregas</span></div>
-      ${excluidas.length ? `<div><b style="color:#f85149">L. ${rtxFmt(totalExcl)}</b><span>${excluidas.length} no aprobada${excluidas.length === 1 ? '' : 's'}</span></div>` : ''}
+      ${excluidas.length ? `<div><b style="color:var(--red-fg,#f85149)">L. ${rtxFmt(totalExcl)}</b><span>${excluidas.length} no aprobada${excluidas.length === 1 ? '' : 's'}</span></div>` : ''}
       ${(() => {
         // La tarjeta de "Unidad" repetía el filtro que ya está a la vista.
         // En su lugar va el rendimiento: cuántos lempiras por kilómetro.
         if (!uni && !rtxHistIdent) return `<div><b>Todas</b><span>Unidad</span></div>`
-        if (!rtxHistKm || !rtxHistKm.km) return `<div><b style="color:#8b93a3">sin GPS</b><span>L. por km</span></div>`
+        if (!rtxHistKm || !rtxHistKm.km) return `<div><b style="color:var(--text2,#8b93a3)">sin GPS</b><span>L. por km</span></div>`
         const lpk = total / rtxHistKm.km
         const aviso = ` title="L. ${rtxFmt(total)} en ${rtxHistKm.dias} día(s) con GPS${rtxHistIdent ? ', solo los días en que tuvo la unidad' : ''}${rtxHistKm.dias < 5 ? '. Muestra corta: el valor puede moverse mucho con un día más.' : ''}"`
         const uds = rtxHistKm.unidades > 1 ? ` · ${rtxHistKm.unidades} unidades` : ''
@@ -2932,26 +2932,26 @@ function rtxHistEnsureStyles() {
   st.id = 'rtx-hist-styles'
   st.textContent = `
     #rtx-hist-root{padding:4px 0}
-    .rtx-hist-form{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;background:#15171c;border:1px solid #262a32;border-radius:12px;padding:14px;margin-bottom:14px}
+    .rtx-hist-form{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;background:var(--bg2,#15171c);border:1px solid #262a32;border-radius:12px;padding:14px;margin-bottom:14px}
     .rtx-hist-field{display:flex;flex-direction:column;gap:5px}
     .rtx-hist-field label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8a8f98}
-    .rtx-hist-form .rtx-inp{background:#0f1115;border:1px solid #2a2e37;color:#e6e6e6;border-radius:8px;padding:9px 11px;font-size:14px;min-width:150px}
+    .rtx-hist-form .rtx-inp{background:var(--bg-inset,#0f1115);border:1px solid var(--border,#2a2e37);color:var(--text,#e6e6e6);border-radius:8px;padding:9px 11px;font-size:14px;min-width:150px}
     .rtx-hist-go{align-self:flex-end}
     .rtx-hist-info{padding:26px;text-align:center;color:#8a8f98}
     .rtx-hist-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
-    .rtx-hist-stats>div{background:#15171c;border:1px solid #262a32;border-radius:12px;padding:14px;text-align:center}
+    .rtx-hist-stats>div{background:var(--bg2,#15171c);border:1px solid #262a32;border-radius:12px;padding:14px;text-align:center}
     .rtx-hist-stats b{display:block;font-size:20px}
     .rtx-hist-stats span{font-size:11px;color:#8a8f98;text-transform:uppercase;letter-spacing:.5px}
-    .rtx-hist-card{background:#15171c;border:1px solid #262a32;border-radius:12px;padding:13px 15px;margin-bottom:10px}
+    .rtx-hist-card{background:var(--bg2,#15171c);border:1px solid #262a32;border-radius:12px;padding:13px 15px;margin-bottom:10px}
     .rtx-hist-ctop{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
     .rtx-hist-name{font-weight:600;font-size:14px}
-    .rtx-hist-uni2{color:#f0a500;font-weight:600;font-size:12px}
-    .rtx-hist-monto{font-weight:700;color:#3fb950;font-size:15px;white-space:nowrap}
-    .rtx-hist-meta{font-size:12px;color:#9aa0aa;margin-top:4px}
+    .rtx-hist-uni2{color:var(--gold,#f0a500);font-weight:600;font-size:12px}
+    .rtx-hist-monto{font-weight:700;color:var(--green-fg,#3fb950);font-size:15px;white-space:nowrap}
+    .rtx-hist-meta{font-size:12px;color:var(--text2,#9aa0aa);margin-top:4px}
     .rtx-hist-est{padding:1px 7px;border-radius:5px;font-size:11px}
-    .rtx-hist-est.ok{background:rgba(63,185,80,.15);color:#3fb950}
-    .rtx-hist-est.pend{background:rgba(240,165,0,.15);color:#f0a500}
-    .rtx-hist-est.bad{background:rgba(248,113,113,.15);color:#f87171}
+    .rtx-hist-est.ok{background:rgba(63,185,80,.15);color:var(--green-fg,#3fb950)}
+    .rtx-hist-est.pend{background:rgba(240,165,0,.15);color:var(--gold,#f0a500)}
+    .rtx-hist-est.bad{background:rgba(248,113,113,.15);color:var(--red-fg,#f87171)}
     .rtx-hist-toggle{margin-top:9px;background:rgba(99,102,241,.12);color:#a5b4fc;border:1px solid rgba(99,102,241,.3);border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer}
     .rtx-hist-desg{margin-top:9px;border-top:1px solid #262a32;padding-top:9px;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px}
     .rtx-hist-desg.hidden{display:none}
@@ -2988,7 +2988,7 @@ async function rtxKmCargar() {
     rtxKmEditUnidad = null
     rtxKmRenderShell(false)
   } catch (e) {
-    root.innerHTML = `<div style="color:#f0a500;padding:20px">Error: ${e.message || e}</div>`
+    root.innerHTML = `<div style="color:var(--gold,#f0a500);padding:20px">Error: ${e.message || e}</div>`
   }
 }
 
@@ -3021,7 +3021,7 @@ async function rtxKmCargarRango() {
     rtxKmData = Object.values(byU)
     rtxKmEditUnidad = null
     rtxKmRenderShell(false)
-  } catch (e) { root.innerHTML = `<div style="color:#f0a500;padding:20px">Error: ${e.message || e}</div>` }
+  } catch (e) { root.innerHTML = `<div style="color:var(--gold,#f0a500);padding:20px">Error: ${e.message || e}</div>` }
 }
 window.rtxKmVerRango = () => {
   const d = document.getElementById('rtx-km-desde'); const h = document.getElementById('rtx-km-hasta')
@@ -3064,7 +3064,7 @@ function rtxKmRenderTablaRango() {
       return `<tr class="${noMarco ? 'rtx-km-low' : ''}">
         <td><b>${escTxt(x.fecha)}</b></td>
         <td class="rtx-km-kmcell">${rtxFmt(km)}</td>
-        <td>${x.usuario_gps ? escTxt(x.usuario_gps) : '<span style="color:#8b8f98">—</span>'}</td>
+        <td>${x.usuario_gps ? escTxt(x.usuario_gps) : '<span style="color:var(--text2,#8b8f98)">—</span>'}</td>
       </tr>`
     }).join('')
     body.innerHTML = `
@@ -3080,7 +3080,7 @@ function rtxKmRenderTablaRango() {
       <td><b>${escTxt(r.unidad)}</b></td>
       <td class="rtx-km-kmcell">${rtxFmt(parseFloat(r.km) || 0)}</td>
       <td>${r.dias || 0}</td>
-      <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:#8b8f98">—</span>'}</td>
+      <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:var(--text2,#8b8f98)">—</span>'}</td>
     </tr>`).join('')
   body.innerHTML = `
     <div class="rtx-km-count">${rows.length} de ${rtxKmData.length} unidades${(rtxKmFUnidad || rtxKmFUsuario || rtxKmOp) ? ' (filtrado)' : ''}</div>
@@ -3115,9 +3115,9 @@ function rtxKmRenderShell(cargando) {
     </div>
     <div class="rtx-km-bar rtx-km-rangobar">
       <div class="rtx-km-fecha">
-        <span style="color:#8b8f98;font-size:12px;font-weight:600">📅 Rango:</span>
+        <span style="color:var(--text2,#8b8f98);font-size:12px;font-weight:600">📅 Rango:</span>
         <input type="date" id="rtx-km-desde" class="rtx-inp" value="${rtxKmDesde}">
-        <span style="color:#8b8f98">a</span>
+        <span style="color:var(--text2,#8b8f98)">a</span>
         <input type="date" id="rtx-km-hasta" class="rtx-inp" value="${rtxKmHasta}">
         <button class="rtx-b ok" onclick="rtxKmVerRango()">Ver rango</button>
         ${rtxKmEsRango ? '<button class="rtx-b ghost" onclick="rtxKmVerDia()">✕ Volver al día</button>' : ''}
@@ -3134,7 +3134,7 @@ function rtxKmRenderShell(cargando) {
       <button class="rtx-b ghost" onclick="rtxKmLimpiar()">Limpiar filtros</button>
     </div>
     <div id="rtx-km-resumen"></div>
-    <div id="rtx-km-body">${cargando ? '<div style="color:#9aa0aa;padding:20px">Cargando…</div>' : ''}</div>`
+    <div id="rtx-km-body">${cargando ? '<div style="color:var(--text2,#9aa0aa);padding:20px">Cargando…</div>' : ''}</div>`
   if (!cargando) rtxKmRenderTabla()
 }
 
@@ -3231,7 +3231,7 @@ function rtxKmRenderTabla() {
     return `<tr class="${noMarco ? 'rtx-km-low' : ''}">
       <td><b>${escTxt(r.unidad)}</b></td>
       <td class="rtx-km-kmcell">${rtxFmt(km)}</td>
-      <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:#8b8f98">—</span>'}</td>
+      <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:var(--text2,#8b8f98)">—</span>'}</td>
       <td>${estado}</td>
       <td>${notaTxt}<button class="rtx-b" onclick="rtxKmValidarAbrir('${escJ(r.unidad)}')">✏️ ${(r.validado || r.nota) ? 'Editar' : 'Validar'}</button></td>
     </tr>`
@@ -3362,28 +3362,28 @@ function rtxKmEnsureStyles() {
     .rtx-km-import{cursor:pointer;display:inline-flex;align-items:center}
     .rtx-km-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
     .rtx-km-fmini{width:auto;min-width:120px}
-    .rtx-km-tot{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:#cfd3da;margin-bottom:8px}
-    .rtx-km-tot .warn{color:#f0a500}.rtx-km-tot .ok{color:#7ee2a0}
+    .rtx-km-tot{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--text,#cfd3da);margin-bottom:8px}
+    .rtx-km-tot .warn{color:var(--gold,#f0a500)}.rtx-km-tot .ok{color:var(--green-fg,#7ee2a0)}
     .rtx-km-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-    .rtx-km-chip{background:#1a1d24;border:1px solid #2a2e37;border-radius:20px;padding:3px 11px;font-size:12px;color:#cfd3da;cursor:pointer}
-    .rtx-km-chip:hover{border-color:#4a90e2}
+    .rtx-km-chip{background:var(--bg3,#1a1d24);border:1px solid var(--border,#2a2e37);border-radius:20px;padding:3px 11px;font-size:12px;color:var(--text,#cfd3da);cursor:pointer}
+    .rtx-km-chip:hover{border-color:var(--blue,#4a90e2)}
     .rtx-km-chip.on{background:#2563eb;border-color:#2563eb;color:#fff}
-    .rtx-km-count{font-size:12px;color:#8b8f98;margin-bottom:6px}
+    .rtx-km-count{font-size:12px;color:var(--text2,#8b8f98);margin-bottom:6px}
     .rtx-km-tbl{width:100%;border-collapse:collapse;font-size:14px}
     .rtx-km-tbl th,.rtx-km-tbl td{padding:8px 10px;border-bottom:1px solid #23262e;text-align:left}
-    .rtx-km-tbl th{color:#9aa0aa;font-size:12px;text-transform:uppercase;letter-spacing:.03em;font-weight:600}
+    .rtx-km-tbl th{color:var(--text2,#9aa0aa);font-size:12px;text-transform:uppercase;letter-spacing:.03em;font-weight:600}
     .rtx-km-tbl th.sortable{cursor:pointer;user-select:none}
-    .rtx-km-tbl th.sortable:hover{color:#cfd3da}
+    .rtx-km-tbl th.sortable:hover{color:var(--text,#cfd3da)}
     .rtx-km-tbl tr.rtx-km-low td{background:rgba(240,165,0,.06)}
     .rtx-km-kmcell{font-variant-numeric:tabular-nums}
-    .rtx-km-bdg{font-size:11px;padding:2px 8px;border-radius:6px;background:#23262e;color:#9aa0aa}
-    .rtx-km-bdg.ok{background:rgba(22,163,74,.18);color:#7ee2a0}
-    .rtx-km-bdg.warn{background:rgba(240,165,0,.16);color:#f0a500}
-    .rtx-km-nota{font-size:12px;color:#9aa0aa;font-style:italic}
-    .rtx-km-empty{color:#8b8f98;padding:24px;text-align:center}
-    .rtx-km-edit{background:#15171c;border:1px solid #2a2e37;border-radius:9px;padding:12px}
+    .rtx-km-bdg{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--bg3,#23262e);color:var(--text2,#9aa0aa)}
+    .rtx-km-bdg.ok{background:rgba(22,163,74,.18);color:var(--green-fg,#7ee2a0)}
+    .rtx-km-bdg.warn{background:rgba(240,165,0,.16);color:var(--gold,#f0a500)}
+    .rtx-km-nota{font-size:12px;color:var(--text2,#9aa0aa);font-style:italic}
+    .rtx-km-empty{color:var(--text2,#8b8f98);padding:24px;text-align:center}
+    .rtx-km-edit{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:9px;padding:12px}
     .rtx-km-edit-h{margin-bottom:8px;font-size:13px}
-    .rtx-km-chk{display:flex;gap:7px;align-items:center;font-size:13px;margin-top:8px;color:#cfd3da}
+    .rtx-km-chk{display:flex;gap:7px;align-items:center;font-size:13px;margin-top:8px;color:var(--text,#cfd3da)}
     .rtx-km-edit-btns{display:flex;gap:8px;margin-top:10px}`
   document.head.appendChild(s)
 }
@@ -3556,14 +3556,14 @@ function rtxGpsPintar() {
     const m = META[x.estado]
     const ult = x.ult_real
       ? `${x.ult_real} <span style="color:var(--text3,#6e7681)">(hace ${x.dias_sin_lectura} d)</span>`
-      : '<span style="color:#f87171">nunca</span>'
+      : '<span style="color:var(--red-fg,#f87171)">nunca</span>'
     return `<tr style="border-bottom:1px solid var(--border)">
       <td style="padding:9px 8px;font-family:var(--mono);font-weight:600;color:var(--gold)">${x.unidad}</td>
       <td style="padding:9px 8px;font-size:12.5px">${x.nombre}${x.activo ? '' : ' <span style="color:var(--text3,#6e7681);font-size:11px">(inactivo)</span>'}</td>
       <td style="padding:9px 8px;font-size:12px">${ult}</td>
       <td style="padding:9px 8px;text-align:center;font-family:var(--mono)">${
         x.recuperado
-          ? `<span title="ya se recuperó" style="color:#4ade80">${x.dias_caido} ✓</span>`
+          ? `<span title="ya se recuperó" style="color:var(--green-fg,#4ade80)">${x.dias_caido} ✓</span>`
           : (x.dias_caido || '—')}</td>
       <td style="padding:9px 8px;text-align:center;font-family:var(--mono)">${x.entregas}</td>
       <td style="padding:9px 8px"><span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;color:${m.c};background:${m.bg};border:1px solid ${m.c}55">${

@@ -582,7 +582,7 @@ function ensureFiltroUsuarios() {
   const bar = document.createElement('div')
   bar.id = 'filtro-usuarios'
   bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px'
-  const inp = 'background:#1a1d24;border:1px solid #2a2e37;color:#e6e6e6;border-radius:8px;padding:8px 10px;font-size:13px'
+  const inp = 'background:var(--bg3,#1a1d24);border:1px solid var(--border,#2a2e37);color:var(--text,#e6e6e6);border-radius:8px;padding:8px 10px;font-size:13px'
   bar.innerHTML = `
     <input id="fu-buscar" placeholder="Buscar por nombre o correo…" autocomplete="off" oninput="aplicarFiltroUsuarios()" style="${inp};flex:1;min-width:200px">
     <select id="fu-rol" onchange="aplicarFiltroUsuarios()" style="${inp}"><option value="">Rol: todos</option></select>
@@ -6444,7 +6444,7 @@ function renderArqueoFisico(enCajaMap, ctx) {
           <div id="arq-fis-diftot" style="font-family:var(--mono);font-size:18px;font-weight:600">L. 0.00</div>
         </div>
         <button id="arq-fis-btn" onclick="window.generarAjusteArqueo()" disabled
-          style="padding:10px 16px;border-radius:8px;border:none;background:var(--gold,#B4892F);color:#000;font-weight:600;opacity:.5">
+          style="padding:10px 16px;border-radius:8px;border:none;background:var(--gold-bg,#B4892F);color:#000;font-weight:600;opacity:.5">
           Generar partida de ajuste
         </button>
       </div>
@@ -8152,7 +8152,7 @@ function renderImportCostosResults() {
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
       <div class="stat-card"><div class="stat-num">${icuData.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Archivos</div></div>
       <div class="stat-card"><div class="stat-num">${totalFacturas}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Facturas</div></div>
-      <div class="stat-card"><div class="stat-num">L. ${fmt(totalVentas)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Ventas total</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalVentas)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Ventas total</div></div>
       <div class="stat-card"><div class="stat-num">L. ${fmt(totalCosto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Costo total</div></div>
     </div>`
 
@@ -8620,7 +8620,7 @@ function renderImportTaxisResults() {
       <div class="stat-card"><div class="stat-num">${d.entregas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Total entregas</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--green)">${d.nuevas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Nuevas</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--amber)">${d.duplicadas.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>A actualizar</div></div>
-      <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Total</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Total</div></div>
     </div>
     ${d.km.length ? `<div style="padding:10px 14px;border-radius:var(--radius);margin-bottom:16px;background:rgba(59,130,246,0.08);border-left:3px solid var(--blue);font-size:13px;color:var(--blue)">📏 ${d.km.length} registros de Km diarios a importar</div>` : ''}
     <div class="table-wrap" style="max-height:300px;overflow-y:auto">
@@ -8966,7 +8966,7 @@ function renderPartidasTaxis() {
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
       <div class="stat-card"><div class="stat-num">${ptxData.length}</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Días</div></div>
       <div class="stat-card"><div class="stat-num">${totalEntregas}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Entregas</div></div>
-      <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Total</div></div>
+      <div class="stat-card"><div class="stat-num">L. ${fmt(totalMonto)}</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Total</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--green)">${diasNuevos}</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Partidas nuevas</div></div>
     </div>`
 
@@ -9005,7 +9005,7 @@ function renderPartidasTaxis() {
       </table>
     </div>
     ${diasExistentes ? `<div style="margin-top:10px;font-size:12px;color:var(--text3)">Las fechas ya contabilizadas se omitirán.</div>` : ''}
-    ${diasBloqueados ? `<div style="margin-top:10px;font-size:12px;color:#f5c451">⛔ ${diasBloqueados} día(s) no se pueden contabilizar todavía: tienen entregas bancarias sin conciliar. Sin la conciliación no se sabe en cuál cuenta del banco entró el depósito, y la partida quedaría en la cuenta equivocada. Conciliá esos días en <b>Conciliación Taxis</b>.</div>` : ''}`
+    ${diasBloqueados ? `<div style="margin-top:10px;font-size:12px;color:var(--amber-fg,#f5c451)">⛔ ${diasBloqueados} día(s) no se pueden contabilizar todavía: tienen entregas bancarias sin conciliar. Sin la conciliación no se sabe en cuál cuenta del banco entró el depósito, y la partida quedaría en la cuenta equivocada. Conciliá esos días en <b>Conciliación Taxis</b>.</div>` : ''}`
 
   document.getElementById('ptx-resultado').classList.remove('hidden')
   document.getElementById('ptx-log-card').classList.add('hidden')
@@ -9416,7 +9416,7 @@ function vinEnsureToolbar() {
     <input id="vin-bulk-ubic" list="vin-bulk-dl" placeholder="Ubicación / contenedor (ej: Contenedor 24)" autocomplete="off"
       style="flex:1;min-width:210px;padding:6px 10px;background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:6px;color:inherit;font-size:13px">
     <datalist id="vin-bulk-dl"></datalist>
-    <button onclick="vinBulkAsignar()" style="background:var(--gold,#c8a24a);color:#1a1a1a;font-weight:700;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;white-space:nowrap">📍 Asignar a seleccionados</button>
+    <button onclick="vinBulkAsignar()" style="background:var(--gold-bg,#c8a24a);color:#1a1a1a;font-weight:700;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;white-space:nowrap">📍 Asignar a seleccionados</button>
     <button onclick="vinBulkVendido()" style="background:none;border:1px solid var(--red,#f85149);color:var(--red,#f85149);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">🏷️ Marcar Vendido</button>
     <button onclick="vinSelAllFiltered()" style="background:none;border:1px solid var(--border,#30363d);color:var(--text2,#adbac7);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap">Seleccionar todos (filtrados)</button>
     <button onclick="vinClearSel()" style="background:none;border:1px solid var(--border,#30363d);color:var(--text3,#768390);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Limpiar</button>`
@@ -11465,7 +11465,7 @@ window.cxpVerPagos = () => {
         <tbody>${filas}</tbody></table></div>
     <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
       <span>${pagos.length} pago(s)</span><b style="font-family:var(--mono)">L. ${fmt(totGeneral)}</b></div>
-    ${sinNum ? `<div style="font-size:11px;color:#f5c451;margin-top:8px">⚠️ Hay ${sinNum} línea(s) marcadas como pagadas sin número de partida de pago: son anteriores a que se guardara ese dato y no se pueden agrupar acá.</div>` : ''}
+    ${sinNum ? `<div style="font-size:11px;color:var(--amber-fg,#f5c451);margin-top:8px">⚠️ Hay ${sinNum} línea(s) marcadas como pagadas sin número de partida de pago: son anteriores a que se guardara ese dato y no se pueden agrupar acá.</div>` : ''}
     <div style="font-size:11px;color:var(--text3);margin-top:8px">Solo cuenta las líneas del rango de fechas y el estado que consultaste arriba. Si un pago cubrió gastos fuera de ese rango, el total de acá va a salir incompleto.</div>`)
 }
 
@@ -12088,8 +12088,8 @@ function cxpResumenConciliacion(res) {
     if (decl == null) return ''
     const d = Math.round((decl - leido) * 100) / 100
     return Math.abs(d) < 0.01
-      ? `<div style="color:#86efac;padding:2px 0">✓ Lectura completa (${sim}): los cargos leídos suman ${sim} ${fmt(leido)}, igual que el estado.</div>`
-      : `<div style="color:#f5c451;padding:2px 0">⚠️ La lectura del PDF no cuadra (${sim}): leído ${sim} ${fmt(leido)} vs ${sim} ${fmt(decl)} declarado · diferencia ${sim} ${fmt(d)}. Faltan cargos por leer — no uses este resultado.</div>`
+      ? `<div style="color:var(--green-fg,#86efac);padding:2px 0">✓ Lectura completa (${sim}): los cargos leídos suman ${sim} ${fmt(leido)}, igual que el estado.</div>`
+      : `<div style="color:var(--amber-fg,#f5c451);padding:2px 0">⚠️ La lectura del PDF no cuadra (${sim}): leído ${sim} ${fmt(leido)} vs ${sim} ${fmt(decl)} declarado · diferencia ${sim} ${fmt(d)}. Faltan cargos por leer — no uses este resultado.</div>`
   }
   const ctrlHtml = (ctrl.hnl != null || ctrl.usd != null) ? `
       <div style="font-weight:600;font-size:10px;letter-spacing:.5px;color:var(--text3);margin:10px 0 2px">LECTURA DEL ARCHIVO</div>
@@ -12105,20 +12105,20 @@ function cxpResumenConciliacion(res) {
   const html = `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <div style="flex:1;min-width:130px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4);border-radius:8px;padding:10px 14px">
-        <div style="font-size:22px;font-weight:700;color:#86efac">${res.matched.length}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--green-fg,#86efac)">${res.matched.length}</div>
         <div style="font-size:11px;color:var(--text3)">líneas conciliadas · L. ${fmt(totMatch)}</div></div>
       <div style="flex:1;min-width:130px;background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.4);border-radius:8px;padding:10px 14px">
-        <div style="font-size:22px;font-weight:700;color:#f5c451">${res.cargosSinMatch.length}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--amber-fg,#f5c451)">${res.cargosSinMatch.length}</div>
         <div style="font-size:11px;color:var(--text3)">cargos del estado sin registrar en CxP</div></div>
       <div style="flex:1;min-width:130px;background:rgba(120,113,108,.12);border:1px solid rgba(120,113,108,.4);border-radius:8px;padding:10px 14px">
-        <div style="font-size:22px;font-weight:700;color:#d6d3d1">${res.lineasSinMatch.length}</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text,#d6d3d1)">${res.lineasSinMatch.length}</div>
         <div style="font-size:11px;color:var(--text3)">líneas CxP no están en el estado</div></div>
     </div>
     ${cuadreHtml}
     <div style="margin-bottom:12px"><button onclick="cxpExportSinMatch()" class="btn btn-ghost" style="font-size:12px;padding:7px 12px;color:var(--green)">📥 Bajar a Excel (conciliadas · sin registrar · bonos)</button></div>
     ${res.cargosSinMatch.length ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px">⚠️ Cargos del estado que <b>no</b> tienen línea en CxP (revisá si falta registrarlos):</div>
       <div style="max-height:260px;overflow:auto;border:0.5px solid var(--border);border-radius:8px">
-        <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--text3)"><th style="padding:4px 8px;text-align:left">Fecha</th><th style="padding:4px 8px;text-align:left">Descripción</th><th style="padding:4px 8px;text-align:right">Monto</th></tr></thead><tbody>${filasSin}</tbody></table></div>` : '<div style="font-size:12px;color:#86efac">✓ Todos los cargos del estado tienen su línea en CxP.</div>'}
+        <table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--text3)"><th style="padding:4px 8px;text-align:left">Fecha</th><th style="padding:4px 8px;text-align:left">Descripción</th><th style="padding:4px 8px;text-align:right">Monto</th></tr></thead><tbody>${filasSin}</tbody></table></div>` : '<div style="font-size:12px;color:var(--green-fg,#86efac)">✓ Todos los cargos del estado tienen su línea en CxP.</div>'}
     <div style="font-size:11px;color:var(--text3);margin-top:12px">Las líneas conciliadas quedaron marcadas. Revisá, ajustá si hace falta, y usá "Guardar selección" o "Generar pago".</div>`
   cxpModal('🔗 Resultado de la conciliación', html)
 }
@@ -12185,9 +12185,9 @@ function cxpCuadreVerdict(saldoAnt, totPago, simbolo) {
   const sim = simbolo || 'L.'
   if (saldoAnt == null || isNaN(saldoAnt)) return '<span style="color:var(--text3)">Escribí el saldo anterior para verificar el cuadre.</span>'
   const diff = Math.round((totPago - saldoAnt) * 100) / 100
-  if (Math.abs(diff) < 0.01) return '<span style="color:#86efac">✓ Los pagos cubren exactamente el saldo anterior.</span>'
+  if (Math.abs(diff) < 0.01) return '<span style="color:var(--green-fg,#86efac)">✓ Los pagos cubren exactamente el saldo anterior.</span>'
   if (diff > 0) return `<span style="color:#93c5fd">Los pagos superan el saldo anterior → <b>Pago adelantado: ${sim} ${fmt(diff)}</b> (va en el Excel)</span>`
-  return `<span style="color:#f5c451">⚠️ Los pagos no cubren el saldo anterior → falta <b>${sim} ${fmt(-diff)}</b></span>`
+  return `<span style="color:var(--amber-fg,#f5c451)">⚠️ Los pagos no cubren el saldo anterior → falta <b>${sim} ${fmt(-diff)}</b></span>`
 }
 window.cxpCuadreCalc = (val) => {
   const el = document.getElementById('cxp-verdict-hnl'); if (!el) return

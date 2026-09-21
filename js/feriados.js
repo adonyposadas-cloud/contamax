@@ -219,7 +219,7 @@ function fbEnsureStyles() {
     .fb-off td{opacity:.45}
     .fb-mini{font-size:11px;padding:3px 9px}
     .fb-chip{font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
-    .fb-alerta{color:#f5c451}
+    .fb-alerta{color:var(--amber-fg,#f5c451)}
     .fb-vacio{padding:18px;text-align:center;color:var(--text3);font-size:12px;
       border:1px dashed var(--border);border-radius:9px}
     .fb-pie{font-size:11px;color:var(--text3);background:var(--bg3);border:0.5px solid var(--border);

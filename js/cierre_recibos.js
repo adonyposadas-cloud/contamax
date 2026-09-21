@@ -404,7 +404,7 @@ window.generarPartidaCierre = async function () {
 // ════════════════════════════════════════════════════════════════════
 const _CUENTA_FONDO = '110501-001'
 const _CENT_SOCIOS_DEFAULT = ['ALYN', 'MAXIMINO HIJO', 'MAXIMINO PADRE', 'AUTOLOTE', 'TRANSPORTES ADONIS', 'ADONY']
-const _CENT_BTN_PRIM = 'background:var(--gold,#d4a017);color:#000;font-weight:600;padding:8px 16px;border:none;border-radius:8px;cursor:pointer'
+const _CENT_BTN_PRIM = 'background:var(--gold-bg,#d4a017);color:#000;font-weight:600;padding:8px 16px;border:none;border-radius:8px;cursor:pointer'
 const _CENT_BTN_SEC = 'background:transparent;color:var(--gold,#d4a017);font-weight:600;padding:7px 14px;border:1px solid var(--gold,#d4a017);border-radius:8px;cursor:pointer;font-size:13px'
 let _centDistrib = []
 let _centCalc = null
@@ -457,7 +457,7 @@ window.verUnidadesSinIngreso = function (modalidad) {
         <thead><tr style="border-bottom:1px solid var(--border,#444);text-align:left;color:var(--text3,#999)"><th style="padding:7px 10px;width:40px">#</th><th style="padding:7px 10px">Registro</th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
-      ${lista.length ? `<div style="margin-top:14px;text-align:right"><button onclick="window.copiarSinIngreso('${modalidad}')" style="background:var(--gold,#d4a017);color:#1a1a1a;font-weight:600;border:none;border-radius:8px;padding:7px 14px;cursor:pointer">📋 Copiar registros</button></div>` : ''}
+      ${lista.length ? `<div style="margin-top:14px;text-align:right"><button onclick="window.copiarSinIngreso('${modalidad}')" style="background:var(--gold-bg,#d4a017);color:#1a1a1a;font-weight:600;border:none;border-radius:8px;padding:7px 14px;cursor:pointer">📋 Copiar registros</button></div>` : ''}
     </div>`
 }
 

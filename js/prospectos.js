@@ -59,9 +59,9 @@ window.__prospBuild = '20260720c'
   window.initProspectos = async function () {
     const root = document.getElementById('view-prospectos')
     if (!root) return
-    root.innerHTML = '<div style="padding:24px;color:#8b949e">Cargando…</div>'
+    root.innerHTML = '<div style="padding:24px;color:var(--text2,#8b949e)">Cargando…</div>'
     try { await cargar(); render() } catch (e) {
-      root.innerHTML = `<div style="padding:24px;color:#f85149">Error: ${esc(e.message || e)}</div>`
+      root.innerHTML = `<div style="padding:24px;color:var(--red-fg,#f85149)">Error: ${esc(e.message || e)}</div>`
     }
   }
 
@@ -84,7 +84,7 @@ window.__prospBuild = '20260720c'
   function render () {
     const root = document.getElementById('view-prospectos')
     if (!root) return
-    if (!puede()) { root.innerHTML = '<div style="padding:24px;color:#f85149">No tenés permiso sobre este módulo.</div>'; return }
+    if (!puede()) { root.innerHTML = '<div style="padding:24px;color:var(--red-fg,#f85149)">No tenés permiso sobre este módulo.</div>'; return }
     const tab = (k, t) => `<button onclick="prospTab('${k}')" style="flex:1;background:${TAB === k ? '#c8a24a' : 'transparent'};color:${TAB === k ? '#15171c' : '#8b949e'};border:1px solid ${TAB === k ? '#c8a24a' : '#2a2e37'};border-radius:9px;padding:10px;cursor:pointer;font-size:13.5px;font-weight:600">${t}</button>`
 
     root.innerHTML = `
@@ -132,25 +132,25 @@ window.__prospBuild = '20260720c'
       const fotos = Array.isArray(t.ultimas_fotos) ? t.ultimas_fotos : []
       const sinVisitar = t.dias_sin_visitar
       return `
-      <div style="background:#15171c;border:1px solid ${abierta ? '#c8a24a' : '#2a2e37'};border-radius:12px;margin-bottom:10px;overflow:hidden">
+      <div style="background:var(--bg2,#15171c);border:1px solid ${abierta ? '#c8a24a' : '#2a2e37'};border-radius:12px;margin-bottom:10px;overflow:hidden">
         <div onclick="prospAbrir(${t.id})" style="padding:12px 14px;cursor:pointer">
           <div style="display:flex;align-items:start;gap:10px">
             <div style="flex:1;min-width:0">
-              <div style="color:#e6edf3;font-weight:600;font-size:15px;line-height:1.25">${esc(t.nombre)}</div>
-              <div style="color:#6e7681;font-size:11.5px;margin-top:3px">
+              <div style="color:var(--text,#e6edf3);font-weight:600;font-size:15px;line-height:1.25">${esc(t.nombre)}</div>
+              <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-top:3px">
                 ${esc(etTipo(t.tipo))}${t.zona ? ' · 📍 ' + esc(t.zona) : ''}
               </div>
             </div>
             <span style="background:${e[2]}22;color:${e[2]};border:1px solid ${e[2]}66;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap">${e[1]}</span>
           </div>
-          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;font-size:11.5px;color:#8b949e">
+          <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;font-size:11.5px;color:var(--text2,#8b949e)">
             <span>👤 ${esc(t.dueno || 'sin contacto')}</span>
             <span>🔁 ${t.visitas} visita${t.visitas === 1 ? '' : 's'}</span>
             ${sinVisitar != null ? `<span style="color:${sinVisitar > 60 ? '#f0a868' : '#8b949e'}">hace ${sinVisitar} día${sinVisitar === 1 ? '' : 's'}</span>` : ''}
           </div>
           ${fotos.length ? (() => { const k = grupoFotos(fotos); return `<div style="display:flex;gap:5px;margin-top:9px;overflow-x:auto">
             ${fotos.slice(0, 3).map((f, i) => `<img src="${esc(f.url)}" onclick="event.stopPropagation();prospVisor('${k}',${i})" style="width:74px;height:56px;object-fit:cover;border-radius:7px;flex:0 0 auto;cursor:zoom-in" loading="lazy">`).join('')}
-            ${fotos.length > 3 ? `<div onclick="event.stopPropagation();prospVisor('${k}',3)" style="width:44px;height:56px;display:flex;align-items:center;justify-content:center;background:#1c2027;border-radius:7px;color:#8b949e;font-size:12px;cursor:pointer;flex:0 0 auto">+${fotos.length - 3}</div>` : ''}
+            ${fotos.length > 3 ? `<div onclick="event.stopPropagation();prospVisor('${k}',3)" style="width:44px;height:56px;display:flex;align-items:center;justify-content:center;background:var(--bg3,#1c2027);border-radius:7px;color:var(--text2,#8b949e);font-size:12px;cursor:pointer;flex:0 0 auto">+${fotos.length - 3}</div>` : ''}
           </div>` })() : ''}
         </div>
         ${abierta ? detalle(t) : ''}
@@ -159,59 +159,59 @@ window.__prospBuild = '20260720c'
 
     return `
       <input id="prosp-q" value="${esc(F.q)}" oninput="prospBuscar(this.value)" placeholder="🔍 Buscar taller, dueño, zona, carro…"
-             style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:10px;color:#e6edf3;padding:11px 13px;font-size:14px;margin-bottom:10px;text-transform:uppercase">
+             style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:10px;color:var(--text,#e6edf3);padding:11px 13px;font-size:14px;margin-bottom:10px;text-transform:uppercase">
       <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px">
         ${chip(!F.zona && !F.tipo && !F.estado, 'Todos', "prospFiltro('reset','')")}
         ${ESTADOS.map(e => chip(F.estado === e[0], e[1], `prospFiltro('estado','${e[0]}')`)).join('')}
         ${TIPOS.map(t => chip(F.tipo === t[0], t[1], `prospFiltro('tipo','${t[0]}')`)).join('')}
         ${zonas.map(z => chip(F.zona === z, '📍 ' + esc(z), `prospFiltro('zona','${esc(z).replace(/'/g, "\\'")}')`)).join('')}
       </div>
-      <button onclick="prospNuevo()" style="width:100%;background:#c8a24a;color:#15171c;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:14.5px;font-weight:700;margin-bottom:12px">+ Nuevo taller</button>
-      ${vis.length !== TALLERES.length ? `<div style="color:#6e7681;font-size:11.5px;margin-bottom:8px">Mostrando ${vis.length} de ${TALLERES.length}</div>` : ''}
-      ${cards || '<div style="background:#15171c;border:1px dashed #2a2e37;border-radius:12px;padding:30px 20px;text-align:center;color:#6e7681;font-size:13px">No hay talleres que coincidan.</div>'}`
+      <button onclick="prospNuevo()" style="width:100%;background:var(--gold-bg,#c8a24a);color:#15171c;border:0;border-radius:10px;padding:13px;cursor:pointer;font-size:14.5px;font-weight:700;margin-bottom:12px">+ Nuevo taller</button>
+      ${vis.length !== TALLERES.length ? `<div style="color:var(--text3,#6e7681);font-size:11.5px;margin-bottom:8px">Mostrando ${vis.length} de ${TALLERES.length}</div>` : ''}
+      ${cards || '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:12px;padding:30px 20px;text-align:center;color:var(--text3,#6e7681);font-size:13px">No hay talleres que coincidan.</div>'}`
   }
 
   function detalle (t) {
     const vs = VISITAS[t.id]
     const tel = normTel(t.telefono)
     const bt = (txt, onclick, color) =>
-      `<button onclick="${onclick}" style="flex:1;min-width:96px;background:#1c2027;border:1px solid #2a2e37;color:${color || '#8b949e'};border-radius:8px;padding:9px;cursor:pointer;font-size:12.5px">${txt}</button>`
+      `<button onclick="${onclick}" style="flex:1;min-width:96px;background:var(--bg3,#1c2027);border:1px solid var(--border,#2a2e37);color:${color || '#8b949e'};border-radius:8px;padding:9px;cursor:pointer;font-size:12.5px">${txt}</button>`
 
     return `
-      <div style="border-top:1px solid #21262d;padding:12px 14px;background:#0f1115">
+      <div style="border-top:1px solid var(--border,#21262d);padding:12px 14px;background:var(--bg-inset,#0f1115)">
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px">
           ${tel.length >= 11 ? bt('💬 WhatsApp', `prospWA('${tel}','${esc(t.nombre).replace(/'/g, "\\'")}')`, '#25D366') : ''}
           ${t.telefono ? bt('📞 Llamar', `window.open('tel:${esc(t.telefono)}')`) : ''}
           ${t.mapa ? bt('🗺️ Mapa', `window.open('${esc(t.mapa)}','_blank')`) : bt('📍 Tomar GPS', `prospGPS(${t.id})`, '#c8a24a')}
         </div>
-        <div style="font-size:12.5px;color:#8b949e;line-height:1.7">
+        <div style="font-size:12.5px;color:var(--text2,#8b949e);line-height:1.7">
           ${t.telefono ? `<div>📱 ${esc(t.telefono)}</div>` : ''}
           ${t.direccion ? `<div>🏠 ${esc(t.direccion)}</div>` : ''}
-          ${t.ultimos_carros ? `<div style="margin-top:6px"><span style="color:#6e7681">Carros vistos:</span> <span style="color:#e6edf3">${esc(t.ultimos_carros)}</span></div>` : ''}
-          ${t.ultima_observacion ? `<div style="margin-top:4px"><span style="color:#6e7681">Última nota:</span> ${esc(t.ultima_observacion)}</div>` : ''}
-          ${t.notas ? `<div style="margin-top:4px;color:#6e7681">📝 ${esc(t.notas)}</div>` : ''}
+          ${t.ultimos_carros ? `<div style="margin-top:6px"><span style="color:var(--text3,#6e7681)">Carros vistos:</span> <span style="color:var(--text,#e6edf3)">${esc(t.ultimos_carros)}</span></div>` : ''}
+          ${t.ultima_observacion ? `<div style="margin-top:4px"><span style="color:var(--text3,#6e7681)">Última nota:</span> ${esc(t.ultima_observacion)}</div>` : ''}
+          ${t.notas ? `<div style="margin-top:4px;color:var(--text3,#6e7681)">📝 ${esc(t.notas)}</div>` : ''}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
-          <button onclick="prospVisita(${t.id})" style="flex:2;min-width:150px;background:#c8a24a;color:#15171c;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px;font-weight:700">📷 Registrar visita</button>
+          <button onclick="prospVisita(${t.id})" style="flex:2;min-width:150px;background:var(--gold-bg,#c8a24a);color:#15171c;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px;font-weight:700">📷 Registrar visita</button>
           ${bt('✏️ Editar', `prospEditar(${t.id})`)}
         </div>
         <div style="margin-top:12px">
-          <button onclick="prospHistorial(${t.id})" style="background:none;border:0;color:#c8a24a;cursor:pointer;font-size:12.5px;padding:0">
+          <button onclick="prospHistorial(${t.id})" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12.5px;padding:0">
             ${vs ? '▾' : '▸'} Historial de visitas (${t.visitas})
           </button>
           ${vs ? `<div style="margin-top:8px">${vs.length ? vs.map(v => `
-            <div style="border-left:2px solid #2a2e37;padding:6px 0 6px 10px;margin-bottom:8px">
-              <div style="color:#6e7681;font-size:11px">
+            <div style="border-left:2px solid var(--border,#2a2e37);padding:6px 0 6px 10px;margin-bottom:8px">
+              <div style="color:var(--text3,#6e7681);font-size:11px">
                 ${new Date(v.fecha).toLocaleString('es-HN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 · ${esc(quien(v.usuario_id))}${v.atendido ? '' : ' · <span style="color:#f0a868">no lo atendieron</span>'}
               </div>
-              ${v.carros ? `<div style="color:#e6edf3;font-size:12.5px;margin-top:3px">🚗 ${esc(v.carros)}</div>` : ''}
-              ${v.observaciones ? `<div style="color:#8b949e;font-size:12.5px;margin-top:2px">${esc(v.observaciones)}</div>` : ''}
+              ${v.carros ? `<div style="color:var(--text,#e6edf3);font-size:12.5px;margin-top:3px">🚗 ${esc(v.carros)}</div>` : ''}
+              ${v.observaciones ? `<div style="color:var(--text2,#8b949e);font-size:12.5px;margin-top:2px">${esc(v.observaciones)}</div>` : ''}
               ${(v.fotos || []).length ? (() => { const k = grupoFotos(v.fotos); return `<div style="display:flex;gap:5px;margin-top:6px;overflow-x:auto">
                 ${v.fotos.map((f, i) => `<img src="${esc(f.url)}" onclick="prospVisor('${k}',${i})" style="width:66px;height:50px;object-fit:cover;border-radius:6px;cursor:zoom-in;flex:0 0 auto" loading="lazy">`).join('')}
               </div>` })() : ''}
-              <button onclick="prospVisitaBorrar(${v.id},${t.id})" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:11px;padding:2px 0;margin-top:3px">borrar</button>
-            </div>`).join('') : '<div style="color:#6e7681;font-size:12px">Sin visitas registradas.</div>'}</div>` : ''}
+              <button onclick="prospVisitaBorrar(${v.id},${t.id})" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:11px;padding:2px 0;margin-top:3px">borrar</button>
+            </div>`).join('') : '<div style="color:var(--text3,#6e7681);font-size:12px">Sin visitas registradas.</div>'}</div>` : ''}
         </div>
       </div>`
   }
@@ -257,21 +257,21 @@ window.__prospBuild = '20260720c'
     const porDia = {}
     for (const b of BITACORA) (porDia[b.dia] = porDia[b.dia] || []).push(b)
     const dias = Object.keys(porDia).sort().reverse()
-    if (!dias.length) return '<div style="background:#15171c;border:1px dashed #2a2e37;border-radius:12px;padding:30px;text-align:center;color:#6e7681;font-size:13px">Todavía no hay visitas registradas.</div>'
+    if (!dias.length) return '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:12px;padding:30px;text-align:center;color:var(--text3,#6e7681);font-size:13px">Todavía no hay visitas registradas.</div>'
 
     return dias.map(d => {
       const filas = porDia[d]
       const tot = filas.reduce((a, f) => a + f.visitas, 0)
       return `
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:12px 14px;margin-bottom:10px">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;padding:12px 14px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <b style="color:#e6edf3;font-size:14px">${new Date(d + 'T12:00:00').toLocaleDateString('es-HN', { weekday: 'long', day: '2-digit', month: 'long' })}</b>
-          <span style="color:#c8a24a;font-weight:700;font-size:14px">${tot} visita${tot === 1 ? '' : 's'}</span>
+          <b style="color:var(--text,#e6edf3);font-size:14px">${new Date(d + 'T12:00:00').toLocaleDateString('es-HN', { weekday: 'long', day: '2-digit', month: 'long' })}</b>
+          <span style="color:var(--gold,#c8a24a);font-weight:700;font-size:14px">${tot} visita${tot === 1 ? '' : 's'}</span>
         </div>
         ${filas.map(f => `
-          <div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #21262d;font-size:12.5px">
-            <span style="color:#e6edf3">${esc(quien(f.usuario_id))}</span>
-            <span style="color:#8b949e">
+          <div style="display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid var(--border,#21262d);font-size:12.5px">
+            <span style="color:var(--text,#e6edf3)">${esc(quien(f.usuario_id))}</span>
+            <span style="color:var(--text2,#8b949e)">
               ${f.talleres} taller${f.talleres === 1 ? '' : 'es'} · ${f.atendidas}/${f.visitas} atendidas ·
               ${new Date(f.primera).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}–${new Date(f.ultima).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' })}
             </span>
@@ -417,7 +417,7 @@ window.__prospBuild = '20260720c'
     ov.id = 'prosp-modal'
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10060;display:flex;align-items:flex-end;justify-content:center;padding:0'
     ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
-    const base = 'width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:9px;color:#e6edf3;padding:11px 12px;font-size:15px;margin-top:5px'
+    const base = 'width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:9px;color:var(--text,#e6edf3);padding:11px 12px;font-size:15px;margin-top:5px'
     const inputs = campos.map(c => {
       const id = 'pm-' + c.k
       let ctrl
@@ -428,30 +428,30 @@ window.__prospBuild = '20260720c'
       } else if (c.tipo === 'fotos') {
         ctrl = `<input id="${id}" type="file" accept="image/*" capture="environment" multiple style="${base};padding:9px">`
       } else if (c.tipo === 'gps') {
-        ctrl = `<button type="button" id="${id}-btn" onclick="prospGPSCampo('${id}')" style="${base};background:#1c2027;color:#c8a24a;cursor:pointer;text-align:left">📍 Tomar ubicación acá</button><input id="${id}" type="hidden">`
+        ctrl = `<button type="button" id="${id}-btn" onclick="prospGPSCampo('${id}')" style="${base};background:var(--bg3,#1c2027);color:var(--gold,#c8a24a);cursor:pointer;text-align:left">📍 Tomar ubicación acá</button><input id="${id}" type="hidden">`
       } else if (c.tipo === 'check') {
-        ctrl = `<label style="display:flex;align-items:center;gap:9px;margin-top:6px;cursor:pointer"><input id="${id}" type="checkbox" ${c.valor ? 'checked' : ''} style="width:20px;height:20px"><span style="font-size:14px;color:#e6edf3">${esc(c.textoCheck || '')}</span></label>`
+        ctrl = `<label style="display:flex;align-items:center;gap:9px;margin-top:6px;cursor:pointer"><input id="${id}" type="checkbox" ${c.valor ? 'checked' : ''} style="width:20px;height:20px"><span style="font-size:14px;color:var(--text,#e6edf3)">${esc(c.textoCheck || '')}</span></label>`
       } else {
         ctrl = `<input id="${id}" type="${c.tipo === 'tel' ? 'tel' : 'text'}" value="${esc(c.valor ?? '')}" placeholder="${esc(c.ph || '')}" style="${base}${mayus(c) ? ';text-transform:uppercase' : ''}">`
       }
       return `<div style="margin-bottom:13px">
-        ${c.tipo === 'check' ? '' : `<label style="font-size:11.5px;color:#8b949e;text-transform:uppercase;letter-spacing:.4px">${esc(c.label)}</label>`}
+        ${c.tipo === 'check' ? '' : `<label style="font-size:11.5px;color:var(--text2,#8b949e);text-transform:uppercase;letter-spacing:.4px">${esc(c.label)}</label>`}
         ${ctrl}
-        ${c.hint ? `<div style="font-size:11px;color:#6e7681;margin-top:3px">${esc(c.hint)}</div>` : ''}
+        ${c.hint ? `<div style="font-size:11px;color:var(--text3,#6e7681);margin-top:3px">${esc(c.hint)}</div>` : ''}
       </div>`
     }).join('')
 
     ov.innerHTML = `
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:16px 16px 0 0;max-width:600px;width:100%;padding:18px 16px 22px;color:#e6edf3;max-height:92vh;overflow:auto">
-        <div style="width:38px;height:4px;background:#2a2e37;border-radius:2px;margin:0 auto 14px"></div>
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:16px 16px 0 0;max-width:600px;width:100%;padding:18px 16px 22px;color:var(--text,#e6edf3);max-height:92vh;overflow:auto">
+        <div style="width:38px;height:4px;background:var(--bg4,#2a2e37);border-radius:2px;margin:0 auto 14px"></div>
         <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:3px">
           <b style="font-size:16px">${esc(titulo)}</b>
-          <button onclick="document.getElementById('prosp-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:24px;cursor:pointer;line-height:1">×</button>
+          <button onclick="document.getElementById('prosp-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:24px;cursor:pointer;line-height:1">×</button>
         </div>
-        ${sub ? `<div style="color:#8b949e;font-size:12.5px;margin-bottom:14px">${esc(sub)}</div>` : '<div style="height:10px"></div>'}
+        ${sub ? `<div style="color:var(--text2,#8b949e);font-size:12.5px;margin-bottom:14px">${esc(sub)}</div>` : '<div style="height:10px"></div>'}
         ${inputs}
         <div id="pm-msg" style="font-size:12.5px;min-height:17px;margin-bottom:4px"></div>
-        <button id="pm-ok" style="width:100%;background:#c8a24a;color:#15171c;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15px;font-weight:700">Guardar</button>
+        <button id="pm-ok" style="width:100%;background:var(--gold-bg,#c8a24a);color:#15171c;border:0;border-radius:10px;padding:14px;cursor:pointer;font-size:15px;font-weight:700">Guardar</button>
       </div>`
     document.body.appendChild(ov)
 

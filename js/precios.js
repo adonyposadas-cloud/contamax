@@ -46,7 +46,7 @@ window.__preciosBuild = '20260714d'
     if (!root) return
     // Solo la primera vez. En los refrescos se conserva la tabla en pantalla hasta que
     // llegan los datos nuevos: sin parpadeo y sin perder el lugar.
-    if (PRIMERA) root.innerHTML = '<div style="padding:24px;color:#8b949e">Cargando catálogo…</div>'
+    if (PRIMERA) root.innerHTML = '<div style="padding:24px;color:var(--text2,#8b949e)">Cargando catálogo…</div>'
     else { SCROLL_TABLA = document.getElementById('pr-scroll')?.scrollTop || SCROLL_TABLA; SCROLL_PAG = window.scrollY }
     try {
       // v_catalogo_precios NO se toca: ya calcula bien la mediana histórica.
@@ -70,7 +70,7 @@ window.__preciosBuild = '20260714d'
       render()
       PRIMERA = false
     } catch (e) {
-      root.innerHTML = `<div style="padding:24px;color:#f85149">Error: ${esc(e.message || e)}</div>`
+      root.innerHTML = `<div style="padding:24px;color:var(--red-fg,#f85149)">Error: ${esc(e.message || e)}</div>`
     }
   }
 
@@ -89,39 +89,39 @@ window.__preciosBuild = '20260714d'
     root.innerHTML = `
       <style>
         #view-precios .pr-t{width:100%;border-collapse:collapse;font-size:13px}
-        #view-precios .pr-t th{background:#0d1117;color:#8b949e;text-align:left;padding:9px 10px;
+        #view-precios .pr-t th{background:var(--bg,#0d1117);color:var(--text2,#8b949e);text-align:left;padding:9px 10px;
           font-size:11px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;z-index:1}
-        #view-precios .pr-t td{border-bottom:1px solid #21262d;padding:8px 10px;vertical-align:middle}
-        #view-precios .pr-t tr:hover td{background:#161b22}
-        #view-precios .pr-in{width:110px;background:#0d1117;border:1px solid #30363d;border-radius:6px;
-          color:#e6edf3;padding:6px 8px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
-        #view-precios .pr-in:focus{border-color:#c8a24a;outline:none}
+        #view-precios .pr-t td{border-bottom:1px solid var(--border,#21262d);padding:8px 10px;vertical-align:middle}
+        #view-precios .pr-t tr:hover td{background:var(--bg2,#161b22)}
+        #view-precios .pr-in{width:110px;background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:6px;
+          color:var(--text,#e6edf3);padding:6px 8px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+        #view-precios .pr-in:focus{border-color:var(--gold,#c8a24a);outline:none}
         #view-precios .pr-badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid}
       </style>
 
       ${sinPrecio.length ? `
-        <div style="background:rgba(248,81,73,.10);border:1px solid #f85149;border-radius:10px;padding:11px 14px;margin-bottom:14px">
-          <b style="color:#f85149;font-size:13px">⚠️ ${sinPrecio.length} ítem(s) sin precio pagan comisión CERO</b>
-          <div style="font-size:12px;color:#8b949e;margin-top:3px">${sinPrecio.map(r => esc(r.nombre)).join(' · ')}</div>
+        <div style="background:rgba(248,81,73,.10);border:1px solid var(--red,#f85149);border-radius:10px;padding:11px 14px;margin-bottom:14px">
+          <b style="color:var(--red-fg,#f85149);font-size:13px">⚠️ ${sinPrecio.length} ítem(s) sin precio pagan comisión CERO</b>
+          <div style="font-size:12px;color:var(--text2,#8b949e);margin-top:3px">${sinPrecio.map(r => esc(r.nombre)).join(' · ')}</div>
         </div>` : ''}
 
       ${sinCodigo.length ? `
-        <div style="background:rgba(248,81,73,.10);border:1px solid #f85149;border-radius:10px;padding:11px 14px;margin-bottom:14px">
-          <b style="color:#f85149;font-size:13px">🔒 ${sinCodigo.length} servicio(s) sin código de comisión — el checklist NO puede arrancar</b>
-          <div style="font-size:12px;color:#8b949e;margin-top:3px">
+        <div style="background:rgba(248,81,73,.10);border:1px solid var(--red,#f85149);border-radius:10px;padding:11px 14px;margin-bottom:14px">
+          <b style="color:var(--red-fg,#f85149);font-size:13px">🔒 ${sinCodigo.length} servicio(s) sin código de comisión — el checklist NO puede arrancar</b>
+          <div style="font-size:12px;color:var(--text2,#8b949e);margin-top:3px">
             Sin código, el técnico cobra cero. El checklist obligatorio queda bloqueado hasta que estén todos.
           </div>
         </div>` : ''}
 
-      <div style="background:rgba(200,162,74,.08);border-left:3px solid #c8a24a;padding:10px 13px;margin-bottom:14px;font-size:12px;color:#8b949e">
-        Cambiar un precio <b style="color:#e6edf3">no mueve ninguna comisión ya generada</b> — esas usan el precio congelado al momento del hallazgo.
+      <div style="background:rgba(200,162,74,.08);border-left:3px solid var(--gold,#c8a24a);padding:10px 13px;margin-bottom:14px;font-size:12px;color:var(--text2,#8b949e)">
+        Cambiar un precio <b style="color:var(--text,#e6edf3)">no mueve ninguna comisión ya generada</b> — esas usan el precio congelado al momento del hallazgo.
         Afecta a los hallazgos de mañana en adelante. Todo cambio queda registrado.
       </div>
 
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
         <input id="pr-q" class="pr-in" style="width:260px;text-align:left" placeholder="Buscar…" value="${esc(FILTRO)}">
-        <span style="font-size:12px;color:#8b949e">${rows.length} de ${CAT.length}</span>
-        ${!editable ? '<span style="font-size:12px;color:#f0a500">👁 Solo lectura</span>' : ''}
+        <span style="font-size:12px;color:var(--text2,#8b949e)">${rows.length} de ${CAT.length}</span>
+        ${!editable ? '<span style="font-size:12px;color:var(--gold,#f0a500)">👁 Solo lectura</span>' : ''}
         <div style="margin-left:auto;display:flex;gap:8px">
           ${editable ? '<button class="btn btn-ghost" style="border-color:#16a34a;color:#16a34a" onclick="prNuevoItem()">+ Nuevo ítem</button>' : ''}
           <button class="btn btn-ghost" onclick="initPrecios()">↻ Recargar</button>
@@ -129,7 +129,7 @@ window.__preciosBuild = '20260714d'
       </div>
       <div id="pr-nuevo-form"></div>
 
-      <div id="pr-scroll" style="max-height:62vh;overflow:auto;border:1px solid #21262d;border-radius:10px">
+      <div id="pr-scroll" style="max-height:62vh;overflow:auto;border:1px solid var(--border,#21262d);border-radius:10px">
         <table class="pr-t">
           <thead><tr>
             <th>Ítem</th><th>Tipo</th>
@@ -145,11 +145,11 @@ window.__preciosBuild = '20260714d'
       ${LOG.length ? `
         <div style="margin-top:18px">
           <div style="font-size:13px;font-weight:600;margin-bottom:7px">Bitácora de cambios</div>
-          <div style="max-height:200px;overflow:auto;border:1px solid #21262d;border-radius:10px;padding:4px 0">
+          <div style="max-height:200px;overflow:auto;border:1px solid var(--border,#21262d);border-radius:10px;padding:4px 0">
             ${LOG.map(l => `
-              <div style="font-size:12px;color:#8b949e;padding:5px 12px;border-bottom:1px solid #161b22">
-                <span style="color:#e6edf3">${esc(l.nombre || l.cat_id)}</span>
-                · L. ${fmt(l.precio_anterior)} → <b style="color:#c8a24a">L. ${fmt(l.precio_nuevo)}</b>
+              <div style="font-size:12px;color:var(--text2,#8b949e);padding:5px 12px;border-bottom:1px solid #161b22">
+                <span style="color:var(--text,#e6edf3)">${esc(l.nombre || l.cat_id)}</span>
+                · L. ${fmt(l.precio_anterior)} → <b style="color:var(--gold,#c8a24a)">L. ${fmt(l.precio_nuevo)}</b>
                 · ${new Date(l.cambiado_at).toLocaleString('es-HN')}
               </div>`).join('')}
           </div>
@@ -177,18 +177,18 @@ window.__preciosBuild = '20260714d'
     return `<tr>
       <td>
         <div style="font-weight:600;color:${sinPrecio && paga ? '#f85149' : '#e6edf3'}">${esc(r.nombre)}
-          ${editable ? `<button onclick="prRenombrar('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', this)" data-nombre="${esc(r.nombre)}" title="Corregir el nombre" style="background:none;border:0;color:#6e7681;cursor:pointer;font-size:11px;padding:0 4px">✏</button>
-          <button onclick="prPrecio('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', ${r.precio_base ?? 'null'})" title="Editar precio base" style="background:none;border:0;color:#6e7681;cursor:pointer;font-size:11px;padding:0 4px">💲</button>` : ''}
+          ${editable ? `<button onclick="prRenombrar('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', this)" data-nombre="${esc(r.nombre)}" title="Corregir el nombre" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px">✏</button>
+          <button onclick="prPrecio('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', ${r.precio_base ?? 'null'})" title="Editar precio base" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px">💲</button>` : ''}
         </div>
-        <div style="font-size:10px;color:#6e7681;font-family:monospace">${esc(r.codigo)}</div>
+        <div style="font-size:10px;color:var(--text3,#6e7681);font-family:monospace">${esc(r.codigo)}</div>
       </td>
       <td><span class="pr-badge" style="border-color:${r.tipo === 'servicio' ? '#3b82f6' : '#16a34a'};color:${r.tipo === 'servicio' ? '#3b82f6' : '#16a34a'}">
         ${r.tipo === 'servicio' ? 'SERVICIO' : 'PRODUCTO'}</span></td>
       <td style="text-align:center">
         ${r.tipo !== 'servicio'
-          ? '<span style="color:#6e7681" title="Los productos no llevan código: pagan 3% fijo">—</span>'
+          ? '<span style="color:var(--text3,#6e7681)" title="Los productos no llevan código: pagan 3% fijo">—</span>'
           : (editable
-            ? `<select onchange="prCodigo('${r.id}', this.value)" style="background:#0d1117;color:#e6edf3;
+            ? `<select onchange="prCodigo('${r.id}', this.value)" style="background:var(--bg,#0d1117);color:var(--text,#e6edf3);
                        border:1px solid ${sinCod ? '#f85149' : '#30363d'};border-radius:6px;padding:5px 6px;font-size:12px">
                  <option value="" ${sinCod ? 'selected' : ''}>— sin código —</option>
                  <option value="10" ${r.comision_codigo === '10' ? 'selected' : ''}>10 · rápido</option>
@@ -199,16 +199,16 @@ window.__preciosBuild = '20260714d'
       </td>
       <td style="text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums">
         ${pctBase == null
-          ? (r.tipo === 'servicio' ? '<span style="color:#f85149" title="Sin código no paga comisión">⚠️</span>'
+          ? (r.tipo === 'servicio' ? '<span style="color:var(--red-fg,#f85149)" title="Sin código no paga comisión">⚠️</span>'
                                    : `<b style="color:#16a34a">3%</b>`)
-          : `<span style="color:#8b949e">${pctBase}%</span> <span style="color:#6e7681">→</span> <b style="color:#16a34a">${pctBase + EXTRA}%</b>`}
+          : `<span style="color:var(--text2,#8b949e)">${pctBase}%</span> <span style="color:var(--text3,#6e7681)">→</span> <b style="color:#16a34a">${pctBase + EXTRA}%</b>`}
       </td>
       <td style="text-align:center">
         ${paga
-          ? `<span class="pr-badge" style="border-color:#c8a24a;color:#c8a24a" title="Este precio decide la comisión de ${r.puntos_comision} punto(s) del checklist">💰 ${r.puntos_comision}</span>`
-          : '<span style="color:#6e7681">—</span>'}
+          ? `<span class="pr-badge" style="border-color:var(--gold,#c8a24a);color:var(--gold,#c8a24a)" title="Este precio decide la comisión de ${r.puntos_comision} punto(s) del checklist">💰 ${r.puntos_comision}</span>`
+          : '<span style="color:var(--text3,#6e7681)">—</span>'}
       </td>
-      <td style="font-size:11px;color:#8b949e">
+      <td style="font-size:11px;color:var(--text2,#8b949e)">
         ${r.ultimo_cambio ? new Date(r.ultimo_cambio).toLocaleDateString('es-HN') : '—'}
       </td>
     </tr>`
@@ -259,23 +259,23 @@ window.__preciosBuild = '20260714d'
         <div style="font-size:13px;font-weight:600;margin-bottom:10px">Nuevo ítem del catálogo</div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
           <div>
-            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Tipo</div>
-            <select id="ni-tipo" onchange="prNuevoTipoCambio()" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:6px">
+            <div style="font-size:11px;color:var(--text2,#8b949e);margin-bottom:3px">Tipo</div>
+            <select id="ni-tipo" onchange="prNuevoTipoCambio()" style="background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:6px">
               <option value="s">Servicio</option>
               <option value="p">Producto</option>
             </select>
           </div>
           <div style="flex:1;min-width:200px">
-            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Nombre</div>
+            <div style="font-size:11px;color:var(--text2,#8b949e);margin-bottom:3px">Nombre</div>
             <input id="ni-nombre" class="pr-in" style="width:100%;text-align:left" placeholder="Ej. CAMBIO DE FILTRO DE ACEITE" oninput="prNuevoNombreCambio()">
           </div>
           <div>
-            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Código</div>
+            <div style="font-size:11px;color:var(--text2,#8b949e);margin-bottom:3px">Código</div>
             <input id="ni-codigo" class="pr-in" style="width:160px;text-align:left;font-family:monospace" placeholder="SRV_..." oninput="this.dataset.tocado=1">
           </div>
           <div id="ni-comision-wrap">
-            <div style="font-size:11px;color:#8b949e;margin-bottom:3px">Código comisión</div>
-            <select id="ni-comision" style="background:#0d1117;color:#e6edf3;border:1px solid #2a2e37;border-radius:6px;padding:6px">
+            <div style="font-size:11px;color:var(--text2,#8b949e);margin-bottom:3px">Código comisión</div>
+            <select id="ni-comision" style="background:var(--bg,#0d1117);color:var(--text,#e6edf3);border:1px solid var(--border,#2a2e37);border-radius:6px;padding:6px">
               <option value="">— sin código —</option>
               <option value="10">10 · rápido (2%)</option>
               <option value="20">20 · destreza (3%)</option>
@@ -283,7 +283,7 @@ window.__preciosBuild = '20260714d'
             </select>
           </div>
           <button onclick="prNuevoGuardar()" style="background:#16a34a;border:0;color:#fff;border-radius:6px;padding:8px 16px;cursor:pointer;font-weight:600">Crear</button>
-          <button onclick="prNuevoItem()" style="background:none;border:1px solid #3a3f4a;color:#8b949e;border-radius:6px;padding:8px 14px;cursor:pointer">Cancelar</button>
+          <button onclick="prNuevoItem()" style="background:none;border:1px solid #3a3f4a;color:var(--text2,#8b949e);border-radius:6px;padding:8px 14px;cursor:pointer">Cancelar</button>
         </div>
         <div style="font-size:11px;color:#6b7280;margin-top:8px">El precio se define al cotizar la primera vez (queda en el histórico). No hace falta ponerlo acá.</div>
       </div>`

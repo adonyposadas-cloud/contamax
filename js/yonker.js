@@ -131,7 +131,7 @@ function ykEnsureStyles() {
     .yk-card{background:var(--bg2,#1c1c1c);border:1px solid var(--border,#3a3a3a);border-radius:10px;padding:12px 14px}
     .yk-card .v{font-size:22px;font-weight:700;font-family:var(--mono,monospace)}
     .yk-card .l{font-size:11px;color:var(--text3,#888);text-transform:uppercase;letter-spacing:.5px}
-    .yk-card.warn .v{color:#e0a800}.yk-card.ok .v{color:var(--gold,#d4af37)}.yk-card.bad .v{color:#e06060}
+    .yk-card.warn .v{color:var(--gold,#e0a800)}.yk-card.ok .v{color:var(--gold,#d4af37)}.yk-card.bad .v{color:var(--red-fg,#e06060)}
     .yk-tbl{width:100%;border-collapse:collapse;font-size:12px}
     .yk-tbl th{position:sticky;top:0;background:var(--bg2,#1c1c1c);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#3a3a3a);font-size:11px;color:var(--text3,#888);cursor:pointer}
     .yk-tbl th.yk-num{text-align:right}
@@ -145,8 +145,8 @@ function ykEnsureStyles() {
     .yk-num{text-align:right;font-family:var(--mono,monospace)}
     .yk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;max-height:130px;overflow:auto;padding:2px}
     .yk-chip{display:inline-block;padding:3px 10px;border-radius:14px;background:var(--bg3,#222);border:1px solid var(--border,#3a3a3a);color:var(--gold,#d4af37);font-size:12px;font-family:var(--mono,monospace);cursor:pointer;transition:all .12s}
-    .yk-chip:hover{background:var(--gold,#d4af37);color:#1a1a1a}
-    .yk-chip-on{background:var(--gold,#d4af37)!important;color:#1a1a1a!important;font-weight:700;box-shadow:0 0 0 2px var(--gold,#d4af37)}
+    .yk-chip:hover{background:var(--gold-bg,#d4af37);color:#1a1a1a}
+    .yk-chip-on{background:var(--gold-bg,#d4af37)!important;color:#1a1a1a!important;font-weight:700;box-shadow:0 0 0 2px var(--gold,#d4af37)}
     .yk-chip-static{cursor:default;color:var(--text,#ddd)}
     .yk-chip-static:hover{background:var(--bg3,#222);color:var(--text,#ddd)}
     .yk-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center}
@@ -297,7 +297,7 @@ function ykRenderPreview() {
   const filasHtml = nuevas.slice(0, 500).map(r => `
     <tr class="${r.marca ? '' : 'sinuni'}">
       <td>${r.fecha || '—'}</td><td>${r.consecutivo || '—'}</td><td>${r.vehiculo_codigo || '—'}</td>
-      <td>${r.marca || '<span style="color:#e0a800">sin unidad</span>'}</td><td>${r.modelo || '—'}</td><td>${r.anio_vehiculo || '—'}</td>
+      <td>${r.marca || '<span style="color:var(--gold,#e0a800)">sin unidad</span>'}</td><td>${r.modelo || '—'}</td><td>${r.anio_vehiculo || '—'}</td>
       <td>${(r.producto || '').slice(0, 40)}</td><td class="yk-num">${ykFmt(r.venta_hnl)}</td><td>${r.contenedor ?? '—'}</td>
     </tr>`).join('')
   s2.innerHTML = `
@@ -318,7 +318,7 @@ function ykRenderPreview() {
         ${sinVehiculo.length > 60 ? `<div>… y ${sinVehiculo.length - 60} más</div>` : ''}
       </div>
     </div>` : ''}
-    ${sinUnidad.length ? `<div class="page-sub" style="color:#e0a800">⚠️ ${sinUnidad.length} línea(s) tienen un código que aún no existe en yonker_unidades (contenedor recién llegado sin dar de alta). Se insertarán con marca/modelo/año en blanco; podrás completarlos al registrar la unidad.</div>` : ''}
+    ${sinUnidad.length ? `<div class="page-sub" style="color:var(--gold,#e0a800)">⚠️ ${sinUnidad.length} línea(s) tienen un código que aún no existe en yonker_unidades (contenedor recién llegado sin dar de alta). Se insertarán con marca/modelo/año en blanco; podrás completarlos al registrar la unidad.</div>` : ''}
     ${nuevas.length === 0 ? '<div class="page-sub">No hay tickets nuevos: todo lo del archivo ya está cargado.</div>' : `
     <div class="table-wrap" style="max-height:420px;overflow:auto;margin-top:8px">
       <table class="yk-tbl"><thead><tr><th>Fecha</th><th>Consec.</th><th>Veh.</th><th>Marca</th><th>Modelo</th><th>Año</th><th>Producto</th><th class="yk-num">Venta</th><th>Cont.</th></tr></thead>
@@ -392,7 +392,7 @@ async function ykRenderReportes() {
     if (!ykVMargen) ykVMargen = await ykFetchAll(() => ykSb().from('vw_yonker_margen_unidad').select('*').order('vehiculo_codigo'))
     if (!ykVRotacion) ykVRotacion = await ykFetchAll(() => ykSb().from('vw_yonker_rotacion').select('*').order('contenedor'))
   } catch (e) {
-    pane.innerHTML = `<div class="page-sub" style="color:#e06060">Error cargando reportes: ${e.message || e}</div><button class="btn btn-ghost" onclick="ykRenderReportes()">Reintentar</button>`
+    pane.innerHTML = `<div class="page-sub" style="color:var(--red-fg,#e06060)">Error cargando reportes: ${e.message || e}</div><button class="btn btn-ghost" onclick="ykRenderReportes()">Reintentar</button>`
     return
   }
   const anios = [...new Set(ykVResumen.map(r => r.anio).filter(x => x != null))].sort()
@@ -402,7 +402,7 @@ async function ykRenderReportes() {
   const esc = s => String(s).replace(/"/g, '&quot;')
   pane.innerHTML = `
     <div class="page-sub">Reportes en vivo. Modo <b>Ventas</b>: total por dimensión y mes. Modo <b>Margen</b>: venta vs costo por unidad (incluye el #126 al 70%).</div>
-    <div style="margin:0 0 12px"><button class="btn" style="background:var(--gold,#c8a24a);color:#1a1a1a;font-weight:700;padding:8px 16px;border:none;border-radius:8px;cursor:pointer" onclick="ykVendeRepuesto()">🔧 ¿De qué unidad conviene vender un repuesto?</button></div>
+    <div style="margin:0 0 12px"><button class="btn" style="background:var(--gold-bg,#c8a24a);color:#1a1a1a;font-weight:700;padding:8px 16px;border:none;border-radius:8px;cursor:pointer" onclick="ykVendeRepuesto()">🔧 ¿De qué unidad conviene vender un repuesto?</button></div>
     <div class="yk-ctrl">
       <div class="fld"><label>Modo</label>
         <select id="yk-rep-modo" onchange="ykAplicarReporte()">
@@ -732,7 +732,7 @@ function ykReporteRotacion() {
   const rows = data.map(r => {
     const antig = ykAntiguedad(r.fecha_entrada, hoy)
     const recup = r.recuperado ? ykAntiguedad(r.fecha_entrada, r.fecha_recuperado) : '—'
-    const estado = r.recuperado ? '<span style="color:#4ade80">✓ recuperado</span>' : '<span style="color:#e0a800">pendiente</span>'
+    const estado = r.recuperado ? '<span style="color:var(--green-fg,#4ade80)">✓ recuperado</span>' : '<span style="color:var(--gold,#e0a800)">pendiente</span>'
     const pct = r.pct_recuperado != null ? +r.pct_recuperado : null
     return `<tr>
       <td><button class="yk-link" onclick="ykContenedorDetalle('${r.contenedor}')">${r.contenedor}</button></td>
@@ -740,7 +740,7 @@ function ykReporteRotacion() {
       <td>${antig}</td>
       <td class="yk-num">${ykFmt(r.costo_total)}</td>
       <td class="yk-num">${ykFmt(r.venta_total)}</td>
-      <td class="yk-num" style="${pct != null && pct < 100 ? 'color:#e0a800' : ''}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+      <td class="yk-num" style="${pct != null && pct < 100 ? 'color:var(--gold,#e0a800)' : ''}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
       <td>${r.fecha_recuperado || '—'}</td>
       <td>${recup}</td>
       <td>${estado}</td>
@@ -804,12 +804,12 @@ function ykRenderDevoluciones() {
 window.ykBuscarDev = async () => {
   const cont = document.getElementById('yk-dev-result')
   const q = (document.getElementById('yk-dev-q')?.value || '').trim()
-  if (q.length < 2) { if (cont) cont.innerHTML = '<div class="page-sub" style="color:#e0a800">Escribí al menos 2 caracteres.</div>'; return }
+  if (q.length < 2) { if (cont) cont.innerHTML = '<div class="page-sub" style="color:var(--gold,#e0a800)">Escribí al menos 2 caracteres.</div>'; return }
   if (cont) cont.innerHTML = '<div class="page-sub">Buscando…</div>'
   try {
     const { data, error } = await ykSb().rpc('yonker_buscar_lineas', { p_texto: q })
     if (error) throw error
-    if (!data?.ok) { cont.innerHTML = `<div class="page-sub" style="color:#e06060">${data?.error || 'Error'}</div>`; return }
+    if (!data?.ok) { cont.innerHTML = `<div class="page-sub" style="color:var(--red-fg,#e06060)">${data?.error || 'Error'}</div>`; return }
     const lineas = data.lineas || []
     if (!lineas.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esa búsqueda.</div>'; return }
     ykDevData = {}
@@ -817,7 +817,7 @@ window.ykBuscarDev = async () => {
       ykDevData[l.id] = l
       const dev = l.es_devolucion
       const accion = dev
-        ? '<span style="color:#e06060;font-size:11px">devolución</span>'
+        ? '<span style="color:var(--red-fg,#e06060);font-size:11px">devolución</span>'
         : `<button class="btn btn-ghost" style="padding:4px 10px" onclick="ykDevolver('${l.id}')">↩ Devolver</button>`
       return `<tr${dev ? ' style="opacity:.7"' : ''}>
         <td>${l.fecha || ''}</td>
@@ -825,7 +825,7 @@ window.ykBuscarDev = async () => {
         <td>${l.vehiculo_codigo || '—'}${l.marca ? ' · ' + l.marca : ''}</td>
         <td>${(l.producto || '').slice(0, 50)}</td>
         <td class="yk-num">${ykFmt(l.cantidad)}</td>
-        <td class="yk-num" style="${(l.venta_hnl < 0) ? 'color:#e06060' : ''}">${ykFmt(l.venta_hnl)}</td>
+        <td class="yk-num" style="${(l.venta_hnl < 0) ? 'color:var(--red-fg,#e06060)' : ''}">${ykFmt(l.venta_hnl)}</td>
         <td>${accion}</td>
       </tr>`
     }).join('')
@@ -837,7 +837,7 @@ window.ykBuscarDev = async () => {
       </table></div>
       <div class="page-sub" style="margin-top:8px">${lineas.length} línea(s). Las marcadas como "devolución" no se pueden volver a devolver.</div>`
   } catch (e) {
-    if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+    if (cont) cont.innerHTML = `<div class="page-sub" style="color:var(--red-fg,#e06060)">Error: ${e.message || e}</div>`
   }
 }
 
@@ -854,10 +854,10 @@ window.ykDevolver = (id) => {
       <div style="padding:14px 16px">
         <div style="font-size:13px;margin-bottom:6px"><b>${l.vehiculo_codigo || '—'}</b> · Factura ${l.factura || '—'}</div>
         <div style="font-size:12px;color:var(--text3,#888);margin-bottom:4px">${(l.producto || '').slice(0, 80)}</div>
-        <div style="font-size:13px;margin-bottom:14px">Venta a devolver: <b style="color:#e06060">L. ${ykFmt(l.venta_hnl)}</b> <span style="color:var(--text3,#888);font-size:12px">(se registrará en negativo)</span></div>
+        <div style="font-size:13px;margin-bottom:14px">Venta a devolver: <b style="color:var(--red-fg,#e06060)">L. ${ykFmt(l.venta_hnl)}</b> <span style="color:var(--text3,#888);font-size:12px">(se registrará en negativo)</span></div>
         <label style="display:block;font-size:11px;color:var(--text3,#888);text-transform:uppercase;margin-bottom:6px">Motivo de la devolución (obligatorio)</label>
         <textarea id="yk-dev-motivo" rows="3" placeholder="Ej: Cliente devolvió el motor por defecto de fábrica." style="width:100%;resize:vertical"></textarea>
-        <div id="yk-dev-msg" style="color:#e0a800;font-size:12px;margin-top:8px;min-height:16px"></div>
+        <div id="yk-dev-msg" style="color:var(--gold,#e0a800);font-size:12px;margin-top:8px;min-height:16px"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
           <button class="btn btn-ghost" onclick="ykDevCerrar()">Cancelar</button>
           <button class="btn btn-gold" id="yk-dev-ok" onclick="ykDevConfirmar('${id}')">Confirmar devolución</button>
@@ -909,7 +909,7 @@ window.ykContenedorDetalle = (contenedor) => {
       <td class="yk-num">${ykFmt(u.costo_hnl)}</td>
       <td class="yk-num">${ykFmt(u.venta)}</td>
       <td class="yk-num" style="color:${rec ? '#4ade80' : '#e0a800'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
-      <td>${rec ? '<span style="color:#4ade80">✓</span>' : '<span style="color:#e0a800">pendiente</span>'}</td>
+      <td>${rec ? '<span style="color:var(--green-fg,#4ade80)">✓</span>' : '<span style="color:var(--gold,#e0a800)">pendiente</span>'}</td>
     </tr>`
   }).join('')
   const ov = document.createElement('div')
@@ -990,7 +990,7 @@ window.ykVendeRepuesto = async () => {
   ov.innerHTML = `<div class="yk-modal" style="width:860px;max-width:96vw">
       <div class="yk-mhead"><b>🔧 ¿De qué unidad conviene vender el repuesto?</b><button onclick="ykVendeCerrar()">✕</button></div>
       <div style="padding:12px 16px">
-        <div class="page-sub" style="margin-bottom:10px">Filtrá por marca / modelo / año y mirá de qué unidad ya <b>recuperaste el costo</b>. Las <span style="color:#4ade80">✓ recuperadas</span> ya se pagaron solas — venderles un repuesto es casi todo ganancia.</div>
+        <div class="page-sub" style="margin-bottom:10px">Filtrá por marca / modelo / año y mirá de qué unidad ya <b>recuperaste el costo</b>. Las <span style="color:var(--green-fg,#4ade80)">✓ recuperadas</span> ya se pagaron solas — venderles un repuesto es casi todo ganancia.</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
           <div class="fld"><label>Marca</label><select id="ykv-marca" onchange="ykVendeModelos();ykVendeRender()"><option value="">(todas)</option>${marcas.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}</select></div>
           <div class="fld"><label>Modelo</label><select id="ykv-modelo" onchange="ykVendeRender()"><option value="">(todos)</option></select></div>
@@ -1044,11 +1044,11 @@ window.ykVendeRender = () => {
       <td class="yk-num">${ykFmt(venta)}</td>
       <td class="yk-num" style="color:${faltante <= 0 ? '#4ade80' : '#e0a800'}">${faltante <= 0 ? '+' + ykFmt(-faltante) : ykFmt(faltante)}</td>
       <td class="yk-num" style="color:${rec ? '#4ade80' : '#e0a800'}">${pct != null ? pct.toFixed(0) + '%' : '—'}</td>
-      <td>${rec ? '<span style="color:#4ade80">✓ recuperado</span>' : '<span style="color:#e0a800">pendiente</span>'}</td>
+      <td>${rec ? '<span style="color:var(--green-fg,#4ade80)">✓ recuperado</span>' : '<span style="color:var(--gold,#e0a800)">pendiente</span>'}</td>
     </tr>`
   }).join('')
   const recuperadas = rows.filter(u => (+u.pct_recuperado || 0) >= 1).length
-  cont.innerHTML = `<div class="page-sub" style="margin-bottom:6px">${rows.length} unidad(es) · <b style="color:#4ade80">${recuperadas} ya recuperada(s)</b>. En <b>Faltante</b>, verde con <b>+</b> = lo que ya recuperaste de más.</div>
+  cont.innerHTML = `<div class="page-sub" style="margin-bottom:6px">${rows.length} unidad(es) · <b style="color:var(--green-fg,#4ade80)">${recuperadas} ya recuperada(s)</b>. En <b>Faltante</b>, verde con <b>+</b> = lo que ya recuperaste de más.</div>
     <div style="max-height:56vh;overflow:auto">
     <table class="yk-tbl"><thead><tr><th>Veh.</th><th>Marca / Modelo / Año</th><th>Cont.</th><th class="yk-num">Costo</th><th class="yk-num">Venta</th><th class="yk-num">Faltante</th><th class="yk-num">% recup.</th><th>Estado</th></tr></thead>
     <tbody>${body}</tbody></table></div>`
@@ -1183,13 +1183,13 @@ window.ykExplorar = async () => {
   try {
     const { data, error } = await ykSb().rpc('yonker_explorar', params)
     if (error) throw error
-    if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:#e0a800">${data?.error || 'Error'}</div>`; return }
+    if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:var(--gold,#e0a800)">${data?.error || 'Error'}</div>`; return }
     ykExpRows = data.lineas || []
     _ykExpMeta = { total_lineas: data.total_lineas, mostradas: data.mostradas, truncado: data.truncado }
     _ykExpVehSel = null
     ykRenderExpResult()
   } catch (e) {
-    if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+    if (cont) cont.innerHTML = `<div class="page-sub" style="color:var(--red-fg,#e06060)">Error: ${e.message || e}</div>`
   }
 }
 window.ykExpExport = () => {
@@ -1318,7 +1318,7 @@ function ykAC (inputId, listId, getItems, onChange) {
   if (!inp || !list) return
   if (!document.getElementById('yk-ac-style')) {
     const s = document.createElement('style'); s.id = 'yk-ac-style'
-    s.textContent = '.yk-ac-item:hover{background:var(--gold,#d4af37)!important;color:#000!important}'
+    s.textContent = '.yk-ac-item:hover{background:var(--gold-bg,#d4af37)!important;color:#000!important}'
     document.head.appendChild(s)
   }
   let active = -1, items = []
@@ -1327,7 +1327,7 @@ function ykAC (inputId, listId, getItems, onChange) {
     const term = inp.value.trim().toLowerCase()
     items = getItems(term)
     if (!items.length) { list.style.display = 'none'; return }
-    list.innerHTML = items.map((it, i) => `<div class="yk-ac-item" data-i="${i}" style="padding:8px 12px;font-size:13px;cursor:pointer;color:var(--text,#e6e6e6);border-bottom:.5px solid var(--border,#3a3a3a);${i === active ? 'background:var(--gold,#d4af37);color:#000' : ''}">${ykEsc(it)}</div>`).join('')
+    list.innerHTML = items.map((it, i) => `<div class="yk-ac-item" data-i="${i}" style="padding:8px 12px;font-size:13px;cursor:pointer;color:var(--text,#e6e6e6);border-bottom:.5px solid var(--border,#3a3a3a);${i === active ? 'background:var(--gold-bg,#d4af37);color:#000' : ''}">${ykEsc(it)}</div>`).join('')
     list.setAttribute('style', base + ';display:block')
   }
   const choose = v => { inp.value = v; list.style.display = 'none'; if (onChange) onChange(v) }
@@ -1502,7 +1502,7 @@ window.ykGenRenderList = () => {
   const sup = ykEsSuper()
   cont.innerHTML = list.length ? list.map(g => {
     const specs = [g.tr, g.co, g.mt ? g.mt + 'L' : '', g.gr].filter(Boolean)
-    const badge = specs.length ? `<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(ykEsc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#888)">general</span>'
+    const badge = specs.length ? `<span style="font-size:11px;color:var(--blue-fg,#3b82f6);background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(ykEsc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#888)">general</span>'
     const del = sup ? `<span class="yk-gen-del" data-ma="${ykEsc(g.marca)}" data-mo="${ykEsc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${ykEsc(g.tr || '')}" data-co="${ykEsc(g.co || '')}" data-mt="${ykEsc(g.mt || '')}" data-gr="${ykEsc(g.gr || '')}" onclick="ykGenDel(this)" style="cursor:pointer;color:#e05353">🗑</span>` : ''
     return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#3a3a3a)"><div style="flex:1;font-size:13px"><b>${ykEsc(g.marca)} ${ykEsc(g.modelo)}</b> ${badge}</div><div style="font-family:monospace;color:var(--gold,#d4af37);font-weight:700">${g.desde}–${g.hasta}</div>${del}</div>`
   }).join('') : '<div style="color:var(--text3,#888);padding:10px">Sin reglas. Agregá una arriba.</div>'
@@ -1561,7 +1561,7 @@ window.ykPalRender = async () => {
     const { data } = await ykSb().from('grupo_palabras').select('id,palabra,palabra_norm,grupo').order('palabra')
     const sup = ykEsSuper()
     const list = (data || []).filter(r => !t || r.palabra_norm.includes(t) || (r.grupo || '').toUpperCase().includes(t))
-    cont.innerHTML = list.map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#3a3a3a);font-size:13px"><div style="flex:1"><b>${ykEsc(r.palabra)}</b> → <span style="color:#3b82f6">${ykEsc(r.grupo)}</span></div>${sup ? `<span onclick="ykPalDel('${r.id}')" style="cursor:pointer;color:#e05353">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#888);padding:8px">Sin palabras</div>'
+    cont.innerHTML = list.map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#3a3a3a);font-size:13px"><div style="flex:1"><b>${ykEsc(r.palabra)}</b> → <span style="color:var(--blue-fg,#3b82f6)">${ykEsc(r.grupo)}</span></div>${sup ? `<span onclick="ykPalDel('${r.id}')" style="cursor:pointer;color:#e05353">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#888);padding:8px">Sin palabras</div>'
   } catch (e) { cont.innerHTML = 'Error' }
 }
 window.ykPalAdd = async () => {
@@ -1663,7 +1663,7 @@ window.ykCotizar = async () => {
   try {
     const { data, error } = await ykSb().rpc('yonker_cotizar', params)
     if (error) throw error
-    if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:#e0a800">${data?.error || 'Error'}</div>`; return }
+    if (!data?.ok) { if (cards) cards.innerHTML = ''; cont.innerHTML = `<div class="page-sub" style="color:var(--gold,#e0a800)">${data?.error || 'Error'}</div>`; return }
     const piezas = data.piezas || []
     ykCotRows = piezas
     if (!piezas.length) { if (cards) cards.innerHTML = ''; cont.innerHTML = '<div class="page-sub">Sin ventas registradas para esos filtros.</div>'; return }
@@ -1687,7 +1687,7 @@ window.ykCotizar = async () => {
       <td class="yk-num">${p.ventas}</td>
       <td class="yk-num">${cot}</td>
       <td class="yk-num">${ykFmt(p.precio_min)}</td>
-      <td class="yk-num" style="color:#f0a500;font-weight:600">${ykFmt(p.precio_prom)}</td>
+      <td class="yk-num" style="color:var(--gold,#f0a500);font-weight:600">${ykFmt(p.precio_prom)}</td>
       <td class="yk-num">${ykFmt(p.precio_max)}</td>
       <td>${p.ultima_fecha || '—'}</td>
       <td>${p.ultimo_cliente || '—'}</td>
@@ -1700,7 +1700,7 @@ window.ykCotizar = async () => {
       <tbody>${rows}</tbody></table></div>
       <div class="page-sub" style="margin-top:8px">${piezas.length} pieza(s) distinta(s). <b>Ventas</b> = ventas reales · <b>Cot.</b> = cotizaciones históricas (precio cotizado, no vendido). Las filas <span style="background:rgba(224,176,32,.18);padding:0 6px;border-radius:4px">resaltadas</span> provienen de la tabla de cotizaciones (sin venta real).</div>`
   } catch (e) {
-    if (cont) cont.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+    if (cont) cont.innerHTML = `<div class="page-sub" style="color:var(--red-fg,#e06060)">Error: ${e.message || e}</div>`
   }
 }
 
@@ -1721,7 +1721,7 @@ function ykRenderSugerir() {
   const pct = v => ((+v || 0) * 100).toFixed(2) + '%'
   el.innerHTML = `
     <div style="margin:12px 0;padding:14px 16px;border-radius:12px;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.35)">
-      <div style="font-weight:700;color:#f0a500;margin-bottom:10px">💡 Sugerir precio por costo <span style="font-weight:400;color:#8b8f98;font-size:12px">(solo super/admin)</span></div>
+      <div style="font-weight:700;color:var(--gold,#f0a500);margin-bottom:10px">💡 Sugerir precio por costo <span style="font-weight:400;color:var(--text2,#8b8f98);font-size:12px">(solo super/admin)</span></div>
       <div class="yk-cards" style="margin-bottom:10px">
         <div class="yk-card"><div class="v">${pct(ykCotRatio.ratio_mediana)}</div><div class="l">% del costo (mediana)</div></div>
         <div class="yk-card"><div class="v" style="font-size:15px">${pct(ykCotRatio.ratio_p25)} – ${pct(ykCotRatio.ratio_p75)}</div><div class="l">Rango p25–p75</div></div>
@@ -1731,7 +1731,7 @@ function ykRenderSugerir() {
         <div class="fld" style="position:relative">
           <label>Vehículo nuevo (buscá por código / marca / modelo)</label>
           <input id="yk-cot-uni-q" type="text" style="width:300px" placeholder="ej. CR-V, 133, HONDA…" autocomplete="off" oninput="ykCotBuscarUnidad(this.value)">
-          <div id="yk-cot-uni-list" style="position:absolute;z-index:20;top:100%;left:0;right:0;background:#12151b;border:1px solid #2a2f3a;border-radius:8px;max-height:220px;overflow:auto;display:none"></div>
+          <div id="yk-cot-uni-list" style="position:absolute;z-index:20;top:100%;left:0;right:0;background:var(--bg-inset,#12151b);border:1px solid #2a2f3a;border-radius:8px;max-height:220px;overflow:auto;display:none"></div>
         </div>
       </div>
       <div id="yk-cot-sugerido" style="margin-top:12px"></div>
@@ -1747,10 +1747,10 @@ window.ykCotBuscarUnidad = (q) => {
       const { data } = await ykSb().rpc('yonker_unidad_buscar', { p_q: q.trim() })
       const rows = (data?.ok && data.rows) ? data.rows : []
       if (!list) return
-      if (!rows.length) { list.innerHTML = '<div style="padding:8px;color:#8b8f98;font-size:12px">Sin unidades.</div>'; list.style.display = 'block'; return }
+      if (!rows.length) { list.innerHTML = '<div style="padding:8px;color:var(--text2,#8b8f98);font-size:12px">Sin unidades.</div>'; list.style.display = 'block'; return }
       list.innerHTML = rows.map(u => {
         const lbl = `#${u.vehiculo_codigo} · ${u.marca || ''} ${u.modelo || ''} ${u.anio_vehiculo || ''}`.replace(/'/g, '').trim()
-        return `<div style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #21252e;font-size:13px" onmouseover="this.style.background='#1b1f27'" onmouseout="this.style.background=''" onclick="ykCotUsarUnidad('${lbl.replace(/"/g, '')}',${(+u.costo_hnl || 0)})">${lbl} <span style="color:#f0a500">· L. ${ykFmt(u.costo_hnl)}</span></div>`
+        return `<div style="padding:8px 10px;cursor:pointer;border-bottom:1px solid #21252e;font-size:13px" onmouseover="this.style.background='#1b1f27'" onmouseout="this.style.background=''" onclick="ykCotUsarUnidad('${lbl.replace(/"/g, '')}',${(+u.costo_hnl || 0)})">${lbl} <span style="color:var(--gold,#f0a500)">· L. ${ykFmt(u.costo_hnl)}</span></div>`
       }).join('')
       list.style.display = 'block'
     } catch (e) { if (list) list.style.display = 'none' }
@@ -1773,9 +1773,9 @@ function ykCotSugerirPintar() {
   const hi = (+ykCotRatio.ratio_p75 || 0) * c
   el.innerHTML = `
     <div style="padding:10px 14px;border-radius:10px;background:rgba(126,226,160,.08);border:1px solid rgba(126,226,160,.4)">
-      <div style="font-size:12px;color:#8b8f98">${ykCotCosto.label} · costo L. ${ykFmt(c)}</div>
-      <div style="font-size:22px;font-weight:800;color:#7ee2a0;margin-top:2px">Precio sugerido: L. ${ykFmt(sug)}</div>
-      <div style="font-size:12px;color:#8b8f98;margin-top:2px">Banda razonable (p25–p75): L. ${ykFmt(lo)} – L. ${ykFmt(hi)}</div>
+      <div style="font-size:12px;color:var(--text2,#8b8f98)">${ykCotCosto.label} · costo L. ${ykFmt(c)}</div>
+      <div style="font-size:22px;font-weight:800;color:var(--green-fg,#7ee2a0);margin-top:2px">Precio sugerido: L. ${ykFmt(sug)}</div>
+      <div style="font-size:12px;color:var(--text2,#8b8f98);margin-top:2px">Banda razonable (p25–p75): L. ${ykFmt(lo)} – L. ${ykFmt(hi)}</div>
     </div>`
 }
 window.ykCotExport = () => {
@@ -1845,7 +1845,7 @@ window.ykRenderExpResult = () => {
     <td>${(l.marca || '')} ${(l.modelo || '')} ${(l.anio_vehiculo || '')}</td>
     <td>${(l.producto || '').slice(0, 60)}</td>
     <td class="yk-num">${ykFmt(l.cantidad)}</td>
-    <td class="yk-num" style="${l.venta_hnl < 0 ? 'color:#e06060' : ''}">${ykFmt(l.venta_hnl)}</td>
+    <td class="yk-num" style="${l.venta_hnl < 0 ? 'color:var(--red-fg,#e06060)' : ''}">${ykFmt(l.venta_hnl)}</td>
     <td>${l.factura || '—'}</td>
     <td>${l.cliente || '—'}</td>
   </tr>`).join('')
@@ -1965,7 +1965,7 @@ window.ykCotGestionar = async () => {
       <tbody>${rows}</tbody></table></div>
       <div class="page-sub" style="margin-top:8px">${cots.length} cotización(es).</div>`
   } catch (e) {
-    const body = document.getElementById('yk-cotg-body'); if (body) body.innerHTML = `<div class="page-sub" style="color:#e06060">Error: ${e.message || e}</div>`
+    const body = document.getElementById('yk-cotg-body'); if (body) body.innerHTML = `<div class="page-sub" style="color:var(--red-fg,#e06060)">Error: ${e.message || e}</div>`
   }
 }
 window.ykCotEliminar = async (id) => {
@@ -2044,7 +2044,7 @@ window.ykRenderUnidades = () => {
         <thead><tr><th>Columna</th><th>¿Obligatoria?</th><th>Qué va</th></tr></thead>
         <tbody>${YK_UNI_COLS.map(c => `<tr>
           <td><b>${c[0]}</b></td>
-          <td>${c[2] ? '<span style="color:#e0a800">Sí</span>' : 'No'}</td>
+          <td>${c[2] ? '<span style="color:var(--gold,#e0a800)">Sí</span>' : 'No'}</td>
           <td style="color:var(--text3,#8b949e)">${c[3]}</td>
         </tr>`).join('')}</tbody>
       </table>
@@ -2167,7 +2167,7 @@ window.ykUniLeer = async (input) => {
         ${sinCodigo.length ? `<div class="yk-card"><div class="v">${sinCodigo.length}</div><div class="l">Filas ignoradas</div></div>` : ''}
         ${existentes.length ? `<div class="yk-card"><div class="v">${existentes.length}</div><div class="l">Ya existen</div></div>` : ''}
       </div>
-      ${avisos.map(a => `<div class="page-sub" style="color:#e0a800">${a}</div>`).join('')}
+      ${avisos.map(a => `<div class="page-sub" style="color:var(--gold,#e0a800)">${a}</div>`).join('')}
       <table class="yk-tbl" style="margin-top:10px">
         <thead><tr><th>Código</th><th>Marca</th><th>Modelo</th><th>Versión</th><th>Año</th><th class="yk-num">USD</th><th class="yk-num">L.</th><th>N° motor</th></tr></thead>
         <tbody>${filas.slice(0, 60).map(f => `<tr>
@@ -2228,7 +2228,7 @@ window.ykUniGuardar = async (modo) => {
     })
     if (error) throw new Error(error.message)
     if (data && data.ok === false && data.motivo === 'codigos_existentes') {
-      fin.innerHTML = `<div class="page-sub" style="color:#e0a800">No se guardó nada: ${data.existentes.length} código(s) ya existen. Elegí "Aplicar cambios" o "Solo las nuevas".</div>`
+      fin.innerHTML = `<div class="page-sub" style="color:var(--gold,#e0a800)">No se guardó nada: ${data.existentes.length} código(s) ya existen. Elegí "Aplicar cambios" o "Solo las nuevas".</div>`
       return
     }
     if (window.logActividad) window.logActividad('yonker_unidades', 'importar', `Alta de ${data.insertadas} unidades del contenedor ${cont}`)

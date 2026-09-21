@@ -11,14 +11,40 @@
 <meta name="apple-mobile-web-app-title" content="CONTAMAX">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+// Tema claro/oscuro. Se aplica antes de pintar la página para evitar el parpadeo.
+// Por defecto oscuro (el aspecto de siempre); la elección de cada usuario se recuerda.
+(function () {
+  var t = 'dark'
+  try { t = localStorage.getItem('contamax-tema') === 'light' ? 'light' : 'dark' } catch (e) {}
+  var raiz = document.documentElement
+  var pintarMeta = function (tema) {
+    var m = document.querySelector('meta[name="theme-color"]')
+    if (m) m.setAttribute('content', tema === 'light' ? '#ffffff' : '#0d1117')
+  }
+  raiz.setAttribute('data-theme', t)
+  pintarMeta(t)
+  window.toggleTema = function () {
+    var n = raiz.getAttribute('data-theme') === 'light' ? 'dark' : 'light'
+    raiz.setAttribute('data-theme', n)
+    pintarMeta(n)
+    try { localStorage.setItem('contamax-tema', n) } catch (e) {}
+    document.querySelectorAll('.btn-tema').forEach(function (b) {
+      b.setAttribute('aria-label', n === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro')
+      b.title = b.getAttribute('aria-label')
+    })
+  }
+})()
+</script>
 <link rel="stylesheet" href="css/styles.css">
 <style>
 .ac-wrap{position:relative}
-.ac-list{position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:180px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+.ac-list{position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:180px;overflow-y:auto;box-shadow:var(--shadow-md)}
 .ac-list.hidden{display:none}
 .ac-item{padding:8px 12px;font-size:13px;cursor:pointer;color:var(--text);border-bottom:0.5px solid var(--border)}
-.ac-item:hover,.ac-item.active{background:var(--gold);color:#000}
+.ac-item:hover,.ac-item.active{background:var(--gold-bg);color:var(--on-gold)}
 .ac-item:last-child{border-bottom:none}
 .ac-new{color:var(--text3);font-style:italic;font-size:12px}
 </style>
@@ -35,6 +61,7 @@
 <!-- LOGIN -->
 <div id="login-screen" class="screen">
   <div class="login-glow"></div>
+  <button type="button" class="btn-tema login-tema" onclick="toggleTema()" aria-label="Cambiar tema" title="Cambiar tema"><svg class="ico-sol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><svg class="ico-luna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
   <div class="login-box">
     <div class="login-logo">
       <div class="login-brand">CONTAMAX</div>
@@ -66,6 +93,7 @@
       <span class="topbar-module" id="topbar-module">Cargando...</span>
     </div>
     <div class="topbar-right">
+      <button type="button" class="btn-tema" onclick="toggleTema()" aria-label="Cambiar tema" title="Cambiar tema"><svg class="ico-sol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg><svg class="ico-luna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
       <div class="user-pill">
         <div class="avatar" id="top-avatar">--</div>
         <span class="user-name" id="top-name">--</span>
@@ -372,7 +400,7 @@
         <div class="stats-row" id="stats-usuarios">
           <div class="stat-card"><div class="stat-num" id="stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-activos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Activos</div></div>
-          <div class="stat-card"><div class="stat-num" id="stat-roles">4</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Roles</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-roles">4</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Roles</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-centros">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Centros costo</div></div>
         </div>
         <div class="table-wrap">
@@ -1442,7 +1470,7 @@
           .rtx-stat{flex:1;min-width:150px;background:var(--card,#161b22);border:1px solid var(--border,#2a3340);border-radius:12px;padding:14px 16px}
           .rtx-stat-n{font-size:26px;font-weight:700}
           .rtx-stat-l{font-size:12px;color:var(--muted,#8b949e);margin-top:2px}
-          .rtx-stat.pend .rtx-stat-n{color:#f59e0b}.rtx-stat.apr .rtx-stat-n{color:#22c55e}.rtx-stat.rec .rtx-stat-n{color:#ef4444}
+          .rtx-stat.pend .rtx-stat-n{color:var(--amber-fg,#f59e0b)}.rtx-stat.apr .rtx-stat-n{color:var(--green-fg,#22c55e)}.rtx-stat.rec .rtx-stat-n{color:var(--red-fg,#ef4444)}
           .rtx-list{display:flex;flex-direction:column;gap:12px}
           .rtx-card{display:flex;gap:14px;background:var(--card,#161b22);border:1px solid var(--border,#2a3340);border-radius:12px;padding:14px}
           .rtx-thumb{width:84px;height:84px;border-radius:8px;object-fit:cover;cursor:pointer;flex-shrink:0;border:1px solid var(--border,#2a3340)}
@@ -1451,15 +1479,15 @@
           .rtx-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
           .rtx-uni{font-weight:700}
           .rtx-badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;white-space:nowrap}
-          .rtx-badge.pend{background:#f59e0b22;color:#f59e0b}.rtx-badge.apr{background:#22c55e22;color:#22c55e}.rtx-badge.rec{background:#ef444422;color:#ef4444}
+          .rtx-badge.pend{background:#f59e0b22;color:var(--amber-fg,#f59e0b)}.rtx-badge.apr{background:#22c55e22;color:var(--green-fg,#22c55e)}.rtx-badge.rec{background:#ef444422;color:var(--red-fg,#ef4444)}
           .rtx-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 14px;margin-bottom:12px}
           .rtx-grid>div{display:flex;flex-direction:column}
           .rtx-grid span{font-size:10px;color:var(--muted,#8b949e);text-transform:uppercase;letter-spacing:.4px}
           .rtx-grid b{font-size:14px;margin-top:1px}
           .rtx-acts{display:flex;gap:8px;flex-wrap:wrap}
           .rtx-b{padding:8px 14px;border-radius:8px;border:1px solid var(--border,#2a3340);font-size:13px;font-weight:600;cursor:pointer;background:var(--bg,#0d1117);color:var(--text,#e6edf3)}
-          .rtx-b.apr{background:#22c55e;color:#0d1117;border:none}.rtx-b.rec{background:transparent;color:#ef4444;border-color:#ef444455}
-          .rtx-b.del{margin-left:auto;color:#8b949e}.rtx-b.ghost{color:#8b949e}
+          .rtx-b.apr{background:var(--green,#22c55e);color:#0d1117;border:none}.rtx-b.rec{background:transparent;color:var(--red-fg,#ef4444);border-color:#ef444455}
+          .rtx-b.del{margin-left:auto;color:var(--text2,#8b949e)}.rtx-b.ghost{color:var(--text2,#8b949e)}
           .rtx-b:disabled{opacity:.4;cursor:not-allowed}
           .rtx-overlay{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:1000;padding:20px}
           .rtx-overlay.show{display:flex}
@@ -1740,7 +1768,7 @@
         <div class="stats-row" id="stats-empleados">
           <div class="stat-card"><div class="stat-num" id="stat-emp-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-emp-activos">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Activos</div></div>
-          <div class="stat-card"><div class="stat-num" id="stat-emp-socios">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Socios</div></div>
+          <div class="stat-card"><div class="stat-num" id="stat-emp-socios">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Socios</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-emp-planilla">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Planilla mensual</div></div>
         </div>
         <div class="form-card" style="margin-bottom:14px;padding:12px 16px">
@@ -2595,7 +2623,7 @@
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
           <div class="stat-card"><div class="stat-num" id="ut-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total unidades</div></div>
-          <div class="stat-card"><div class="stat-num" id="ut-stat-taxi">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Taxis</div></div>
+          <div class="stat-card"><div class="stat-num" id="ut-stat-taxi">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Taxis</div></div>
           <div class="stat-card"><div class="stat-num" id="ut-stat-vip">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>VIP</div></div>
           <div class="stat-card"><div class="stat-num" id="ut-stat-fin">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Financiados</div></div>
         </div>
@@ -2725,7 +2753,7 @@
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
           <div class="stat-card"><div class="stat-num" id="venc-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total</div></div>
           <div class="stat-card"><div class="stat-num" id="venc-stat-vencidos" style="color:var(--red)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Vencidos</div></div>
-          <div class="stat-card"><div class="stat-num" id="venc-stat-porvencer" style="color:var(--gold)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Por vencer</div></div>
+          <div class="stat-card"><div class="stat-num" id="venc-stat-porvencer" style="color:var(--gold)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Por vencer</div></div>
           <div class="stat-card"><div class="stat-num" id="venc-stat-vigentes" style="color:var(--green)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Vigentes</div></div>
         </div>
 
@@ -2798,7 +2826,7 @@
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
           <div class="stat-card"><div class="stat-num" id="vin-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total vehículos</div></div>
-          <div class="stat-card"><div class="stat-num" id="vin-stat-props">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold)"></span>Propietarios</div></div>
+          <div class="stat-card"><div class="stat-num" id="vin-stat-props">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Propietarios</div></div>
           <div class="stat-card"><div class="stat-num" id="vin-stat-costo">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span><span id="vin-stat-costo-lbl">Costo total</span></div></div>
           <div class="stat-card"><div class="stat-num" id="vin-stat-filtrados">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Mostrando</div></div>
         </div>
@@ -2987,9 +3015,9 @@
       <!-- Solo aparece si el rol es 'mecanico'. Sin tecnico_id, su comisión no se
            acredita a nadie: el checklist funciona y la plata queda sin dueño. -->
       <div class="fld" id="nu-tecnico-wrap" style="display:none">
-        <label>Técnico asignado <span style="color:#f85149">*</span></label>
+        <label>Técnico asignado <span style="color:var(--red-fg,#f85149)">*</span></label>
         <select id="nu-tecnico"><option value="">— Elegí el técnico —</option></select>
-        <div style="font-size:11px;color:#8b949e;margin-top:3px">
+        <div style="font-size:11px;color:var(--text2,#8b949e);margin-top:3px">
           A quién se le acredita la comisión de los hallazgos que cierre.
         </div>
       </div>
@@ -3044,9 +3072,9 @@
       </div>
       <!-- Solo si el rol es 'mecanico'. Sin tecnico_id la comisión no tiene dueño. -->
       <div class="fld" id="eu-tecnico-wrap" style="display:none">
-        <label>Técnico asignado <span style="color:#f85149">*</span></label>
+        <label>Técnico asignado <span style="color:var(--red-fg,#f85149)">*</span></label>
         <select id="eu-tecnico"><option value="">— Elegí el técnico —</option></select>
-        <div style="font-size:11px;color:#8b949e;margin-top:3px">
+        <div style="font-size:11px;color:var(--text2,#8b949e);margin-top:3px">
           A quién se le acredita la comisión de los hallazgos que cierre.
         </div>
       </div>

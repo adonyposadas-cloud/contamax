@@ -136,12 +136,12 @@
       #view-cotizador input[type=number]{-moz-appearance:textfield;appearance:textfield}
       #view-cotizador .prio-btns{display:inline-flex;gap:3px;margin-top:5px}
       #view-cotizador .prio-btn{padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;border:1px solid var(--border,#2a3340);cursor:pointer;background:transparent;color:var(--text3,#8b949e)}
-      #view-cotizador .prio-btn.on.crit{background:rgba(220,38,38,.15);color:#f87171;border-color:#dc2626}
-      #view-cotizador .prio-btn.on.rec{background:rgba(245,158,11,.15);color:var(--amber,#f59e0b);border-color:#f59e0b}
+      #view-cotizador .prio-btn.on.crit{background:rgba(220,38,38,.15);color:var(--red-fg,#f87171);border-color:#dc2626}
+      #view-cotizador .prio-btn.on.rec{background:rgba(245,158,11,.15);color:var(--amber,#f59e0b);border-color:var(--amber,#f59e0b)}
       #view-cotizador .prio-btn.on.prev{background:rgba(16,185,129,.15);color:#34d399;border-color:#10b981}
       #view-cotizador .cot-row{display:grid;grid-template-columns:1fr 78px 110px 70px 96px 34px;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border,#2a3340)}
       #view-cotizador .cot-row.head{border-bottom:1px solid var(--border,#2a3340);color:var(--text3,#8b949e);font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:6px 0}
-      #view-cotizador .cot-badge{display:inline-block;background:var(--gold,#c8a24a);color:#000;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-right:5px}
+      #view-cotizador .cot-badge{display:inline-block;background:var(--gold-bg,#c8a24a);color:#000;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-right:5px}
       #view-cotizador .cot-adj{font-size:10px;color:var(--gold,#c8a24a);font-weight:600;margin-top:2px}
       #view-cotizador .cot-in{width:100%;padding:6px 8px;background:var(--bg2,#161b22);border:1px solid var(--border,#2a3340);border-radius:6px;color:var(--text,#e6edf3);font-size:13px}
       #view-cotizador .cot-si{padding:10px 12px;border-bottom:1px solid var(--border,#2a3340);cursor:pointer}
@@ -151,18 +151,18 @@
       #view-cotizador .cot-ac-wrap{position:relative}
       #view-cotizador .ac-list{position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--bg2,#161b22);border:1px solid var(--border,#2a3340);border-radius:0 0 6px 6px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
       #view-cotizador .ac-item{padding:8px 12px;font-size:13px;cursor:pointer;color:var(--text,#e6edf3);border-bottom:0.5px solid var(--border,#2a3340)}
-      #view-cotizador .ac-item:hover,#view-cotizador .ac-item.active{background:var(--gold,#c8a24a);color:#000}
+      #view-cotizador .ac-item:hover,#view-cotizador .ac-item.active{background:var(--gold-bg,#c8a24a);color:#000}
       #view-cotizador .cot-oi{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border,#2a3340);border-radius:8px;margin-bottom:8px;cursor:pointer}
       #view-cotizador .cot-oi.dest{border-color:var(--gold,#c8a24a);background:rgba(200,162,74,.08)}
       #view-cotizador .cot-oi input{width:auto;flex-shrink:0}
       #view-cotizador .cot-tabs{display:flex;gap:4px}
       #view-cotizador .cot-tab{padding:7px 14px;border-radius:8px;border:1px solid var(--border,#2a3340);background:var(--bg2,#161b22);color:var(--text3,#8b949e);cursor:pointer;font-size:13px;font-weight:500}
-      #view-cotizador .cot-tab.on{background:var(--gold,#c8a24a);color:#000;border-color:var(--gold,#c8a24a)}
+      #view-cotizador .cot-tab.on{background:var(--gold-bg,#c8a24a);color:#000;border-color:var(--gold,#c8a24a)}
       #view-cotizador .cot-stat{background:var(--bg2,#161b22);border:1px solid var(--border,#2a3340);border-radius:10px;padding:14px 16px}
       #view-cotizador .cot-stat .n{font-size:22px;font-weight:800;color:var(--gold,#c8a24a)}
       #view-cotizador .cot-stat .l{font-size:11px;color:var(--text3,#8b949e);margin-top:2px}
       #view-cotizador .cot-chip{padding:5px 12px;border-radius:14px;border:1px solid var(--border,#2a3340);background:transparent;color:var(--text3,#8b949e);cursor:pointer;font-size:12px}
-      #view-cotizador .cot-chip.on{background:var(--gold,#c8a24a);color:#000;border-color:var(--gold,#c8a24a)}
+      #view-cotizador .cot-chip.on{background:var(--gold-bg,#c8a24a);color:#000;border-color:var(--gold,#c8a24a)}
       #view-cotizador .cot-hrow{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid var(--border,#2a3340);border-radius:8px;margin-bottom:8px}
       #view-cotizador .cot-estado{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;text-transform:uppercase}
       #view-cotizador .cot-estado.pendiente{background:rgba(245,158,11,.15);color:var(--amber,#f59e0b)}
@@ -1330,7 +1330,7 @@
     try {
       const { data } = await sb().from('grupo_palabras').select('id,palabra,palabra_norm,grupo').order('palabra')
       const list = (data || []).filter(r => !t || r.palabra_norm.includes(t) || (r.grupo || '').toUpperCase().includes(t))
-      cont.innerHTML = list.map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);font-size:13px"><div style="flex:1"><b>${esc(r.palabra)}</b> → <span style="color:#3b82f6">${esc(r.grupo)}</span></div>${ES_SUPER ? `<span class="cot-pal-del" data-id="${r.id}" style="cursor:pointer;color:var(--red,#f85149)">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin palabras</div>'
+      cont.innerHTML = list.map(r => `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border,#2a3340);font-size:13px"><div style="flex:1"><b>${esc(r.palabra)}</b> → <span style="color:var(--blue-fg,#3b82f6)">${esc(r.grupo)}</span></div>${ES_SUPER ? `<span class="cot-pal-del" data-id="${r.id}" style="cursor:pointer;color:var(--red,#f85149)">🗑</span>` : ''}</div>`).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin palabras</div>'
     } catch (e) { cont.innerHTML = '<div style="color:var(--red,#f85149)">Error</div>' }
   }
   async function addPalabraManual () {
@@ -1380,7 +1380,7 @@
     if (!list.length) { cont.innerHTML = '<div style="color:var(--text3,#8b949e);padding:10px">Sin reglas. Agregá una arriba.</div>'; return }
     cont.innerHTML = list.map(g => {
       const specs = [g.traccion, g.combustible, g.motor ? g.motor + 'L' : '', g.grupo].filter(Boolean)
-      const badge = specs.length ? `<span style="font-size:11px;color:#3b82f6;background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(esc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#8b949e)">general</span>'
+      const badge = specs.length ? `<span style="font-size:11px;color:var(--blue-fg,#3b82f6);background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(esc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#8b949e)">general</span>'
       const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${esc(g.traccion || '')}" data-co="${esc(g.combustible || '')}" data-mt="${esc(g.motor || '')}" data-gr="${esc(g.grupo || '')}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
       return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#2a3340)">
         <div style="flex:1;font-size:13px"><b>${esc(g.marca)} ${esc(g.modelo)}</b> ${badge}</div>
@@ -1773,7 +1773,7 @@
       const precioTxt = chk
         ? (pb > 0
             ? ` <span style="color:var(--gold,#c8a24a);font-size:11px">L. ${fmt(pb)}</span>`
-            : ' <span style="color:#f0a500;font-size:10px;font-weight:700" title="Este ítem no tiene precio de lista">SIN PRECIO</span>')
+            : ' <span style="color:var(--gold,#f0a500);font-size:10px;font-weight:700" title="Este ítem no tiene precio de lista">SIN PRECIO</span>')
         : ''
       const boton = done
         ? ''
@@ -1785,12 +1785,12 @@
       // a vender ("la trasera derecha está peor"). El cotizador la necesita para saber
       // qué ofrecer.
       const notaTxt = (chk && s.nota && String(s.nota).trim())
-        ? `<div style="font-size:11px;color:#f0a500;padding:2px 0 4px 30px;font-style:italic">📝 ${esc(String(s.nota).trim())}</div>`
+        ? `<div style="font-size:11px;color:var(--gold,#f0a500);padding:2px 0 4px 30px;font-style:italic">📝 ${esc(String(s.nota).trim())}</div>`
         : ''
       return `<div style="padding:5px 0;${done ? 'opacity:.55' : ''}">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:${s.tipo === 's' ? 'rgba(139,92,246,.18)' : 'rgba(59,130,246,.18)'};color:${s.tipo === 's' ? '#8b5cf6' : '#3b82f6'}">${s.tipo === 's' ? 'SERV' : 'PROD'}</span>
-          <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${sevTag} ${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${precioTxt}${s.nuevo ? ' <span style="color:#f0a500;font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
+          <span style="flex:1;font-size:13px;${done ? 'text-decoration:line-through' : ''}">${sevTag} ${esc(s.desc)} <span style="color:var(--text3,#8b949e)">x${fmt(s.cantidad || 1)}</span>${precioTxt}${s.nuevo ? ' <span style="color:var(--gold,#f0a500);font-size:10px;font-weight:700">NUEVO</span>' : ''}</span>
           ${done ? '<span style="color:var(--green,#16a34a);font-size:12px;font-weight:700">✓</span>' : ''}
           ${boton}
         </div>
@@ -1886,7 +1886,7 @@
       const oc = !!it.oculto
       return `<div class="cot-row"${oc ? ' style="opacity:.5"' : ''}>
         <div>
-          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:#f85149" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
+          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:var(--red-fg,#f85149)" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
@@ -2688,7 +2688,7 @@
       if (f0 != null) fase0s.push(f0)
       if (f1 != null) fase1s.push(f1)
       if (f2 != null) fase2s.push(f2)
-      const estadoTxt = x.com ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (x.apr ? '<span style="color:#3b82f6">En compra</span>' : (x.ini ? '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>' : '<span style="color:#8b5cf6">Esperando cotización</span>'))
+      const estadoTxt = x.com ? '<span style="color:var(--green,#16a34a)">Completado</span>' : (x.apr ? '<span style="color:var(--blue-fg,#3b82f6)">En compra</span>' : (x.ini ? '<span style="color:var(--amber,#f59e0b)">Esperando aut.</span>' : '<span style="color:var(--purple-fg,#8b5cf6)">Esperando cotización</span>'))
       return { p: x.p, ciclo: x.ciclo, por: x.por, com: x.com, f0, f1, f2, estadoTxt, orden: t2 || t1 || t0 || ts || 0 }
     }).sort((a, b) => b.orden - a.orden)
     const prom = arr => arr.length ? Math.round(arr.reduce((a, x) => a + x, 0) / arr.length) : null
@@ -2892,7 +2892,7 @@
       if (p.estado === 'entregado') {
         const min = difMin(p.creado_en, p.fecha_entrega || p.fecha_llegada)
         reloj = `<span style="color:var(--text3,#8b949e);font-size:12px">entregado ${(p.fecha_entrega || '').slice(0, 10)} · tardó ${fmtDur(min)}</span>`
-        estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:#8b5cf6;font-weight:700">ENTREGADO</span>'
+        estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:var(--purple-fg,#8b5cf6);font-weight:700">ENTREGADO</span>'
         botones = ''
       } else if (p.estado === 'llegado') {
         const min = difMin(p.creado_en, p.fecha_llegada)
@@ -2903,8 +2903,8 @@
         const min = difMin(p.creado_en, null)
         reloj = `<span data-pr-desde="${esc(p.creado_en)}" style="font-weight:700;font-variant-numeric:tabular-nums;color:${colorPrMin(min)}">${fmtDur(min)}</span>`
         estadoTxt = pedido
-          ? `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(59,130,246,.18);color:#3b82f6;font-weight:700">PEDIDO${p.proveedor ? ' · ' + esc(p.proveedor) : ''}</span>`
-          : '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:#8b5cf6;font-weight:700">POR PEDIR</span>'
+          ? `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(59,130,246,.18);color:var(--blue-fg,#3b82f6);font-weight:700">PEDIDO${p.proveedor ? ' · ' + esc(p.proveedor) : ''}</span>`
+          : '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:var(--purple-fg,#8b5cf6);font-weight:700">POR PEDIR</span>'
         botones = (pend ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-pedir="${p.id}">🚚 Pedir</button>` : '')
           + `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-llego="${p.id}">✓ Llegó</button>`
       }
@@ -3196,7 +3196,7 @@
     const tipoBadge = ` <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;border:1px solid ${tipoCol};color:${tipoCol}">${tipoTxt}</span>`
     const pr = progresoPedidos(p.items)
     const pendSolic = (p.solicitados || []).filter(s => s && !s.agregado).length
-    const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:#f0a500;padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
+    const badgeNuevo = pendSolic > 0 ? ` <span style="font-size:10px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:2px 6px;border-radius:8px">📋 ${pendSolic} solicitado${pendSolic > 1 ? 's' : ''}</span>` : ''
     const badge = (esAut && pr.total > 0)
       ? ` <span style="font-size:12px;font-weight:800;color:${pr.color}">${pr.llegados}/${pr.total}</span>${pr.estado ? ` <span style="font-size:11px;color:${pr.color};font-weight:600">${pr.estado}</span>` : ''}`
       : ''
@@ -3597,7 +3597,7 @@
         if (modo === 'recoge') {
           estadoTxt = `<span class="ped-badge" style="background:rgba(245,158,11,.15);color:var(--amber,#f59e0b)">🚶 A recoger${it.seg_conserje ? ' — ' + esc(it.seg_conserje) : ''}</span>${prov ? ` <span style="font-size:11px;color:var(--text3,#8b949e)">en ${prov}</span>` : ''}`
         } else {
-          estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:#3b82f6">🚚 Pedido a ${prov}</span>`
+          estadoTxt = `<span class="ped-badge" style="background:rgba(59,130,246,.15);color:var(--blue-fg,#3b82f6)">🚚 Pedido a ${prov}</span>`
           const c = contactoDe(it.seg_proveedor)
           if (c && c.telefono) {
             const _min = it.seg_fecha_pedido ? difMin(it.seg_fecha_pedido) : null

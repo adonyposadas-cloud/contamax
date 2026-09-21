@@ -38,7 +38,7 @@ function ensureHistVacStyles() {
     .vac-hist-kpis>div{background:var(--bg3,#15171c);border:0.5px solid var(--border);border-radius:9px;padding:9px 11px;text-align:center}
     .vac-hist-kpis b{display:block;font-size:17px;font-weight:700}
     .vac-hist-kpis span{display:block;font-size:10px;color:var(--text3);margin-top:2px}
-    .vac-hist-warn{background:rgba(245,196,81,.12);border:1px solid rgba(245,196,81,.4);color:#f5c451;
+    .vac-hist-warn{background:rgba(245,196,81,.12);border:1px solid rgba(245,196,81,.4);color:var(--amber-fg,#f5c451);
       border-radius:8px;padding:9px 12px;font-size:12px;margin-bottom:12px;line-height:1.45}
     .vac-hist-tw{max-height:min(560px, 60vh);overflow:auto;border:0.5px solid var(--border);border-radius:9px}
     .vac-hist-t{width:100%;border-collapse:collapse;font-size:12px}

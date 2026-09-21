@@ -23,32 +23,32 @@ function solStyles() {
   const s = document.createElement('style'); s.id = 'sol-styles'
   s.textContent = `
     #view-solicitudes .sol-wrap{max-width:920px}
-    #view-solicitudes .sol-card-form,#view-solicitudes .sol-card{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;margin-bottom:14px}
-    #view-solicitudes .sol-h{font-weight:700;font-size:15px;margin-bottom:4px;color:#e6e6e6}
-    #view-solicitudes .sol-sub{font-size:12px;color:#8b8f98;margin-bottom:12px}
+    #view-solicitudes .sol-card-form,#view-solicitudes .sol-card{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;padding:16px;margin-bottom:14px}
+    #view-solicitudes .sol-h{font-weight:700;font-size:15px;margin-bottom:4px;color:var(--text,#e6e6e6)}
+    #view-solicitudes .sol-sub{font-size:12px;color:var(--text2,#8b8f98);margin-bottom:12px}
     #view-solicitudes .sol-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
     #view-solicitudes .sol-fld{display:flex;flex-direction:column;gap:4px;flex:1;min-width:160px}
-    #view-solicitudes .sol-fld label{font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:.5px}
-    #view-solicitudes .sol-inp{background:#0f1114;border:1px solid #2a2e37;border-radius:8px;padding:8px 10px;color:#e6e6e6;font-size:13px;width:100%}
+    #view-solicitudes .sol-fld label{font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:.5px}
+    #view-solicitudes .sol-inp{background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 10px;color:var(--text,#e6e6e6);font-size:13px;width:100%}
     #view-solicitudes textarea.sol-inp{resize:vertical;min-height:70px}
-    #view-solicitudes .sol-b{background:#0f1114;border:1px solid #2a2e37;border-radius:8px;padding:8px 14px;color:#e6e6e6;font-size:13px;cursor:pointer}
+    #view-solicitudes .sol-b{background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 14px;color:var(--text,#e6e6e6);font-size:13px;cursor:pointer}
     #view-solicitudes .sol-b:hover{border-color:#3a3f4a}
-    #view-solicitudes .sol-b.ok{background:#f0a500;border-color:#f0a500;color:#1a1a1a;font-weight:700}
-    #view-solicitudes .sol-b.del{color:#f85149;padding:8px 10px}
-    #view-solicitudes .sol-card-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;color:#e6e6e6}
+    #view-solicitudes .sol-b.ok{background:var(--gold-bg,#f0a500);border-color:var(--gold,#f0a500);color:#1a1a1a;font-weight:700}
+    #view-solicitudes .sol-b.del{color:var(--red-fg,#f85149);padding:8px 10px}
+    #view-solicitudes .sol-card-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--text,#e6e6e6)}
     #view-solicitudes .sol-bdg{font-size:11px;font-weight:700;padding:2px 9px;border-radius:12px}
-    #view-solicitudes .sol-meta{font-size:11px;color:#8b8f98;margin:4px 0}
-    #view-solicitudes .sol-desc{font-size:13px;color:#c8ccd2;margin:6px 0;white-space:pre-wrap}
-    #view-solicitudes .sol-resp{font-size:13px;color:#c8ccd2;margin-top:8px;padding:8px 10px;background:rgba(22,163,74,.1);border-left:3px solid #16a34a;border-radius:6px}
-    #view-solicitudes .sol-card-new{border-color:#f0a500}
-    #view-solicitudes .sol-nuevo{color:#f0a500;font-size:10px}
+    #view-solicitudes .sol-meta{font-size:11px;color:var(--text2,#8b8f98);margin:4px 0}
+    #view-solicitudes .sol-desc{font-size:13px;color:var(--text,#c8ccd2);margin:6px 0;white-space:pre-wrap}
+    #view-solicitudes .sol-resp{font-size:13px;color:var(--text,#c8ccd2);margin-top:8px;padding:8px 10px;background:rgba(22,163,74,.1);border-left:3px solid #16a34a;border-radius:6px}
+    #view-solicitudes .sol-card-new{border-color:var(--gold,#f0a500)}
+    #view-solicitudes .sol-nuevo{color:var(--gold,#f0a500);font-size:10px}
     #view-solicitudes .sol-pri{font-size:11px}
     #view-solicitudes .sol-gest{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
     #view-solicitudes .sol-gest .sol-resp-inp{flex:1;min-width:180px}
     #view-solicitudes .sol-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-    #view-solicitudes .sol-chip{padding:4px 12px;border-radius:14px;background:#15171c;border:1px solid #2a2e37;color:#c8ccd2;font-size:12px;cursor:pointer}
-    #view-solicitudes .sol-chip.on{background:#f0a500;border-color:#f0a500;color:#1a1a1a;font-weight:700}
-    #view-solicitudes .sol-empty{text-align:center;color:#8b8f98;padding:22px}`
+    #view-solicitudes .sol-chip{padding:4px 12px;border-radius:14px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);color:var(--text,#c8ccd2);font-size:12px;cursor:pointer}
+    #view-solicitudes .sol-chip.on{background:var(--gold-bg,#f0a500);border-color:var(--gold,#f0a500);color:#1a1a1a;font-weight:700}
+    #view-solicitudes .sol-empty{text-align:center;color:var(--text2,#8b8f98);padding:22px}`
   document.head.appendChild(s)
 }
 
@@ -74,7 +74,7 @@ window.initSolicitudes = async () => {
         <div class="sol-fld" style="margin-bottom:10px"><label>Descripción / detalle</label><textarea id="sol-desc" class="sol-inp" placeholder="Explicá con detalle qué necesitás, en qué pantalla, y para qué te sirve."></textarea></div>
         <div class="sol-fld" style="margin-bottom:10px">
           <label>Adjuntos — subí archivos o pegá una captura con Ctrl+V (opcional)</label>
-          <input type="file" id="sol-files" accept="image/*,application/pdf" multiple onchange="solAddArchivos(this)" style="font-size:12px;color:#c8ccd2">
+          <input type="file" id="sol-files" accept="image/*,application/pdf" multiple onchange="solAddArchivos(this)" style="font-size:12px;color:var(--text,#c8ccd2)">
           <div id="sol-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
         </div>
         <div style="display:flex;justify-content:flex-end"><button class="sol-b ok" id="sol-enviar-btn" onclick="solEnviar()">Enviar solicitud</button></div>
@@ -99,7 +99,7 @@ async function solCargar() {
     solRender()
   } catch (e) {
     console.error('[solicitudes]', e)
-    if (cont) cont.innerHTML = `<div class="sol-empty" style="color:#f85149">Error al cargar: ${solEsc(e.message || e)}</div>`
+    if (cont) cont.innerHTML = `<div class="sol-empty" style="color:var(--red-fg,#f85149)">Error al cargar: ${solEsc(e.message || e)}</div>`
   }
 }
 
@@ -214,8 +214,8 @@ function solRenderPreview () {
   const c = document.getElementById('sol-preview'); if (!c) return
   c.innerHTML = solArchivos.map((f, i) => {
     const esImg = (f.type || '').startsWith('image/')
-    const thumb = esImg ? `<img src="${URL.createObjectURL(f)}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid #2a2e37">` : '<span style="font-size:22px">📄</span>'
-    return `<span style="display:inline-flex;align-items:center;gap:6px;background:#15171c;border:1px solid #2a2e37;border-radius:8px;padding:4px 8px;font-size:12px;color:#c8ccd2">${thumb}<span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${solEsc(f.name)}</span><span style="cursor:pointer;color:#f85149" onclick="solQuitarArchivo(${i})">✕</span></span>`
+    const thumb = esImg ? `<img src="${URL.createObjectURL(f)}" style="width:42px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--border,#2a2e37)">` : '<span style="font-size:22px">📄</span>'
+    return `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:4px 8px;font-size:12px;color:var(--text,#c8ccd2)">${thumb}<span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${solEsc(f.name)}</span><span style="cursor:pointer;color:var(--red-fg,#f85149)" onclick="solQuitarArchivo(${i})">✕</span></span>`
   }).join('')
 }
 // Pegar captura con Ctrl+V mientras el módulo está abierto (una sola vez)

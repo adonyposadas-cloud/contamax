@@ -48,7 +48,7 @@
       #view-estados-fisicos .form-card-title{font-weight:700;color:var(--gold,#c8a24a);margin-bottom:10px;text-transform:uppercase;font-size:12px;letter-spacing:.5px}
       #view-estados-fisicos input[type=file]{width:100%;font-size:13px;color:var(--text2,#c9d1d9);margin-bottom:8px}
       #view-estados-fisicos .btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border,#2a3340);cursor:pointer;font-weight:600;background:var(--bg3,#1c2333);color:var(--text2,#c9d1d9)}
-      #view-estados-fisicos .btn-gold{background:var(--gold,#c8a24a);color:#1a1a1a;border-color:var(--gold,#c8a24a)}
+      #view-estados-fisicos .btn-gold{background:var(--gold-bg,#c8a24a);color:#1a1a1a;border-color:var(--gold,#c8a24a)}
       #view-estados-fisicos .btn:disabled{opacity:.5;cursor:not-allowed}
       #view-estados-fisicos .ef-in{background:var(--bg3,#1c2333);border:1px solid var(--border,#2a3340);border-radius:6px;padding:6px 10px;color:var(--text1,#e6edf3);font-size:13px}
       #view-estados-fisicos .ef-info{font-size:12px;color:var(--text3,#8b949e);margin-top:6px;min-height:14px}

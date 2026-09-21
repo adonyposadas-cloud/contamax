@@ -220,7 +220,7 @@ window.filtrarEmpleados = () => {
   tbody.innerHTML = filteredEmpleados.map((e, i) => `
     <tr style="${!e.activo ? 'opacity:0.5' : ''}">
       <td>${i + 1}</td>
-      <td><strong>${e.nombre}</strong>${e.es_socio ? ' <span style="color:var(--gold);font-size:11px">★ SOCIO</span>' : ''}${e.planilla_confidencial ? ' <span style="color:#a78bfa;font-size:11px">🔒 CONF</span>' : ''}</td>
+      <td><strong>${e.nombre}</strong>${e.es_socio ? ' <span style="color:var(--gold);font-size:11px">★ SOCIO</span>' : ''}${e.planilla_confidencial ? ' <span style="color:var(--purple-fg,#a78bfa);font-size:11px">🔒 CONF</span>' : ''}</td>
       <td>${e.puesto || '—'}</td>
       <td><span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion}</span></td>
       <td style="text-align:right">L. ${fmt(e.sueldo_mensual)}</td>
@@ -1921,7 +1921,7 @@ window.imprimirVouchersPlanilla = async () => {
     .vt tr.sec td{font-weight:700;font-size:10px;color:#fff;background:#333;padding:1mm 1.5mm;letter-spacing:.5px}
     .vt tr.tot td{font-weight:700;border-top:1px solid #000}
     .vt td.muted{color:#888;font-style:italic}
-    .vneto{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13.5px;background:#f0a500;color:#000;padding:2mm 2.5mm;border-radius:3px;margin-top:3mm}
+    .vneto{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13.5px;background:var(--gold-bg,#f0a500);color:#000;padding:2mm 2.5mm;border-radius:3px;margin-top:3mm}
     .vfirma{font-size:9px;color:#555;margin-top:3mm}
     @page{size:A4 portrait;margin:8mm}
     @media print{.noprint{display:none}}

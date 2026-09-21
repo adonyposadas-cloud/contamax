@@ -87,30 +87,30 @@ function jpStyles() {
   if (document.getElementById('jp-styles')) return
   const s = document.createElement('style'); s.id = 'jp-styles'
   s.textContent = `
-    #view-jefe-pista .jp-card{background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:16px;margin-bottom:14px;max-width:960px}
-    #view-jefe-pista .jp-h{font-weight:700;font-size:15px;margin-bottom:4px;color:#e6e6e6}
-    #view-jefe-pista .jp-sub{font-size:12px;color:#8b8f98;margin-bottom:12px}
+    #view-jefe-pista .jp-card{background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;padding:16px;margin-bottom:14px;max-width:960px}
+    #view-jefe-pista .jp-h{font-weight:700;font-size:15px;margin-bottom:4px;color:var(--text,#e6e6e6)}
+    #view-jefe-pista .jp-sub{font-size:12px;color:var(--text2,#8b8f98);margin-bottom:12px}
     #view-jefe-pista .jp-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
     #view-jefe-pista .jp-fld{display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px}
-    #view-jefe-pista .jp-fld label{font-size:11px;color:#8b8f98;text-transform:uppercase;letter-spacing:.5px}
-    #view-jefe-pista .jp-inp{background:#0f1114;border:1px solid #2a2e37;border-radius:8px;padding:8px 10px;color:#e6e6e6;font-size:13px;width:100%;text-transform:uppercase}
+    #view-jefe-pista .jp-fld label{font-size:11px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:.5px}
+    #view-jefe-pista .jp-inp{background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 10px;color:var(--text,#e6e6e6);font-size:13px;width:100%;text-transform:uppercase}
     #view-jefe-pista .jp-inp.lc{text-transform:none}
-    #view-jefe-pista .jp-b{background:#0f1114;border:1px solid #2a2e37;border-radius:8px;padding:8px 14px;color:#e6e6e6;font-size:13px;cursor:pointer}
+    #view-jefe-pista .jp-b{background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 14px;color:var(--text,#e6e6e6);font-size:13px;cursor:pointer}
     #view-jefe-pista .jp-b:hover{border-color:#3a3f4a}
-    #view-jefe-pista .jp-b.ok{background:#f0a500;border-color:#f0a500;color:#1a1a1a;font-weight:700}
+    #view-jefe-pista .jp-b.ok{background:var(--gold-bg,#f0a500);border-color:var(--gold,#f0a500);color:#1a1a1a;font-weight:700}
     #view-jefe-pista .jp-b.green{background:#16a34a;border-color:#16a34a;color:#fff;font-weight:700}
-    #view-jefe-pista .jp-b.del{color:#f85149;padding:6px 9px}
-    #view-jefe-pista .jp-itrow{display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0f1114;border:1px solid #2a2e37;border-radius:8px;margin-bottom:6px;font-size:13px}
+    #view-jefe-pista .jp-b.del{color:var(--red-fg,#f85149);padding:6px 9px}
+    #view-jefe-pista .jp-itrow{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;margin-bottom:6px;font-size:13px}
     #view-jefe-pista .jp-tag{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:700}
-    #view-jefe-pista .jp-tag.p{background:rgba(59,130,246,.18);color:#3b82f6}
-    #view-jefe-pista .jp-tag.s{background:rgba(139,92,246,.18);color:#8b5cf6}
+    #view-jefe-pista .jp-tag.p{background:rgba(59,130,246,.18);color:var(--blue-fg,#3b82f6)}
+    #view-jefe-pista .jp-tag.s{background:rgba(139,92,246,.18);color:var(--purple-fg,#8b5cf6)}
     /* SIEMPRE en dos filas: descripción arriba, botones abajo.
        Antes era adaptativo (los botones subían si cabían) y eso hacía saltar la
        tarjeta cada segundo: el reloj cambia de ancho al pasar de "1" a "8", y
        ese pixel de más bastaba para que la fila dejara de caber y todo se
        reacomodara. Un layout que depende de si entra por poco es un layout que
        tiembla. Con filas fijas, la tarjeta no se mueve nunca. */
-    #view-jefe-pista .jp-ordcard{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:12px;border-radius:10px;background:#15171c;border:1px solid #2a2e37;margin-bottom:8px}
+    #view-jefe-pista .jp-ordcard{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:12px;border-radius:10px;background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);margin-bottom:8px}
     #view-jefe-pista .jp-ordinfo{flex:1 1 100%;min-width:0}
     #view-jefe-pista .jp-ordacts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;justify-content:flex-end}
     /* Sin esto, "Editar con cliente" se parte letra por letra al angostarse */
@@ -120,7 +120,7 @@ function jpStyles() {
       #view-jefe-pista .jp-b{flex:1 1 auto;justify-content:center}
       #view-jefe-pista .jp-clock{width:100%;margin-right:0;text-align:center}
     }
-    #view-jefe-pista .jp-empty{text-align:center;color:#8b8f98;padding:20px}
+    #view-jefe-pista .jp-empty{text-align:center;color:var(--text2,#8b8f98);padding:20px}
     /* margin-right:auto empuja los botones a la derecha y deja el reloj a la
        izquierda de su fila. tabular-nums ya estaba: los dígitos no cambian de ancho. */
     #view-jefe-pista .jp-clock{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;margin-right:auto}`
@@ -135,14 +135,14 @@ window.initJefePista = async () => {
       <div class="jp-h">🧰 Nueva solicitud de cotización</div>
       <div class="jp-sub">Colocá el N° de orden del taller y el técnico asignado. El técnico carga el detalle en Taller Alpha y el cotizador completa la cotización. Arranca el tiempo de cotización.</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 12px">
-        <span style="font-size:12px;color:#8b8f98">Tipo de cotización:</span>
-        <button type="button" id="jp-tipo-sol" onclick="jpSetTipo('solicitado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3b82f6;background:#3b82f622;color:#3b82f6">🔧 Solicitado</button>
-        <button type="button" id="jp-tipo-rec" onclick="jpSetTipo('recomendado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:#8b8f98">💡 Recomendado</button>
-        <span id="jp-tipo-hint" style="font-size:11px;color:#f59e0b"></span>
+        <span style="font-size:12px;color:var(--text2,#8b8f98)">Tipo de cotización:</span>
+        <button type="button" id="jp-tipo-sol" onclick="jpSetTipo('solicitado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid var(--blue,#3b82f6);background:#3b82f622;color:var(--blue-fg,#3b82f6)">🔧 Solicitado</button>
+        <button type="button" id="jp-tipo-rec" onclick="jpSetTipo('recomendado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:var(--text2,#8b8f98)">💡 Recomendado</button>
+        <span id="jp-tipo-hint" style="font-size:11px;color:var(--amber-fg,#f59e0b)"></span>
       </div>
       <div class="jp-row" style="align-items:flex-end">
         <div class="jp-fld" style="flex:0 0 180px"><label>N° Orden Taller *</label><input id="jp-orden" class="jp-inp" placeholder="Ej: 54700" onblur="jpCheckOrden()"></div>
-        <div class="jp-fld" style="position:relative"><label>Técnico *</label><input id="jp-tecnico" class="jp-inp" placeholder="Nombre del técnico" autocomplete="off" oninput="jpTecInput()" onkeydown="if(event.key==='Escape')jpTecHide()"><div id="jp-tec-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#0f1114;border:1px solid #2a2e37;border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
+        <div class="jp-fld" style="position:relative"><label>Técnico *</label><input id="jp-tecnico" class="jp-inp" placeholder="Nombre del técnico" autocomplete="off" oninput="jpTecInput()" onkeydown="if(event.key==='Escape')jpTecHide()"><div id="jp-tec-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
         <button class="jp-b ok" id="jp-enviar-btn" onclick="jpEnviar()">📤 Enviar a cotizar</button>
       </div>
       <div class="jp-row" style="align-items:flex-end;margin-top:10px">
@@ -152,10 +152,10 @@ window.initJefePista = async () => {
       </div>
       <div class="jp-fld" style="margin-top:10px"><label>Lo que se le reportó al técnico</label><textarea id="jp-motivo" class="jp-inp lc" rows="2" placeholder="Ej: El cliente reporta ruido al frenar y pérdida de líquido…" style="resize:vertical"></textarea></div>
       <div class="jp-fld" style="margin-top:8px"><label>Diagnóstico del técnico (recomendaciones)</label><textarea id="jp-diagnostico" class="jp-inp lc" rows="2" placeholder="Ej: Se recomienda cambio de pastillas y discos delanteros; revisar retenedores…" style="resize:vertical"></textarea></div>
-      <div style="border-top:1px solid #2a2e37;margin:10px 0;padding-top:10px">
-        <div class="jp-h" style="font-size:13px">Repuestos y servicios a cotizar <span style="font-weight:400;color:#8b8f98;font-size:11px">(opcional)</span></div>
+      <div style="border-top:1px solid var(--border,#2a2e37);margin:10px 0;padding-top:10px">
+        <div class="jp-h" style="font-size:13px">Repuestos y servicios a cotizar <span style="font-weight:400;color:var(--text2,#8b8f98);font-size:11px">(opcional)</span></div>
         <div class="jp-row" style="align-items:flex-end">
-          <div class="jp-fld" style="flex:2;position:relative"><label>Nombre</label><input id="jp-it-desc" class="jp-inp" placeholder="Ej: RETENEDOR DE FLECHA" autocomplete="off" oninput="jpDescInput()" onkeydown="if(event.key==='Enter'){jpDescHide();jpAddItem('p')}else if(event.key==='Escape')jpDescHide()"><div id="jp-desc-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:280px;overflow-y:auto;background:#0f1114;border:1px solid #2a2e37;border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
+          <div class="jp-fld" style="flex:2;position:relative"><label>Nombre</label><input id="jp-it-desc" class="jp-inp" placeholder="Ej: RETENEDOR DE FLECHA" autocomplete="off" oninput="jpDescInput()" onkeydown="if(event.key==='Enter'){jpDescHide();jpAddItem('p')}else if(event.key==='Escape')jpDescHide()"><div id="jp-desc-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:280px;overflow-y:auto;background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
           <div class="jp-fld" style="flex:0 0 90px"><label>Cantidad</label><input id="jp-it-cant" class="jp-inp lc" type="number" value="1" min="1"></div>
           <button class="jp-b" onclick="jpAddItem('p')" title="Agregar producto">➕ Producto</button>
           <button class="jp-b" onclick="jpAddItem('s')" title="Agregar servicio">🔧 Servicio</button>
@@ -170,12 +170,12 @@ window.initJefePista = async () => {
       <div id="jp-ordenes"><div class="jp-empty">Cargando…</div></div>
     </div>
     <div id="jp-ag-ov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:12px">
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;padding:20px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;padding:20px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
           <div class="jp-h" id="jp-ag-title">Agregar ítems</div>
           <button class="jp-b" onclick="jpAgCerrar()">✕</button>
         </div>
-        <div class="jp-sub">Agregá los repuestos/servicios que faltaron. El cotizador los verá marcados como <b style="color:#f0a500">NUEVOS</b> para cotizarlos.</div>
+        <div class="jp-sub">Agregá los repuestos/servicios que faltaron. El cotizador los verá marcados como <b style="color:var(--gold,#f0a500)">NUEVOS</b> para cotizarlos.</div>
         <div id="jp-ag-existentes" style="margin-bottom:10px"></div>
         <div class="jp-row" style="align-items:flex-end">
           <div class="jp-fld" style="flex:2"><label>Nombre</label><input id="jp-ag-desc" class="jp-inp" placeholder="Ej: FILTRO DE AIRE" onkeydown="if(event.key==='Enter')jpAgAdd('p')"></div>
@@ -236,7 +236,7 @@ window.jpTecInput = () => {
   // El técnico se ELIGE de la lista, no se crea al vuelo. Crear técnicos desde acá
   // ensuciaba el catálogo con nombres cortos y duplicados ("DAG", "CAR") — y ahora que
   // la comisión depende de tecnico_id, un duplicado paga al técnico equivocado.
-  if (!matches.length) html = `<div style="padding:9px 10px;font-size:12px;color:#8b8f98">Sin coincidencias. Los técnicos se crean en la pantalla de técnicos, no acá.</div>`
+  if (!matches.length) html = `<div style="padding:9px 10px;font-size:12px;color:var(--text2,#8b8f98)">Sin coincidencias. Los técnicos se crean en la pantalla de técnicos, no acá.</div>`
   drop.innerHTML = html
   drop.style.display = html ? 'block' : 'none'
 }
@@ -289,7 +289,7 @@ window.jpDescInput = () => {
   const matches = jpDescripciones.filter(d => d.includes(q)).slice(0, 40)
   let html = matches.map(d => `<div data-d="${jpEsc(d)}" style="padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #1c1f26" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">${jpEsc(d)}</div>`).join('')
   if (!jpDescripciones.includes(q)) {
-    html += `<div data-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:#f0a500;font-weight:600" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}» al catálogo</div>`
+    html += `<div data-add="${jpEsc(q)}" style="padding:9px 10px;cursor:pointer;font-size:13px;color:var(--gold,#f0a500);font-weight:600" onmouseover="this.style.background='#1a1d24'" onmouseout="this.style.background='transparent'">➕ Agregar «${jpEsc(q)}» al catálogo</div>`
   }
   drop.innerHTML = html
   drop.style.display = html ? 'block' : 'none'
@@ -325,7 +325,7 @@ function jpRenderItems() {
   c.innerHTML = jpItems.map((it, i) => `<div class="jp-itrow">
     <span class="jp-tag ${it.tipo}">${it.tipo === 'p' ? 'PRODUCTO' : 'SERVICIO'}</span>
     <span style="flex:1">${jpEsc(it.desc)}</span>
-    <span style="color:#8b8f98">x${it.cantidad}</span>
+    <span style="color:var(--text2,#8b8f98)">x${it.cantidad}</span>
     <button class="jp-b del" onclick="jpDelItem(${i})">✕</button>
   </div>`).join('')
 }
@@ -334,7 +334,7 @@ window.jpSetTipo = (t) => {
   jpTipo = (t === 'recomendado') ? 'recomendado' : 'solicitado'
   const sol = document.getElementById('jp-tipo-sol'); const rec = document.getElementById('jp-tipo-rec')
   const on = (el, color) => { if (el) el.style.cssText = `cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid ${color};background:${color}22;color:${color}` }
-  const off = (el) => { if (el) el.style.cssText = 'cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:#8b8f98' }
+  const off = (el) => { if (el) el.style.cssText = 'cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:var(--text2,#8b8f98)' }
   if (jpTipo === 'recomendado') { on(rec, '#f59e0b'); off(sol) } else { on(sol, '#3b82f6'); off(rec) }
 }
 
@@ -452,7 +452,7 @@ async function jpCargar() {
     if (error) throw error
     jpData = data || []
     jpRenderOrdenes()
-  } catch (e) { console.error('[jp cargar]', e); const cont2 = document.getElementById('jp-ordenes'); if (cont2) cont2.innerHTML = `<div class="jp-empty" style="color:#f85149">Error: ${jpEsc(e.message || e)}</div>` }
+  } catch (e) { console.error('[jp cargar]', e); const cont2 = document.getElementById('jp-ordenes'); if (cont2) cont2.innerHTML = `<div class="jp-empty" style="color:var(--red-fg,#f85149)">Error: ${jpEsc(e.message || e)}</div>` }
 }
 
 function jpRenderOrdenes() {
@@ -478,9 +478,9 @@ function jpRenderOrdenes() {
   // invisible. Va arriba de todo porque necesita acción del jefe de pista AHORA.
   const sinAsignar = jpData.filter(p => p.tipo_solicitud === 'solicitado' && !p.tecnico_id)
   if (sinAsignar.length) {
-    html += `<div style="margin:0 0 6px;font-size:12px;font-weight:700;color:#f85149;text-transform:uppercase;letter-spacing:.03em">
+    html += `<div style="margin:0 0 6px;font-size:12px;font-weight:700;color:var(--red-fg,#f85149);text-transform:uppercase;letter-spacing:.03em">
       🚩 Sin técnico asignado <span style="opacity:.55;margin-left:2px">${sinAsignar.length}</span></div>
-      <div style="font-size:11px;color:#8b8f98;margin-bottom:6px">Nadie las ve en el checklist hasta que les asignes técnico.</div>`
+      <div style="font-size:11px;color:var(--text2,#8b8f98);margin-bottom:6px">Nadie las ve en el checklist hasta que les asignes técnico.</div>`
     html += sinAsignar.map(jpCardAsignar).join('')
   }
   GRUPOS.forEach(g => {
@@ -489,14 +489,14 @@ function jpRenderOrdenes() {
     // se acumulan sin que nadie las toque. Guardar el motivo de cada cierre es lo
     // que después permite distinguir "no arrancó el piloto" de "no la hicieron".
     const btnLote = ((g.fase === 'checklist' || g.fase === 'cumplida') && lista.length)
-      ? `<button class="jp-b" style="margin-left:10px;font-size:11px;padding:3px 10px;border-color:#8b949e;color:#8b949e"
+      ? `<button class="jp-b" style="margin-left:10px;font-size:11px;padding:3px 10px;border-color:var(--border2,#8b949e);color:var(--text2,#8b949e)"
                 onclick="jpCerrarLote('${g.fase}')">Cerrar las ${lista.length}…</button>` : ''
     html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:${g.color};text-transform:uppercase;letter-spacing:.03em">${g.titulo} <span style="opacity:.55;margin-left:2px">${lista.length}</span>${btnLote}</div>`
-    html += lista.length ? lista.map(jpOrdenCard).join('') : '<div class="jp-empty" style="padding:4px 0;font-size:12px;color:#8b8f98">— ninguna —</div>'
+    html += lista.length ? lista.map(jpOrdenCard).join('') : '<div class="jp-empty" style="padding:4px 0;font-size:12px;color:var(--text2,#8b8f98)">— ninguna —</div>'
   })
   // Cualquier fase no contemplada (por si acaso), al final
   const otras = byFase['otro'] || []
-  if (otras.length) { html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#8b8f98;text-transform:uppercase">• Otras <span style="opacity:.55">${otras.length}</span></div>` + otras.map(jpOrdenCard).join('') }
+  if (otras.length) { html += `<div style="margin:16px 0 6px;font-size:12px;font-weight:700;color:var(--text2,#8b8f98);text-transform:uppercase">• Otras <span style="opacity:.55">${otras.length}</span></div>` + otras.map(jpOrdenCard).join('') }
   cont.innerHTML = html
 }
 
@@ -507,11 +507,11 @@ function jpCardAsignar(p) {
   const opts = (jpTecnicos || []).length
     ? (jpTecnicos || []).map(t => `<option value="${jpEsc(t.id)}">${jpEsc(t.nombre)}</option>`).join('')
     : '<option value="" disabled>— no hay técnicos cargados —</option>'
-  return `<div class="jp-card" style="border-left:3px solid #f85149">
+  return `<div class="jp-card" style="border-left:3px solid var(--red,#f85149)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
       <div>
         <div style="font-weight:700">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')}</div>
-        <div style="font-size:11px;color:#8b8f98">${jpEsc(corre)} · orden ${jpEsc(p.numero_orden || '')}</div>
+        <div style="font-size:11px;color:var(--text2,#8b8f98)">${jpEsc(corre)} · orden ${jpEsc(p.numero_orden || '')}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <select id="asig-${p.id}" class="jp-inp" style="min-width:180px">
@@ -537,13 +537,13 @@ window.jpCambiarTecnico = function (proformaId) {
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
     document.body.appendChild(modal) }
   modal.innerHTML = `
-    <div style="background:#0d1117;border:1px solid #2a2e37;border-radius:14px;max-width:420px;width:100%;padding:20px">
+    <div style="background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:14px;max-width:420px;width:100%;padding:20px">
       <div style="font-size:15px;font-weight:700;margin-bottom:4px">Cambiar técnico de inspección</div>
-      <div style="font-size:12px;color:#8b949e;margin-bottom:14px">${jpEsc([p.marca,p.modelo].filter(Boolean).join(' '))} · orden #${jpEsc(p.numero_orden||'')}<br>Actual: <b>${jpEsc(p.mecanico||'—')}</b></div>
+      <div style="font-size:12px;color:var(--text2,#8b949e);margin-bottom:14px">${jpEsc([p.marca,p.modelo].filter(Boolean).join(' '))} · orden #${jpEsc(p.numero_orden||'')}<br>Actual: <b>${jpEsc(p.mecanico||'—')}</b></div>
       <select id="asig-${p.id}" class="jp-inp" style="width:100%;margin-bottom:14px">${opts}</select>
       <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button onclick="document.getElementById('jp-cambtec-modal').remove()" style="background:none;border:1px solid #3a3f4a;color:#8b949e;border-radius:8px;padding:8px 16px;cursor:pointer">Cancelar</button>
-        <button onclick="jpAsignarTecnico('${p.id}').then(()=>document.getElementById('jp-cambtec-modal')?.remove())" style="background:#8b5cf6;border:0;color:#fff;border-radius:8px;padding:8px 18px;font-weight:600;cursor:pointer">Reasignar</button>
+        <button onclick="document.getElementById('jp-cambtec-modal').remove()" style="background:none;border:1px solid #3a3f4a;color:var(--text2,#8b949e);border-radius:8px;padding:8px 16px;cursor:pointer">Cancelar</button>
+        <button onclick="jpAsignarTecnico('${p.id}').then(()=>document.getElementById('jp-cambtec-modal')?.remove())" style="background:var(--purple,#8b5cf6);border:0;color:#fff;border-radius:8px;padding:8px 18px;font-weight:600;cursor:pointer">Reasignar</button>
       </div>
     </div>`
 }
@@ -623,9 +623,9 @@ function jpOrdenCard(p) {
   //                      y un rechazo antes de cotizar no significa nada.
   //   · no autorizada  → si ya dijo que sí, no hay rechazo que registrar.
   const btnCerrarChk = (f.fase === 'checklist' || f.fase === 'cumplida')
-    ? `<button class="jp-b" style="border-color:#8b949e;color:#8b949e" onclick="jpCerrarChecklist('${p.id}')" title="Cerrar esta orden dejando registro de por qué no se inspeccionó">✕ Cerrar</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--border2,#8b949e);color:var(--text2,#8b949e)" onclick="jpCerrarChecklist('${p.id}')" title="Cerrar esta orden dejando registro de por qué no se inspeccionó">✕ Cerrar</button>` : ''
   const btnNV = (esRec && p.proc_cotizada && !['autorizada', 'no_vendida', 'finalizada', 'anulada'].includes(p.estado))
-    ? `<button class="jp-b" style="border-color:#f85149;color:#f85149" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--red,#f85149);color:var(--red-fg,#f85149)" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
     ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Arma el WhatsApp al cliente con el mismo PDF, su teléfono y el total ya escritos">📲 Enviar al cliente</button>` : ''
   // Habilitar técnicos en la orden (Fase 2). Aparece cuando ya hay trabajo autorizado:
@@ -637,25 +637,25 @@ function jpOrdenCard(p) {
   // Solo en la fase de AUTORIZACIÓN: ya hay cotización con precios (proc_inicio) y aún no
   // se autorizó. En 'Esperando cotización' no hay precios finales que presentar al cliente.
   const btnEdit = (f.fase === 'autorizacion' && Array.isArray(p.items) && p.items.length)
-    ? `<button class="jp-b" style="border-color:#c8a24a;color:#c8a24a" onclick="jpEditarCliente('${p.id}')" title="Quitar ítems con el cliente al lado, antes de autorizar">✏️ Editar con cliente</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--gold,#c8a24a);color:var(--gold,#c8a24a)" onclick="jpEditarCliente('${p.id}')" title="Quitar ítems con el cliente al lado, antes de autorizar">✏️ Editar con cliente</button>` : ''
   // Cambiar el técnico que INSPECCIONA. Solo mientras se está cotizando (antes de que la
   // orden pase a autorización): si el asignado no vino, se le pasa a otro. Si ya empezó a
   // inspeccionar, reasignar descarta lo hecho (el segundo empieza limpio).
   const btnCambiarTec = (esRec && p.tecnico_id && f.fase === 'cotizacion')
-    ? `<button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpCambiarTecnico('${p.id}')" title="Pasar la inspección a otro técnico">👤 Cambiar técnico</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpCambiarTecnico('${p.id}')" title="Pasar la inspección a otro técnico">👤 Cambiar técnico</button>` : ''
   const btnTec = (esRec && p.proc_aprobada)
-    ? `<button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden">👷 Técnicos</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden">👷 Técnicos</button>` : ''
   const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
   // Borde izquierdo por fase (mismos colores del cotizador): rojo=cotización, amarillo=autorización, verde=pedido/completado
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
   return `<div class="jp-ordcard" style="border-left:4px solid ${bCol}">
     <div class="jp-ordinfo">
-      <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:#8b8f98;font-weight:400;font-size:12px">${jpEsc(corre)} · ${nSol && nIt ? `${nSol} por cotizar · ${nIt} cotizado(s)` : (nIt && !nSol ? `${nIt} cotizado(s)` : `${nProd} ítem(s)`)}</span>${tipoBadge}</div>
+      <div style="font-size:14px;font-weight:600">${jpEsc(veh)} · ${jpEsc(p.placa || 's/placa')} <span style="color:var(--text2,#8b8f98);font-weight:400;font-size:12px">${jpEsc(corre)} · ${nSol && nIt ? `${nSol} por cotizar · ${nIt} cotizado(s)` : (nIt && !nSol ? `${nIt} cotizado(s)` : `${nProd} ítem(s)`)}</span>${tipoBadge}</div>
       <div style="font-size:12px;color:${f.color};margin-top:2px">${f.lbl}${
         // En "esperando el checklist" lo útil es a QUIÉN reclamarle, no el cliente:
         // es el mecánico el que tiene el carro parado.
         f.fase === 'checklist'
-          ? (p.mecanico ? ' · 🔧 ' + jpEsc(p.mecanico) : ' · <span style="color:#f85149">sin técnico</span>')
+          ? (p.mecanico ? ' · 🔧 ' + jpEsc(p.mecanico) : ' · <span style="color:var(--red-fg,#f85149)">sin técnico</span>')
           // Checklist hecho: lo que importa ya no es a quién reclamarle, sino
           // quién lo hizo. Se cae al técnico asignado si la inspección no guardó
           // usuario (inspecciones viejas, de antes de la atribución por id).
@@ -700,15 +700,15 @@ function jpModalCierre(titulo, sub, motivos, onOk) {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10050;display:flex;align-items:center;justify-content:center;padding:20px'
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
   ov.innerHTML = `
-    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:470px;width:100%;padding:18px;color:#e6edf3;max-height:88vh;overflow:auto">
+    <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;max-width:470px;width:100%;padding:18px;color:var(--text,#e6edf3);max-height:88vh;overflow:auto">
       <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:4px">
         <b style="font-size:15px">${jpEsc(titulo)}</b>
-        <button onclick="document.getElementById('jp-cc-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer;line-height:1">×</button>
+        <button onclick="document.getElementById('jp-cc-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:22px;cursor:pointer;line-height:1">×</button>
       </div>
-      <div style="color:#8b949e;font-size:12.5px;margin-bottom:13px">${jpEsc(sub)}</div>
+      <div style="color:var(--text2,#8b949e);font-size:12.5px;margin-bottom:13px">${jpEsc(sub)}</div>
       <div style="display:flex;flex-direction:column;gap:7px">
         ${motivos.map(m => `
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid #2a2e37;border-radius:8px;cursor:pointer;font-size:13px;line-height:1.35">
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid var(--border,#2a2e37);border-radius:8px;cursor:pointer;font-size:13px;line-height:1.35">
             <input type="radio" name="jp-cc-m" value="${jpEsc(m.codigo)}" data-nota="${m.exige_nota ? 1 : 0}" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
             <span style="flex:1;min-width:0">
               ${jpEsc(m.nombre)}
@@ -719,11 +719,11 @@ function jpModalCierre(titulo, sub, motivos, onOk) {
           </label>`).join('')}
       </div>
       <input id="jp-cc-nota" placeholder="Detalle (obligatorio si elegís «Otro»)"
-             style="width:100%;margin-top:11px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:10px 11px;font-size:13px">
+             style="width:100%;margin-top:11px;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text,#e6edf3);padding:10px 11px;font-size:13px">
       <div id="jp-cc-msg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
       <div style="display:flex;gap:8px;margin-top:6px">
         <button class="jp-b" style="flex:1;padding:11px" onclick="document.getElementById('jp-cc-modal').remove()">Cancelar</button>
-        <button class="jp-b" id="jp-cc-ok" style="flex:1;padding:11px;border-color:#f85149;color:#f85149">Cerrar</button>
+        <button class="jp-b" id="jp-cc-ok" style="flex:1;padding:11px;border-color:var(--red,#f85149);color:var(--red-fg,#f85149)">Cerrar</button>
       </div>
     </div>`
   document.body.appendChild(ov)
@@ -842,7 +842,7 @@ window.jpAbrirAgregar = async (id) => {
   const ex = document.getElementById('jp-ag-existentes')
   const items = Array.isArray(p.solicitados) ? p.solicitados : []
   ex.innerHTML = items.length
-    ? '<div class="jp-sub" style="margin-bottom:4px">Ya solicitado:</div>' + items.map(it => `<div style="font-size:12px;color:#8b8f98;padding:2px 0">• ${jpEsc(it.desc)} x${it.cantidad || 1}${it.agregado ? ' <span style="color:#16a34a">(agregado)</span>' : ''}${it.nuevo ? ' <span style="color:#f0a500">(nuevo)</span>' : ''}</div>`).join('')
+    ? '<div class="jp-sub" style="margin-bottom:4px">Ya solicitado:</div>' + items.map(it => `<div style="font-size:12px;color:var(--text2,#8b8f98);padding:2px 0">• ${jpEsc(it.desc)} x${it.cantidad || 1}${it.agregado ? ' <span style="color:#16a34a">(agregado)</span>' : ''}${it.nuevo ? ' <span style="color:var(--gold,#f0a500)">(nuevo)</span>' : ''}</div>`).join('')
     : '<div class="jp-sub">Esta orden aún no tiene ítems solicitados.</div>'
   jpAgRender()
   const d = document.getElementById('jp-ag-desc'); if (d) d.value = ''
@@ -863,7 +863,7 @@ window.jpAgDel = (i) => { jpAgItems.splice(i, 1); jpAgRender() }
 function jpAgRender() {
   const c = document.getElementById('jp-ag-nuevos'); if (!c) return
   if (!jpAgItems.length) { c.innerHTML = ''; return }
-  c.innerHTML = '<div class="jp-sub" style="margin:6px 0 4px">Nuevos a agregar:</div>' + jpAgItems.map((it, i) => `<div class="jp-itrow"><span class="jp-tag ${it.tipo}">${it.tipo === 'p' ? 'PRODUCTO' : 'SERVICIO'}</span><span style="flex:1">${jpEsc(it.desc)}</span><span style="color:#8b8f98">x${it.cantidad}</span><button class="jp-b del" onclick="jpAgDel(${i})">✕</button></div>`).join('')
+  c.innerHTML = '<div class="jp-sub" style="margin:6px 0 4px">Nuevos a agregar:</div>' + jpAgItems.map((it, i) => `<div class="jp-itrow"><span class="jp-tag ${it.tipo}">${it.tipo === 'p' ? 'PRODUCTO' : 'SERVICIO'}</span><span style="flex:1">${jpEsc(it.desc)}</span><span style="color:var(--text2,#8b8f98)">x${it.cantidad}</span><button class="jp-b del" onclick="jpAgDel(${i})">✕</button></div>`).join('')
 }
 window.jpAgGuardar = async () => {
   if (!jpAgId || !jpAgItems.length) { window.toast?.('Agregá al menos un ítem', 'error'); return }
@@ -1171,22 +1171,22 @@ function jpModalWA (msg, tel) {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px'
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
   ov.innerHTML = `
-    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:560px;width:100%;padding:18px;color:#e6edf3">
+    <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;max-width:560px;width:100%;padding:18px;color:var(--text,#e6edf3)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <b style="font-size:15px">📲 Mensaje para el cliente</b>
-        <button onclick="document.getElementById('jp-wa-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
+        <button onclick="document.getElementById('jp-wa-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:22px;cursor:pointer">×</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <label style="font-size:12px;color:#8b8f98;white-space:nowrap">📞 Teléfono</label>
-        <input id="jp-wa-tel" placeholder="Ej: 9704 5242" value="${jpEsc(tel || '')}" autocomplete="off" style="flex:1;min-width:0;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:8px 10px;font-size:13px">
+        <label style="font-size:12px;color:var(--text2,#8b8f98);white-space:nowrap">📞 Teléfono</label>
+        <input id="jp-wa-tel" placeholder="Ej: 9704 5242" value="${jpEsc(tel || '')}" autocomplete="off" style="flex:1;min-width:0;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text,#e6edf3);padding:8px 10px;font-size:13px">
       </div>
       <div id="jp-wa-telhint" style="font-size:11px;margin-bottom:8px;min-height:14px"></div>
-      <textarea id="jp-wa-txt" style="width:100%;height:280px;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:11px;font-size:13px;font-family:inherit;line-height:1.5">${jpEsc(msg)}</textarea>
+      <textarea id="jp-wa-txt" style="width:100%;height:280px;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text,#e6edf3);padding:11px;font-size:13px;font-family:inherit;line-height:1.5">${jpEsc(msg)}</textarea>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="jp-b" style="flex:1;padding:11px" onclick="jpCopiarWA()">📋 Copiar</button>
         <button class="jp-b green" style="flex:1;padding:11px" onclick="jpAbrirWA()">💬 Abrir WhatsApp</button>
       </div>
-      <div style="font-size:11px;color:#8b8f98;margin-top:8px">Podés editar el mensaje y el teléfono antes de enviarlo. El PDF queda guardado y el link no vence.</div>
+      <div style="font-size:11px;color:var(--text2,#8b8f98);margin-top:8px">Podés editar el mensaje y el teléfono antes de enviarlo. El PDF queda guardado y el link no vence.</div>
     </div>`
   document.body.appendChild(ov)
   // Pista viva: confirma a qué número abrirá, o avisa que se elegirá el contacto a mano.
@@ -1244,7 +1244,7 @@ async function jpRenderSwitch () {
           <div style="font-size:13px;font-weight:700;color:${on ? '#16a34a' : '#f0a500'}">
             ${on ? '🔒 Checklist OBLIGATORIO' : '🔓 Checklist opcional (piloto)'}
           </div>
-          <div style="font-size:11px;color:#8b8f98;margin-top:1px">
+          <div style="font-size:11px;color:var(--text2,#8b8f98);margin-top:1px">
             ${on
               ? 'No se pueden agregar ítems a una orden sin checklist cerrado. Si el taller se traba, apagalo acá.'
               : 'Se pueden agregar ítems sin checklist. Prendelo el día 1 de la línea base.'}
@@ -1296,18 +1296,18 @@ window.jpNoVendida = async function (id) {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10002;display:flex;align-items:center;justify-content:center;padding:20px'
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
   ov.innerHTML = `
-    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:440px;width:100%;padding:18px;color:#e6edf3">
+    <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;max-width:440px;width:100%;padding:18px;color:var(--text,#e6edf3)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <b style="font-size:15px">❌ El cliente no compró</b>
-        <button onclick="document.getElementById('jp-nv-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
+        <button onclick="document.getElementById('jp-nv-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:22px;cursor:pointer">×</button>
       </div>
-      <div style="font-size:12px;color:#8b8f98;margin-bottom:12px">
+      <div style="font-size:12px;color:var(--text2,#8b8f98);margin-bottom:12px">
         ${p ? jpEsc([p.marca, p.modelo].filter(Boolean).join(' ') + ' · ' + (p.placa || '')) : ''}
         <br>No se anula nada: queda para volver a llamarlo a los 15 y 30 días.
       </div>
       <div style="display:grid;gap:6px" id="jp-nv-lista">
         ${(motivos || []).map(m => `
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid #2a2e37;border-radius:8px;cursor:pointer;font-size:13px;line-height:1.35">
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid var(--border,#2a2e37);border-radius:8px;cursor:pointer;font-size:13px;line-height:1.35">
             <input type="radio" name="jp-nv-m" value="${jpEsc(m.codigo)}" style="width:18px;height:18px;flex:0 0 auto;margin-top:1px">
             <span style="flex:1;min-width:0;white-space:normal;word-break:break-word">${jpEsc(m.nombre)}</span>
           </label>`).join('')}
@@ -1315,7 +1315,7 @@ window.jpNoVendida = async function (id) {
       <input id="jp-nv-nota" class="jp-inp" style="margin-top:9px" placeholder="Detalle (obligatorio si elegís «Otro»)">
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="jp-b" style="flex:1;padding:11px" onclick="document.getElementById('jp-nv-modal').remove()">Cancelar</button>
-        <button class="jp-b" style="flex:1;padding:11px;border-color:#f85149;color:#f85149" onclick="jpNoVendidaOk('${id}')">Registrar</button>
+        <button class="jp-b" style="flex:1;padding:11px;border-color:var(--red,#f85149);color:var(--red-fg,#f85149)" onclick="jpNoVendidaOk('${id}')">Registrar</button>
       </div>
     </div>`
   document.body.appendChild(ov)
@@ -1489,11 +1489,11 @@ function jpModalTecnicos (numeroOrden, trabajos, habilitados, tomados) {
     .map(t => `<option value="${jpEsc(t.id)}">${jpEsc(t.nombre)}</option>`).join('')
 
   const chipsHab = habilitados.length
-    ? habilitados.map(h => `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(139,92,246,.15);color:#8b5cf6;border-radius:14px;padding:3px 10px;font-size:12px;margin:2px">
+    ? habilitados.map(h => `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(139,92,246,.15);color:var(--purple-fg,#8b5cf6);border-radius:14px;padding:3px 10px;font-size:12px;margin:2px">
         ${jpEsc(jpNombreTec(h.tecnico_id))}
-        <button onclick="jpQuitarTecnico('${jpEsc(numeroOrden)}','${jpEsc(h.tecnico_id)}')" title="Quitar de la orden" style="background:none;border:0;color:#8b5cf6;cursor:pointer;font-size:14px;padding:0;line-height:1">×</button>
+        <button onclick="jpQuitarTecnico('${jpEsc(numeroOrden)}','${jpEsc(h.tecnico_id)}')" title="Quitar de la orden" style="background:none;border:0;color:var(--purple-fg,#8b5cf6);cursor:pointer;font-size:14px;padding:0;line-height:1">×</button>
       </span>`).join('')
-    : '<span style="color:#8b8f98;font-size:12px">Ningún técnico habilitado todavía.</span>'
+    : '<span style="color:var(--text2,#8b8f98);font-size:12px">Ningún técnico habilitado todavía.</span>'
 
   const filasTrabajo = trabajos.length
     ? trabajos.map(t => {
@@ -1502,34 +1502,34 @@ function jpModalTecnicos (numeroOrden, trabajos, habilitados, tomados) {
         const tagCol = t.tipo === 's' ? '#8b5cf6' : '#3b82f6'
         const estado = tom
           ? `<span style="color:#16a34a;font-weight:600">✓ ${jpEsc(jpNombreTec(tom.tecnico_id))}</span>
-             <button onclick="jpReasignar('${jpEsc(t.id)}','${jpEsc(numeroOrden)}')" style="background:none;border:1px solid #2a2e37;color:#8b8f98;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:6px">cambiar</button>`
-          : '<span style="color:#8b8f98;font-size:12px">sin tomar</span>'
+             <button onclick="jpReasignar('${jpEsc(t.id)}','${jpEsc(numeroOrden)}')" style="background:none;border:1px solid var(--border,#2a2e37);color:var(--text2,#8b8f98);border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;margin-left:6px">cambiar</button>`
+          : '<span style="color:var(--text2,#8b8f98);font-size:12px">sin tomar</span>'
         return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1c1f26">
           <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:${tagCol}22;color:${tagCol}">${tag}</span>
           <span style="flex:1;font-size:13px">${jpEsc(t.descripcion || '')}</span>
           ${estado}
         </div>`
       }).join('')
-    : '<div style="color:#8b8f98;font-size:12px;padding:8px 0">Esta orden no tiene trabajos del checklist.</div>'
+    : '<div style="color:var(--text2,#8b8f98);font-size:12px;padding:8px 0">Esta orden no tiene trabajos del checklist.</div>'
 
   ov.innerHTML = `
-    <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:600px;width:100%;padding:18px;color:#e6edf3;max-height:85vh;overflow-y:auto">
+    <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;max-width:600px;width:100%;padding:18px;color:var(--text,#e6edf3);max-height:85vh;overflow-y:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <b style="font-size:15px">👷 Técnicos · Orden ${jpEsc(numeroOrden)}</b>
-        <button onclick="document.getElementById('jp-tec-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer">×</button>
+        <button onclick="document.getElementById('jp-tec-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:22px;cursor:pointer">×</button>
       </div>
-      <div style="font-size:11px;color:#8b8f98;margin-bottom:14px">Habilitá los técnicos que trabajan esta orden. Cada uno entra y se asigna los trabajos que hizo. Vos podés corregir con «cambiar».</div>
+      <div style="font-size:11px;color:var(--text2,#8b8f98);margin-bottom:14px">Habilitá los técnicos que trabajan esta orden. Cada uno entra y se asigna los trabajos que hizo. Vos podés corregir con «cambiar».</div>
 
-      <div style="font-weight:700;font-size:12px;color:#8b5cf6;text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Técnicos habilitados</div>
+      <div style="font-weight:700;font-size:12px;color:var(--purple-fg,#8b5cf6);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">Técnicos habilitados</div>
       <div style="margin-bottom:8px">${chipsHab}</div>
       <div style="display:flex;gap:8px;margin-bottom:16px">
         <select id="jp-tec-add-sel" class="jp-inp" style="flex:1">
           <option value="">— Agregar técnico a la orden —</option>${opcionesTec}
         </select>
-        <button class="jp-b" style="border-color:#8b5cf6;color:#8b5cf6" onclick="jpHabilitarTecnico('${jpEsc(numeroOrden)}')">＋ Habilitar</button>
+        <button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpHabilitarTecnico('${jpEsc(numeroOrden)}')">＋ Habilitar</button>
       </div>
 
-      <div style="font-weight:700;font-size:12px;color:#8b8f98;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Trabajos de la orden</div>
+      <div style="font-weight:700;font-size:12px;color:var(--text2,#8b8f98);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px">Trabajos de la orden</div>
       <div>${filasTrabajo}</div>
     </div>`
   document.body.appendChild(ov)
@@ -1655,14 +1655,14 @@ function jpRenderEditModal () {
     const oculto = !!it.oculto
     const tag = it.tipo === 's' ? 'MO' : 'Pieza'
     return `<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #1c1f26;${oculto ? 'opacity:.45' : ''}">
-      <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(139,92,246,.15);color:#8b5cf6">${tag}</span>
+      <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(139,92,246,.15);color:var(--purple-fg,#8b5cf6)">${tag}</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;${oculto ? 'text-decoration:line-through' : ''}">${jpEsc(it.desc || '')}</div>
         <div style="font-size:11px;color:#6b7280">${cant} × ${fmt(precio)}</div>
       </div>
       ${oculto
         ? `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #16a34a;color:#16a34a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">↩ Regresar</button>`
-        : `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #f85149;color:#f85149;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">✕ Quitar</button>`}
+        : `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid var(--red,#f85149);color:var(--red-fg,#f85149);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">✕ Quitar</button>`}
     </div>`
   }
 
@@ -1674,21 +1674,21 @@ function jpRenderEditModal () {
     document.body.appendChild(modal)
   }
   modal.innerHTML = `
-    <div style="background:#0d1117;border:1px solid #2a2e37;border-radius:14px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
-      <div style="padding:16px 18px;border-bottom:1px solid #2a2e37">
+    <div style="background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:14px;max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border,#2a2e37)">
         <div style="font-size:15px;font-weight:700">Editar con el cliente</div>
-        <div style="font-size:12px;color:#8b949e">${jpEsc([pf.marca, pf.modelo].filter(Boolean).join(' '))} · ${jpEsc(pf.placa || '')} · orden #${jpEsc(pf.numero_orden || '')}</div>
+        <div style="font-size:12px;color:var(--text2,#8b949e)">${jpEsc([pf.marca, pf.modelo].filter(Boolean).join(' '))} · ${jpEsc(pf.placa || '')} · orden #${jpEsc(pf.numero_orden || '')}</div>
         <div style="font-size:11px;color:#6b7280;margin-top:4px">Quitá lo que el cliente rechace. Podés regresarlo si cambia de opinión.</div>
       </div>
       <div style="flex:1;overflow:auto;padding:6px 16px">
-        ${items.length ? items.map(fila).join('') : '<div style="padding:20px;text-align:center;color:#8b949e">Sin ítems.</div>'}
+        ${items.length ? items.map(fila).join('') : '<div style="padding:20px;text-align:center;color:var(--text2,#8b949e)">Sin ítems.</div>'}
       </div>
-      <div style="padding:14px 18px;border-top:1px solid #2a2e37;display:flex;align-items:center;gap:12px">
+      <div style="padding:14px 18px;border-top:1px solid var(--border,#2a2e37);display:flex;align-items:center;gap:12px">
         <div style="flex:1">
-          <div style="font-size:11px;color:#8b949e">TOTAL con lo aceptado</div>
+          <div style="font-size:11px;color:var(--text2,#8b949e)">TOTAL con lo aceptado</div>
           <div style="font-size:20px;font-weight:800;color:#16a34a">${fmt(total)}</div>
         </div>
-        <button onclick="jpEditCancelar()" style="background:none;border:1px solid #3a3f4a;color:#8b949e;border-radius:8px;padding:9px 16px;cursor:pointer">Cancelar</button>
+        <button onclick="jpEditCancelar()" style="background:none;border:1px solid #3a3f4a;color:var(--text2,#8b949e);border-radius:8px;padding:9px 16px;cursor:pointer">Cancelar</button>
         <button onclick="jpEditGuardar()" style="background:#16a34a;border:0;color:#fff;border-radius:8px;padding:9px 18px;font-weight:600;cursor:pointer">Guardar y generar PDF</button>
       </div>
     </div>`

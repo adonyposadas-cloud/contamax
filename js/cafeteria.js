@@ -78,13 +78,13 @@ window.__cafBuild = '20260720b'
   window.initCafeteria = async function () {
     const root = document.getElementById('view-cafeteria')
     if (!root) return
-    if (!puede()) { root.innerHTML = '<div style="padding:24px;color:#f85149">No tenés permiso sobre el módulo de cafetería.</div>'; return }
-    root.innerHTML = '<div style="padding:24px;color:#8b949e">Cargando…</div>'
+    if (!puede()) { root.innerHTML = '<div style="padding:24px;color:var(--red-fg,#f85149)">No tenés permiso sobre el módulo de cafetería.</div>'; return }
+    root.innerHTML = '<div style="padding:24px;color:var(--text2,#8b949e)">Cargando…</div>'
     try {
       await cargar()
       render()
     } catch (e) {
-      root.innerHTML = `<div style="padding:24px;color:#f85149">Error: ${esc(e.message || e)}</div>`
+      root.innerHTML = `<div style="padding:24px;color:var(--red-fg,#f85149)">Error: ${esc(e.message || e)}</div>`
     }
   }
 
@@ -179,22 +179,22 @@ window.__cafBuild = '20260720b'
 
     const bajos = INSUMOS.filter(i => i.activo && i.bajo_minimo)
     const alerta = bajos.length
-      ? `<div style="background:#3a1d1d;border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:14px;color:#f0c8c0;font-size:13px">
+      ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:14px;color:var(--red-fg,#f0c8c0);font-size:13px">
            <b>⚠ ${bajos.length} insumo${bajos.length > 1 ? 's' : ''} bajo el mínimo:</b> ${bajos.map(i => esc(i.nombre)).join(' · ')}
          </div>` : ''
 
     const selUbic = UBIC.length > 1
-      ? `<select onchange="cafUbicSel(this.value)" style="background:#0d1117;border:1px solid #c0632f;border-radius:8px;color:#e6edf3;padding:7px 11px;font-size:13px;font-weight:600">
+      ? `<select onchange="cafUbicSel(this.value)" style="background:var(--bg,#0d1117);border:1px solid #c0632f;border-radius:8px;color:var(--text,#e6edf3);padding:7px 11px;font-size:13px;font-weight:600">
            ${UBIC.map(u => `<option value="${u.id}"${u.id === USEL ? ' selected' : ''}>${u.tipo === 'central' ? '🏬' : '🏪'} ${esc(u.nombre)}</option>`).join('')}
          </select>`
-      : `<span style="color:#8b949e;font-size:13px">🏪 ${esc(ubicNombre(USEL))}</span>`
+      : `<span style="color:var(--text2,#8b949e);font-size:13px">🏪 ${esc(ubicNombre(USEL))}</span>`
 
     root.innerHTML = `
       <div style="padding:18px 20px;max-width:1180px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
-          <h2 style="margin:0;font-size:19px;color:#e6edf3">☕ Cafetería</h2>
+          <h2 style="margin:0;font-size:19px;color:var(--text,#e6edf3)">☕ Cafetería</h2>
           ${selUbic}
-          ${veTodo() ? '<button onclick="cafAdmin()" title="Puntos y encargados" style="background:#1c2027;border:1px solid #2a2e37;border-radius:8px;color:#8b949e;padding:7px 10px;cursor:pointer;font-size:13px">⚙</button>' : ''}
+          ${veTodo() ? '<button onclick="cafAdmin()" title="Puntos y encargados" style="background:var(--bg3,#1c2027);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text2,#8b949e);padding:7px 10px;cursor:pointer;font-size:13px">⚙</button>' : ''}
           <div style="flex:1"></div>
           ${tab('insumos', '📦', 'Inventario')}
           ${tab('recetas', '🍽️', 'Productos')}
@@ -204,7 +204,7 @@ window.__cafBuild = '20260720b'
           ${veTodo() ? tab('compras', '🛒', 'Lista de compras') : ''}
           ${tab('movs', '📋', 'Movimientos')}
         </div>
-        <div style="color:#6e7681;font-size:11.5px;margin-bottom:12px">
+        <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-bottom:12px">
           Estás viendo <b style="color:#c0632f">${esc(ubicNombre(USEL))}</b>${enCentral() ? ' · las compras entran acá' : ' · lo que se venda o se pierda baja de este punto'}
         </div>
         ${alerta}
@@ -217,9 +217,9 @@ window.__cafBuild = '20260720b'
     USEL = Number(id)
     REQ = null; VENTA = {}; ENVIO = {}
     const root = document.getElementById('view-cafeteria')
-    if (root) root.innerHTML = '<div style="padding:24px;color:#8b949e">Cargando…</div>'
+    if (root) root.innerHTML = '<div style="padding:24px;color:var(--text2,#8b949e)">Cargando…</div>'
     try { await cargar(); render() } catch (e) {
-      if (root) root.innerHTML = `<div style="padding:24px;color:#f85149">Error: ${esc(e.message || e)}</div>`
+      if (root) root.innerHTML = `<div style="padding:24px;color:var(--red-fg,#f85149)">Error: ${esc(e.message || e)}</div>`
     }
   }
 
@@ -249,7 +249,7 @@ window.__cafBuild = '20260720b'
   // Buscador reutilizable
   function buscador (id, valor, fn, ph) {
     return `<input id="${id}" value="${esc(valor)}" oninput="${fn}(this.value)" placeholder="${esc(ph)}"
-      style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:9px;color:#e6edf3;padding:9px 12px;font-size:13.5px;margin-bottom:8px">`
+      style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:9px;color:var(--text,#e6edf3);padding:9px 12px;font-size:13.5px;margin-bottom:8px">`
   }
 
   // Chip de filtro reutilizable
@@ -289,21 +289,21 @@ window.__cafBuild = '20260720b'
       const g = GRUPOS.find(x => x[0] === i.grupo) || GRUPOS[1]
       const bajo = i.bajo_minimo && i.activo
       return `
-      <tr style="border-bottom:1px solid #21262d;${i.activo ? '' : 'opacity:.45'}">
+      <tr style="border-bottom:1px solid var(--border,#21262d);${i.activo ? '' : 'opacity:.45'}">
         <td style="padding:9px 8px">
-          <div style="color:#e6edf3;font-weight:600">${esc(i.nombre)}</div>
-          <div style="color:#6e7681;font-size:11px">${esc(i.codigo)}</div>
+          <div style="color:var(--text,#e6edf3);font-weight:600">${esc(i.nombre)}</div>
+          <div style="color:var(--text3,#6e7681);font-size:11px">${esc(i.codigo)}</div>
         </td>
         <td style="padding:9px 8px;text-align:center">
           <span title="${esc(g[1])}" style="background:${g[2]}22;color:${g[2]};border:1px solid ${g[2]}66;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700">${i.grupo}</span>
         </td>
         <td style="padding:9px 8px;text-align:right;color:${bajo ? '#f85149' : '#e6edf3'};font-weight:600">
-          ${fmt(i.existencia)} <span style="color:#6e7681;font-weight:400;font-size:11px">${esc(i.unidad_base)}</span>
+          ${fmt(i.existencia)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(i.unidad_base)}</span>
           ${bajo ? ' <span title="Bajo el mínimo">⚠</span>' : ''}
         </td>
-        <td style="padding:9px 8px;text-align:right;color:#8b949e">L. ${fmt(i.costo_unitario)}</td>
-        <td style="padding:9px 8px;text-align:right;color:#8b949e">L. ${fmt(i.valor)}</td>
-        <td style="padding:9px 8px;text-align:right;color:#6e7681;font-size:12px">${fmt(i.stock_minimo)}</td>
+        <td style="padding:9px 8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(i.costo_unitario)}</td>
+        <td style="padding:9px 8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(i.valor)}</td>
+        <td style="padding:9px 8px;text-align:right;color:var(--text3,#6e7681);font-size:12px">${fmt(i.stock_minimo)}</td>
         <td style="padding:9px 8px;text-align:right;white-space:nowrap">
           ${veTodo() ? `<button onclick="cafComprar(${i.id})" title="Registrar compra" style="background:none;border:0;cursor:pointer;font-size:15px">🛒</button>` : ''}
           <button onclick="cafConteo(${i.id})" title="Conteo físico" style="background:none;border:0;cursor:pointer;font-size:15px">📋</button>
@@ -321,14 +321,14 @@ window.__cafBuild = '20260720b'
         ${GRUPOS.map(g => chipF(FI.grupo === g[0], `${g[0]} · ${g[1].split('·')[1] ? g[1].split('·')[1].trim() : g[0]}`, `cafFI('grupo','${g[0]}')`)).join('')}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div style="color:#8b949e;font-size:13px">
-          ${vis.length !== INSUMOS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${INSUMOS.length} · ` : ''}Valor: <b style="color:#e6edf3">L. ${fmt(valor)}</b>
+        <div style="color:var(--text2,#8b949e);font-size:13px">
+          ${vis.length !== INSUMOS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${INSUMOS.length} · ` : ''}Valor: <b style="color:var(--text,#e6edf3)">L. ${fmt(valor)}</b>
         </div>
         ${veTodo() ? '<button onclick="cafInsumoNuevo()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Nuevo insumo</button>' : ''}
       </div>
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="background:#1c2027;color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.5px">
+          <thead><tr style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);font-size:11px;text-transform:uppercase;letter-spacing:.5px">
             <th style="padding:9px 8px;text-align:left">Insumo</th>
             <th style="padding:9px 8px">Grupo</th>
             <th style="padding:9px 8px;text-align:right">Existencia</th>
@@ -337,10 +337,10 @@ window.__cafBuild = '20260720b'
             <th style="padding:9px 8px;text-align:right">Mínimo</th>
             <th style="padding:9px 8px;text-align:right">Acciones</th>
           </tr></thead>
-          <tbody>${filas || `<tr><td colspan="7" style="padding:26px;text-align:center;color:#6e7681">${INSUMOS.length ? 'Ningún insumo coincide con la búsqueda.' : 'Todavía no hay insumos. Empezá con “+ Nuevo insumo”.'}</td></tr>`}</tbody>
+          <tbody>${filas || `<tr><td colspan="7" style="padding:26px;text-align:center;color:var(--text3,#6e7681)">${INSUMOS.length ? 'Ningún insumo coincide con la búsqueda.' : 'Todavía no hay insumos. Empezá con “+ Nuevo insumo”.'}</td></tr>`}</tbody>
         </table>
       </div>
-      <div style="color:#6e7681;font-size:11.5px;margin-top:8px">
+      <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-top:8px">
         El costo unitario no se edita a mano: sale del promedio ponderado de las compras.
       </div>`
   }
@@ -369,47 +369,47 @@ window.__cafBuild = '20260720b'
       const ings = (INGR[r.id] || []).map(g => {
         const i = insumoPorId(g.insumo_id)
         const sub = i ? Number(g.cantidad) * Number(i.costo_unitario) : 0
-        return `<tr style="border-bottom:1px solid #21262d">
-          <td style="padding:6px 8px;color:#e6edf3">${esc(i ? i.nombre : '(insumo #' + g.insumo_id + ')')}</td>
-          <td style="padding:6px 8px;text-align:right;color:#8b949e">${fmt(g.cantidad)} ${esc(unidad(i))}</td>
-          <td style="padding:6px 8px;text-align:right;color:#8b949e">L. ${fmt(sub)}</td>
+        return `<tr style="border-bottom:1px solid var(--border,#21262d)">
+          <td style="padding:6px 8px;color:var(--text,#e6edf3)">${esc(i ? i.nombre : '(insumo #' + g.insumo_id + ')')}</td>
+          <td style="padding:6px 8px;text-align:right;color:var(--text2,#8b949e)">${fmt(g.cantidad)} ${esc(unidad(i))}</td>
+          <td style="padding:6px 8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(sub)}</td>
           <td style="padding:6px 8px;text-align:right">
             ${!veTodo() ? '' : `<button onclick="cafIngrEditar(${r.id},${g.insumo_id},${g.cantidad})" title="Cambiar cantidad" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
-            <button onclick="cafIngrQuitar(${g.id},${r.id})" title="Quitar" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:14px">✕</button>`}
+            <button onclick="cafIngrQuitar(${g.id},${r.id})" title="Quitar" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:14px">✕</button>`}
           </td></tr>`
       }).join('')
 
       return `
-      <div style="background:#15171c;border:1px solid #2a2e37;border-left:3px solid ${c};border-radius:10px;padding:13px 15px;margin-bottom:10px;${r.activo ? '' : 'opacity:.5'}">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-left:3px solid ${c};border-radius:10px;padding:13px 15px;margin-bottom:10px;${r.activo ? '' : 'opacity:.5'}">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;cursor:pointer" onclick="cafReceta(${r.id})">
           <div style="flex:1;min-width:170px">
-            <div style="color:#e6edf3;font-weight:600;font-size:14px">${esc(r.nombre)}
-              ${r.es_reventa ? '<span style="background:#3b82f622;color:#3b82f6;border:1px solid #3b82f655;border-radius:5px;padding:1px 7px;font-size:10.5px;font-weight:600;margin-left:6px">reventa</span>' : ''}
+            <div style="color:var(--text,#e6edf3);font-weight:600;font-size:14px">${esc(r.nombre)}
+              ${r.es_reventa ? '<span style="background:#3b82f622;color:var(--blue-fg,#3b82f6);border:1px solid #3b82f655;border-radius:5px;padding:1px 7px;font-size:10.5px;font-weight:600;margin-left:6px">reventa</span>' : ''}
             </div>
-            <div style="color:#6e7681;font-size:11px">${esc(r.categoria || 'sin categoría')}${r.es_reventa ? '' : ` · ${r.ingredientes} ingrediente${r.ingredientes === 1 ? '' : 's'}`}</div>
+            <div style="color:var(--text3,#6e7681);font-size:11px">${esc(r.categoria || 'sin categoría')}${r.es_reventa ? '' : ` · ${r.ingredientes} ingrediente${r.ingredientes === 1 ? '' : 's'}`}</div>
           </div>
-          <div style="text-align:right"><div style="color:#6e7681;font-size:10.5px">PRECIO</div><div style="color:#e6edf3;font-weight:600">L. ${fmt(r.precio_venta)}</div></div>
-          <div style="text-align:right"><div style="color:#6e7681;font-size:10.5px">COSTO</div><div style="color:#8b949e">L. ${fmt(r.costo)}</div></div>
-          <div style="text-align:right"><div style="color:#6e7681;font-size:10.5px">GANA</div><div style="color:#4e7a51;font-weight:600">L. ${fmt(r.ganancia)}</div></div>
+          <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">PRECIO</div><div style="color:var(--text,#e6edf3);font-weight:600">L. ${fmt(r.precio_venta)}</div></div>
+          <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">COSTO</div><div style="color:var(--text2,#8b949e)">L. ${fmt(r.costo)}</div></div>
+          <div style="text-align:right"><div style="color:var(--text3,#6e7681);font-size:10.5px">GANA</div><div style="color:#4e7a51;font-weight:600">L. ${fmt(r.ganancia)}</div></div>
           <div style="text-align:right;min-width:64px">
-            <div style="color:#6e7681;font-size:10.5px">FOOD COST</div>
+            <div style="color:var(--text3,#6e7681);font-size:10.5px">FOOD COST</div>
             <div style="color:${c};font-weight:700">${r.food_cost_pct == null ? '—' : r.food_cost_pct + '%'}</div>
           </div>
-          <span style="color:#6e7681">${abierta ? '▾' : '▸'}</span>
+          <span style="color:var(--text3,#6e7681)">${abierta ? '▾' : '▸'}</span>
         </div>
         ${abierta ? `
-        <div style="margin-top:11px;border-top:1px solid #21262d;padding-top:10px">
+        <div style="margin-top:11px;border-top:1px solid var(--border,#21262d);padding-top:10px">
           <table style="width:100%;border-collapse:collapse;font-size:12.5px">
-            <thead><tr style="color:#6e7681;font-size:10.5px;text-transform:uppercase">
+            <thead><tr style="color:var(--text3,#6e7681);font-size:10.5px;text-transform:uppercase">
               <th style="padding:5px 8px;text-align:left">Ingrediente</th>
               <th style="padding:5px 8px;text-align:right">Cantidad</th>
               <th style="padding:5px 8px;text-align:right">Costo</th>
               <th></th></tr></thead>
-            <tbody>${ings || '<tr><td colspan="4" style="padding:12px;color:#6e7681;text-align:center">Sin ingredientes todavía.</td></tr>'}</tbody>
+            <tbody>${ings || '<tr><td colspan="4" style="padding:12px;color:var(--text3,#6e7681);text-align:center">Sin ingredientes todavía.</td></tr>'}</tbody>
           </table>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-            ${!veTodo() ? '' : `<button onclick="cafIngrAgregar(${r.id})" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">+ Agregar ingrediente</button>
-            <button onclick="cafRecetaEditar(${r.id})" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">✏️ Editar receta</button>`}
+            ${!veTodo() ? '' : `<button onclick="cafIngrAgregar(${r.id})" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">+ Agregar ingrediente</button>
+            <button onclick="cafRecetaEditar(${r.id})" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">✏️ Editar receta</button>`}
           </div>
           ${r.food_cost_pct != null && r.food_cost_pct > 45 ? '<div style="margin-top:9px;color:#f0a868;font-size:11.5px">⚠ El costo pasa del 45% del precio. Conviene revisar la porción o el precio.</div>' : ''}
         </div>` : ''}
@@ -427,15 +427,15 @@ window.__cafBuild = '20260720b'
         ${cats.map(c => chipF(FP.cat === c, esc(c), `cafFP('cat','${esc(c).replace(/'/g, "\\'")}')`)).join('')}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <div style="color:#8b949e;font-size:12.5px">
+        <div style="color:var(--text2,#8b949e);font-size:12.5px">
           ${vis.length !== RECETAS.length ? `<b style="color:#c0632f">${vis.length}</b> de ${RECETAS.length} · ` : ''}Lo sano es un food cost entre <b style="color:#4e7a51">28% y 35%</b>.
         </div>
         <div style="display:flex;gap:8px">
-          ${!veTodo() ? '' : `<button onclick="cafReventaNueva()" title="Se compra hecho y se vende tal cual: sodas, galletas, snacks" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Producto de reventa</button>
+          ${!veTodo() ? '' : `<button onclick="cafReventaNueva()" title="Se compra hecho y se vende tal cual: sodas, galletas, snacks" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Producto de reventa</button>
           <button onclick="cafRecetaNueva()" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600">+ Receta de cocina</button>`}
         </div>
       </div>
-      ${cards || `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">${RECETAS.length ? 'Ningún producto coincide con la búsqueda.' : 'Todavía no hay productos. Creá el que más se vende.'}</div>`}`
+      ${cards || `<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:26px;text-align:center;color:var(--text3,#6e7681)">${RECETAS.length ? 'Ningún producto coincide con la búsqueda.' : 'Todavía no hay productos. Creá el que más se vende.'}</div>`}`
   }
 
   // ── TAB MOVIMIENTOS ──────────────────────────────────────────────────────
@@ -446,25 +446,25 @@ window.__cafBuild = '20260720b'
       const t = TIPOS_MOV[m.tipo] || [m.tipo, '#8b949e']
       const q = Number(m.cantidad)
       const ligado = m.venta_id || m.traslado_id     // tiene su propia anulación
-      return `<tr style="border-bottom:1px solid #21262d">
-        <td style="padding:8px;color:#6e7681;font-size:11.5px;white-space:nowrap">${new Date(m.fecha).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+      return `<tr style="border-bottom:1px solid var(--border,#21262d)">
+        <td style="padding:8px;color:var(--text3,#6e7681);font-size:11.5px;white-space:nowrap">${new Date(m.fecha).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
         <td style="padding:8px"><span style="background:${t[1]}22;color:${t[1]};border:1px solid ${t[1]}55;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600">${t[0]}</span></td>
-        <td style="padding:8px;color:#e6edf3">${esc(i ? i.nombre : '#' + m.insumo_id)}</td>
-        <td style="padding:8px;text-align:right;color:${q >= 0 ? '#4e7a51' : '#f85149'};font-weight:600">${q >= 0 ? '+' : ''}${fmt(q)} <span style="color:#6e7681;font-weight:400;font-size:11px">${esc(unidad(i))}</span></td>
-        <td style="padding:8px;text-align:right;color:#8b949e">L. ${fmt(Math.abs(q) * Number(m.costo_unitario || 0))}</td>
-        <td style="padding:8px;color:#6e7681;font-size:11.5px">${esc(m.referencia || m.nota || '')}</td>
+        <td style="padding:8px;color:var(--text,#e6edf3)">${esc(i ? i.nombre : '#' + m.insumo_id)}</td>
+        <td style="padding:8px;text-align:right;color:${q >= 0 ? '#4e7a51' : '#f85149'};font-weight:600">${q >= 0 ? '+' : ''}${fmt(q)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(unidad(i))}</span></td>
+        <td style="padding:8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(Math.abs(q) * Number(m.costo_unitario || 0))}</td>
+        <td style="padding:8px;color:var(--text3,#6e7681);font-size:11.5px">${esc(m.referencia || m.nota || '')}</td>
         <td style="padding:8px;text-align:right;white-space:nowrap">
           ${(!admin || ligado) ? '' : `
             ${m.tipo === 'entrada' ? `<button onclick="cafCompraCorregir(${m.id},${m.insumo_id},${q},${Number(m.costo_unitario || 0)})" title="Corregir cantidad o costo" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>` : ''}
-            <button onclick="cafMovEliminar(${m.id})" title="Borrar este movimiento" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">🗑️</button>`}
+            <button onclick="cafMovEliminar(${m.id})" title="Borrar este movimiento" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">🗑️</button>`}
         </td>
       </tr>`
     }).join('')
 
     return `
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="background:#1c2027;color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.5px">
+          <thead><tr style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);font-size:11px;text-transform:uppercase;letter-spacing:.5px">
             <th style="padding:9px 8px;text-align:left">Fecha</th>
             <th style="padding:9px 8px;text-align:left">Tipo</th>
             <th style="padding:9px 8px;text-align:left">Insumo</th>
@@ -473,10 +473,10 @@ window.__cafBuild = '20260720b'
             <th style="padding:9px 8px;text-align:left">Detalle</th>
             <th></th>
           </tr></thead>
-          <tbody>${filas || '<tr><td colspan="7" style="padding:26px;text-align:center;color:#6e7681">Sin movimientos todavía.</td></tr>'}</tbody>
+          <tbody>${filas || '<tr><td colspan="7" style="padding:26px;text-align:center;color:var(--text3,#6e7681)">Sin movimientos todavía.</td></tr>'}</tbody>
         </table>
       </div>
-      <div style="color:#6e7681;font-size:11.5px;margin-top:8px">
+      <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-top:8px">
         Últimos 120 movimientos de ${esc(ubicNombre(USEL))}. La existencia es la suma de todo esto.
         ${admin ? '<br>Al corregir o borrar una compra, el costo promedio se recalcula solo. Las ventas y envíos se anulan desde su pestaña.' : ''}
       </div>`
@@ -532,7 +532,7 @@ window.__cafBuild = '20260720b'
   function vistaVentas () {
     const activas = RECETAS.filter(r => r.activo && recetaEnPunto(r))
     if (!activas.length) {
-      return '<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">Primero creá recetas con sus ingredientes.</div>'
+      return '<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:26px;text-align:center;color:var(--text3,#6e7681)">Primero creá recetas con sus ingredientes.</div>'
     }
 
     const totalVenta = Object.keys(VENTA).reduce((a, id) => {
@@ -548,15 +548,15 @@ window.__cafBuild = '20260720b'
     const visV = activas.filter(r => VENTA[r.id] || !qv ||
       [r.nombre, r.categoria].some(v => String(v || '').toUpperCase().includes(qv)))
     const filas = visV.map(r => `
-      <tr style="border-bottom:1px solid #21262d;${VENTA[r.id] ? 'background:#1a2e1c33' : ''}">
+      <tr style="border-bottom:1px solid var(--border,#21262d);${VENTA[r.id] ? 'background:#1a2e1c33' : ''}">
         <td style="padding:8px">
-          <div style="color:#e6edf3;font-weight:600">${esc(r.nombre)}</div>
-          <div style="color:#6e7681;font-size:11px">L. ${fmt(r.precio_venta)}${r.ingredientes === 0 ? ' · ⚠ sin ingredientes' : ''}</div>
+          <div style="color:var(--text,#e6edf3);font-weight:600">${esc(r.nombre)}</div>
+          <div style="color:var(--text3,#6e7681);font-size:11px">L. ${fmt(r.precio_venta)}${r.ingredientes === 0 ? ' · ⚠ sin ingredientes' : ''}</div>
         </td>
         <td style="padding:8px;width:118px">
           <input id="caf-venta-${r.id}" type="number" min="0" step="1" value="${VENTA[r.id] || ''}" placeholder="0"
                  oninput="cafVentaSet(${r.id}, this.value)"
-                 style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:7px;color:#e6edf3;padding:7px 10px;font-size:14px;text-align:center">
+                 style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:7px;color:var(--text,#e6edf3);padding:7px 10px;font-size:14px;text-align:center">
         </td>
       </tr>`).join('')
 
@@ -564,55 +564,55 @@ window.__cafBuild = '20260720b'
       ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
            ${[['Ventas', DIA.ventas, '#e6edf3'], ['Vendido', 'L. ' + fmt(DIA.total), '#4e7a51'],
              ['Costo', 'L. ' + fmt(DIA.costo), '#8b949e'], ['Ganancia', 'L. ' + fmt(DIA.ganancia), '#c0632f']]
-             .map(([t, v, c]) => `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:9px;padding:9px 11px">
-               <div style="color:#6e7681;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px">${t}</div>
+             .map(([t, v, c]) => `<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:9px;padding:9px 11px">
+               <div style="color:var(--text3,#6e7681);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px">${t}</div>
                <div style="color:${c};font-weight:700;font-size:15px;margin-top:2px">${v}</div></div>`).join('')}
          </div>
-         ${DIA.food_cost_pct != null ? `<div style="color:#6e7681;font-size:11.5px;margin:-6px 0 12px 2px">Food cost de hoy: <b style="color:${colorFC(DIA.food_cost_pct)}">${DIA.food_cost_pct}%</b></div>` : ''}`
-      : '<div style="background:#15171c;border:1px dashed #2a2e37;border-radius:9px;padding:14px;text-align:center;color:#6e7681;font-size:12.5px;margin-bottom:12px">Todavía no hay ventas registradas hoy.</div>'
+         ${DIA.food_cost_pct != null ? `<div style="color:var(--text3,#6e7681);font-size:11.5px;margin:-6px 0 12px 2px">Food cost de hoy: <b style="color:${colorFC(DIA.food_cost_pct)}">${DIA.food_cost_pct}%</b></div>` : ''}`
+      : '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:9px;padding:14px;text-align:center;color:var(--text3,#6e7681);font-size:12.5px;margin-bottom:12px">Todavía no hay ventas registradas hoy.</div>'
 
     const listaVentas = VENTAS.length ? VENTAS.map(v => {
       const ls = (VLINEAS[v.id] || []).map(l => {
         const r = RECETAS.find(x => x.id === l.receta_id)
         return `${fmt(l.cantidad).replace(/\.00$/, '')} ${r ? r.nombre : '#' + l.receta_id}`
       }).join(' · ')
-      return `<tr style="border-bottom:1px solid #21262d;${v.anulada ? 'opacity:.45' : ''}">
-        <td style="padding:7px 8px;color:#6e7681;font-size:11.5px;white-space:nowrap">
+      return `<tr style="border-bottom:1px solid var(--border,#21262d);${v.anulada ? 'opacity:.45' : ''}">
+        <td style="padding:7px 8px;color:var(--text3,#6e7681);font-size:11.5px;white-space:nowrap">
           #${v.id} · ${new Date(v.fecha).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
         </td>
-        <td style="padding:7px 8px;color:#e6edf3;font-size:12.5px">
-          ${esc(ls || '—')}${v.anulada ? ' <span style="color:#f85149;font-size:11px">ANULADA</span>' : ''}
+        <td style="padding:7px 8px;color:var(--text,#e6edf3);font-size:12.5px">
+          ${esc(ls || '—')}${v.anulada ? ' <span style="color:var(--red-fg,#f85149);font-size:11px">ANULADA</span>' : ''}
         </td>
         <td style="padding:7px 8px;text-align:right;color:#4e7a51;font-weight:600">L. ${fmt(v.total)}</td>
         <td style="padding:7px 8px;text-align:right">
-          ${v.anulada ? '' : `<button onclick="cafVentaAnular(${v.id})" title="Anular venta" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">✕</button>`}
+          ${v.anulada ? '' : `<button onclick="cafVentaAnular(${v.id})" title="Anular venta" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
         </td>
       </tr>`
-    }).join('') : '<tr><td colspan="4" style="padding:22px;text-align:center;color:#6e7681">Sin ventas todavía.</td></tr>'
+    }).join('') : '<tr><td colspan="4" style="padding:22px;text-align:center;color:var(--text3,#6e7681)">Sin ventas todavía.</td></tr>'
 
     return `
       ${hoy}
       <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(340px,1.4fr);gap:14px;align-items:start">
-        <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
-          <div style="padding:11px 14px;border-bottom:1px solid #21262d">
-            <b style="font-size:13.5px;color:#e6edf3">¿Qué se vendió?</b>
-            <div style="color:#6e7681;font-size:11.5px;margin-top:2px">Al registrar, los ingredientes bajan solos.</div>
+        <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
+          <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)">
+            <b style="font-size:13.5px;color:var(--text,#e6edf3)">¿Qué se vendió?</b>
+            <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-top:2px">Al registrar, los ingredientes bajan solos.</div>
           </div>
           <div style="padding:9px 12px 4px">
             ${buscador('caf-q-venta', FV.q, 'cafFV', '🔍 Buscar producto…')}
-            ${qv ? `<div style="color:#6e7681;font-size:11px;margin:-4px 0 6px">${visV.length} de ${activas.length}${Object.keys(VENTA).length ? ' · lo ya elegido se sigue mostrando' : ''}</div>` : ''}
+            ${qv ? `<div style="color:var(--text3,#6e7681);font-size:11px;margin:-4px 0 6px">${visV.length} de ${activas.length}${Object.keys(VENTA).length ? ' · lo ya elegido se sigue mostrando' : ''}</div>` : ''}
           </div>
-          <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas || '<tr><td style="padding:20px;text-align:center;color:#6e7681;font-size:12.5px">Ningún producto coincide.</td></tr>'}</tbody></table>
-          <div style="padding:11px 14px;border-top:1px solid #21262d">
-            ${totalVenta > 0 ? `<div style="color:#8b949e;font-size:12.5px;margin-bottom:8px"><b id="caf-venta-unid" style="color:#e6edf3;font-size:15px">${totalUnid}</b> <span id="caf-venta-unid-lbl">${totalUnid === 1 ? 'unidad' : 'unidades'}</span> · Total: <b style="color:#4e7a51;font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
+          <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas || '<tr><td style="padding:20px;text-align:center;color:var(--text3,#6e7681);font-size:12.5px">Ningún producto coincide.</td></tr>'}</tbody></table>
+          <div style="padding:11px 14px;border-top:1px solid var(--border,#21262d)">
+            ${totalVenta > 0 ? `<div style="color:var(--text2,#8b949e);font-size:12.5px;margin-bottom:8px"><b id="caf-venta-unid" style="color:var(--text,#e6edf3);font-size:15px">${totalUnid}</b> <span id="caf-venta-unid-lbl">${totalUnid === 1 ? 'unidad' : 'unidades'}</span> · Total: <b style="color:#4e7a51;font-size:15px">L. ${fmt(totalVenta)}</b></div>` : ''}
             <div style="display:flex;gap:8px">
-              <button onclick="cafVentaLimpiar()" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
+              <button onclick="cafVentaLimpiar()" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
               <button onclick="cafVentaRegistrar()" style="flex:1;background:#4e7a51;color:#fff;border:0;border-radius:7px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">Registrar venta</button>
             </div>
           </div>
         </div>
-        <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
-          <div style="padding:11px 14px;border-bottom:1px solid #21262d"><b style="font-size:13.5px;color:#e6edf3">Últimas ventas</b></div>
+        <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
+          <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)"><b style="font-size:13.5px;color:var(--text,#e6edf3)">Últimas ventas</b></div>
           <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${listaVentas}</tbody></table>
         </div>
       </div>`
@@ -690,19 +690,19 @@ window.__cafBuild = '20260720b'
     const tarjetas = visibles.map(p => {
       const hay = Number(p.ventas) > 0
       return `
-      <div style="background:#15171c;border:1px solid ${hay ? '#c0632f55' : '#2a2e37'};border-radius:10px;padding:13px 15px;margin-bottom:10px">
+      <div style="background:var(--bg2,#15171c);border:1px solid ${hay ? '#c0632f55' : '#2a2e37'};border-radius:10px;padding:13px 15px;margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="flex:1;min-width:150px">
-            <div style="color:#e6edf3;font-weight:600;font-size:14px">${p.ubicacion_tipo === 'central' ? '🏬' : '🏪'} ${esc(p.ubicacion)}</div>
-            <div style="color:#6e7681;font-size:11px">${p.ventas} venta${p.ventas === 1 ? '' : 's'} sin cortar</div>
+            <div style="color:var(--text,#e6edf3);font-weight:600;font-size:14px">${p.ubicacion_tipo === 'central' ? '🏬' : '🏪'} ${esc(p.ubicacion)}</div>
+            <div style="color:var(--text3,#6e7681);font-size:11px">${p.ventas} venta${p.ventas === 1 ? '' : 's'} sin cortar</div>
           </div>
           <div style="text-align:right">
-            <div style="color:#6e7681;font-size:10.5px">DEBE ENTREGAR</div>
+            <div style="color:var(--text3,#6e7681);font-size:10.5px">DEBE ENTREGAR</div>
             <div style="color:${hay ? '#4e7a51' : '#6e7681'};font-weight:700;font-size:18px">L. ${fmt(p.esperado)}</div>
           </div>
           ${admin && hay ? `<button onclick="cafCorteCerrar(${p.ubicacion_id})" style="background:#c0632f;color:#fff;border:0;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:13px;font-weight:600">Cerrar corte</button>` : ''}
         </div>
-        ${hay ? `<div style="color:#6e7681;font-size:11px;margin-top:7px;border-top:1px solid #21262d;padding-top:7px">
+        ${hay ? `<div style="color:var(--text3,#6e7681);font-size:11px;margin-top:7px;border-top:1px solid var(--border,#21262d);padding-top:7px">
           Desde ${new Date(p.desde).toLocaleString('es-HN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
           · costo L. ${fmt(p.costo)} · ganancia <b style="color:#4e7a51">L. ${fmt(p.ganancia)}</b>
         </div>` : ''}
@@ -713,43 +713,43 @@ window.__cafBuild = '20260720b'
       const dif = Number(c.diferencia)
       const col = c.anulado ? '#6e7681' : dif === 0 ? '#4e7a51' : dif < 0 ? '#f85149' : '#b8860b'
       const et = c.anulado ? 'ANULADO' : dif === 0 ? 'Cuadró' : dif < 0 ? 'Faltante' : 'Sobrante'
-      return `<tr style="border-bottom:1px solid #21262d;${c.anulado ? 'opacity:.45' : ''}">
-        <td style="padding:7px 8px;color:#6e7681;font-size:11px;white-space:nowrap">
+      return `<tr style="border-bottom:1px solid var(--border,#21262d);${c.anulado ? 'opacity:.45' : ''}">
+        <td style="padding:7px 8px;color:var(--text3,#6e7681);font-size:11px;white-space:nowrap">
           #${c.id}<br>${new Date(c.fecha).toLocaleDateString('es-HN', { day: '2-digit', month: 'short' })}
         </td>
         <td style="padding:7px 8px;font-size:12px">
-          <div style="color:#e6edf3">${esc(c.ubicacion)}</div>
-          <div style="color:#6e7681;font-size:10.5px">${c.ventas} venta${c.ventas === 1 ? '' : 's'}${Number(c.merma_valor) > 0 ? ` · merma L. ${fmt(c.merma_valor)}` : ''}</div>
+          <div style="color:var(--text,#e6edf3)">${esc(c.ubicacion)}</div>
+          <div style="color:var(--text3,#6e7681);font-size:10.5px">${c.ventas} venta${c.ventas === 1 ? '' : 's'}${Number(c.merma_valor) > 0 ? ` · merma L. ${fmt(c.merma_valor)}` : ''}</div>
         </td>
-        <td style="padding:7px 8px;text-align:right;color:#8b949e;font-size:12px">L. ${fmt(c.esperado)}</td>
-        <td style="padding:7px 8px;text-align:right;color:#e6edf3;font-size:12px">L. ${fmt(c.entregado)}</td>
+        <td style="padding:7px 8px;text-align:right;color:var(--text2,#8b949e);font-size:12px">L. ${fmt(c.esperado)}</td>
+        <td style="padding:7px 8px;text-align:right;color:var(--text,#e6edf3);font-size:12px">L. ${fmt(c.entregado)}</td>
         <td style="padding:7px 8px;text-align:right;white-space:nowrap">
           <span style="color:${col};font-weight:700;font-size:12.5px">${dif > 0 ? '+' : ''}${fmt(dif)}</span>
           <div style="color:${col};font-size:10px">${et}</div>
         </td>
         <td style="padding:7px 8px;text-align:right">
-          ${(c.anulado || !admin) ? '' : `<button onclick="cafCorteAnular(${c.id})" title="Anular corte" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">✕</button>`}
+          ${(c.anulado || !admin) ? '' : `<button onclick="cafCorteAnular(${c.id})" title="Anular corte" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
         </td>
       </tr>`
-    }).join('') : '<tr><td colspan="6" style="padding:22px;text-align:center;color:#6e7681">Sin cortes todavía.</td></tr>'
+    }).join('') : '<tr><td colspan="6" style="padding:22px;text-align:center;color:var(--text3,#6e7681)">Sin cortes todavía.</td></tr>'
 
     const faltantes = CORTES.filter(c => !c.anulado && Number(c.diferencia) < 0)
     const totalFalt = faltantes.reduce((a, c) => a + Number(c.diferencia), 0)
 
     return `
-      <div style="color:#8b949e;font-size:12.5px;margin-bottom:10px">
+      <div style="color:var(--text2,#8b949e);font-size:12.5px;margin-bottom:10px">
         ${admin
           ? 'El sistema calcula cuánto efectivo debe entregar cada punto según lo que vendió. Registrá lo que entregó de verdad.'
           : 'Esto es lo que llevás vendido. El corte lo cierra la administración cuando entregues el efectivo.'}
       </div>
-      ${tarjetas || '<div style="background:#15171c;border:1px dashed #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">No hay ventas pendientes de cortar.</div>'}
-      ${admin && faltantes.length ? `<div style="background:#3a1d1d;border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin:14px 0;color:#f0c8c0;font-size:13px">
+      ${tarjetas || '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:10px;padding:26px;text-align:center;color:var(--text3,#6e7681)">No hay ventas pendientes de cortar.</div>'}
+      ${admin && faltantes.length ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid #b4472f;border-radius:0 8px 8px 0;padding:11px 15px;margin:14px 0;color:var(--red-fg,#f0c8c0);font-size:13px">
         <b>${faltantes.length} corte${faltantes.length > 1 ? 's' : ''} con faltante</b> · acumulado <b>L. ${fmt(Math.abs(totalFalt))}</b>
       </div>` : ''}
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden;margin-top:14px">
-        <div style="padding:11px 14px;border-bottom:1px solid #21262d"><b style="font-size:13.5px;color:#e6edf3">Historial de cortes</b></div>
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden;margin-top:14px">
+        <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)"><b style="font-size:13.5px;color:var(--text,#e6edf3)">Historial de cortes</b></div>
         <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="background:#1c2027;color:#8b949e;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px">
+          <thead><tr style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px">
             <th style="padding:8px;text-align:left">Corte</th>
             <th style="padding:8px;text-align:left">Punto</th>
             <th style="padding:8px;text-align:right">Esperado</th>
@@ -807,46 +807,46 @@ window.__cafBuild = '20260720b'
   function vistaEnvios () {
     const puntos = UBIC.filter(u => u.tipo !== 'central')
     if (!enCentral()) {
-      return `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:22px;color:#8b949e;font-size:13px">
+      return `<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:22px;color:var(--text2,#8b949e);font-size:13px">
         Los envíos salen desde la <b style="color:#c0632f">Bodega Central</b>. Cambiá la ubicación de arriba a Central para despachar.
         <div style="margin-top:14px">${listaEnvios()}</div></div>`
     }
 
     const conStock = INSUMOS.filter(i => i.activo && Number(i.existencia) > 0)
     const filas = conStock.map(i => `
-      <tr style="border-bottom:1px solid #21262d">
+      <tr style="border-bottom:1px solid var(--border,#21262d)">
         <td style="padding:7px 8px">
-          <div style="color:#e6edf3;font-size:12.5px">${esc(i.nombre)}</div>
-          <div style="color:#6e7681;font-size:10.5px">hay ${fmt(i.existencia)} ${esc(i.unidad_base)}</div>
+          <div style="color:var(--text,#e6edf3);font-size:12.5px">${esc(i.nombre)}</div>
+          <div style="color:var(--text3,#6e7681);font-size:10.5px">hay ${fmt(i.existencia)} ${esc(i.unidad_base)}</div>
         </td>
         <td style="padding:7px 8px;width:110px">
           <input id="caf-env-${i.id}" type="number" min="0" step="any" value="${ENVIO[i.id] || ''}" placeholder="0"
                  oninput="cafEnvioSet(${i.id}, this.value, ${Number(i.existencia)})"
-                 style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:7px;color:#e6edf3;padding:6px 9px;font-size:13px;text-align:center">
+                 style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:7px;color:var(--text,#e6edf3);padding:6px 9px;font-size:13px;text-align:center">
         </td>
       </tr>`).join('')
 
     const n = Object.keys(ENVIO).length
     return `
       <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(340px,1.3fr);gap:14px;align-items:start">
-        <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
-          <div style="padding:11px 14px;border-bottom:1px solid #21262d">
-            <b style="font-size:13.5px;color:#e6edf3">Preparar envío</b>
-            <div style="color:#6e7681;font-size:11.5px;margin-top:2px">Cuánto sale de Central hacia el punto.</div>
+        <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
+          <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)">
+            <b style="font-size:13.5px;color:var(--text,#e6edf3)">Preparar envío</b>
+            <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-top:2px">Cuánto sale de Central hacia el punto.</div>
           </div>
-          <div style="padding:11px 14px;border-bottom:1px solid #21262d">
-            <label style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.4px">Enviar a</label>
-            <select id="caf-env-destino" style="width:100%;margin-top:4px;background:#0d1117;border:1px solid #2a2e37;border-radius:7px;color:#e6edf3;padding:8px 10px;font-size:13px">
+          <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)">
+            <label style="font-size:11px;color:var(--text2,#8b949e);text-transform:uppercase;letter-spacing:.4px">Enviar a</label>
+            <select id="caf-env-destino" style="width:100%;margin-top:4px;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:7px;color:var(--text,#e6edf3);padding:8px 10px;font-size:13px">
               ${puntos.map(u => `<option value="${u.id}">🏪 ${esc(u.nombre)}</option>`).join('')}
             </select>
           </div>
           <div style="max-height:400px;overflow:auto">
             <table style="width:100%;border-collapse:collapse"><tbody>
-              ${filas || '<tr><td style="padding:22px;text-align:center;color:#6e7681;font-size:12.5px">No hay existencia en Central para enviar.</td></tr>'}
+              ${filas || '<tr><td style="padding:22px;text-align:center;color:var(--text3,#6e7681);font-size:12.5px">No hay existencia en Central para enviar.</td></tr>'}
             </tbody></table>
           </div>
-          <div style="padding:11px 14px;border-top:1px solid #21262d;display:flex;gap:8px">
-            <button onclick="cafEnvioLimpiar()" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
+          <div style="padding:11px 14px;border-top:1px solid var(--border,#21262d);display:flex;gap:8px">
+            <button onclick="cafEnvioLimpiar()" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
             <button onclick="cafEnvioRegistrar()" style="flex:1;background:#c0632f;color:#fff;border:0;border-radius:7px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">Despachar${n ? ` (${n})` : ''}</button>
           </div>
         </div>
@@ -860,23 +860,23 @@ window.__cafBuild = '20260720b'
         const i = INSUMOS.find(x => x.id === l.insumo_id)
         return `${fmt(l.cantidad).replace(/\.00$/, '')} ${i ? i.nombre : '#' + l.insumo_id}`
       }).join(' · ')
-      return `<tr style="border-bottom:1px solid #21262d;${t.anulado ? 'opacity:.45' : ''}">
-        <td style="padding:7px 8px;color:#6e7681;font-size:11px;white-space:nowrap">
+      return `<tr style="border-bottom:1px solid var(--border,#21262d);${t.anulado ? 'opacity:.45' : ''}">
+        <td style="padding:7px 8px;color:var(--text3,#6e7681);font-size:11px;white-space:nowrap">
           #${t.id}<br>${new Date(t.fecha).toLocaleDateString('es-HN', { day: '2-digit', month: 'short' })}
         </td>
         <td style="padding:7px 8px;font-size:12px">
           <div style="color:#c0632f;font-weight:600">→ ${esc(ubicNombre(t.destino_id))}</div>
-          <div style="color:#8b949e">${esc(ls || '—')}${t.anulado ? ' <span style="color:#f85149">ANULADO</span>' : ''}</div>
+          <div style="color:var(--text2,#8b949e)">${esc(ls || '—')}${t.anulado ? ' <span style="color:var(--red-fg,#f85149)">ANULADO</span>' : ''}</div>
         </td>
-        <td style="padding:7px 8px;text-align:right;color:#8b949e;font-size:12px;white-space:nowrap">L. ${fmt(t.valor)}</td>
+        <td style="padding:7px 8px;text-align:right;color:var(--text2,#8b949e);font-size:12px;white-space:nowrap">L. ${fmt(t.valor)}</td>
         <td style="padding:7px 8px;text-align:right">
-          ${(t.anulado || !veTodo()) ? '' : `<button onclick="cafEnvioAnular(${t.id})" title="Anular envío" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">✕</button>`}
+          ${(t.anulado || !veTodo()) ? '' : `<button onclick="cafEnvioAnular(${t.id})" title="Anular envío" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
         </td>
       </tr>`
-    }).join('') : '<tr><td colspan="4" style="padding:22px;text-align:center;color:#6e7681">Sin envíos todavía.</td></tr>'
+    }).join('') : '<tr><td colspan="4" style="padding:22px;text-align:center;color:var(--text3,#6e7681)">Sin envíos todavía.</td></tr>'
 
-    return `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
-        <div style="padding:11px 14px;border-bottom:1px solid #21262d"><b style="font-size:13.5px;color:#e6edf3">Envíos recientes</b></div>
+    return `<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
+        <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)"><b style="font-size:13.5px;color:var(--text,#e6edf3)">Envíos recientes</b></div>
         <table style="width:100%;border-collapse:collapse"><tbody>${filas}</tbody></table>
       </div>`
   }
@@ -929,43 +929,43 @@ window.__cafBuild = '20260720b'
   function vistaCompras () {
     const activas = RECETAS.filter(r => r.activo)
     if (!activas.length) {
-      return '<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">Primero creá recetas con sus ingredientes. Después esta pantalla te dice qué comprar.</div>'
+      return '<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:26px;text-align:center;color:var(--text3,#6e7681)">Primero creá recetas con sus ingredientes. Después esta pantalla te dice qué comprar.</div>'
     }
     const filas = activas.map(r => `
-      <tr style="border-bottom:1px solid #21262d">
+      <tr style="border-bottom:1px solid var(--border,#21262d)">
         <td style="padding:8px">
-          <div style="color:#e6edf3;font-weight:600">${esc(r.nombre)}</div>
-          <div style="color:#6e7681;font-size:11px">${r.ingredientes} ingrediente${r.ingredientes === 1 ? '' : 's'}${r.ingredientes === 0 ? ' ⚠ sin receta' : ''}</div>
+          <div style="color:var(--text,#e6edf3);font-weight:600">${esc(r.nombre)}</div>
+          <div style="color:var(--text3,#6e7681);font-size:11px">${r.ingredientes} ingrediente${r.ingredientes === 1 ? '' : 's'}${r.ingredientes === 0 ? ' ⚠ sin receta' : ''}</div>
         </td>
         <td style="padding:8px;width:130px">
           <input id="caf-plan-${r.id}" type="number" min="0" step="1" value="${PLAN[r.id] || ''}" placeholder="0"
                  oninput="cafPlanSet(${r.id}, this.value)"
-                 style="width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:7px;color:#e6edf3;padding:7px 10px;font-size:14px;text-align:center">
+                 style="width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:7px;color:var(--text,#e6edf3);padding:7px 10px;font-size:14px;text-align:center">
         </td>
       </tr>`).join('')
 
     return `
       <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(340px,1.5fr);gap:14px;align-items:start">
-        <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
-          <div style="padding:11px 14px;border-bottom:1px solid #21262d">
-            <b style="font-size:13.5px;color:#e6edf3">¿Qué se va a preparar?</b>
-            <div style="color:#6e7681;font-size:11.5px;margin-top:2px">Poné cuántos platos de cada uno.</div>
+        <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
+          <div style="padding:11px 14px;border-bottom:1px solid var(--border,#21262d)">
+            <b style="font-size:13.5px;color:var(--text,#e6edf3)">¿Qué se va a preparar?</b>
+            <div style="color:var(--text3,#6e7681);font-size:11.5px;margin-top:2px">Poné cuántos platos de cada uno.</div>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${filas}</tbody></table>
-          <div style="padding:11px 14px;display:flex;gap:8px;border-top:1px solid #21262d">
-            <button onclick="cafPlanLimpiar()" style="background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
+          <div style="padding:11px 14px;display:flex;gap:8px;border-top:1px solid var(--border,#21262d)">
+            <button onclick="cafPlanLimpiar()" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 12px;cursor:pointer;font-size:12.5px">Limpiar</button>
             <button onclick="cafCalcular()" style="flex:1;background:#c0632f;color:#fff;border:0;border-radius:7px;padding:9px;cursor:pointer;font-size:13px;font-weight:600">Calcular qué falta</button>
           </div>
         </div>
         <div id="caf-resultado">${REQ === null
-          ? '<div style="background:#15171c;border:1px dashed #2a2e37;border-radius:10px;padding:34px 20px;text-align:center;color:#6e7681;font-size:13px">Poné las cantidades y tocá <b style="color:#c0632f">Calcular qué falta</b>.</div>'
+          ? '<div style="background:var(--bg2,#15171c);border:1px dashed var(--border,#2a2e37);border-radius:10px;padding:34px 20px;text-align:center;color:var(--text3,#6e7681);font-size:13px">Poné las cantidades y tocá <b style="color:#c0632f">Calcular qué falta</b>.</div>'
           : tablaReq()}</div>
       </div>`
   }
 
   function tablaReq () {
     if (!REQ || !REQ.length) {
-      return '<div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;padding:26px;text-align:center;color:#6e7681">Esas recetas no tienen ingredientes cargados todavía.</div>'
+      return '<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;padding:26px;text-align:center;color:var(--text3,#6e7681)">Esas recetas no tienen ingredientes cargados todavía.</div>'
     }
     const faltan = REQ.filter(r => Number(r.falta) > 0)
     const total = faltan.reduce((a, r) => a + Number(r.costo_estimado || 0), 0)
@@ -973,17 +973,17 @@ window.__cafBuild = '20260720b'
     const filas = REQ.map(r => {
       const f = Number(r.falta)
       const alcanza = f <= 0
-      return `<tr style="border-bottom:1px solid #21262d;${alcanza ? 'opacity:.55' : ''}">
+      return `<tr style="border-bottom:1px solid var(--border,#21262d);${alcanza ? 'opacity:.55' : ''}">
         <td style="padding:8px">
-          <span style="color:#e6edf3;font-weight:${alcanza ? '400' : '600'}">${esc(r.nombre)}</span>
+          <span style="color:var(--text,#e6edf3);font-weight:${alcanza ? '400' : '600'}">${esc(r.nombre)}</span>
           ${alcanza ? ' <span style="color:#4e7a51" title="Alcanza con lo que hay">✓</span>' : ''}
         </td>
-        <td style="padding:8px;text-align:right;color:#8b949e;font-size:12.5px">${fmt(r.necesita)}</td>
-        <td style="padding:8px;text-align:right;color:#8b949e;font-size:12.5px">${fmt(r.hay)}</td>
+        <td style="padding:8px;text-align:right;color:var(--text2,#8b949e);font-size:12.5px">${fmt(r.necesita)}</td>
+        <td style="padding:8px;text-align:right;color:var(--text2,#8b949e);font-size:12.5px">${fmt(r.hay)}</td>
         <td style="padding:8px;text-align:right;color:${alcanza ? '#4e7a51' : '#f0a868'};font-weight:600">
-          ${alcanza ? '—' : `${fmt(r.comprar)} <span style="color:#6e7681;font-weight:400;font-size:11px">${esc(r.unidad_compra)}</span>`}
+          ${alcanza ? '—' : `${fmt(r.comprar)} <span style="color:var(--text3,#6e7681);font-weight:400;font-size:11px">${esc(r.unidad_compra)}</span>`}
         </td>
-        <td style="padding:8px;text-align:right;color:#8b949e">${alcanza ? '—' : 'L. ' + fmt(r.costo_estimado)}</td>
+        <td style="padding:8px;text-align:right;color:var(--text2,#8b949e)">${alcanza ? '—' : 'L. ' + fmt(r.costo_estimado)}</td>
         <td style="padding:8px;text-align:right">
           ${alcanza ? '' : `<button onclick="cafComprar(${r.insumo_id})" title="Registrar esta compra" style="background:none;border:0;cursor:pointer;font-size:15px">🛒</button>`}
         </td>
@@ -991,18 +991,18 @@ window.__cafBuild = '20260720b'
     }).join('')
 
     const resumen = faltan.length
-      ? `<div style="background:#2d2416;border-left:4px solid #b8860b;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:#f0dcb0;font-size:13px">
+      ? `<div style="background:var(--amber-soft,#2d2416);border-left:4px solid #b8860b;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:var(--amber-fg,#f0dcb0);font-size:13px">
            Faltan <b>${faltan.length}</b> insumo${faltan.length > 1 ? 's' : ''}. Estimado: <b>L. ${fmt(total)}</b>
          </div>`
-      : `<div style="background:#1a2e1c;border-left:4px solid #4e7a51;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:#c0e0c4;font-size:13px">
+      : `<div style="background:var(--green-soft,#1a2e1c);border-left:4px solid #4e7a51;border-radius:0 8px 8px 0;padding:11px 15px;margin-bottom:12px;color:var(--green-fg,#c0e0c4);font-size:13px">
            ✓ Alcanza con lo que hay en existencia. No hay que comprar nada.
          </div>`
 
     return `
       ${resumen}
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:10px;overflow:hidden">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:10px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="background:#1c2027;color:#8b949e;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px">
+          <thead><tr style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px">
             <th style="padding:9px 8px;text-align:left">Insumo</th>
             <th style="padding:9px 8px;text-align:right">Necesita</th>
             <th style="padding:9px 8px;text-align:right">Hay</th>
@@ -1014,9 +1014,9 @@ window.__cafBuild = '20260720b'
         </table>
       </div>
       ${faltan.length ? `<div style="display:flex;gap:8px;margin-top:10px">
-        <button onclick="cafCopiarLista()" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:7px;padding:8px 14px;cursor:pointer;font-size:12.5px">📋 Copiar lista para el mercado</button>
+        <button onclick="cafCopiarLista()" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 14px;cursor:pointer;font-size:12.5px">📋 Copiar lista para el mercado</button>
       </div>` : ''}
-      <div style="color:#6e7681;font-size:11px;margin-top:8px">
+      <div style="color:var(--text3,#6e7681);font-size:11px;margin-top:8px">
         El costo es estimado, al último precio conocido. Al registrar la compra real se corrige solo.
       </div>`
   }
@@ -1032,7 +1032,7 @@ window.__cafBuild = '20260720b'
     const plan = Object.keys(PLAN).map(id => ({ receta_id: Number(id), cantidad: PLAN[id] }))
     if (!plan.length) { toast('Poné cuántos platos vas a hacer', 'error'); return }
     const cont = document.getElementById('caf-resultado')
-    if (cont) cont.innerHTML = '<div style="padding:24px;color:#8b949e;text-align:center">Calculando…</div>'
+    if (cont) cont.innerHTML = '<div style="padding:24px;color:var(--text2,#8b949e);text-align:center">Calculando…</div>'
     try {
       const { data, error } = await sb().rpc('caf_requerimientos', { p_plan: plan, p_ubicacion_id: USEL })
       if (error) throw new Error(error.message)
@@ -1040,7 +1040,7 @@ window.__cafBuild = '20260720b'
       if (cont) cont.innerHTML = tablaReq()
     } catch (e) {
       REQ = null
-      if (cont) cont.innerHTML = `<div style="padding:20px;color:#f85149">Error: ${esc(e.message)}</div>`
+      if (cont) cont.innerHTML = `<div style="padding:20px;color:var(--red-fg,#f85149)">Error: ${esc(e.message)}</div>`
     }
   }
 
@@ -1073,12 +1073,12 @@ window.__cafBuild = '20260720b'
     ov.id = 'caf-modal'
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10040;display:flex;align-items:center;justify-content:center;padding:20px'
     ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
-    ov.innerHTML = `<div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:560px;width:100%;padding:18px;color:#e6edf3;max-height:88vh;overflow:auto">
+    ov.innerHTML = `<div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;max-width:560px;width:100%;padding:18px;color:var(--text,#e6edf3);max-height:88vh;overflow:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <b style="font-size:15px">⚙ Puntos y encargados</b>
-        <button onclick="document.getElementById('caf-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer;line-height:1">×</button>
+        <button onclick="document.getElementById('caf-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:22px;cursor:pointer;line-height:1">×</button>
       </div>
-      <div id="caf-admin-body" style="color:#8b949e;font-size:13px">Cargando…</div>
+      <div id="caf-admin-body" style="color:var(--text2,#8b949e);font-size:13px">Cargando…</div>
     </div>`
     document.body.appendChild(ov)
     await pintarAdmin()
@@ -1093,19 +1093,19 @@ window.__cafBuild = '20260720b'
       if (error) throw new Error(error.message)
       enc = data || []
     } catch (e) {
-      cont.innerHTML = `<div style="color:#f85149">No se pudo leer los encargados: ${esc(e.message)}</div>`
+      cont.innerHTML = `<div style="color:var(--red-fg,#f85149)">No se pudo leer los encargados: ${esc(e.message)}</div>`
       return
     }
 
     const puntos = UBIC.map(u => `
-      <tr style="border-bottom:1px solid #21262d">
+      <tr style="border-bottom:1px solid var(--border,#21262d)">
         <td style="padding:7px 4px">
-          <span style="color:#e6edf3;font-size:13px">${u.tipo === 'central' ? '🏬' : '🏪'} ${esc(u.nombre)}</span>
-          <div style="color:#6e7681;font-size:10.5px">${esc(u.codigo)}</div>
+          <span style="color:var(--text,#e6edf3);font-size:13px">${u.tipo === 'central' ? '🏬' : '🏪'} ${esc(u.nombre)}</span>
+          <div style="color:var(--text3,#6e7681);font-size:10.5px">${esc(u.codigo)}</div>
         </td>
         <td style="padding:7px 4px;text-align:right;white-space:nowrap">
           <button onclick="cafUbicRenombrar(${u.id})" title="Cambiar nombre" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
-          ${u.tipo === 'central' ? '' : `<button onclick="cafUbicDesactivar(${u.id})" title="Desactivar punto" style="background:none;border:0;color:#f85149;cursor:pointer;font-size:13px">✕</button>`}
+          ${u.tipo === 'central' ? '' : `<button onclick="cafUbicDesactivar(${u.id})" title="Desactivar punto" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
         </td>
       </tr>`).join('')
 
@@ -1113,28 +1113,28 @@ window.__cafBuild = '20260720b'
       .map(u => `<option value="${u.id}">${esc(u.nombre)}</option>`).join('')
 
     const encargados = enc.length ? enc.map(e => `
-      <tr style="border-bottom:1px solid #21262d">
+      <tr style="border-bottom:1px solid var(--border,#21262d)">
         <td style="padding:7px 4px">
-          <span style="color:#e6edf3;font-size:13px">${esc(e.nombre)}</span>
-          <div style="color:#6e7681;font-size:10.5px">${esc(e.rol)}</div>
+          <span style="color:var(--text,#e6edf3);font-size:13px">${esc(e.nombre)}</span>
+          <div style="color:var(--text3,#6e7681);font-size:10.5px">${esc(e.rol)}</div>
         </td>
         <td style="padding:7px 4px;text-align:right">
           ${e.rol === 'cafeteria'
             ? '<span style="color:#4e7a51;font-size:11.5px">ve todos los puntos</span>'
-            : `<select onchange="cafAsignar('${e.usuario_id}', this.value)" style="background:#0d1117;border:1px solid ${e.ubicacion_id ? '#2a2e37' : '#b4472f'};border-radius:6px;color:#e6edf3;padding:5px 8px;font-size:12px">
+            : `<select onchange="cafAsignar('${e.usuario_id}', this.value)" style="background:var(--bg,#0d1117);border:1px solid ${e.ubicacion_id ? '#2a2e37' : '#b4472f'};border-radius:6px;color:var(--text,#e6edf3);padding:5px 8px;font-size:12px">
                  <option value="">— sin asignar —</option>${opciones}
                </select>`}
         </td>
-      </tr>`).join('') : '<tr><td colspan="2" style="padding:16px;text-align:center;color:#6e7681;font-size:12.5px">No hay usuarios con rol de cafetería todavía.</td></tr>'
+      </tr>`).join('') : '<tr><td colspan="2" style="padding:16px;text-align:center;color:var(--text3,#6e7681);font-size:12.5px">No hay usuarios con rol de cafetería todavía.</td></tr>'
 
     cont.innerHTML = `
-      <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Puntos de venta</div>
+      <div style="font-size:11px;color:var(--text2,#8b949e);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Puntos de venta</div>
       <table style="width:100%;border-collapse:collapse"><tbody>${puntos}</tbody></table>
-      <button onclick="cafUbicNueva()" style="background:#1c2027;color:#c0632f;border:1px solid #2a2e37;border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px;margin-top:9px">+ Nuevo punto</button>
+      <button onclick="cafUbicNueva()" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px;margin-top:9px">+ Nuevo punto</button>
 
-      <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin:18px 0 4px">Encargados</div>
+      <div style="font-size:11px;color:var(--text2,#8b949e);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 4px">Encargados</div>
       <table style="width:100%;border-collapse:collapse"><tbody>${encargados}</tbody></table>
-      <div style="color:#6e7681;font-size:11px;margin-top:9px">
+      <div style="color:var(--text3,#6e7681);font-size:11px;margin-top:9px">
         Los usuarios con rol <b>cafeteria_punto</b> ven solo el punto que se les asigne. Se crean en Gestión de usuarios.
       </div>`
     // Marcar la asignación actual de cada encargado
@@ -1200,28 +1200,28 @@ window.__cafBuild = '20260720b'
     ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
     const inputs = campos.map(c => {
       const id = 'cafm-' + c.k
-      const base = 'width:100%;background:#0d1117;border:1px solid #2a2e37;border-radius:8px;color:#e6edf3;padding:9px 11px;font-size:13px;margin-top:4px'
+      const base = 'width:100%;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text,#e6edf3);padding:9px 11px;font-size:13px;margin-top:4px'
       const ctrl = c.tipo === 'select'
         ? `<select id="${id}" style="${base}">${(c.opciones || []).map(o => `<option value="${esc(o[0])}"${String(c.valor) === String(o[0]) ? ' selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`
         : `<input id="${id}" type="${c.tipo === 'num' ? 'number' : 'text'}" step="any" value="${esc(c.valor ?? '')}" placeholder="${esc(c.ph || '')}" style="${base}">`
       return `<div style="margin-bottom:11px">
-        <label style="font-size:11.5px;color:#8b949e;text-transform:uppercase;letter-spacing:.4px">${esc(c.label)}</label>
+        <label style="font-size:11.5px;color:var(--text2,#8b949e);text-transform:uppercase;letter-spacing:.4px">${esc(c.label)}</label>
         ${ctrl}
-        ${c.hint ? `<div style="font-size:11px;color:#6e7681;margin-top:3px">${esc(c.hint)}</div>` : ''}
+        ${c.hint ? `<div style="font-size:11px;color:var(--text3,#6e7681);margin-top:3px">${esc(c.hint)}</div>` : ''}
       </div>`
     }).join('')
 
     ov.innerHTML = `
-      <div style="background:#15171c;border:1px solid #2a2e37;border-radius:12px;max-width:430px;width:100%;padding:18px;color:#e6edf3;max-height:86vh;overflow:auto">
+      <div style="background:var(--bg2,#15171c);border:1px solid var(--border,#2a2e37);border-radius:12px;max-width:430px;width:100%;padding:18px;color:var(--text,#e6edf3);max-height:86vh;overflow:auto">
         <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:4px">
           <b style="font-size:15px">${esc(titulo)}</b>
-          <button onclick="document.getElementById('caf-modal').remove()" style="background:none;border:0;color:#8b8f98;font-size:22px;cursor:pointer;line-height:1">×</button>
+          <button onclick="document.getElementById('caf-modal').remove()" style="background:none;border:0;color:var(--text2,#8b8f98);font-size:22px;cursor:pointer;line-height:1">×</button>
         </div>
-        ${subtitulo ? `<div style="color:#8b949e;font-size:12px;margin-bottom:12px">${esc(subtitulo)}</div>` : '<div style="height:8px"></div>'}
+        ${subtitulo ? `<div style="color:var(--text2,#8b949e);font-size:12px;margin-bottom:12px">${esc(subtitulo)}</div>` : '<div style="height:8px"></div>'}
         ${inputs}
         <div id="cafm-msg" style="font-size:12px;min-height:16px;margin-bottom:4px"></div>
         <div style="display:flex;gap:8px;margin-top:6px">
-          <button onclick="document.getElementById('caf-modal').remove()" style="flex:1;background:#1c2027;color:#8b949e;border:1px solid #2a2e37;border-radius:8px;padding:10px;cursor:pointer;font-size:13px">Cancelar</button>
+          <button onclick="document.getElementById('caf-modal').remove()" style="flex:1;background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:10px;cursor:pointer;font-size:13px">Cancelar</button>
           <button id="cafm-ok" style="flex:1;background:#c0632f;color:#fff;border:0;border-radius:8px;padding:10px;cursor:pointer;font-size:13px;font-weight:600">Guardar</button>
         </div>
       </div>`

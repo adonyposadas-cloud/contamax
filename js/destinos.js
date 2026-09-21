@@ -319,7 +319,7 @@
     .dst-off td{opacity:.45}
     .dst-mono{font-family:var(--mono)}
     .dst-dim{color:var(--text3)}
-    .dst-warn{color:#f5c451}
+    .dst-warn{color:var(--amber-fg,#f5c451)}
     .dst-mini{font-size:11px;padding:4px 9px}
     .dst-nota{font-size:11px;color:var(--text3);background:var(--bg3);border:0.5px solid var(--border);
       border-radius:var(--radius);padding:9px 12px}

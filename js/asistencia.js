@@ -1294,7 +1294,7 @@ async function cargarPermisos() {
       <td style="${estilo}"><span class="badge badge-blue" style="font-size:10px">${tipoLabel[p.tipo] || p.tipo}</span>${p.a_cuenta_vacaciones ? ' <span title="A cuenta de vacaciones">🏖️</span>' : ''}${p.tipo === 'incapacidad' ? ' 🏥' : ''}${p.es_continuacion ? ' <span title="Continuación/prórroga IHSS">🔗</span>' : ''}</td>
       <td style="font-size:12px;color:var(--text3);${estilo}">${p.tipo === 'incapacidad' && p.diagnostico ? p.diagnostico : (p.motivo || '—')}</td>
       <td style="font-size:11px;color:var(--text3)">${del
-          ? `<span style="color:#f85149">✕ eliminado</span><br><span style="font-size:10px">${p.eliminado_por || '—'}${p.eliminado_at ? ' · ' + String(p.eliminado_at).slice(0, 10) : ''}</span>${p.motivo_eliminacion ? `<br><span style="font-size:10px;font-style:italic">${p.motivo_eliminacion}</span>` : ''}`
+          ? `<span style="color:var(--red-fg,#f85149)">✕ eliminado</span><br><span style="font-size:10px">${p.eliminado_por || '—'}${p.eliminado_at ? ' · ' + String(p.eliminado_at).slice(0, 10) : ''}</span>${p.motivo_eliminacion ? `<br><span style="font-size:10px;font-style:italic">${p.motivo_eliminacion}</span>` : ''}`
           : (p.aprobado_por || '—')}</td>
       <td>${del ? '' : `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--red)" onclick="event.stopPropagation(); eliminarPermiso('${p.id}')">✕</button>`}</td>
     </tr>`
@@ -1341,7 +1341,7 @@ function _pintarChipEliminados(n) {
     chip = document.createElement('button')
     chip.id = 'chip-perm-eliminados'
     chip.className = 'btn btn-ghost'
-    chip.style.cssText = 'font-size:11px;padding:4px 10px;color:#f85149;border-color:rgba(248,81,73,.4)'
+    chip.style.cssText = 'font-size:11px;padding:4px 10px;color:var(--red-fg,#f85149);border-color:rgba(248,81,73,.4)'
     chip.onclick = window._togglePermEliminados
     cont.appendChild(chip)
   }
