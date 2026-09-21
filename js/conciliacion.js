@@ -1098,7 +1098,7 @@
             ${g.sobra > 0.01 && Math.abs(g.sinBanco) <= 0.01 && g.sinMarca <= 0.01 ? '' : `
             <button class="btn btn-ghost" style="padding:4px 10px;font-size:11.5px;color:var(--amber);border-color:var(--amber)"
               title="Deshace este grupo entero. Los movimientos vuelven a 'Solo en banco' y los volvés a armar a mano con Agrupar."
-              onclick="window._cbDesagruparPartida('${g.grupo_id}')">✂ Desagrupar</button>`}
+              onclick="window._cbDesagruparPartida('${g.grupo_id}')"><svg class=ico aria-hidden=true><use href=#i-scissors></use></svg> Desagrupar</button>`}
           </td>
         </tr>`).join('')}</tbody></table>
         <div style="padding:8px 14px;font-size:12px;color:var(--text3)">
@@ -1163,8 +1163,8 @@
       </div>
       <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;align-items:center">
         <button class="btn btn-gold" onclick="window._cbCrearPartidaSeleccionados()">+ Crear 1 partida de seleccionados (banco)</button>
-        <button class="btn btn-ghost" onclick="window._cbEmparejar()">🔗 Emparejar seleccionados (manual)</button>
-        <button class="btn btn-ghost" onclick="window._cbAgrupar()">🧩 Agrupar N banco → 1 libro</button>
+        <button class="btn btn-ghost" onclick="window._cbEmparejar()"><svg class=ico aria-hidden=true><use href=#i-link></use></svg> Emparejar seleccionados (manual)</button>
+        <button class="btn btn-ghost" onclick="window._cbAgrupar()"><svg class=ico aria-hidden=true><use href=#i-puzzle></use></svg> Agrupar N banco → 1 libro</button>
         <span style="font-size:12px;color:var(--text3)">tol. suma <input type="number" id="cb-tol-suma" value="0" min="0" step="0.01" style="width:74px;padding:3px 6px" oninput="window._cbSumaSel()"></span>
         <button class="btn btn-ghost" onclick="window._cbToggleConciliados()">Ver conciliados (${e.pares.length})</button>
       </div>

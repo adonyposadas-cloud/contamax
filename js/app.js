@@ -508,8 +508,8 @@ async function loadTiposOrigenAdmin() {
           <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${t.id}</td>
           <td style="text-align:center"><span class="badge ${t.activo ? 'badge-green' : 'badge-red'}">${t.activo ? 'Activo' : 'Inactivo'}</span></td>
           <td style="text-align:center">
-            <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="editarTipoOrigen('${t.id}','${t.nombre.replace(/'/g,"\\'")}',${t.orden || 0},${t.activo})">✏️</button>
-            <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;color:var(--red)" onclick="eliminarTipoOrigen('${t.id}','${t.nombre.replace(/'/g,"\\'")}')">🗑️</button>
+            <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="editarTipoOrigen('${t.id}','${t.nombre.replace(/'/g,"\\'")}',${t.orden || 0},${t.activo})"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
+            <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;color:var(--red)" onclick="eliminarTipoOrigen('${t.id}','${t.nombre.replace(/'/g,"\\'")}')"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
           </td>
         </tr>`).join('')}</tbody>
     </table>`
@@ -644,7 +644,7 @@ function renderUsuarios(list) {
       <td><span class="badge ${u.activo?'badge-on':'badge-off'}">${u.activo?'Activo':'Inactivo'}</span></td>
       <td class="mono" style="color:var(--text3)">${new Date(u.created_at).toLocaleDateString('es-HN')}</td>
       <td>
-        <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarUsuario('${u.id}')" title="Editar">✏️</button>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarUsuario('${u.id}')" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
         <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="toggleUsuarioActivo('${u.id}', ${u.activo})" title="${u.activo ? 'Desactivar' : 'Activar'}">${u.activo ? '🚫' : '✅'}</button>
       </td>
     </tr>`).join('')
@@ -1045,7 +1045,7 @@ async function loadCentrosCosto() {
       <td><span class="badge ${c.activa ? 'badge-on' : 'badge-off'}">${c.activa ? 'Activo' : 'Inactivo'}</span></td>
       <td class="mono" style="color:var(--text3);font-size:12px">${c.created_at ? new Date(c.created_at).toLocaleDateString('es-HN') : '—'}</td>
       <td style="text-align:center">
-        <button onclick="editarCentro('${c.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
+        <button onclick="editarCentro('${c.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
         <button onclick="toggleCentro('${c.id}',${c.activa},'${c.nombre.replace(/'/g, "\\'")}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="${c.activa ? 'Desactivar' : 'Activar'}">${c.activa ? '🚫' : '✅'}</button>
       </td>
     </tr>`).join('')
@@ -1691,7 +1691,7 @@ window.filtrarPendientes = () => {
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
         ${pendienteDoc ? `<button class="btn btn-ghost" onclick="event.stopPropagation();marcarRecibida('${f.id}')" style="padding:5px 12px;font-size:11px;color:var(--green);border-color:var(--green)">✓ Recibida</button>` : ''}
-        ${(currentProfile?.rol === 'super_admin' && f.estado === 'pendiente') ? `<button class="btn btn-ghost" onclick="event.stopPropagation();eliminarFactura('${f.id}')" style="padding:5px 10px;font-size:11px;color:var(--red);border-color:var(--red)" title="Eliminar factura (re-ingresar por compras)">🗑 Eliminar</button>` : ''}
+        ${(currentProfile?.rol === 'super_admin' && f.estado === 'pendiente') ? `<button class="btn btn-ghost" onclick="event.stopPropagation();eliminarFactura('${f.id}')" style="padding:5px 10px;font-size:11px;color:var(--red);border-color:var(--red)" title="Eliminar factura (re-ingresar por compras)"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg> Eliminar</button>` : ''}
         <div>
           <div class="pi-amount">L. ${parseFloat(f.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</div>
           <div class="pi-status ${statusClass}">${statusLabel}</div>
@@ -1839,7 +1839,7 @@ window.abrirRevisarFactura = async (facturaId) => {
       <div id="fisc-contenido" style="font-size:13px;color:var(--text3)">Revisá el proveedor y el número, luego tocá "Verificar rango".</div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-ghost" onclick="fiscVerificar()" style="font-size:12px;padding:6px 14px;border-color:var(--gold);color:var(--gold)">Verificar rango y CAI</button>
-        <button class="btn btn-ghost" id="fisc-btn-imagen" onclick="document.getElementById('fisc-file').click()" style="font-size:12px;padding:6px 12px">📎 Adjuntar imagen</button>
+        <button class="btn btn-ghost" id="fisc-btn-imagen" onclick="document.getElementById('fisc-file').click()" style="font-size:12px;padding:6px 12px"><svg class=ico aria-hidden=true><use href=#i-paperclip></use></svg> Adjuntar imagen</button>
         <input type="file" id="fisc-file" accept="image/*,.pdf" class="hidden" onchange="fiscSubirImagen(this)">
       </div>
     </div>`
@@ -2424,7 +2424,7 @@ function _renderPaginaPartidas() {
       <td style="color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.es_sensible ? '<span title="Partida sensible — solo super admin" style="margin-right:5px">🔒</span>' : ''}${p.descripcion}</td>
       <td><span class="badge badge-blue" style="font-size:10px">${getOrigenLabel(p.tipo_origen)}</span></td>
       <td class="mono" style="font-weight:500">L. ${parseFloat(p.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
-      <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar">✏️</button>${esSuper ? `<button onclick="event.stopPropagation();window.toggleSensible('${p.id}', ${p.es_sensible ? 'false' : 'true'})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="${p.es_sensible ? 'Quitar sensible (la verán todos)' : 'Marcar sensible (solo super admin)'}">${p.es_sensible ? '🔒' : '🔓'}</button>` : ''}</td>
+      <td style="display:flex;align-items:center;gap:8px"><span class="badge ${estadoBadge[p.estado]||'badge-amber'}">${estadoLabel[p.estado] || p.estado}</span><button onclick="event.stopPropagation();editarPartida('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>${esSuper ? `<button onclick="event.stopPropagation();window.toggleSensible('${p.id}', ${p.es_sensible ? 'false' : 'true'})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px" title="${p.es_sensible ? 'Quitar sensible (la verán todos)' : 'Marcar sensible (solo super admin)'}">${p.es_sensible ? '🔒' : '🔓'}</button>` : ''}</td>
     </tr>`).join('')
 
   if (pagEl) {
@@ -2937,24 +2937,24 @@ function renderLineas() {
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
-          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg></button>
         </div>`
       haberInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
             oninput="setHaber(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
-          <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+          <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg></button>
         </div>`
     } else if (esCaja && esSuperAdmin && !esCajaChica) {
       // Super Admin: botones 💵 en ambos lados (solo caja general; la caja chica la cuenta su responsable)
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
-          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg></button>
         </div>`
       haberInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${haberVal}" placeholder="0.00"
             oninput="setHaber(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
-          <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+          <button onclick="openCajaHaber(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--red);background:transparent;color:var(--red);cursor:pointer;font-size:13px;flex-shrink:0"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg></button>
         </div>`
     } else if (esCaja && cajaReadonly) {
       // Otros roles editando partida existente con caja: solo lectura
@@ -2967,7 +2967,7 @@ function renderLineas() {
       debeInput = `<div style="display:flex;gap:4px;align-items:center">
           <input type="text" inputmode="decimal" value="${debeVal}" placeholder="0.00"
             oninput="setDebe(${l.id},this.value)" onfocus="pnCrudo(this)" onblur="pnFormatear(this)" style="text-align:right;font-family:var(--mono);flex:1">
-          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0">💵</button>
+          <button onclick="openCajaDebe(${l.id})" title="Contar billetes" style="width:28px;height:28px;border-radius:6px;border:0.5px solid var(--green);background:transparent;color:var(--green);cursor:pointer;font-size:13px;flex-shrink:0"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg></button>
         </div>`
       haberInput = `<input type="text" value="" placeholder="—" disabled
           style="text-align:right;font-family:var(--mono);opacity:0.4;cursor:not-allowed"
@@ -4535,7 +4535,7 @@ function partidaCardHTML(p) {
           <div style="text-align:right;margin-top:4px"><span class="badge ${estadoBadge}">${estadoLabel}</span></div>
         </div>
         ${actions}
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida"><svg class=ico aria-hidden=true><use href=#i-eye></use></svg></button>
       </div>
     </div>`
 }
@@ -9394,8 +9394,8 @@ function renderVehiculosTable() {
       <td>${ubicBadge(v.ubicacion)}</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSuperAdmin ? `
-          <button onclick="editarVehiculo('${v.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
-          <button onclick="eliminarVehiculo('${v.id}','${v.vin}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Eliminar">🗑️</button>
+          <button onclick="editarVehiculo('${v.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
+          <button onclick="eliminarVehiculo('${v.id}','${v.vin}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Eliminar"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
         ` : '<span style="color:var(--text3);font-size:11px">—</span>'}
       </td>
     </tr>`
@@ -9416,8 +9416,8 @@ function vinEnsureToolbar() {
     <input id="vin-bulk-ubic" list="vin-bulk-dl" placeholder="Ubicación / contenedor (ej: Contenedor 24)" autocomplete="off"
       style="flex:1;min-width:210px;padding:6px 10px;background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:6px;color:inherit;font-size:13px">
     <datalist id="vin-bulk-dl"></datalist>
-    <button onclick="vinBulkAsignar()" style="background:var(--gold-bg,#c8a24a);color:#1a1a1a;font-weight:700;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;white-space:nowrap">📍 Asignar a seleccionados</button>
-    <button onclick="vinBulkVendido()" style="background:none;border:1px solid var(--red,#f85149);color:var(--red,#f85149);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap">🏷️ Marcar Vendido</button>
+    <button onclick="vinBulkAsignar()" style="background:var(--gold-bg,#c8a24a);color:#1a1a1a;font-weight:700;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;white-space:nowrap"><svg class=ico aria-hidden=true><use href=#i-map-pin></use></svg> Asignar a seleccionados</button>
+    <button onclick="vinBulkVendido()" style="background:none;border:1px solid var(--red,#f85149);color:var(--red,#f85149);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap"><svg class=ico aria-hidden=true><use href=#i-tag></use></svg> Marcar Vendido</button>
     <button onclick="vinSelAllFiltered()" style="background:none;border:1px solid var(--border,#30363d);color:var(--text2,#adbac7);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap">Seleccionar todos (filtrados)</button>
     <button onclick="vinClearSel()" style="background:none;border:1px solid var(--border,#30363d);color:var(--text3,#768390);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">Limpiar</button>`
   table.parentNode.insertBefore(bar, table)
@@ -9961,8 +9961,8 @@ function renderUnidadesTable() {
       <td style="font-family:var(--mono);font-size:12px;color:var(--text3)">${u.placa || '—'}</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSA ? `
-          <button onclick="editarUnidad('${u.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>
-          <button onclick="desactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Desactivar">🚫</button>
+          <button onclick="editarUnidad('${u.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
+          <button onclick="desactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Desactivar"><svg class=ico aria-hidden=true><use href=#i-ban></use></svg></button>
         ` : '—'}
       </td>
     </tr>`).join('')
@@ -10298,8 +10298,8 @@ window.cargarDetalleUnidad = async () => {
   // Tabs de entregas y facturas
   let html = `
     <div style="display:flex;gap:8px;margin-bottom:12px">
-      <button class="btn btn-ghost" onclick="toggleDetalleTab('entregas')" id="du-tab-entregas" style="border-color:var(--green);color:var(--green);font-size:12px;padding:6px 14px">📥 Entregas (${(entregas || []).length})</button>
-      <button class="btn btn-ghost" onclick="toggleDetalleTab('facturas')" id="du-tab-facturas" style="font-size:12px;padding:6px 14px">🔧 Facturas (${todasFacturas.length})</button>
+      <button class="btn btn-ghost" onclick="toggleDetalleTab('entregas')" id="du-tab-entregas" style="border-color:var(--green);color:var(--green);font-size:12px;padding:6px 14px"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Entregas (${(entregas || []).length})</button>
+      <button class="btn btn-ghost" onclick="toggleDetalleTab('facturas')" id="du-tab-facturas" style="font-size:12px;padding:6px 14px"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> Facturas (${todasFacturas.length})</button>
     </div>
     <div id="du-panel-entregas">
       <table style="width:100%">
@@ -11020,7 +11020,7 @@ function ccPartidaCardHTML(l, puedeAprobar) {
           <div style="text-align:right;margin-top:4px"><span class="badge ${estadoBadge}">${estadoLabel}</span></div>
         </div>
         ${actions}
-        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida">👁️</button>
+        <button class="btn btn-ghost" style="padding:6px 10px;font-size:13px;margin-top:6px" onclick="verPartida('${p.id}')" title="Ver partida"><svg class=ico aria-hidden=true><use href=#i-eye></use></svg></button>
       </div>
     </div>`
 }
@@ -12470,10 +12470,10 @@ window.verSeleccionesCxP = async () => {
             ${s.notas ? `<span style="color:var(--text3);margin-left:8px">${s.notas}</span>` : ''}
           </div>
           <div style="display:flex;gap:6px">
-            <button class="btn btn-ghost" onclick="descargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--green)">📊 Excel</button>
+            <button class="btn btn-ghost" onclick="descargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--green)"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Excel</button>
             ${s.estado === 'pendiente' ? `
-              <button class="btn btn-ghost" onclick="cargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--blue)">📥 Cargar</button>
-              <button class="btn btn-ghost" onclick="eliminarSelCxP('${s.id}','${s.nombre.replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 10px;color:var(--red)">🗑️</button>
+              <button class="btn btn-ghost" onclick="cargarSelCxP('${s.id}')" style="font-size:11px;padding:4px 10px;color:var(--blue)"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Cargar</button>
+              <button class="btn btn-ghost" onclick="eliminarSelCxP('${s.id}','${s.nombre.replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 10px;color:var(--red)"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
             ` : ''}
           </div>
         </div>
@@ -12636,7 +12636,7 @@ function _pintarHistPagos() {
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <div style="font-family:var(--mono);font-weight:600;color:var(--green)">L. ${fmt(g.total)}</div>
-            <button class="btn btn-ghost" onclick="event.stopPropagation();descargarPagoRealizadoCxP(${i})" style="font-size:11px;padding:4px 8px;color:var(--green)">📊</button>
+            <button class="btn btn-ghost" onclick="event.stopPropagation();descargarPagoRealizadoCxP(${i})" style="font-size:11px;padding:4px 8px;color:var(--green)"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg></button>
           </div>
         </div>
         <div id="pago-cxp-det-${i}" style="display:none;padding:0 14px 12px">

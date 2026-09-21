@@ -457,7 +457,7 @@ window.verUnidadesSinIngreso = function (modalidad) {
         <thead><tr style="border-bottom:1px solid var(--border,#444);text-align:left;color:var(--text3,#999)"><th style="padding:7px 10px;width:40px">#</th><th style="padding:7px 10px">Registro</th></tr></thead>
         <tbody>${filas}</tbody>
       </table>
-      ${lista.length ? `<div style="margin-top:14px;text-align:right"><button onclick="window.copiarSinIngreso('${modalidad}')" style="background:var(--gold-bg,#d4a017);color:#1a1a1a;font-weight:600;border:none;border-radius:8px;padding:7px 14px;cursor:pointer">📋 Copiar registros</button></div>` : ''}
+      ${lista.length ? `<div style="margin-top:14px;text-align:right"><button onclick="window.copiarSinIngreso('${modalidad}')" style="background:var(--gold-bg,#d4a017);color:#1a1a1a;font-weight:600;border:none;border-radius:8px;padding:7px 14px;cursor:pointer"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Copiar registros</button></div>` : ''}
     </div>`
 }
 
@@ -566,10 +566,10 @@ window.abrirCentralizacion = async function () {
         <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px">
           <div><label style="font-size:11px;color:var(--text3,#666)">Total VIP a repartir</label><input type="number" id="cent-tot-vip" value="0" disabled title="VIP se ingresa a mano" style="width:100px;opacity:.4;cursor:not-allowed"></div>
           <div><label style="font-size:11px;color:var(--text3,#999)">Total Taxi a repartir</label><input type="number" step="0.01" id="cent-tot-taxi" value="0" style="width:100px"></div>
-          <button onclick="window.distribuirPorPct()" style="${_CENT_BTN_SEC}">⚖️ Distribuir por %</button>
+          <button onclick="window.distribuirPorPct()" style="${_CENT_BTN_SEC}"><svg class=ico aria-hidden=true><use href=#i-scale></use></svg> Distribuir por %</button>
         </div>
         <div id="cent-tabla" style="margin-bottom:10px"></div>
-        <button onclick="window.guardarDistribucionCent()" style="${_CENT_BTN_SEC};margin-bottom:16px">💾 Guardar tabla</button>
+        <button onclick="window.guardarDistribucionCent()" style="${_CENT_BTN_SEC};margin-bottom:16px"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar tabla</button>
         <div style="display:flex;gap:10px;margin-bottom:16px">
           <button onclick="window.calcularCentralizacion()" style="${_CENT_BTN_PRIM}">Calcular →</button>
           <button id="cent-btn-generar" onclick="window.generarPartidaCentralizacion()" style="display:none;background:var(--green,#2e7d32);color:#fff;font-weight:600;padding:8px 16px;border:none;border-radius:8px;cursor:pointer">Generar partida (borrador)</button>
@@ -637,7 +637,7 @@ function _renderTablaCent() {
         </tr>
       </tbody>
     </table>
-    <button onclick="window.agregarSocioCent()" style="${_CENT_BTN_SEC};margin-top:8px">➕ Agregar socio</button>`
+    <button onclick="window.agregarSocioCent()" style="${_CENT_BTN_SEC};margin-top:8px"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Agregar socio</button>`
 }
 
 function _leerTablaCent() {

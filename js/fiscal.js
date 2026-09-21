@@ -400,10 +400,10 @@
       const btnMover = !editable
         ? ''
         : enTope
-          ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;opacity:.4;cursor:not-allowed" disabled title="Tope legal: el crédito solo puede acreditarse hasta ${etiquetaMes(limiteRow)} (plazo de ${MESES_LIMITE_CREDITO} meses, Art. 12 Ley del ISV)">⛔ tope</button>`
+          ? `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;opacity:.4;cursor:not-allowed" disabled title="Tope legal: el crédito solo puede acreditarse hasta ${etiquetaMes(limiteRow)} (plazo de ${MESES_LIMITE_CREDITO} meses, Art. 12 Ley del ISV)"><svg class=ico aria-hidden=true><use href=#i-hand-stop></use></svg> tope</button>`
           : `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" title="Reclamar en ${etiquetaMes(destinoRow)}" onclick="window.fiscMoverMes('${c.id}')">→ ${destinoRow}</button>`
       const btnEdit = !puedeEditarDatos() ? ''
-        : `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;margin-left:4px" title="Editar proveedor y n° de factura (actualiza también el asiento)" onclick="window.fiscEditCompra('${c.id}')">✏️</button>`
+        : `<button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;margin-left:4px" title="Editar proveedor y n° de factura (actualiza también el asiento)" onclick="window.fiscEditCompra('${c.id}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>`
       const rowStyle = !incl ? 'opacity:.5' : (sinProv ? 'background:rgba(245,158,11,.07)' : '')
       const provCell = sinProv
         ? '<span style="color:var(--amber);font-style:italic">— sin proveedor —</span>'
@@ -491,7 +491,7 @@
       ${ventanaCompras('Costos · mercadería (510101 / 110501)', '📦', comprasCosto)}
       ${ventanaCompras('Gastos', '🧾', comprasGasto)}
       <div class="form-actions" style="margin-top:4px">
-        <button class="btn btn-ghost" onclick="window.fiscExportar()">📥 Exportar libros (Excel)</button>
+        <button class="btn btn-ghost" onclick="window.fiscExportar()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar libros (Excel)</button>
       </div>`
     // Restaurar el scroll de las tablas (quedás donde estabas tras editar)
     const _wraps = cont.querySelectorAll('.table-wrap')
@@ -585,7 +585,7 @@
         ${dePartida ? `<div style="font-size:12px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="color:var(--text3)">Asiento:</span>
           <b id="fe-partida-num" style="color:var(--gold);font-family:var(--mono)">…</b>
-          <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px" title="Copiar el N° de partida para buscarla en otra ventana" onclick="window.fiscCopiarPartida()">📋 Copiar</button>
+          <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px" title="Copiar el N° de partida para buscarla en otra ventana" onclick="window.fiscCopiarPartida()"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Copiar</button>
         </div>` : ''}
         <div class="fld" style="margin-bottom:10px"><label>N° de factura</label><input type="text" id="fe-numfac" value="${esc(c.numero_factura)}"></div>
         <div class="fld" style="margin-bottom:10px"><label>Proveedor</label><input type="text" id="fe-prov" value="${esc(c.proveedor)}" style="text-transform:uppercase"></div>

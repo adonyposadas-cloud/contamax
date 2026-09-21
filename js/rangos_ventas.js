@@ -135,7 +135,7 @@ function rvRender() {
           <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">${r.rango_desde || '?'} → ${r.rango_hasta || '?'}${badges}</div>
           ${barra}
         </div>
-        ${rvPuedeEditar() ? `<button class="btn btn-ghost" onclick="rvEditar('${r.id}')" style="padding:4px 10px;font-size:11px">✏️</button>` : ''}
+        ${rvPuedeEditar() ? `<button class="btn btn-ghost" onclick="rvEditar('${r.id}')" style="padding:4px 10px;font-size:11px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : ''}
       </div>
     </div>`
   }).join('')

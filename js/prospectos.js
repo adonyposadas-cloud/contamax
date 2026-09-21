@@ -192,7 +192,7 @@ window.__prospBuild = '20260720c'
           ${t.notas ? `<div style="margin-top:4px;color:var(--text3,#6e7681)">📝 ${esc(t.notas)}</div>` : ''}
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
-          <button onclick="prospVisita(${t.id})" style="flex:2;min-width:150px;background:var(--gold-bg,#c8a24a);color:#15171c;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px;font-weight:700">📷 Registrar visita</button>
+          <button onclick="prospVisita(${t.id})" style="flex:2;min-width:150px;background:var(--gold-bg,#c8a24a);color:#15171c;border:0;border-radius:9px;padding:11px;cursor:pointer;font-size:13.5px;font-weight:700"><svg class=ico aria-hidden=true><use href=#i-camera></use></svg> Registrar visita</button>
           ${bt('✏️ Editar', `prospEditar(${t.id})`)}
         </div>
         <div style="margin-top:12px">
@@ -428,7 +428,7 @@ window.__prospBuild = '20260720c'
       } else if (c.tipo === 'fotos') {
         ctrl = `<input id="${id}" type="file" accept="image/*" capture="environment" multiple style="${base};padding:9px">`
       } else if (c.tipo === 'gps') {
-        ctrl = `<button type="button" id="${id}-btn" onclick="prospGPSCampo('${id}')" style="${base};background:var(--bg3,#1c2027);color:var(--gold,#c8a24a);cursor:pointer;text-align:left">📍 Tomar ubicación acá</button><input id="${id}" type="hidden">`
+        ctrl = `<button type="button" id="${id}-btn" onclick="prospGPSCampo('${id}')" style="${base};background:var(--bg3,#1c2027);color:var(--gold,#c8a24a);cursor:pointer;text-align:left"><svg class=ico aria-hidden=true><use href=#i-map-pin></use></svg> Tomar ubicación acá</button><input id="${id}" type="hidden">`
       } else if (c.tipo === 'check') {
         ctrl = `<label style="display:flex;align-items:center;gap:9px;margin-top:6px;cursor:pointer"><input id="${id}" type="checkbox" ${c.valor ? 'checked' : ''} style="width:20px;height:20px"><span style="font-size:14px;color:var(--text,#e6edf3)">${esc(c.textoCheck || '')}</span></label>`
       } else {

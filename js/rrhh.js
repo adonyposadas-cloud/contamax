@@ -122,7 +122,7 @@ function ensurePlanillaTabs() {
   bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin:0 0 12px'
   bar.innerHTML = `
     <button id="pl-tab-gen" class="btn" onclick="setModoPlanillaConf(false)">Planilla general</button>
-    <button id="pl-tab-conf" class="btn btn-ghost" onclick="setModoPlanillaConf(true)">🔒 Confidencial</button>
+    <button id="pl-tab-conf" class="btn btn-ghost" onclick="setModoPlanillaConf(true)"><svg class=ico aria-hidden=true><use href=#i-lock></use></svg> Confidencial</button>
     <span id="pl-conf-aviso" style="display:none;font-size:12px;color:var(--gold)">Modo confidencial — visible solo para super_admin y contador</span>`
   host.parentNode.insertBefore(bar, host)
 }
@@ -228,7 +228,7 @@ window.filtrarEmpleados = () => {
       <td>${e.banco || '—'}</td>
       <td>${e.activo ? '<span style="color:var(--green)">●</span> Activo' : '<span style="color:var(--red)">●</span> Inactivo'}</td>
       <td>
-        <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarEmpleado('${e.id}')">✏️</button>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarEmpleado('${e.id}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
         <button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="toggleEmpleadoActivo('${e.id}', ${e.activo})">${e.activo ? '🚫' : '✅'}</button>
       </td>
     </tr>
@@ -1039,7 +1039,7 @@ function renderPlanillaTable() {
       <td style="text-align:right">${d.otras_deducciones > 0 ? fmt(d.otras_deducciones) : '—'}</td>
       <td style="text-align:right;color:var(--red)">${fmt(d.total_deducciones)}</td>
       <td style="text-align:right;font-weight:600;color:${topado ? 'var(--red)' : 'var(--green)'}">${fmt(d.sueldo_neto)}</td>
-      <td style="text-align:center">${isEditable ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px" onclick="editarDetallePlanilla(${globalIdx})">✏️</button>` : ''}</td>
+      <td style="text-align:center">${isEditable ? `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px" onclick="editarDetallePlanilla(${globalIdx})"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : ''}</td>
     </tr>`
   }).join('')
 
@@ -1928,7 +1928,7 @@ window.imprimirVouchersPlanilla = async () => {
   </style></head>
   <body>
     <div class="noprint" style="padding:10px;text-align:center">
-      <button onclick="window.print()" style="padding:8px 16px;font-size:14px;cursor:pointer">🖨️ Imprimir</button>
+      <button onclick="window.print()" style="padding:8px 16px;font-size:14px;cursor:pointer"><svg class=ico aria-hidden=true><use href=#i-printer></use></svg> Imprimir</button>
       <span style="color:#666;margin-left:10px">${data.length} voucher(s)</span>
     </div>
     <div class="sheet">${cuerpo}</div>
@@ -2037,8 +2037,8 @@ function renderPrestamosEmpTable(lista) {
       <td style="font-size:12px;color:var(--text3)">${sinCuota(p.tipo) ? '— (en planilla bono)' : (p.fecha_primera_deduccion || '—')}</td>
       <td>${p.activo ? '<span style="color:var(--gold)">● Activo</span>' : '<span style="color:var(--green)">● Pagado</span>'}</td>
       <td style="white-space:nowrap">
-        ${esSuper ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarPrestamoEmp('${p.id}')">✏️ Editar</button>` : ''}
-        ${p.activo ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="liquidarPrestamoEmp('${p.id}')">💰 Liquidar</button>` : ''}
+        ${esSuper ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="editarPrestamoEmp('${p.id}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar</button>` : ''}
+        ${p.activo ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:12px" onclick="liquidarPrestamoEmp('${p.id}')"><svg class=ico aria-hidden=true><use href=#i-moneybag></use></svg> Liquidar</button>` : ''}
       </td>
     </tr>
   `).join('')
@@ -2568,7 +2568,7 @@ window.calcularPlanillaBono = async () => {
       <div class="stat-card"><div class="stat-num" style="font-size:15px;color:var(--gold)">L. ${fmt(totAdel)}</div><div class="stat-label">Adelantos</div></div>
       <div class="stat-card"><div class="stat-num" style="font-size:15px;color:var(--green)">L. ${fmt(totNeto)}</div><div class="stat-label">Neto a pagar</div></div>
     </div>
-    ${yaExiste ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.12);border-radius:8px;color:var(--gold);font-size:12px;margin-bottom:10px">⚠️ Ya existe la planilla ${label}${yaExiste.partida_numero ? ` (partida #${yaExiste.partida_numero})` : ''}. <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:8px" onclick="window.regenerarBono()">🗑️ Borrar y regenerar</button></div>` : ''}
+    ${yaExiste ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.12);border-radius:8px;color:var(--gold);font-size:12px;margin-bottom:10px">⚠️ Ya existe la planilla ${label}${yaExiste.partida_numero ? ` (partida #${yaExiste.partida_numero})` : ''}. <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:8px" onclick="window.regenerarBono()"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg> Borrar y regenerar</button></div>` : ''}
     ${negativos.length ? `<div style="padding:8px 12px;background:rgba(239,68,68,0.12);border-radius:8px;color:var(--red);font-size:12px;margin-bottom:10px">⚠️ ${negativos.length} empleado(s) con adelanto mayor al bono (${negativos.map(f => f.nombre).join(', ')}). Corregí antes de generar.</div>` : ''}
     <div class="table-wrap" style="overflow-x:auto"><table style="width:100%;min-width:600px"><thead><tr>
       <th>Empleado</th><th>Sección</th><th>Ingreso</th><th style="text-align:center">Días</th>
@@ -2822,7 +2822,7 @@ window.calcularBonoEducativo = async () => {
       <div class="stat-card"><div class="stat-num" style="font-size:16px">${filas.length}</div><div class="stat-label">Elegibles (≤ tope)</div></div>
       <div class="stat-card"><div class="stat-num" style="font-size:15px;color:var(--green)">L. ${fmt(total)}</div><div class="stat-label">Total a pagar</div></div>
     </div>
-    ${yaExiste ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.12);border-radius:8px;color:var(--gold);font-size:12px;margin-bottom:10px">⚠️ Ya existe la planilla ${label}${yaExiste.partida_numero ? ` (partida #${yaExiste.partida_numero})` : ''}. <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:8px" onclick="window.regenerarBonoEdu()">🗑️ Borrar y regenerar</button></div>` : ''}
+    ${yaExiste ? `<div style="padding:8px 12px;background:rgba(245,158,11,0.12);border-radius:8px;color:var(--gold);font-size:12px;margin-bottom:10px">⚠️ Ya existe la planilla ${label}${yaExiste.partida_numero ? ` (partida #${yaExiste.partida_numero})` : ''}. <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px;margin-left:8px" onclick="window.regenerarBonoEdu()"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg> Borrar y regenerar</button></div>` : ''}
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Marca quién presentó constancia de matrícula (se guarda al instante). Solo aparecen empleados activos, no socios y con sueldo ≤ tope.</div>
     <div class="table-wrap" style="overflow-x:auto"><table style="width:100%;min-width:660px"><thead><tr>
       <th style="text-align:center">Aplica</th><th>Empleado</th><th>Sección</th><th>Ingreso</th>

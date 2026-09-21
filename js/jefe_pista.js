@@ -136,14 +136,14 @@ window.initJefePista = async () => {
       <div class="jp-sub">Colocá el N° de orden del taller y el técnico asignado. El técnico carga el detalle en Taller Alpha y el cotizador completa la cotización. Arranca el tiempo de cotización.</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 12px">
         <span style="font-size:12px;color:var(--text2,#8b8f98)">Tipo de cotización:</span>
-        <button type="button" id="jp-tipo-sol" onclick="jpSetTipo('solicitado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid var(--blue,#3b82f6);background:#3b82f622;color:var(--blue-fg,#3b82f6)">🔧 Solicitado</button>
-        <button type="button" id="jp-tipo-rec" onclick="jpSetTipo('recomendado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:var(--text2,#8b8f98)">💡 Recomendado</button>
+        <button type="button" id="jp-tipo-sol" onclick="jpSetTipo('solicitado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid var(--blue,#3b82f6);background:#3b82f622;color:var(--blue-fg,#3b82f6)"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> Solicitado</button>
+        <button type="button" id="jp-tipo-rec" onclick="jpSetTipo('recomendado')" style="cursor:pointer;border-radius:16px;padding:5px 14px;font-size:12px;font-weight:600;border:1px solid #3a3f4a;background:transparent;color:var(--text2,#8b8f98)"><svg class=ico aria-hidden=true><use href=#i-bulb></use></svg> Recomendado</button>
         <span id="jp-tipo-hint" style="font-size:11px;color:var(--amber-fg,#f59e0b)"></span>
       </div>
       <div class="jp-row" style="align-items:flex-end">
         <div class="jp-fld" style="flex:0 0 180px"><label>N° Orden Taller *</label><input id="jp-orden" class="jp-inp" placeholder="Ej: 54700" onblur="jpCheckOrden()"></div>
         <div class="jp-fld" style="position:relative"><label>Técnico *</label><input id="jp-tecnico" class="jp-inp" placeholder="Nombre del técnico" autocomplete="off" oninput="jpTecInput()" onkeydown="if(event.key==='Escape')jpTecHide()"><div id="jp-tec-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
-        <button class="jp-b ok" id="jp-enviar-btn" onclick="jpEnviar()">📤 Enviar a cotizar</button>
+        <button class="jp-b ok" id="jp-enviar-btn" onclick="jpEnviar()"><svg class=ico aria-hidden=true><use href=#i-upload></use></svg> Enviar a cotizar</button>
       </div>
       <div class="jp-row" style="align-items:flex-end;margin-top:10px">
         <div class="jp-fld"><label>Marca</label><input id="jp-marca" class="jp-inp" list="jp-marca-dl" placeholder="Ej: HONDA" autocomplete="off" style="text-transform:uppercase"><datalist id="jp-marca-dl"></datalist></div>
@@ -157,8 +157,8 @@ window.initJefePista = async () => {
         <div class="jp-row" style="align-items:flex-end">
           <div class="jp-fld" style="flex:2;position:relative"><label>Nombre</label><input id="jp-it-desc" class="jp-inp" placeholder="Ej: RETENEDOR DE FLECHA" autocomplete="off" oninput="jpDescInput()" onkeydown="if(event.key==='Enter'){jpDescHide();jpAddItem('p')}else if(event.key==='Escape')jpDescHide()"><div id="jp-desc-drop" style="display:none;position:absolute;z-index:60;top:100%;left:0;right:0;max-height:280px;overflow-y:auto;background:var(--bg-inset,#0f1114);border:1px solid var(--border,#2a2e37);border-radius:8px;margin-top:2px;box-shadow:0 8px 24px rgba(0,0,0,.5)"></div></div>
           <div class="jp-fld" style="flex:0 0 90px"><label>Cantidad</label><input id="jp-it-cant" class="jp-inp lc" type="number" value="1" min="1"></div>
-          <button class="jp-b" onclick="jpAddItem('p')" title="Agregar producto">➕ Producto</button>
-          <button class="jp-b" onclick="jpAddItem('s')" title="Agregar servicio">🔧 Servicio</button>
+          <button class="jp-b" onclick="jpAddItem('p')" title="Agregar producto"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Producto</button>
+          <button class="jp-b" onclick="jpAddItem('s')" title="Agregar servicio"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> Servicio</button>
         </div>
         <div id="jp-items"></div>
       </div>
@@ -180,11 +180,11 @@ window.initJefePista = async () => {
         <div class="jp-row" style="align-items:flex-end">
           <div class="jp-fld" style="flex:2"><label>Nombre</label><input id="jp-ag-desc" class="jp-inp" placeholder="Ej: FILTRO DE AIRE" onkeydown="if(event.key==='Enter')jpAgAdd('p')"></div>
           <div class="jp-fld" style="flex:0 0 80px"><label>Cantidad</label><input id="jp-ag-cant" class="jp-inp lc" type="number" value="1" min="1"></div>
-          <button class="jp-b" onclick="jpAgAdd('p')">➕ Producto</button>
-          <button class="jp-b" onclick="jpAgAdd('s')">🔧 Servicio</button>
+          <button class="jp-b" onclick="jpAgAdd('p')"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Producto</button>
+          <button class="jp-b" onclick="jpAgAdd('s')"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> Servicio</button>
         </div>
         <div id="jp-ag-nuevos"></div>
-        <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="jp-b ok" id="jp-ag-guardar" onclick="jpAgGuardar()">💾 Guardar ítems nuevos</button></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="jp-b ok" id="jp-ag-guardar" onclick="jpAgGuardar()"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar ítems nuevos</button></div>
       </div>
     </div>`
   jpRenderItems()
@@ -605,11 +605,11 @@ function jpOrdenCard(p) {
   const btnAut = f.fase === 'autorizacion'
     ? `<button class="jp-b green" onclick="jpAutorizar('${p.id}')" title="El cliente autorizó — pasar al cotizador para pedir repuestos">✓ Autorizado</button>` : ''
   const btnAdd = f.fase !== 'completado'
-    ? `<button class="jp-b" onclick="jpAbrirAgregar('${p.id}')" title="Agregar más ítems a esta orden">➕ Ítems</button>` : ''
+    ? `<button class="jp-b" onclick="jpAbrirAgregar('${p.id}')" title="Agregar más ítems a esta orden"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Ítems</button>` : ''
   // PDF disponible una vez que el cotizador emitió la cotización (proc_inicio
   // se setea al generar el PDF, que es lo que pasa la orden a autorización).
   const btnPdf = p.proc_inicio
-    ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Solo abre el PDF para revisarlo. No lo manda a nadie.">👁 Ver PDF</button>` : ''
+    ? `<button class="jp-b" onclick="jpPdf('${p.id}')" title="Solo abre el PDF para revisarlo. No lo manda a nadie."><svg class=ico aria-hidden=true><use href=#i-eye></use></svg> Ver PDF</button>` : ''
   const esRec = p.tipo_solicitud === 'recomendado'
   // El guion de venta. Solo aparece en la 'recomendado' del checklist y solo cuando el
   // vendedor ya le puso precio a los hallazgos: sin precio no hay nada que ofrecer.
@@ -625,9 +625,9 @@ function jpOrdenCard(p) {
   const btnCerrarChk = (f.fase === 'checklist' || f.fase === 'cumplida')
     ? `<button class="jp-b" style="border-color:var(--border2,#8b949e);color:var(--text2,#8b949e)" onclick="jpCerrarChecklist('${p.id}')" title="Cerrar esta orden dejando registro de por qué no se inspeccionó">✕ Cerrar</button>` : ''
   const btnNV = (esRec && p.proc_cotizada && !['autorizada', 'no_vendida', 'finalizada', 'anulada'].includes(p.estado))
-    ? `<button class="jp-b" style="border-color:var(--red,#f85149);color:var(--red-fg,#f85149)" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo">❌ No se vendió</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--red,#f85149);color:var(--red-fg,#f85149)" onclick="jpNoVendida('${p.id}')" title="El cliente dijo que no — registrar el motivo"><svg class=ico aria-hidden=true><use href=#i-x></use></svg> No se vendió</button>` : ''
   const btnWA = (esRec && Array.isArray(p.items) && p.items.some(it => it.hallazgo_linea_id))
-    ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Arma el WhatsApp al cliente con el mismo PDF, su teléfono y el total ya escritos">📲 Enviar al cliente</button>` : ''
+    ? `<button class="jp-b" style="border-color:#25D366;color:#25D366" onclick="jpEnviarHallazgos('${p.id}')" title="Arma el WhatsApp al cliente con el mismo PDF, su teléfono y el total ya escritos"><svg class=ico aria-hidden=true><use href=#i-device-mobile-message></use></svg> Enviar al cliente</button>` : ''
   // Habilitar técnicos en la orden (Fase 2). Aparece cuando ya hay trabajo autorizado:
   // sin trabajo que ejecutar, no hay a quién asignar. La comisión de ejecución (80%)
   // sale de acá.
@@ -637,14 +637,14 @@ function jpOrdenCard(p) {
   // Solo en la fase de AUTORIZACIÓN: ya hay cotización con precios (proc_inicio) y aún no
   // se autorizó. En 'Esperando cotización' no hay precios finales que presentar al cliente.
   const btnEdit = (f.fase === 'autorizacion' && Array.isArray(p.items) && p.items.length)
-    ? `<button class="jp-b" style="border-color:var(--gold,#c8a24a);color:var(--gold,#c8a24a)" onclick="jpEditarCliente('${p.id}')" title="Quitar ítems con el cliente al lado, antes de autorizar">✏️ Editar con cliente</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--gold,#c8a24a);color:var(--gold,#c8a24a)" onclick="jpEditarCliente('${p.id}')" title="Quitar ítems con el cliente al lado, antes de autorizar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar con cliente</button>` : ''
   // Cambiar el técnico que INSPECCIONA. Solo mientras se está cotizando (antes de que la
   // orden pase a autorización): si el asignado no vino, se le pasa a otro. Si ya empezó a
   // inspeccionar, reasignar descarta lo hecho (el segundo empieza limpio).
   const btnCambiarTec = (esRec && p.tecnico_id && f.fase === 'cotizacion')
-    ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpCambiarTecnico('${p.id}')" title="Pasar la inspección a otro técnico">👤 Cambiar técnico</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpCambiarTecnico('${p.id}')" title="Pasar la inspección a otro técnico"><svg class=ico aria-hidden=true><use href=#i-user></use></svg> Cambiar técnico</button>` : ''
   const btnTec = (esRec && p.proc_aprobada)
-    ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden">👷 Técnicos</button>` : ''
+    ? `<button class="jp-b" style="border-color:var(--purple,#8b5cf6);color:var(--purple-fg,#8b5cf6)" onclick="jpAbrirTecnicos('${jpEsc(p.numero_orden)}')" title="Habilitar los técnicos que trabajan esta orden"><svg class=ico aria-hidden=true><use href=#i-user-cog></use></svg> Técnicos</button>` : ''
   const tipoBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;margin-left:6px;border:1px solid ${esRec ? '#f59e0b' : '#3b82f6'};color:${esRec ? '#f59e0b' : '#3b82f6'}">${esRec ? '💡 Recomendado' : '🔧 Solicitado'}</span>`
   // Borde izquierdo por fase (mismos colores del cotizador): rojo=cotización, amarillo=autorización, verde=pedido/completado
   const bCol = f.fase === 'cotizacion' ? '#f85149' : f.fase === 'autorizacion' ? '#f59e0b' : (f.fase === 'compra' || f.fase === 'completado') ? '#16a34a' : '#2a2e37'
@@ -1183,8 +1183,8 @@ function jpModalWA (msg, tel) {
       <div id="jp-wa-telhint" style="font-size:11px;margin-bottom:8px;min-height:14px"></div>
       <textarea id="jp-wa-txt" style="width:100%;height:280px;background:var(--bg,#0d1117);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text,#e6edf3);padding:11px;font-size:13px;font-family:inherit;line-height:1.5">${jpEsc(msg)}</textarea>
       <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="jp-b" style="flex:1;padding:11px" onclick="jpCopiarWA()">📋 Copiar</button>
-        <button class="jp-b green" style="flex:1;padding:11px" onclick="jpAbrirWA()">💬 Abrir WhatsApp</button>
+        <button class="jp-b" style="flex:1;padding:11px" onclick="jpCopiarWA()"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Copiar</button>
+        <button class="jp-b green" style="flex:1;padding:11px" onclick="jpAbrirWA()"><svg class=ico aria-hidden=true><use href=#i-message></use></svg> Abrir WhatsApp</button>
       </div>
       <div style="font-size:11px;color:var(--text2,#8b8f98);margin-top:8px">Podés editar el mensaje y el teléfono antes de enviarlo. El PDF queda guardado y el link no vence.</div>
     </div>`
@@ -1661,7 +1661,7 @@ function jpRenderEditModal () {
         <div style="font-size:11px;color:#6b7280">${cant} × ${fmt(precio)}</div>
       </div>
       ${oculto
-        ? `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #16a34a;color:#16a34a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">↩ Regresar</button>`
+        ? `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid #16a34a;color:#16a34a;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg> Regresar</button>`
         : `<button onclick="jpEditToggle(${i})" style="background:none;border:1px solid var(--red,#f85149);color:var(--red-fg,#f85149);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">✕ Quitar</button>`}
     </div>`
   }

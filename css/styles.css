@@ -476,5 +476,11 @@ tbody tr:hover,.tree-row:hover{background:var(--row-hover)}
 [data-theme="light"] .sidebar{background:linear-gradient(180deg,#e2e6eb 0%,#d5dbe2 100%)}
 [data-theme="light"] :is(.login-box,.form-card,.table-wrap,.tree-wrap,.stat-card,.cat-stat,.caja-card,.pending-item){box-shadow:var(--shadow-sm),inset 0 1px 0 rgba(255,255,255,.45)}
 
+/* Íconos SVG (Tabler Icons, MIT) · heredan color y tamaño del texto */
+.ico{width:1.15em;height:1.15em;flex-shrink:0;vertical-align:-.2em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.nav-svg{width:17px;height:17px;opacity:.7;transition:opacity .15s}
+.nav-item:hover .nav-svg,.nav-item.active .nav-svg{opacity:1}
+.nav-item.active .nav-svg{stroke-width:2.2}
+
 @media(max-width:768px){.btn-tema{width:30px;height:30px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}

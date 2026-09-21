@@ -207,10 +207,10 @@
         <button class="cot-tab on" data-tab="nueva">Nueva</button>
         <button class="cot-tab" data-tab="cotizacion">Cotización</button>
         <button class="cot-tab" data-tab="seguimiento">Seguimiento</button>
-        <button class="cot-tab" data-tab="proveedores">📇 Proveedores</button>
-        <button class="cot-tab" data-tab="generaciones">🚗 Generaciones</button>
-        <button class="cot-tab" data-tab="estadisticas">📊 Estadísticas</button>
-        <button class="cot-tab" data-tab="config" id="cot-tab-config" style="display:none">⚙ Config</button>
+        <button class="cot-tab" data-tab="proveedores"><svg class=ico aria-hidden=true><use href=#i-address-book></use></svg> Proveedores</button>
+        <button class="cot-tab" data-tab="generaciones"><svg class=ico aria-hidden=true><use href=#i-car></use></svg> Generaciones</button>
+        <button class="cot-tab" data-tab="estadisticas"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Estadísticas</button>
+        <button class="cot-tab" data-tab="config" id="cot-tab-config" style="display:none"><svg class=ico aria-hidden=true><use href=#i-settings></use></svg> Config</button>
       </div>
     </div>
 
@@ -222,7 +222,7 @@
         <div id="cot-dash-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
       </div>
       <div class="form-card" style="margin-top:14px">
-        <div class="form-card-title" style="justify-content:space-between"><span>⚡ Pedidos rápidos</span><button class="btn btn-ghost" id="cot-pr-hist" style="font-size:11px;padding:4px 10px">📋 Ver historial</button></div>
+        <div class="form-card-title" style="justify-content:space-between"><span>⚡ Pedidos rápidos</span><button class="btn btn-ghost" id="cot-pr-hist" style="font-size:11px;padding:4px 10px"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Ver historial</button></div>
         <div style="font-size:12px;color:var(--text3,#8b949e);margin:-4px 0 10px">Repuestos sueltos que te piden (fuera de cotización). Anotalos para no olvidarlos; el contador corre desde que los creás hasta que llegan.</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
           <div class="fld" style="flex:2;min-width:150px"><label>Repuesto</label><input id="cot-pr-rep" class="cot-in" placeholder="Ej: SOPORTE DE MOTOR" style="text-transform:uppercase"></div>
@@ -239,9 +239,9 @@
     <div id="cot-panel-nueva" class="cot-panel">
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
         <button class="btn btn-ghost" id="cot-btn-nueva">＋ Nueva</button>
-        <button class="btn btn-ghost" id="cot-btn-guardar">💾 Guardar</button>
-        <button class="btn btn-ghost" id="cot-btn-ot">🔧 Orden Trabajo</button>
-        <button class="btn btn-gold" id="cot-btn-pdf">📄 Generar PDF</button>
+        <button class="btn btn-ghost" id="cot-btn-guardar"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar</button>
+        <button class="btn btn-ghost" id="cot-btn-ot"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> Orden Trabajo</button>
+        <button class="btn btn-gold" id="cot-btn-pdf"><svg class=ico aria-hidden=true><use href=#i-file-text></use></svg> Generar PDF</button>
       </div>
 
     <div id="cot-recban" style="display:none;background:rgba(200,162,74,.1);border:1px solid var(--gold,#c8a24a);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;color:var(--gold,#c8a24a);display:none;align-items:center;justify-content:space-between">
@@ -293,7 +293,7 @@
             <input id="cot-anio-hasta" class="cot-in" placeholder="Hasta" inputmode="numeric" maxlength="4" style="width:33%">
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-            <button type="button" class="btn btn-ghost" id="cot-detalle-btn" style="font-size:11px;padding:4px 10px">➕ Detalle (tracción/combustible/grupo)</button>
+            <button type="button" class="btn btn-ghost" id="cot-detalle-btn" style="font-size:11px;padding:4px 10px"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Detalle (tracción/combustible/grupo)</button>
             <span id="cot-detalle-resumen" style="font-size:11px;color:var(--gold,#c8a24a)"></span>
           </div>
         </div>
@@ -305,9 +305,9 @@
       <div class="form-card-title" style="justify-content:space-between">
         <span>Agregar ítems</span>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost" id="cot-buscar-prod" style="font-size:12px;padding:6px 12px">🔎 Buscar producto</button>
-          <button class="btn btn-ghost" id="cot-buscar-serv" style="font-size:12px;padding:6px 12px">🔧 Buscar servicio</button>
-          <button class="btn btn-ghost" id="cot-manual" style="font-size:12px;padding:6px 12px">➕ Manual</button>
+          <button class="btn btn-ghost" id="cot-buscar-prod" style="font-size:12px;padding:6px 12px"><svg class=ico aria-hidden=true><use href=#i-search></use></svg> Buscar producto</button>
+          <button class="btn btn-ghost" id="cot-buscar-serv" style="font-size:12px;padding:6px 12px"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> Buscar servicio</button>
+          <button class="btn btn-ghost" id="cot-manual" style="font-size:12px;padding:6px 12px"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Manual</button>
         </div>
       </div>
       <div id="cot-solic-panel" style="display:none;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.25);border-radius:8px;padding:10px;margin-bottom:12px">
@@ -383,7 +383,7 @@
             <button class="cot-chip" data-cat="facturo_menos">Facturó menos</button>
           </div>
           <input id="cot-seg-q" class="cot-in" placeholder="🔍 Cliente, placa, N° o orden…" style="flex:1;min-width:180px;text-transform:uppercase">
-          <button class="btn btn-ghost" id="cot-seg-export" style="font-size:12px;padding:6px 12px">⬇ Exportar CSV</button>
+          <button class="btn btn-ghost" id="cot-seg-export" style="font-size:12px;padding:6px 12px"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar CSV</button>
         </div>
         <div id="cot-seg-list"><div style="text-align:center;color:var(--text3,#8b949e);padding:20px">Cargando…</div></div>
       </div>
@@ -458,9 +458,9 @@
     <!-- PANEL CONFIG -->
     <div id="cot-panel-estadisticas" class="cot-panel" style="display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
-        <button class="btn btn-ghost" id="est-prev" title="Día anterior">◀</button>
+        <button class="btn btn-ghost" id="est-prev" title="Día anterior"><svg class=ico aria-hidden=true><use href=#i-chevron-left></use></svg></button>
         <input type="date" id="est-dia" class="cot-in" value="${EST_DIA}" style="width:auto">
-        <button class="btn btn-ghost" id="est-next" title="Día siguiente">▶</button>
+        <button class="btn btn-ghost" id="est-next" title="Día siguiente"><svg class=ico aria-hidden=true><use href=#i-chevron-right></use></svg></button>
         <button class="btn btn-ghost" id="est-hoy">Hoy</button>
         <span style="color:var(--text3,#8b949e);margin:0 2px">·</span>
         <span style="color:var(--text3,#8b949e);font-size:12px">Rango:</span>
@@ -523,7 +523,7 @@
           <div class="fld"><label>Más de 6 meses (%)</label><input id="cfg-aj6" class="cot-in" type="number" min="0" step="0.5"></div>
           <div class="fld"><label>Más de 12 meses (%)</label><input id="cfg-aj12" class="cot-in" type="number" min="0" step="0.5"></div>
         </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-gold" id="cfg-guardar">💾 Guardar configuración</button></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-gold" id="cfg-guardar"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar configuración</button></div>
       </div>
 
       <!-- CATÁLOGO DE MARCAS Y MODELOS -->
@@ -640,7 +640,7 @@
         <div id="ped-prog" style="margin:6px 0 12px"></div>
         <div id="ped-body"></div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:12px">
-          <button class="btn btn-ghost" id="ped-finproc" style="color:var(--green,#16a34a)">🏁 Finalizar proceso</button>
+          <button class="btn btn-ghost" id="ped-finproc" style="color:var(--green,#16a34a)"><svg class=ico aria-hidden=true><use href=#i-flag></use></svg> Finalizar proceso</button>
           <button class="btn btn-ghost" id="ped-close">Cerrar</button>
         </div>
       </div>
@@ -659,8 +659,8 @@
         </div>
         <div class="fld" style="margin-top:12px"><label>¿Cómo llega?</label>
           <div style="display:flex;gap:8px">
-            <button type="button" class="btn btn-ghost prov-modo-btn" data-modo="envia" style="flex:1">🚚 Proveedor envía</button>
-            <button type="button" class="btn btn-ghost prov-modo-btn" data-modo="recoge" style="flex:1">🚶 Conserje recoge</button>
+            <button type="button" class="btn btn-ghost prov-modo-btn" data-modo="envia" style="flex:1"><svg class=ico aria-hidden=true><use href=#i-truck></use></svg> Proveedor envía</button>
+            <button type="button" class="btn btn-ghost prov-modo-btn" data-modo="recoge" style="flex:1"><svg class=ico aria-hidden=true><use href=#i-walk></use></svg> Conserje recoge</button>
           </div>
         </div>
         <div class="fld" id="prov-conserje-wrap" style="margin-top:10px;display:none"><label>Nombre del conserje</label>
@@ -680,8 +680,8 @@
         <div id="det-sub" style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:10px"></div>
         <div id="det-body"></div>
         <div class="modal-actions" style="justify-content:space-between;margin-top:14px">
-          <button class="btn btn-ghost" id="det-editar">✏ Abrir cotización</button>
-          <button class="btn btn-gold" id="det-saldo" style="display:none">🧾 Cotizar lo NO facturado</button>
+          <button class="btn btn-ghost" id="det-editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Abrir cotización</button>
+          <button class="btn btn-gold" id="det-saldo" style="display:none"><svg class=ico aria-hidden=true><use href=#i-receipt></use></svg> Cotizar lo NO facturado</button>
           <button class="btn btn-gold" id="det-close">Cerrar</button>
         </div>
       </div>
@@ -1184,7 +1184,7 @@
     } else {
       _piezaAdd = palabra
       h.style.color = 'var(--amber,#f59e0b)'
-      h.innerHTML = `"${esc(palabra)}" no está en el diccionario. Elegí grupo arriba y tocá <button type="button" class="btn btn-ghost" id="cot-det-addpal" style="font-size:11px;padding:2px 8px">➕ Agregar</button>`
+      h.innerHTML = `"${esc(palabra)}" no está en el diccionario. Elegí grupo arriba y tocá <button type="button" class="btn btn-ghost" id="cot-det-addpal" style="font-size:11px;padding:2px 8px"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Agregar</button>`
       const b = $('cot-det-addpal'); if (b) b.addEventListener('click', agregarPalabra)
     }
   }
@@ -1381,7 +1381,7 @@
     cont.innerHTML = list.map(g => {
       const specs = [g.traccion, g.combustible, g.motor ? g.motor + 'L' : '', g.grupo].filter(Boolean)
       const badge = specs.length ? `<span style="font-size:11px;color:var(--blue-fg,#3b82f6);background:rgba(59,130,246,.12);padding:2px 8px;border-radius:10px">${specs.map(esc).join(' · ')}</span>` : '<span style="font-size:11px;color:var(--text3,#8b949e)">general</span>'
-      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${esc(g.traccion || '')}" data-co="${esc(g.combustible || '')}" data-mt="${esc(g.motor || '')}" data-gr="${esc(g.grupo || '')}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)">🗑</button>` : ''
+      const del = ES_SUPER ? `<button class="btn btn-ghost cot-gen-del" data-ma="${esc(g.marca)}" data-mo="${esc(g.modelo)}" data-d="${g.desde}" data-h="${g.hasta}" data-tr="${esc(g.traccion || '')}" data-co="${esc(g.combustible || '')}" data-mt="${esc(g.motor || '')}" data-gr="${esc(g.grupo || '')}" style="font-size:12px;padding:4px 10px;color:var(--red,#f85149)"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>` : ''
       return `<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#2a3340)">
         <div style="flex:1;font-size:13px"><b>${esc(g.marca)} ${esc(g.modelo)}</b> ${badge}</div>
         <div style="font-family:monospace;color:var(--gold,#c8a24a);font-weight:700">${g.desde}–${g.hasta}</div>
@@ -1725,12 +1725,12 @@
     const vieja = it.desc
     if (!nueva) { toast('Escribí la descripción corregida', 'error'); return }
     if (nueva === String(vieja).toUpperCase()) { $('cot-modal-fix').classList.remove('open'); return }
-    const btn = $('cf-guardar'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Corrigiendo…'
+    const btn = $('cf-guardar'); const prev = btn.innerHTML; btn.disabled = true; btn.textContent = 'Corrigiendo…'
     try {
       const { data, error } = await sb().from('cotizador_orden_items')
         .update({ descripcion: nueva }).ilike('descripcion', escLike(vieja)).select('id')
       if (error) throw error
-      if (!data || !data.length) { toast('No se actualizó ninguna línea (revisá permisos)', 'error'); btn.disabled = false; btn.textContent = prev; return }
+      if (!data || !data.length) { toast('No se actualizó ninguna línea (revisá permisos)', 'error'); btn.disabled = false; btn.innerHTML = prev; return }
       const n = data.length
       // Reflejar en la cotización actual (todas las líneas con esa descripción) y limpiar cache de costo
       const vU = String(vieja).toUpperCase()
@@ -1739,7 +1739,7 @@
       toast(`Descripción corregida en ${n} línea(s)`, 'success')
     } catch (e) {
       console.error('[cotizador corregir]', e); toast('Error al corregir: ' + (e.message || e), 'error')
-    } finally { btn.disabled = false; btn.textContent = prev }
+    } finally { btn.disabled = false; btn.innerHTML = prev }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1779,7 +1779,7 @@
         ? ''
         : (chk
             ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px;color:var(--green,#16a34a);border-color:var(--green,#16a34a)" data-solic-add="${i}" title="Agregar a la cotización con su precio de lista">＋ Agregar</button>`
-            : `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-solic-copy="${i}" title="Copiar y buscarlo con Buscar producto">📋 Copiar</button>`)
+            : `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-solic-copy="${i}" title="Copiar y buscarlo con Buscar producto"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Copiar</button>`)
       // La nota del técnico: lo que escribió al inspeccionar. En un punto informativo
       // es QUÉ falta ("le falta la llave de cruz"); en uno normal, un matiz que ayuda
       // a vender ("la trasera derecha está peor"). El cotizador la necesita para saber
@@ -1886,7 +1886,7 @@
       const oc = !!it.oculto
       return `<div class="cot-row"${oc ? ' style="opacity:.5"' : ''}>
         <div>
-          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:var(--red-fg,#f85149)" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px">✏</button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px">👁</button></div>
+          <div style="font-size:13px">${oc ? '<span class="cot-badge" style="background:rgba(248,81,73,.18);color:var(--red-fg,#f85149)" title="El cliente NO autorizó este ítem. No se pide ni se cobra.">✕ NO AUTORIZADO</span>' : ''}${it.hallazgo_linea_id ? `<span class="cot-badge" style="background:rgba(22,163,74,.18);color:#16a34a" title="Vino del checklist del mecánico — paga comisión">🔧 CHECKLIST</span>` : ''}${it.deOrden ? `<span class="cot-badge">#${esc(it.deOrden)}</span>` : ''}${it.nuevo ? '<span style="font-size:9px;font-weight:800;color:#1a1a1a;background:var(--gold-bg,#f0a500);padding:1px 5px;border-radius:6px;margin-right:4px">NUEVO</span>' : ''}<span${oc ? ' style="text-decoration:line-through"' : ''}>${esc(String(it.desc).toUpperCase())}</span> <button data-edit="${i}" title="Editar costo, margen y precio" style="background:none;border:0;color:var(--gold,#c8a24a);cursor:pointer;font-size:12px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button> <button data-eye="${i}" title="Ver/ocultar costos y proveedores" style="background:none;border:0;color:var(--text3,#8b949e);cursor:pointer;font-size:12px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-eye></use></svg></button></div>
           ${it.ajuste ? `<div class="cot-adj">Ajustado ${esc(it.ajuste)}</div>` : ''}
           <div class="cot-cost" data-cost="${i}" style="display:${verTodosCostos ? 'block' : 'none'}"></div>
           <div class="prio-btns" title="Prioridad para el cliente">
@@ -2068,9 +2068,9 @@
     if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return false }
     const orden = (PF.numero_orden || '').trim()
     if (!orden) { toast('El N° de Orden Taller es obligatorio', 'error'); $('cot-orden').focus(); return false }
-    const btn = $('cot-btn-guardar'); const prev = btn.textContent
+    const btn = $('cot-btn-guardar'); const prev = btn.innerHTML
     if (!opts.silencioso) { btn.disabled = true; btn.textContent = 'Guardando...' }
-    const restore = () => { if (!opts.silencioso) { btn.disabled = false; btn.textContent = prev } }
+    const restore = () => { if (!opts.silencioso) { btn.disabled = false; btn.innerHTML = prev } }
     const prof = window._currentProfile ? window._currentProfile() : null
     const t = totales()
     // Validar que la orden no esté ya usada en otra cotización DEL MISMO TIPO
@@ -2834,7 +2834,7 @@
         <div style="min-width:180px;flex:1;font-weight:600;font-size:13px">${esc(p.nombre)}</div>
         <input class="cot-in prov-cont" data-i="${i}" placeholder="Contacto" value="${esc(p.contacto || '')}" style="width:150px">
         <input class="cot-in prov-tel" data-i="${i}" placeholder="Teléfono" value="${esc(p.telefono || '')}" style="width:130px">
-        <button class="btn btn-ghost prov-save" data-i="${i}" style="font-size:12px;padding:5px 10px">💾 Guardar</button>
+        <button class="btn btn-ghost prov-save" data-i="${i}" style="font-size:12px;padding:5px 10px"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar</button>
         ${wa} ${call}
       </div>`
     }).join('')
@@ -2898,20 +2898,20 @@
         const min = difMin(p.creado_en, p.fecha_llegada)
         reloj = `<span style="font-weight:700;color:${colorPrMin(min)}">✓ tardó ${fmtDur(min)}</span>`
         estadoTxt = '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(22,163,74,.18);color:#16a34a;font-weight:700">LLEGÓ</span>'
-        botones = `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-entregar="${p.id}">📦 Entregado</button>`
+        botones = `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-entregar="${p.id}"><svg class=ico aria-hidden=true><use href=#i-package></use></svg> Entregado</button>`
       } else {
         const min = difMin(p.creado_en, null)
         reloj = `<span data-pr-desde="${esc(p.creado_en)}" style="font-weight:700;font-variant-numeric:tabular-nums;color:${colorPrMin(min)}">${fmtDur(min)}</span>`
         estadoTxt = pedido
           ? `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(59,130,246,.18);color:var(--blue-fg,#3b82f6);font-weight:700">PEDIDO${p.proveedor ? ' · ' + esc(p.proveedor) : ''}</span>`
           : '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(139,92,246,.18);color:var(--purple-fg,#8b5cf6);font-weight:700">POR PEDIR</span>'
-        botones = (pend ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-pedir="${p.id}">🚚 Pedir</button>` : '')
+        botones = (pend ? `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-pedir="${p.id}"><svg class=ico aria-hidden=true><use href=#i-truck></use></svg> Pedir</button>` : '')
           + `<button class="btn btn-ghost" style="font-size:11px;padding:4px 9px" data-pr-llego="${p.id}">✓ Llegó</button>`
       }
       return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 4px;border-top:1px solid var(--border,#2a3340)">
         <span style="flex:1;min-width:150px;font-size:13px"><b>${esc(p.repuesto)}</b> <span style="color:var(--text3,#8b949e)">x${fmt(p.cantidad)}</span>${p.vehiculo ? ` · <span style="color:var(--text3,#8b949e)">${esc(p.vehiculo)}</span>` : ''}${p.pedido_por ? ` · <span style="color:var(--text3,#8b949e)">👤 ${esc(p.pedido_por)}</span>` : ''}</span>
         ${estadoTxt} ${reloj} ${botones}
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--red,#f85149)" data-pr-del="${p.id}">🗑</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--red,#f85149)" data-pr-del="${p.id}"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
       </div>`
     }).join('')
   }
@@ -3202,7 +3202,7 @@
       : ''
     const editar = lockOtro
       ? `<span style="font-size:11px;color:var(--amber,#f59e0b);white-space:nowrap;padding:4px 6px" title="La está editando ${esc(p.editando_por || '')}">🔒 En edición</span>`
-      : `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px">✏ Editar</button>`
+      : `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar</button>`
     let accion
     if (esAut) {
       const completo = pr.total === 0 || pr.llegados === pr.total
@@ -3210,7 +3210,7 @@
     } else if (esMost) {
       // Mostrador: lo único que puede pasar es que el cliente vuelva. Ahí se le
       // pone la orden y entra al flujo normal como cualquier solicitada.
-      accion = editar + ` <button class="btn btn-ghost" data-dashact="mostrador-volvio" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)" title="El carro entró al taller: le asigna número de orden y pasa a la cola normal">🚗 El cliente volvió</button>`
+      accion = editar + ` <button class="btn btn-ghost" data-dashact="mostrador-volvio" data-pf="${p.id}" style="font-size:11px;padding:4px 10px;color:var(--green,#16a34a)" title="El carro entró al taller: le asigna número de orden y pasa a la cola normal"><svg class=ico aria-hidden=true><use href=#i-car></use></svg> El cliente volvió</button>`
     } else if (soloParaChecklist(p)) {
       // No tiene nada que cotizar: se creó para habilitar el checklist. Lo único
       // sensato es cerrarla cuando el carro ya siguió su curso por la recomendada.
@@ -3287,11 +3287,11 @@
     const menuId = 'edm-' + String(base.numero_orden || base.id).replace(/[^a-zA-Z0-9_-]/g, '')
     const editarBtns = grp.map(p => {
       const et = p.tipo_solicitud === 'recomendado' ? '💡 Recomendado' : '🔧 Solicitado'
-      return `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:6px 10px;width:100%;text-align:left">✏ ${et}</button>`
+      return `<button class="btn btn-ghost" data-dashact="editar" data-pf="${p.id}" style="font-size:11px;padding:6px 10px;width:100%;text-align:left"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> ${et}</button>`
     }).join('')
     const accion =
       `<div style="position:relative">
-         <button class="btn btn-ghost" data-dashact="editmenu" data-menu="${menuId}" style="font-size:11px;padding:4px 10px">✏ Editar ▾</button>
+         <button class="btn btn-ghost" data-dashact="editmenu" data-menu="${menuId}" style="font-size:11px;padding:4px 10px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar ▾</button>
          <div id="${menuId}" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;z-index:20;background:var(--bg2,#161b22);border:1px solid var(--border,#2a2e37);border-radius:8px;padding:4px;min-width:150px;box-shadow:0 6px 20px rgba(0,0,0,.4)">${editarBtns}</div>
        </div>
        <button class="btn btn-ghost" data-dashact="finalizar-multi" data-ids="${ids.join(',')}" style="font-size:11px;padding:4px 10px;color:${completo ? 'var(--green,#16a34a)' : 'var(--text3,#8b949e)'}${completo ? '' : ';opacity:.45;cursor:not-allowed'}"${completo ? '' : ` disabled title="Faltan productos por llegar (${pr.llegados}/${pr.total})"`}>Finalizar</button>`
@@ -3576,8 +3576,8 @@
     const barra = (lbl, a, b, p, color) => `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--text3,#8b949e)">${lbl}</span><span style="font-weight:700;color:${color}">${a}/${b} (${p}%)</span></div><div style="height:7px;background:var(--bg3,#1c2333);border-radius:5px;overflow:hidden"><div style="height:100%;width:${p}%;background:${color}"></div></div></div>`
     $('ped-prog').innerHTML = barra('Productos llegados' + (pr.estado ? ' · ' + pr.estado : ''), pr.llegados, pr.total, pct, pr.color) + barra('📋 Facturados', facturados, totalItems, fpct, fcolor)
     const facBtn = (it, i) => it.facturado
-      ? `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Desmarcar facturado" style="color:var(--text3,#8b949e)">↩</button>`
-      : `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Copiar descripción y marcar facturado" style="color:var(--green,#16a34a);border-color:var(--green,#16a34a)">📋</button>`
+      ? `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Desmarcar facturado" style="color:var(--text3,#8b949e)"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg></button>`
+      : `<button class="ped-btn" data-pedact="facturar" data-i="${i}" title="Copiar descripción y marcar facturado" style="color:var(--green,#16a34a);border-color:var(--green,#16a34a)"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg></button>`
     const facBadge = (it) => it.facturado ? ` <span class="ped-badge" style="background:rgba(22,163,74,.15);color:var(--green,#16a34a)">📋 Facturado</span>` : ''
     const dimF = (it) => it.facturado ? 'opacity:.6' : ''
     const prods = []; const servs = []
@@ -3616,8 +3616,8 @@
       const lineIsv = base * (Number(it.isv) || 0) / 100
       const precioLn = `<div style="font-size:12px;color:var(--gold,#c8a24a);font-weight:600;margin-top:2px">Subtotal: L. ${fmt(base)}${it.isv ? ` <span style="color:var(--text3,#8b949e);font-weight:400">+ ISV L. ${fmt(lineIsv)}</span>` : ''}</div>`
       let botones = ''
-      if (seg === 'llegado') botones = `<button class="ped-btn" data-pedact="revertir" data-i="${i}">↩ Revertir</button>`
-      else if (seg === 'pedido') botones = `<button class="ped-btn ped-llego" data-pedact="llego" data-i="${i}">✓ Llegó</button> <button class="ped-btn" data-pedact="revertir" data-i="${i}">↩</button>`
+      if (seg === 'llegado') botones = `<button class="ped-btn" data-pedact="revertir" data-i="${i}"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg> Revertir</button>`
+      else if (seg === 'pedido') botones = `<button class="ped-btn ped-llego" data-pedact="llego" data-i="${i}">✓ Llegó</button> <button class="ped-btn" data-pedact="revertir" data-i="${i}"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg></button>`
       else botones = `<button class="ped-btn ped-pedir" data-pedact="pedir" data-i="${i}">Pedir</button> <button class="ped-btn ped-bodega" data-pedact="bodega" data-i="${i}">Bodega</button>`
       return `<div class="ped-row" style="${dimF(it)}">
         <div style="min-width:0"><div style="font-size:13px">${pedOrigenChip(it)}${esc(String(it.desc).toUpperCase())}${facBadge(it)}</div><div style="font-size:11px;color:var(--text3,#8b949e)">Cant: ${fmt(it.cantidad)} · ${estadoTxt}</div>${precioLn}<div class="cot-cost" data-pcost="${i}" style="margin-top:3px"></div></div>
@@ -4368,12 +4368,12 @@
     }
     const acciones = compacto
       ? `<button class="btn btn-ghost" data-act="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 10px">Abrir</button>`
-      : `<button class="btn btn-ghost" data-act="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 8px">✏ Editar</button>` +
+      : `<button class="btn btn-ghost" data-act="editar" data-pf="${p.id}" style="font-size:11px;padding:4px 8px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar</button>` +
         (est === 'pendiente' ? `<button class="btn btn-ghost" data-act="autorizar" data-pf="${p.id}" style="font-size:11px;padding:4px 8px;color:var(--green,#16a34a)">✓ Autorizar</button>` : '') +
-        `<button class="btn btn-ghost" data-act="pdf" data-pf="${p.id}" style="font-size:11px;padding:4px 8px">📄 PDF</button>` +
-        `<button class="btn btn-ghost" data-act="ot" data-pf="${p.id}" style="font-size:11px;padding:4px 8px">🔧 OT</button>` +
+        `<button class="btn btn-ghost" data-act="pdf" data-pf="${p.id}" style="font-size:11px;padding:4px 8px"><svg class=ico aria-hidden=true><use href=#i-file-text></use></svg> PDF</button>` +
+        `<button class="btn btn-ghost" data-act="ot" data-pf="${p.id}" style="font-size:11px;padding:4px 8px"><svg class=ico aria-hidden=true><use href=#i-tool></use></svg> OT</button>` +
         `<button class="btn btn-ghost" data-act="duplicar" data-pf="${p.id}" style="font-size:11px;padding:4px 8px">⧉ Duplicar</button>` +
-        `<button class="btn btn-ghost" data-act="eliminar" data-pf="${p.id}" style="font-size:11px;padding:4px 8px;color:var(--red,#f85149)">🗑</button>`
+        `<button class="btn btn-ghost" data-act="eliminar" data-pf="${p.id}" style="font-size:11px;padding:4px 8px;color:var(--red,#f85149)"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>`
     return `<div class="cot-hrow">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:600">${esc(num)} · ${esc(p.placa || 's/placa')} ${p.estado ? `<span class="cot-estado ${esc(est)}">${esc(est)}</span>` : ''}</div>
@@ -4478,7 +4478,7 @@
     Object.keys(CFG_MAP).forEach(id => { const el = $(id); if (el) data[CFG_MAP[id]] = el.value })
     data.vigencia_dias = num($('cfg-vig').value) || 30
     data.aj_3 = num($('cfg-aj3').value); data.aj_6 = num($('cfg-aj6').value); data.aj_12 = num($('cfg-aj12').value)
-    const btn = $('cfg-guardar'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Guardando...'
+    const btn = $('cfg-guardar'); const prev = btn.innerHTML; btn.disabled = true; btn.textContent = 'Guardando...'
     try {
       const { data: upd, error } = await sb().from('cotizador_config').update({ data, updated_at: new Date().toISOString() }).eq('id', 1).select('id')
       if (error) throw error
@@ -4486,7 +4486,7 @@
       CFG = Object.assign({}, DEFAULT_CFG, data)
       toast('Configuración guardada', 'success')
     } catch (e) { console.error('[cotizador saveConfig]', e); toast('Error al guardar la configuración', 'error') }
-    finally { btn.disabled = false; btn.textContent = prev }
+    finally { btn.disabled = false; btn.innerHTML = prev }
   }
 
   // ══════════════════════════════════════════════════════════
@@ -4570,10 +4570,10 @@
     if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return }
     ;(PF.items || []).forEach(it => { if (it && it.nuevo) delete it.nuevo })   // se incluyen en el PDF → dejan de ser "nuevos"
     ordenarPF(); renderItems()
-    const btn = $('cot-btn-pdf'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Guardando…'
+    const btn = $('cot-btn-pdf'); const prev = btn.innerHTML; btn.disabled = true; btn.textContent = 'Guardando…'
     try {
       const ok = await guardarProforma({ silencioso: true })   // guarda y asigna el número
-      if (!ok) { btn.disabled = false; btn.textContent = prev; return }  // faltó orden/cliente/ítems
+      if (!ok) { btn.disabled = false; btn.innerHTML = prev; return }  // faltó orden/cliente/ítems
       await capturarPresentacion()   // foto de lo presentado al cliente (para Seguimiento)
       await marcarProcInicio()       // arranca Fase 1 (autorización) en el primer PDF
       btn.textContent = 'Generando…'
@@ -4598,16 +4598,16 @@
       toast('Cotización N° ' + numeroProforma() + ' guardada e impresa', 'success')
     } catch (e) {
       console.error('[cotizador PDF]', e); toast('Error al generar PDF: ' + (e.message || e), 'error')
-    } finally { btn.disabled = false; btn.textContent = prev }
+    } finally { btn.disabled = false; btn.innerHTML = prev }
   }
 
   async function generarOrdenTrabajo () {
     if (!PF.items.length) { toast('Agregá al menos un ítem', 'error'); return }
     ordenarPF(); renderItems()
-    const btn = $('cot-btn-ot'); const prev = btn.textContent; btn.disabled = true; btn.textContent = 'Generando...'
+    const btn = $('cot-btn-ot'); const prev = btn.innerHTML; btn.disabled = true; btn.textContent = 'Generando...'
     try { await ordenTrabajoPDF(PF); toast('Orden de trabajo generada', 'success') } catch (e) {
       console.error('[cotizador OT]', e); toast('Error al generar la orden: ' + (e.message || e), 'error')
-    } finally { btn.disabled = false; btn.textContent = prev }
+    } finally { btn.disabled = false; btn.innerHTML = prev }
   }
 
   // Orden de trabajo: PDF interno del taller, SIN precios, con prioridad,

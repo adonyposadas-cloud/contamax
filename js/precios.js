@@ -177,8 +177,8 @@ window.__preciosBuild = '20260714d'
     return `<tr>
       <td>
         <div style="font-weight:600;color:${sinPrecio && paga ? '#f85149' : '#e6edf3'}">${esc(r.nombre)}
-          ${editable ? `<button onclick="prRenombrar('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', this)" data-nombre="${esc(r.nombre)}" title="Corregir el nombre" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px">✏</button>
-          <button onclick="prPrecio('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', ${r.precio_base ?? 'null'})" title="Editar precio base" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px">💲</button>` : ''}
+          ${editable ? `<button onclick="prRenombrar('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', this)" data-nombre="${esc(r.nombre)}" title="Corregir el nombre" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
+          <button onclick="prPrecio('${r.id}','${r.tipo === 'servicio' ? 's' : 'p'}', ${r.precio_base ?? 'null'})" title="Editar precio base" style="background:none;border:0;color:var(--text3,#6e7681);cursor:pointer;font-size:11px;padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-currency-dollar></use></svg></button>` : ''}
         </div>
         <div style="font-size:10px;color:var(--text3,#6e7681);font-family:monospace">${esc(r.codigo)}</div>
       </td>

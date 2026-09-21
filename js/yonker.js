@@ -435,7 +435,7 @@ async function ykRenderReportes() {
         <select id="yk-mar-adesde" onchange="ykAplicarReporte()"><option value="">—</option>${mAnios.map(a => `<option value="${a}">${a}</option>`).join('')}</select></div>
       <div class="fld yk-fld-margen"><label>Año hasta</label>
         <select id="yk-mar-ahasta" onchange="ykAplicarReporte()"><option value="">—</option>${mAnios.map(a => `<option value="${a}">${a}</option>`).join('')}</select></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExportReporte()">📥 Exportar Excel</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExportReporte()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar Excel</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykVResumen=null;ykVMargen=null;ykVRotacion=null;ykVDetalle=null;ykRenderReportes()">↻ Refrescar</button></div>
     </div>
     <div id="yk-rep-cards"></div>
@@ -795,7 +795,7 @@ function ykRenderDevoluciones() {
         <label>Buscar (factura / vehículo / producto)</label>
         <input id="yk-dev-q" type="text" placeholder="Ej: 1542  ·  126  ·  motor" onkeydown="if(event.key==='Enter')ykBuscarDev()">
       </div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykBuscarDev()">🔎 Buscar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykBuscarDev()"><svg class=ico aria-hidden=true><use href=#i-search></use></svg> Buscar</button></div>
     </div>
     <div id="yk-dev-result"></div>`
   setTimeout(() => { const i = document.getElementById('yk-dev-q'); if (i) i.focus() }, 50)
@@ -818,7 +818,7 @@ window.ykBuscarDev = async () => {
       const dev = l.es_devolucion
       const accion = dev
         ? '<span style="color:var(--red-fg,#e06060);font-size:11px">devolución</span>'
-        : `<button class="btn btn-ghost" style="padding:4px 10px" onclick="ykDevolver('${l.id}')">↩ Devolver</button>`
+        : `<button class="btn btn-ghost" style="padding:4px 10px" onclick="ykDevolver('${l.id}')"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg> Devolver</button>`
       return `<tr${dev ? ' style="opacity:.7"' : ''}>
         <td>${l.fecha || ''}</td>
         <td>${l.factura || '—'}</td>
@@ -1142,7 +1142,7 @@ function ykRenderExplorar() {
       <div class="fld"><label>Año desde</label><select id="yk-exp-ad" style="width:95px" onchange="ykExpAnioGuard('ad')"><option value="">—</option></select></div>
       <div class="fld"><label>Año hasta</label><select id="yk-exp-ah" style="width:95px" onchange="ykExpAnioGuard('ah')"><option value="">—</option></select></div>
       <div class="fld"><label>Producto (filtro 2)</label><input id="yk-exp-prod" type="text" style="width:150px" placeholder="ej. motor" onkeydown="if(event.key==='Enter')ykExplorar()"></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykExplorar()">🔎 Buscar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykExplorar()"><svg class=ico aria-hidden=true><use href=#i-search></use></svg> Buscar</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykExplorarLimpiar()">Limpiar</button></div>
     </div>
     <div id="yk-exp-unidades"></div>
@@ -1220,20 +1220,20 @@ function ykRenderCotizar() {
       <div class="fld"><label>Marca</label><select id="yk-cot-mar" style="width:150px" onchange="ykCotMarcaChange()"><option value="">(todas)</option></select></div>
       <div class="fld"><label>Modelo</label><select id="yk-cot-mod" style="width:160px" onchange="ykCotYearsUpdate(false);ykOnAnioVeh()"><option value="">(todos)</option></select></div>
       <div class="fld"><label>Año del vehículo</label><input id="yk-cot-anioveh" type="text" inputmode="numeric" maxlength="4" style="width:90px" placeholder="ej. 2014" oninput="this.value=this.value.replace(/\D/g,'');ykOnAnioVeh()"></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykAbrirDetalle()" title="Tracción / combustible / grupo">➕ Detalle</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykAbrirDetalle()" title="Tracción / combustible / grupo"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Detalle</button></div>
       <div class="fld"><label>Año desde</label><select id="yk-cot-ad" style="width:95px" onchange="ykUnidadesPanel('yk-cot')"><option value="">—</option></select></div>
       <div class="fld"><label>Año hasta</label><select id="yk-cot-ah" style="width:95px" onchange="ykUnidadesPanel('yk-cot')"><option value="">—</option></select></div>
       <div class="fld"><label>Pieza</label><input id="yk-cot-pza" type="text" style="width:160px" placeholder="ej. tijera" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
       <div class="fld"><label>Sub-pieza (refinar)</label><input id="yk-cot-sub" type="text" style="width:140px" placeholder="ej. delantera" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
       <div class="fld"><label>Precio desde</label><input id="yk-cot-pmin" type="number" style="width:110px" placeholder="ej. 500" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
       <div class="fld"><label>Precio hasta</label><input id="yk-cot-pmax" type="number" style="width:110px" placeholder="ej. 5000" onkeydown="if(event.key==='Enter')ykCotizar()"></div>
-      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykCotizar()">💵 Cotizar</button></div>
+      <div class="fld"><label>&nbsp;</label><button class="btn btn-gold" onclick="ykCotizar()"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg> Cotizar</button></div>
       <div class="fld"><label>&nbsp;</label><button class="btn btn-ghost" onclick="ykCotLimpiar()">Limpiar</button></div>
     </div>
     <div id="yk-cot-genhint" style="font-size:12px;margin:-6px 0 8px;min-height:16px"></div><span id="yk-cot-detresumen" style="color:var(--gold,#d4af37);font-size:12px"></span>
     ${ykPuedeCotizaciones() ? `<div style="margin:-4px 0 10px;display:flex;gap:8px">
-      <button class="btn btn-ghost" onclick="ykCotAgregar()">➕ Agregar cotización histórica</button>
-      <button class="btn btn-ghost" onclick="ykCotGestionar()">📋 Cotizaciones guardadas</button>
+      <button class="btn btn-ghost" onclick="ykCotAgregar()"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Agregar cotización histórica</button>
+      <button class="btn btn-ghost" onclick="ykCotGestionar()"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Cotizaciones guardadas</button>
     </div>` : ''}
     <div id="yk-cot-unidades"></div>
     <div id="yk-cot-cards"></div>
@@ -1616,7 +1616,7 @@ window.ykHintPieza = () => {
     if (h) { h.style.color = '#16a34a'; h.textContent = `→ "${palabra}" es del grupo ${grupo}` }
   } else {
     _ykPiezaAdd = palabra
-    if (h) { h.style.color = '#e0a800'; h.innerHTML = `"${palabra}" no está en el diccionario. Elegí grupo arriba y tocá <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="ykAgregarPalabra()">➕ Agregar</button>` }
+    if (h) { h.style.color = '#e0a800'; h.innerHTML = `"${palabra}" no está en el diccionario. Elegí grupo arriba y tocá <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="ykAgregarPalabra()"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Agregar</button>` }
   }
 }
 window.ykAgregarPalabra = async () => {
@@ -1694,7 +1694,7 @@ window.ykCotizar = async () => {
     </tr>`
     }).join('')
     cont.innerHTML = `
-      ${ykEsSuper() ? '<div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-ghost" onclick="ykCotExport()">📥 Exportar Excel</button></div>' : ''}
+      ${ykEsSuper() ? '<div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-ghost" onclick="ykCotExport()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar Excel</button></div>' : ''}
       <div class="table-wrap" style="max-height:520px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>Pieza (producto)</th><th class="yk-num">Ventas</th><th class="yk-num">Cot.</th><th class="yk-num">Mín</th><th class="yk-num">Prom</th><th class="yk-num">Máx</th><th>Última</th><th>Último cliente</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
@@ -1834,7 +1834,7 @@ window.ykRenderExpResult = () => {
   if (cards) cards.innerHTML = all.length ? `<div class="yk-cards">
     ${esSuper ? `<div class="yk-card ok"><div class="v">${ykFmt(venta)}</div><div class="l">Venta ${sel ? 'del veh. ' + sel : 'filtrada'} (L.)</div></div>` : ''}
     <div class="yk-card"><div class="v">${ykFmt0(lineas.length)}</div><div class="l">Líneas${sel ? ' · veh. ' + sel : ''}</div></div>
-    ${esSuper ? `<div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()">📥 Exportar Excel</button></div>` : ''}</div>` : ''
+    ${esSuper ? `<div class="yk-card" style="display:flex;align-items:center;justify-content:center"><button class="btn btn-ghost" onclick="ykExpExport()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar Excel</button></div>` : ''}</div>` : ''
   if (!all.length) { cont.innerHTML = '<div class="page-sub">Sin resultados para esos filtros.</div>'; return }
   const nota = sel
     ? `<div class="page-sub" style="margin:4px 0">Mostrando solo el vehículo <b>${sel}</b> · <a onclick="ykChipVeh('${String(sel).replace(/'/g, "\\'")}')" style="cursor:pointer;color:var(--gold,#d4af37)">ver todos</a></div>`
@@ -1958,7 +1958,7 @@ window.ykCotGestionar = async () => {
       <td class="yk-num">${ykRangoPrecio(c.precio, c.precio_max)}</td>
       <td>${(c.creado_en || '').slice(0, 10)}</td>
       <td>${c.creado_por || ''}</td>
-      <td>${ykEsSuper() ? `<button class="btn btn-ghost" style="padding:1px 8px" onclick="ykCotEliminar('${c.id}')">🗑️</button>` : ''}</td>
+      <td>${ykEsSuper() ? `<button class="btn btn-ghost" style="padding:1px 8px" onclick="ykCotEliminar('${c.id}')"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>` : ''}</td>
     </tr>`).join('')
     body.innerHTML = `<div class="table-wrap" style="max-height:460px;overflow:auto">
       <table class="yk-tbl"><thead><tr><th>Vehículo</th><th>Pieza</th><th class="yk-num">Precio</th><th>Fecha</th><th>Por</th><th></th></tr></thead>
@@ -2026,7 +2026,7 @@ window.ykRenderUnidades = () => {
       <div class="fld"><label>Fecha del contenedor</label>
         <input id="yk-uni-fecha" type="date" value="${hoy}" style="width:170px" onchange="ykUniRefrescar()">
       </div>
-      <button class="btn" onclick="ykUniPlantilla()">📥 Descargar plantilla</button>
+      <button class="btn" onclick="ykUniPlantilla()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Descargar plantilla</button>
     </div>
 
     <div class="yk-ctrl" style="margin:12px 0">

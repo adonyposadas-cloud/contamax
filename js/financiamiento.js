@@ -148,8 +148,8 @@ function renderPrestamosTable() {
       <td style="font-size:12px;color:var(--text3)">${fechaUlt}</td>
       <td style="text-align:center;font-family:var(--mono);font-weight:500;color:${diasColor}">${p.dias_sin_pago || 0}d</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
-        ${esSA ? `<button onclick="abrirLiquidacion('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Generar recibo">🧾</button>
-          <button onclick="editarPrestamo('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar">✏️</button>` : '👁'}
+        ${esSA ? `<button onclick="abrirLiquidacion('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Generar recibo"><svg class=ico aria-hidden=true><use href=#i-receipt></use></svg></button>
+          <button onclick="editarPrestamo('${p.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : '👁'}
       </td></tr>`
   }).join('')
 }
@@ -271,8 +271,8 @@ window.verDetallePrestamo = async (ref) => {
         <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${getFmt(r.saldo_actual)}</td>
         <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3)" title="${r.concepto || ''}">${r.concepto || '—'}</td>
         <td style="text-align:center;white-space:nowrap">
-          <button onclick="reimprimirRecibo('${r.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--blue)" title="Reimprimir recibo">🖨️</button>
-          ${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo},'${p.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo">🗑️</button>` : ''}
+          <button onclick="reimprimirRecibo('${r.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--blue)" title="Reimprimir recibo"><svg class=ico aria-hidden=true><use href=#i-printer></use></svg></button>
+          ${idx === 0 ? `<button onclick="eliminarRecibo('${r.id}','${codigo}',${r.numero_recibo},'${p.id}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--red)" title="Eliminar y reversar recibo"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>` : ''}
         </td>
       </tr>`).join('')}</tbody></table>
     </div>`
@@ -658,7 +658,7 @@ function renderLiquidacion() {
         <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
           <div id="liq-concepto-display" style="font-size:12px;color:var(--text3);flex:1">${d.concepto}</div>
           <input type="text" id="liq-concepto-input" value="${d.concepto}" oninput="liquidacionData.concepto=this.value" style="display:none;flex:1;font-size:12px;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;color:var(--text);text-transform:uppercase">
-          <button onclick="toggleEditConcepto()" id="btn-edit-concepto" style="background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text3);cursor:pointer;white-space:nowrap">✏️ Editar</button>
+          <button onclick="toggleEditConcepto()" id="btn-edit-concepto" style="background:none;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text3);cursor:pointer;white-space:nowrap"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar</button>
         </div>
       </div>
     </div>

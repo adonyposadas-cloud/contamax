@@ -152,7 +152,7 @@ function cpRender() {
         <span>Débitos abiertos: <strong>${cpMovs.debe.filter(pend).length}</strong> · L. ${cpFmt(totD)}</span>
         <span>Créditos abiertos: <strong>${cpMovs.haber.filter(pend).length}</strong> · L. ${cpFmt(totH)}</span>
         <span>Pendiente neto: <strong style="color:${Math.abs(totD - totH) < 0.01 ? 'var(--green)' : 'var(--amber)'}">L. ${cpFmt(totD - totH)}</strong></span>
-        <button class="btn btn-ghost" onclick="cpExportarXLSX()" style="padding:5px 12px;font-size:12px">📊 Exportar Excel</button>
+        <button class="btn btn-ghost" onclick="cpExportarXLSX()" style="padding:5px 12px;font-size:12px"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Exportar Excel</button>
       </div>`
   }
 

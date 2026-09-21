@@ -1537,7 +1537,7 @@ window.initRentabilidadTaxis = async function () {
         <div class="page-title">📊 Rentabilidad por unidad</div>
         <div class="page-sub">Ingresos y egresos por taxi en un rango de fechas</div>
       </div>
-      <button class="btn btn-ghost" id="btn-rent-xlsx" style="display:none" onclick="exportRentabilidadXlsx()">📊 Exportar Excel</button>
+      <button class="btn btn-ghost" id="btn-rent-xlsx" style="display:none" onclick="exportRentabilidadXlsx()"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Exportar Excel</button>
     </div>
 
     <div class="form-card" style="margin-bottom:16px">
@@ -1856,7 +1856,7 @@ window.initSaldosCuentas = function () {
         <div class="page-title">💰 Saldos de cuentas</div>
         <div class="page-sub">Saldo a una fecha de corte · sin movimientos</div>
       </div>
-      <button class="btn btn-ghost" id="btn-sc-xlsx" style="display:none" onclick="exportarSaldosXLSX()">📊 Exportar Excel</button>
+      <button class="btn btn-ghost" id="btn-sc-xlsx" style="display:none" onclick="exportarSaldosXLSX()"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Exportar Excel</button>
     </div>
 
     <div class="form-card" style="margin-bottom:16px">
@@ -2177,7 +2177,7 @@ window.initBalanceGeneral = function () {
         <div class="page-title">📗 Balance general</div>
         <div class="page-sub">Situación financiera a una fecha de corte</div>
       </div>
-      <button class="btn btn-ghost" id="btn-bg-xlsx" style="display:none" onclick="exportarBalanceGeneralXLSX()">📊 Exportar Excel</button>
+      <button class="btn btn-ghost" id="btn-bg-xlsx" style="display:none" onclick="exportarBalanceGeneralXLSX()"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Exportar Excel</button>
     </div>
 
     <div class="form-card" style="margin-bottom:16px">

@@ -380,11 +380,11 @@ function rtxRender() {
             <div><span>Subido</span><b>${rtxFechaHora(e.created_at)}</b></div>
           </div>
           <div class="rtx-acts">
-            <button class="rtx-b ghost" onclick="rtxVer7dias('${e.identidad}','${e.unidad}','${e.fecha_deposito}')">📅 7 días</button>
+            <button class="rtx-b ghost" onclick="rtxVer7dias('${e.identidad}','${e.unidad}','${e.fecha_deposito}')"><svg class=ico aria-hidden=true><use href=#i-calendar></use></svg> 7 días</button>
             ${gpsCaido ? waBtn(msgGps, '📡 Avisar GPS', 'conex') : ''}
             ${acciones}
-            ${rtxEsSuper() ? `<button class="rtx-b edit" onclick="rtxEditar('${e.id}')">✏️ Editar</button>` : ''}
-            <button class="rtx-b del" onclick="rtxEliminar('${e.id}')">🗑 Eliminar</button>
+            ${rtxEsSuper() ? `<button class="rtx-b edit" onclick="rtxEditar('${e.id}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar</button>` : ''}
+            <button class="rtx-b del" onclick="rtxEliminar('${e.id}')"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg> Eliminar</button>
           </div>
         </div>
       </div>`
@@ -837,12 +837,12 @@ function rtxDashPendiente(p) {
   const sinHist = (p.dias_sin === null || p.dias_sin === undefined)
   const msg = encodeURIComponent(`Hola ${p.nombre || ''}, te escribimos de Tecnimax. ${sinHist ? 'No tenemos entregas recientes registradas' : `Tenés ${p.dias_sin} día(s) sin entregar (última: ${p.ultima_entrega})`}. Por favor comunicate para coordinar tu pago. Gracias.`)
   const waBtn = tel
-    ? `<button class="rtx-b wa" onclick="rtxWa('${tel}','${msg}')">💬 WhatsApp</button>`
+    ? `<button class="rtx-b wa" onclick="rtxWa('${tel}','${msg}')"><svg class=ico aria-hidden=true><use href=#i-message></use></svg> WhatsApp</button>`
     : `<button class="rtx-b ghost" disabled>Sin teléfono</button>`
   const llamarBtn = tel ? `<a class="rtx-b call" href="tel:${tel}">📞 Llamar</a>` : ''
   const nc = p.notas_count || 0
   const identNorm = String(p.identidad || '').replace(/\D/g, '')
-  const notasBtn = `<button class="rtx-b notas" data-ident="${identNorm}" onclick="rtxNotasAbrir('${p.identidad}','${p.unidad}','${(p.nombre || '').replace(/'/g, '')}')">📝 Notas${nc ? ' (' + nc + ')' : ''}</button>`
+  const notasBtn = `<button class="rtx-b notas" data-ident="${identNorm}" onclick="rtxNotasAbrir('${p.identidad}','${p.unidad}','${(p.nombre || '').replace(/'/g, '')}')"><svg class=ico aria-hidden=true><use href=#i-notes></use></svg> Notas${nc ? ' (' + nc + ')' : ''}</button>`
   // Texto y color del badge según días sin entregar (idéntico al Sheets)
   let diasCls, diasLabel
   if (sinHist) { diasCls = 'gris'; diasLabel = 'Sin entregas registradas' }
@@ -860,7 +860,7 @@ function rtxDashPendiente(p) {
         Última: ${p.ultima_entrega} · Saldo: L. ${rtxFmt(p.saldo)}${p.caja ? ' · Caja: ' + p.caja : ''}${p.grupo ? ' · Grupo ' + p.grupo : ''}
       </div>
       <div class="dash-pend-acc">
-        <button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')">📅 7 días</button>
+        <button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')"><svg class=ico aria-hidden=true><use href=#i-calendar></use></svg> 7 días</button>
         ${notasBtn}${waBtn}${llamarBtn}
       </div>
     </div>`
@@ -983,8 +983,8 @@ function rtxDashPintar() {
   // ── Barra de auditoría (solo cuando la fecha es hoy) ──
   const auditBar = esHoy ? `
     <div class="dash-audit-bar">
-      <button class="dash-audit-btn ${rtxDashAudit === 'no_entrego' ? 'on' : ''}" onclick="rtxDashAuditar('no_entrego')">🔎 Trabajó y no entregó</button>
-      <button class="dash-audit-btn ${rtxDashAudit === 'no_cubrio' ? 'on' : ''}" onclick="rtxDashAuditar('no_cubrio')">💰 Entregó pero no cubrió</button>
+      <button class="dash-audit-btn ${rtxDashAudit === 'no_entrego' ? 'on' : ''}" onclick="rtxDashAuditar('no_entrego')"><svg class=ico aria-hidden=true><use href=#i-search></use></svg> Trabajó y no entregó</button>
+      <button class="dash-audit-btn ${rtxDashAudit === 'no_cubrio' ? 'on' : ''}" onclick="rtxDashAuditar('no_cubrio')"><svg class=ico aria-hidden=true><use href=#i-moneybag></use></svg> Entregó pero no cubrió</button>
       <span class="dash-audit-hint">Trabajó = recorrió más de ${RTX_KM_TRABAJO} km</span>
     </div>` : ''
 
@@ -1271,7 +1271,7 @@ window.rtxAudGuardadas = async (solo) => {
     })
     const sel = on => on ? 'border-color:var(--gold,#d4af37);color:var(--gold,#d4af37)' : ''
     const toggle = `<div style="display:flex;gap:6px;margin-bottom:12px">
-      <button class="rtx-aud-back" style="${sel(!rtxAudSoloFecha)}" onclick="rtxAudGuardadas(false)">📅 Todas las fechas</button>
+      <button class="rtx-aud-back" style="${sel(!rtxAudSoloFecha)}" onclick="rtxAudGuardadas(false)"><svg class=ico aria-hidden=true><use href=#i-calendar></use></svg> Todas las fechas</button>
       <button class="rtx-aud-back" style="${sel(rtxAudSoloFecha)}" onclick="rtxAudGuardadas(true)">Solo ${rtxDashFecha}</button>
     </div>`
     if (!lista.length) {
@@ -1311,7 +1311,7 @@ window.rtxAudVer = async (id) => {
     body.innerHTML = `
       <div style="display:flex;gap:6px;margin-bottom:10px">
         <button class="rtx-aud-back" onclick="rtxAudGuardadas()">← Volver a la lista</button>
-        <button class="rtx-aud-back" onclick="rtxAudExportGuardada()">📥 Exportar a Excel</button>
+        <button class="rtx-aud-back" onclick="rtxAudExportGuardada()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar a Excel</button>
       </div>
       <div class="m" style="font-size:12px;color:#8a8f98;margin-bottom:10px">${tipoTxt} · auditado ${data.fecha_auditada} · KM del ${data.dia_km || '—'} · guardado ${rtxFechaHora(data.created_at)} por ${data.generado_nombre || '—'}</div>
       <table class="rtx-aud-tbl"><thead>${head}</thead><tbody>${filas || ''}</tbody></table>`
@@ -1363,15 +1363,15 @@ function rtxDashAuditCard() {
   if (d.error) return `<div class="dash-card"><div class="rtx-empty">Error: ${d.error}</div></div>`
   const diaTxt = d.diaKM || 'sin KM previo'
   const volver = '<button class="rtx-b ghost dash-audit-volver" onclick="rtxDashAuditCerrar()">← Volver al dashboard</button>'
-  const exportar = '<button class="rtx-b dash-audit-export" onclick="rtxDashAuditExportar()">📥 Exportar a Excel</button>'
-  const guardar = '<button class="rtx-b dash-audit-save" onclick="rtxDashAuditGuardar()">💾 Guardar snapshot</button>'
-  const guardadas = '<button class="rtx-b" onclick="rtxAudGuardadas()">🗂 Guardadas</button>'
+  const exportar = '<button class="rtx-b dash-audit-export" onclick="rtxDashAuditExportar()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar a Excel</button>'
+  const guardar = '<button class="rtx-b dash-audit-save" onclick="rtxDashAuditGuardar()"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar snapshot</button>'
+  const guardadas = '<button class="rtx-b" onclick="rtxAudGuardadas()"><svg class=ico aria-hidden=true><use href=#i-folders></use></svg> Guardadas</button>'
   const barraAcc = `<div class="dash-audit-actions">${volver}${guardar}${exportar}${guardadas}</div>`
   const accPend = (p) => {
     const wa = p.telefono
-      ? `<button class="rtx-b wa" onclick="rtxWa('${p.telefono}','${encodeURIComponent('Hola ' + (p.nombre || '') + ', te escribimos de Tecnimax para coordinar tu entrega. Gracias.')}')">💬 WhatsApp</button><a class="rtx-b call" href="tel:${p.telefono}">📞 Llamar</a>`
+      ? `<button class="rtx-b wa" onclick="rtxWa('${p.telefono}','${encodeURIComponent('Hola ' + (p.nombre || '') + ', te escribimos de Tecnimax para coordinar tu entrega. Gracias.')}')"><svg class=ico aria-hidden=true><use href=#i-message></use></svg> WhatsApp</button><a class="rtx-b call" href="tel:${p.telefono}">📞 Llamar</a>`
       : ''
-    return `<button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')">📅 7 días</button>${wa}`
+    return `<button class="rtx-b ghost" onclick="rtxVer7dias('${p.identidad}','${p.unidad}','${rtxDashFecha}')"><svg class=ico aria-hidden=true><use href=#i-calendar></use></svg> 7 días</button>${wa}`
   }
   if (rtxDashAudit === 'no_entrego') {
     const rows = d.lista.map(p => `
@@ -1484,7 +1484,7 @@ async function rtxNotasCargar() {
     const esSuper = rtxEsSuper()
     cont.innerHTML = notas.map(n => {
       const color = rtxColorAutor(n.autor)
-      const arch = esSuper ? `<button class="rtx-nota-arch" title="Archivar nota" onclick="rtxNotaArchivar('${n.id}')">📦</button>` : ''
+      const arch = esSuper ? `<button class="rtx-nota-arch" title="Archivar nota" onclick="rtxNotaArchivar('${n.id}')"><svg class=ico aria-hidden=true><use href=#i-package></use></svg></button>` : ''
       return `<div class="rtx-nota" style="border-left:3px solid ${color}">
         <div class="rtx-nota-top">
           <span class="rtx-nota-autor" style="background:${color}22;color:${color}">${n.autor}</span>
@@ -1688,9 +1688,9 @@ function rtxMotPintar() {
   const search = `<input id="rtx-mot-search" class="rtx-search" type="text" placeholder="Buscar por unidad, nombre o identidad…" value="${rtxMotBusqueda.replace(/"/g, '&quot;')}" oninput="rtxMotBuscar(this.value)" autocomplete="off">`
   const ordenBtn = `<button class="dash-orden ${rtxMotOrden === 'saldo' ? 'on' : ''}" onclick="rtxMotToggleOrden()">${rtxMotOrden === 'saldo' ? '↓ Por saldo adeudado' : '↕ Ordenar por saldo'}</button>`
   const addBtn = puedeAdmin ? `<button class="rtx-b ok" onclick="rtxMotAgregar()">+ Agregar motorista</button>` : ''
-  const salidasBtn = `<button class="rtx-b" onclick="rtxSalidasGlobal()">🚪 Historial de salidas</button>`
-  const cambiosBtn = `<button class="rtx-b" onclick="rtxCambiosUnidad()">🔁 Cambios de unidad</button>`
-  const cajasBtn = puedeAdmin ? `<button class="rtx-b" onclick="rtxCajasAdmin()">🔐 Cajas y PINs</button>` : ''
+  const salidasBtn = `<button class="rtx-b" onclick="rtxSalidasGlobal()"><svg class=ico aria-hidden=true><use href=#i-door-exit></use></svg> Historial de salidas</button>`
+  const cambiosBtn = `<button class="rtx-b" onclick="rtxCambiosUnidad()"><svg class=ico aria-hidden=true><use href=#i-repeat></use></svg> Cambios de unidad</button>`
+  const cajasBtn = puedeAdmin ? `<button class="rtx-b" onclick="rtxCajasAdmin()"><svg class=ico aria-hidden=true><use href=#i-lock></use></svg> Cajas y PINs</button>` : ''
   const lpkBtn = `<button class="dash-orden ${rtxMotLpk ? 'on' : ''}" onclick="rtxMotLpkToggle()">${
     rtxMotLpkCargando ? '⏳ Calculando…' : (rtxMotLpk ? '✓ L. por km' : '📊 Ver L. por km')}</button>`
   // El conteo respeta el chip de activos/inactivos: si estás viendo activos, el
@@ -1737,8 +1737,8 @@ function rtxMotPintar() {
     const nEsc = (m.nombre || '').replace(/'/g, '\\\'')
     const acciones = puedeAdmin ? `
       <div class="mot-acts">
-        <button class="rtx-b edit" onclick="rtxMotEditar('${m.identidad}')">✏️ Editar</button>
-        <button class="rtx-b" onclick="rtxHistorial('${m.identidad}')">📋 Estado de cuenta</button>
+        <button class="rtx-b edit" onclick="rtxMotEditar('${m.identidad}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar</button>
+        <button class="rtx-b" onclick="rtxHistorial('${m.identidad}')"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Estado de cuenta</button>
         <button class="rtx-b ${m.activo ? 'rec' : 'ok'}" onclick="rtxMotToggle('${m.identidad}', ${!m.activo})">${m.activo ? '⏸ Desactivar' : '▶ Activar'}</button>
       </div>` : ''
     return `<div class="mot-row ${m.activo ? '' : 'off'}">
@@ -1961,8 +1961,8 @@ async function rtxCajasCargar() {
       <div class="rtx-caja-row ${c.activo ? '' : 'off'}">
         <div><b>${c.nombre}</b>${c.activo ? '' : ' <span style="color:var(--text2,#8b8f98);font-size:11px">(inactiva)</span>'}</div>
         <div class="rtx-caja-acc">
-          <button class="rtx-b" onclick="rtxCajaEditar('${c.id}','${esc(c.nombre)}')">✏️</button>
-          <button class="rtx-b" onclick="rtxCajaPin('${c.id}','${esc(c.nombre)}')">🔑 PIN</button>
+          <button class="rtx-b" onclick="rtxCajaEditar('${c.id}','${esc(c.nombre)}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
+          <button class="rtx-b" onclick="rtxCajaPin('${c.id}','${esc(c.nombre)}')"><svg class=ico aria-hidden=true><use href=#i-key></use></svg> PIN</button>
           <button class="rtx-b ${c.activo ? 'rec' : 'ok'}" onclick="rtxCajaToggle('${c.id}', ${!c.activo})">${c.activo ? '⏸' : '▶'}</button>
         </div>
       </div>`).join('')
@@ -2077,7 +2077,7 @@ async function rtxPuntosCargar() {
         <div class="rtx-punto-head">
           <div><b>${p.nombre}</b> ${badge}${p.activo ? '' : ' <span style="color:var(--text2,#8b8f98);font-size:11px">(inactivo)</span>'}${aviso}</div>
           <div class="rtx-caja-acc">
-            <button class="rtx-b" onclick="rtxPuntoEditar('${p.id}','${esc(p.nombre)}','${p.tipo}')">✏️</button>
+            <button class="rtx-b" onclick="rtxPuntoEditar('${p.id}','${esc(p.nombre)}','${p.tipo}')"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
             <button class="rtx-b ${p.activo ? 'rec' : 'ok'}" onclick="rtxPuntoToggle('${p.id}', ${!p.activo})">${p.activo ? '⏸' : '▶'}</button>
           </div>
         </div>
@@ -2420,10 +2420,10 @@ function rtxHistPintar(data, body) {
   const _nEsc = String(data.nombre || '').replace(/'/g, "\\'")
   const _sAct = Number(data.saldo_actual) || 0
   const _prestBtn = _esSuper
-    ? `<button class="rtx-b" style="border-color:var(--gold,#f0a500);color:var(--gold,#f0a500)" onclick="rtxPrestamo('${data.identidad}','${_nEsc}',${_sAct})">➕ Préstamo (subir saldo)</button>`
+    ? `<button class="rtx-b" style="border-color:var(--gold,#f0a500);color:var(--gold,#f0a500)" onclick="rtxPrestamo('${data.identidad}','${_nEsc}',${_sAct})"><svg class=ico aria-hidden=true><use href=#i-plus></use></svg> Préstamo (subir saldo)</button>`
     : ''
   const _condBtnEl = (_esSuper && _sAct > 0.01)
-    ? `<button class="rtx-b" style="border-color:#7ee2a0;color:var(--green-fg,#7ee2a0)" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${_sAct})">➖ Condonar saldo</button>`
+    ? `<button class="rtx-b" style="border-color:#7ee2a0;color:var(--green-fg,#7ee2a0)" onclick="rtxCondonar('${data.identidad}','${_nEsc}',${_sAct})"><svg class=ico aria-hidden=true><use href=#i-minus></use></svg> Condonar saldo</button>`
     : ''
   const _condBtn = (_prestBtn || _condBtnEl)
     ? `<div style="margin:2px 0 12px;display:flex;gap:8px;flex-wrap:wrap">${_prestBtn}${_condBtnEl}</div>`
@@ -2858,7 +2858,7 @@ function rtxHistRenderShell() {
         <label>Fecha hasta</label>
         <input id="rtx-hist-hasta" type="date" class="rtx-inp" value="${escA(rtxHistHasta)}" onchange="rtxHistSet('hasta', this.value)">
       </div>
-      <button class="rtx-b ok rtx-hist-go" onclick="rtxHistBuscar()">🔎 Filtrar</button>
+      <button class="rtx-b ok rtx-hist-go" onclick="rtxHistBuscar()"><svg class=ico aria-hidden=true><use href=#i-search></use></svg> Filtrar</button>
     </div>
     <div id="rtx-hist-result"><div class="rtx-hist-info">Elegí unidad y fechas, luego tocá Filtrar.</div></div>`
 }
@@ -2889,7 +2889,7 @@ function rtxHistResultPintar() {
       </div>
       <div class="rtx-hist-meta">${e.banco || '—'} · ${origen} · ${e.fecha_deposito || '—'}${e.hora_envio ? ' ' + e.hora_envio : ''} · <span class="rtx-hist-est ${estClass(e)}">${e.estado || '—'}</span></div>
       <div class="rtx-hist-meta">Esperado: L. ${rtxFmt(esperado)}${saldo ? ' · Saldo al registrar: L. ' + rtxFmt(saldo) : ''}</div>
-      <button class="rtx-hist-toggle" onclick="rtxHistToggle('${id}')">📋 Ver desglose de saldo</button>
+      <button class="rtx-hist-toggle" onclick="rtxHistToggle('${id}')"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Ver desglose de saldo</button>
       <div id="rtx-hist-desg-${id}" class="rtx-hist-desg hidden">
         <div><span>Tarifa del día</span><b>L. ${rtxFmt(e.tarifa_dia)}</b></div>
         <div><span>Monto esperado</span><b>L. ${rtxFmt(esperado)}</b></div>
@@ -3103,9 +3103,9 @@ function rtxKmRenderShell(cargando) {
   root.innerHTML = `
     <div class="rtx-km-bar">
       <div class="rtx-km-fecha">
-        <button class="rtx-b" onclick="rtxKmFechaNav(-1)">◀</button>
+        <button class="rtx-b" onclick="rtxKmFechaNav(-1)"><svg class=ico aria-hidden=true><use href=#i-chevron-left></use></svg></button>
         <input type="date" id="rtx-km-fecha" class="rtx-inp" value="${rtxKmFecha}" onchange="rtxKmSetFecha(this.value)">
-        <button class="rtx-b" onclick="rtxKmFechaNav(1)">▶</button>
+        <button class="rtx-b" onclick="rtxKmFechaNav(1)"><svg class=ico aria-hidden=true><use href=#i-chevron-right></use></svg></button>
         <button class="rtx-b" onclick="rtxKmHoy()">Hoy</button>
       </div>
       <label class="rtx-b ok rtx-km-import">

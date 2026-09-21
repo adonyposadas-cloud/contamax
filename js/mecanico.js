@@ -303,7 +303,7 @@
     html += await htmlTerminados(yo)
 
     if (window._comisionVisible) {
-      html += `<div style="margin-top:22px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="mecComision()">💰 Mi comisión</button></div>`
+      html += `<div style="margin-top:22px"><button class="btn btn-ghost" style="width:100%;padding:12px" onclick="mecComision()"><svg class=ico aria-hidden=true><use href=#i-moneybag></use></svg> Mi comisión</button></div>`
     }
     root.innerHTML = html
     renderTrabajosAsignados(yo)   // async, rellena #mec-trabajos cuando carga
@@ -757,7 +757,7 @@
         </div>
         ${nPorEnviar
           ? `<button class="btn btn-gold" id="mec-enviar" style="padding:12px 16px;font-weight:700" onclick="mecEnviarHallazgos()"
-                     title="Manda lo que encontraste al cotizador ahora. La inspección queda abierta.">📤 Enviar ${nPorEnviar}</button>`
+                     title="Manda lo que encontraste al cotizador ahora. La inspección queda abierta."><svg class=ico aria-hidden=true><use href=#i-upload></use></svg> Enviar ${nPorEnviar}</button>`
           : ''}
         ${INSP.estado === 'cerrada'
           ? '<span style="font-size:12px;color:var(--text3,#8b949e);white-space:nowrap">checklist entregado</span>'

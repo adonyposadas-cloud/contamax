@@ -139,7 +139,7 @@ function ghRender() {
           <div style="font-weight:600;color:var(--gold)">Gastos huérfanos de unidades financiadas</div>
           <div style="font-size:12px;color:var(--text3)">No cobrados en recibo · ${ghResumen.length} unidad(es) · total L. ${ghFmt(totalGeneral)}</div>
         </div>
-        <button class="btn btn-ghost" onclick="ghExportar()" style="padding:6px 12px;font-size:12px">📊 Exportar Excel</button>
+        <button class="btn btn-ghost" onclick="ghExportar()" style="padding:6px 12px;font-size:12px"><svg class=ico aria-hidden=true><use href=#i-chart-bar></use></svg> Exportar Excel</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <input type="text" id="gh-filtro" placeholder="🔎 Buscar por unidad o motorista..." value="${(ghFiltroTexto || '').replace(/"/g, '&quot;')}"

@@ -735,13 +735,13 @@
       // Botón de pista: solo si el depósito trae un punto RapiBac reconocible.
       const punto = ctxPuntoRapibac(mv.desc)
       const pistaBtn = punto
-        ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienUsaPunto('${punto}', this)" title="Ver qué motoristas suelen depositar en el punto ${punto}">👤 ¿quién usa ${punto}?</button>`
+        ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienUsaPunto('${punto}', this)" title="Ver qué motoristas suelen depositar en el punto ${punto}"><svg class=ico aria-hidden=true><use href=#i-user></use></svg> ¿quién usa ${punto}?</button>`
         : ''
       // Botón de pista para transferencias: "TEF DE:NOMBRE".
       // Se pasa el índice, no el nombre, para no tener que escapar comillas.
       const depTef = ctxNombreTef(mv.desc)
       const depBtn = depTef
-        ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienDeposita(${mv.idx}, this)" title="Ver a qué motoristas le ha depositado antes esta persona">👤 ¿a quién le deposita?</button>`
+        ? `<button class="ctx-punto-btn" onclick="event.stopPropagation();ctxQuienDeposita(${mv.idx}, this)" title="Ver a qué motoristas le ha depositado antes esta persona"><svg class=ico aria-hidden=true><use href=#i-user></use></svg> ¿a quién le deposita?</button>`
         : ''
       return `<div class="ctx-row warn ctx-dep-row ${sel ? 'sel' : ''}" data-s="${sTxt}" onclick="ctxElegirDeposito(${mv.idx})">
         <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${refTxt}${pistaBtn}${depBtn}</div>
@@ -844,7 +844,7 @@
           : `Guardá la conciliación ahora. Cuando generes la partida de taxis del ${ctxFecha}, se cuadrará sola automáticamente.`}
       </div>
       <div class="ctx-cuadre-msg info">Se guarda <b>una conciliación por cuenta</b> (${Object.keys(porCuenta).length}), cada una con sus propios depósitos.</div>
-      <button class="btn btn-gold ctx-save" onclick="ctxGuardar()">💾 Guardar conciliación</button>
+      <button class="btn btn-gold ctx-save" onclick="ctxGuardar()"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar conciliación</button>
     </div>` + cDesv
 
     // Omitidos: re-envíos del banco o referencias ya conciliadas otro día
@@ -1189,7 +1189,7 @@ function ctxPuntoRapibac(desc) {
 // El historial arranca vacío y se llena a medida que se concilia.
 window.ctxQuienUsaPunto = async (punto, btn) => {
   if (!punto) return
-  const prev = btn ? btn.textContent : ''
+  const prev = btn ? btn.innerHTML : ''
   if (btn) { btn.disabled = true; btn.textContent = 'buscando…' }
   try {
     const { data, error } = await csb().rpc('tx_motoristas_por_punto', { p_punto: String(punto) })
@@ -1212,7 +1212,7 @@ window.ctxQuienUsaPunto = async (punto, btn) => {
   } catch (e) {
     window.toast?.('Error consultando el punto: ' + (e.message || e), 'error')
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = prev }
+    if (btn) { btn.disabled = false; btn.innerHTML = prev }
   }
 }
 
@@ -1256,7 +1256,7 @@ window.ctxQuienDeposita = async (idx, btn) => {
   const mv = ctxRes && ctxRes.movs ? ctxRes.movs[idx] : null
   const nombre = ctxNombreTef(mv && mv.desc)
   if (!nombre) return
-  const prev = btn ? btn.textContent : ''
+  const prev = btn ? btn.innerHTML : ''
   if (btn) { btn.disabled = true; btn.textContent = 'buscando…' }
   try {
     const { data, error } = await csb().rpc('tx_motoristas_por_depositante', { p_nombre: nombre })
@@ -1289,7 +1289,7 @@ window.ctxQuienDeposita = async (idx, btn) => {
   } catch (e) {
     window.toast?.('Error consultando el depositante: ' + (e.message || e), 'error')
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = prev }
+    if (btn) { btn.disabled = false; btn.innerHTML = prev }
   }
 }
 

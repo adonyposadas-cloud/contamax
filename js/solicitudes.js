@@ -158,7 +158,7 @@ function solCardSuper(r) {
       <select id="sol-pri-${r.id}" class="sol-inp" style="width:auto">${opP}</select>
       <input id="sol-resp-${r.id}" class="sol-inp sol-resp-inp" placeholder="Respuesta para el usuario…" value="${solEsc(r.respuesta || '')}">
       <button class="sol-b ok" onclick="solGuardarGestion('${r.id}')">Guardar</button>
-      <button class="sol-b del" onclick="solEliminar('${r.id}')">🗑</button>
+      <button class="sol-b del" onclick="solEliminar('${r.id}')"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
     </div>
   </div>`
 }

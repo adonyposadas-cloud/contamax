@@ -194,7 +194,7 @@ window.__cafBuild = '20260720b'
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
           <h2 style="margin:0;font-size:19px;color:var(--text,#e6edf3)">☕ Cafetería</h2>
           ${selUbic}
-          ${veTodo() ? '<button onclick="cafAdmin()" title="Puntos y encargados" style="background:var(--bg3,#1c2027);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text2,#8b949e);padding:7px 10px;cursor:pointer;font-size:13px">⚙</button>' : ''}
+          ${veTodo() ? '<button onclick="cafAdmin()" title="Puntos y encargados" style="background:var(--bg3,#1c2027);border:1px solid var(--border,#2a2e37);border-radius:8px;color:var(--text2,#8b949e);padding:7px 10px;cursor:pointer;font-size:13px"><svg class=ico aria-hidden=true><use href=#i-settings></use></svg></button>' : ''}
           <div style="flex:1"></div>
           ${tab('insumos', '📦', 'Inventario')}
           ${tab('recetas', '🍽️', 'Productos')}
@@ -305,10 +305,10 @@ window.__cafBuild = '20260720b'
         <td style="padding:9px 8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(i.valor)}</td>
         <td style="padding:9px 8px;text-align:right;color:var(--text3,#6e7681);font-size:12px">${fmt(i.stock_minimo)}</td>
         <td style="padding:9px 8px;text-align:right;white-space:nowrap">
-          ${veTodo() ? `<button onclick="cafComprar(${i.id})" title="Registrar compra" style="background:none;border:0;cursor:pointer;font-size:15px">🛒</button>` : ''}
-          <button onclick="cafConteo(${i.id})" title="Conteo físico" style="background:none;border:0;cursor:pointer;font-size:15px">📋</button>
-          <button onclick="cafMerma(${i.id})" title="Registrar merma" style="background:none;border:0;cursor:pointer;font-size:15px">🗑️</button>
-          ${veTodo() ? `<button onclick="cafInsumoEditar(${i.id})" title="Editar" style="background:none;border:0;cursor:pointer;font-size:14px">✏️</button>` : ''}
+          ${veTodo() ? `<button onclick="cafComprar(${i.id})" title="Registrar compra" style="background:none;border:0;cursor:pointer;font-size:15px"><svg class=ico aria-hidden=true><use href=#i-shopping-cart></use></svg></button>` : ''}
+          <button onclick="cafConteo(${i.id})" title="Conteo físico" style="background:none;border:0;cursor:pointer;font-size:15px"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg></button>
+          <button onclick="cafMerma(${i.id})" title="Registrar merma" style="background:none;border:0;cursor:pointer;font-size:15px"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
+          ${veTodo() ? `<button onclick="cafInsumoEditar(${i.id})" title="Editar" style="background:none;border:0;cursor:pointer;font-size:14px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : ''}
         </td>
       </tr>`
     }).join('')
@@ -374,7 +374,7 @@ window.__cafBuild = '20260720b'
           <td style="padding:6px 8px;text-align:right;color:var(--text2,#8b949e)">${fmt(g.cantidad)} ${esc(unidad(i))}</td>
           <td style="padding:6px 8px;text-align:right;color:var(--text2,#8b949e)">L. ${fmt(sub)}</td>
           <td style="padding:6px 8px;text-align:right">
-            ${!veTodo() ? '' : `<button onclick="cafIngrEditar(${r.id},${g.insumo_id},${g.cantidad})" title="Cambiar cantidad" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
+            ${!veTodo() ? '' : `<button onclick="cafIngrEditar(${r.id},${g.insumo_id},${g.cantidad})" title="Cambiar cantidad" style="background:none;border:0;cursor:pointer;font-size:13px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
             <button onclick="cafIngrQuitar(${g.id},${r.id})" title="Quitar" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:14px">✕</button>`}
           </td></tr>`
       }).join('')
@@ -409,7 +409,7 @@ window.__cafBuild = '20260720b'
           </table>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             ${!veTodo() ? '' : `<button onclick="cafIngrAgregar(${r.id})" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">+ Agregar ingrediente</button>
-            <button onclick="cafRecetaEditar(${r.id})" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px">✏️ Editar receta</button>`}
+            <button onclick="cafRecetaEditar(${r.id})" style="background:var(--bg3,#1c2027);color:var(--text2,#8b949e);border:1px solid var(--border,#2a2e37);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg> Editar receta</button>`}
           </div>
           ${r.food_cost_pct != null && r.food_cost_pct > 45 ? '<div style="margin-top:9px;color:#f0a868;font-size:11.5px">⚠ El costo pasa del 45% del precio. Conviene revisar la porción o el precio.</div>' : ''}
         </div>` : ''}
@@ -455,8 +455,8 @@ window.__cafBuild = '20260720b'
         <td style="padding:8px;color:var(--text3,#6e7681);font-size:11.5px">${esc(m.referencia || m.nota || '')}</td>
         <td style="padding:8px;text-align:right;white-space:nowrap">
           ${(!admin || ligado) ? '' : `
-            ${m.tipo === 'entrada' ? `<button onclick="cafCompraCorregir(${m.id},${m.insumo_id},${q},${Number(m.costo_unitario || 0)})" title="Corregir cantidad o costo" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>` : ''}
-            <button onclick="cafMovEliminar(${m.id})" title="Borrar este movimiento" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">🗑️</button>`}
+            ${m.tipo === 'entrada' ? `<button onclick="cafCompraCorregir(${m.id},${m.insumo_id},${q},${Number(m.costo_unitario || 0)})" title="Corregir cantidad o costo" style="background:none;border:0;cursor:pointer;font-size:13px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : ''}
+            <button onclick="cafMovEliminar(${m.id})" title="Borrar este movimiento" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>`}
         </td>
       </tr>`
     }).join('')
@@ -985,7 +985,7 @@ window.__cafBuild = '20260720b'
         </td>
         <td style="padding:8px;text-align:right;color:var(--text2,#8b949e)">${alcanza ? '—' : 'L. ' + fmt(r.costo_estimado)}</td>
         <td style="padding:8px;text-align:right">
-          ${alcanza ? '' : `<button onclick="cafComprar(${r.insumo_id})" title="Registrar esta compra" style="background:none;border:0;cursor:pointer;font-size:15px">🛒</button>`}
+          ${alcanza ? '' : `<button onclick="cafComprar(${r.insumo_id})" title="Registrar esta compra" style="background:none;border:0;cursor:pointer;font-size:15px"><svg class=ico aria-hidden=true><use href=#i-shopping-cart></use></svg></button>`}
         </td>
       </tr>`
     }).join('')
@@ -1014,7 +1014,7 @@ window.__cafBuild = '20260720b'
         </table>
       </div>
       ${faltan.length ? `<div style="display:flex;gap:8px;margin-top:10px">
-        <button onclick="cafCopiarLista()" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 14px;cursor:pointer;font-size:12.5px">📋 Copiar lista para el mercado</button>
+        <button onclick="cafCopiarLista()" style="background:var(--bg3,#1c2027);color:#c0632f;border:1px solid var(--border,#2a2e37);border-radius:7px;padding:8px 14px;cursor:pointer;font-size:12.5px"><svg class=ico aria-hidden=true><use href=#i-clipboard-list></use></svg> Copiar lista para el mercado</button>
       </div>` : ''}
       <div style="color:var(--text3,#6e7681);font-size:11px;margin-top:8px">
         El costo es estimado, al último precio conocido. Al registrar la compra real se corrige solo.
@@ -1104,7 +1104,7 @@ window.__cafBuild = '20260720b'
           <div style="color:var(--text3,#6e7681);font-size:10.5px">${esc(u.codigo)}</div>
         </td>
         <td style="padding:7px 4px;text-align:right;white-space:nowrap">
-          <button onclick="cafUbicRenombrar(${u.id})" title="Cambiar nombre" style="background:none;border:0;cursor:pointer;font-size:13px">✏️</button>
+          <button onclick="cafUbicRenombrar(${u.id})" title="Cambiar nombre" style="background:none;border:0;cursor:pointer;font-size:13px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
           ${u.tipo === 'central' ? '' : `<button onclick="cafUbicDesactivar(${u.id})" title="Desactivar punto" style="background:none;border:0;color:var(--red-fg,#f85149);cursor:pointer;font-size:13px">✕</button>`}
         </td>
       </tr>`).join('')

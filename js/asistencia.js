@@ -1857,7 +1857,7 @@ function ensureRelojOnlineControls() {
   wrap.innerHTML = `
     <label style="font-size:13px;color:var(--text2)">Mes:</label>
     <input type="month" id="reloj-online-mes" value="${mesDefault}" style="padding:4px 6px">
-    <button id="btn-reloj-online" type="button" class="btn btn-primary">📲 Cargar del reloj (en línea)</button>`
+    <button id="btn-reloj-online" type="button" class="btn btn-primary"><svg class=ico aria-hidden=true><use href=#i-device-mobile-message></use></svg> Cargar del reloj (en línea)</button>`
   anchor.parentNode.insertBefore(wrap, anchor.nextSibling)
   document.getElementById('btn-reloj-online').onclick = () => window.procesarRelojOnline()
 }

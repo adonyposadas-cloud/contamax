@@ -93,7 +93,7 @@ function _renderVencimientos() {
           <td style="font-size:12px">${esc(d.responsable || '—')}</td>
           <td style="white-space:nowrap;text-align:right">
             <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="editarVencimiento('${d.id}')">✎</button>
-            <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="eliminarVencimiento('${d.id}')">🗑</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="eliminarVencimiento('${d.id}')"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg></button>
           </td>
         </tr>`
       }).join('')}

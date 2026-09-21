@@ -82,7 +82,7 @@ function renderVacaciones() {
       <td><span style="font-size:11px;padding:2px 8px;background:var(--bg1);border-radius:4px">${e.seccion || ''}</span></td>
       <td style="text-align:right">${fmt(e.sueldo_mensual)}</td>
       <td style="text-align:right;font-weight:600;color:${saldo > 0 ? 'var(--green)' : saldo < 0 ? 'var(--red)' : 'var(--text3)'}">${fmtDias(saldo)}</td>
-      <td style="text-align:right"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="event.stopPropagation();openPagoVacaciones('${e.id}')">💵 Pagar</button></td>
+      <td style="text-align:right"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="event.stopPropagation();openPagoVacaciones('${e.id}')"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg> Pagar</button></td>
     </tr>`
   }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin empleados</td></tr>'
 }

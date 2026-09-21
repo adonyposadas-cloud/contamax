@@ -178,7 +178,7 @@ function renderCxCShell() {
         <div class="page-sub">Alquileres y otras cuentas por cobrar · vista mensual</div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" onclick="generarMesCxC()" id="btn-generar-mes-cxc">🔁 Generar mes</button>
+        <button class="btn btn-ghost" onclick="generarMesCxC()" id="btn-generar-mes-cxc"><svg class=ico aria-hidden=true><use href=#i-repeat></use></svg> Generar mes</button>
         <button class="btn btn-gold" onclick="openNuevaCxC()">+ Nueva cuenta</button>
       </div>
     </div>
@@ -324,7 +324,7 @@ function cxcRenderTabla() {
       acciones = `<button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="reactivarCxC('${r.id}')">Reactivar</button>
                   <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px;border-color:var(--red);color:var(--red)" onclick="eliminarCxC('${r.id}')">Eliminar</button>`
     } else if (r.estado === 'pendiente') {
-      acciones = `<button class="btn btn-gold" style="padding:2px 10px;font-size:11px" onclick="openCobrarCxC('${r.id}')">💵 Cobrar</button>
+      acciones = `<button class="btn btn-gold" style="padding:2px 10px;font-size:11px" onclick="openCobrarCxC('${r.id}')"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg> Cobrar</button>
                   <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="desactivarCxC('${r.id}')">Desactivar</button>`
     } else {
       acciones = `<span style="font-size:11px;color:var(--text3)">${r.forma_pago_codigo || ''}</span>`

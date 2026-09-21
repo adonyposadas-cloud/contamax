@@ -104,7 +104,7 @@ function pvRender() {
             <span style="font-family:var(--mono)">${c.prefijo || ''} · ${c.rango_desde || '?'}→${c.rango_hasta || '?'}</span>
             ${c.sucursal ? `<span style="color:var(--text2)">· ${c.sucursal}</span>` : ''}
             ${badges}
-            ${pvPuedeEditar() ? `<button onclick="pvEditarCai('${p.id}','${c.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gold);padding:0 4px">✏️</button>` : ''}
+            ${pvPuedeEditar() ? `<button onclick="pvEditarCai('${p.id}','${c.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--gold);padding:0 4px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>` : ''}
           </div>`
         }).join('')
       : '<div style="font-size:11px;color:var(--amber);margin-top:3px">⚠ Sin rangos cargados</div>'
@@ -118,8 +118,8 @@ function pvRender() {
         </div>
         ${pvPuedeEditar() ? `<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
           <button class="btn btn-ghost" onclick="pvAgregarCai('${p.id}')" style="padding:4px 10px;font-size:11px">+ Rango</button>
-          <button class="btn btn-ghost" onclick="pvFusionar('${p.id}')" style="padding:4px 8px;font-size:11px" title="Fusionar con otro proveedor (mueve sus facturas)">🔀</button>
-          <button class="btn btn-ghost" onclick="pvEditarProveedor('${p.id}')" style="padding:4px 8px;font-size:11px">✏️</button>
+          <button class="btn btn-ghost" onclick="pvFusionar('${p.id}')" style="padding:4px 8px;font-size:11px" title="Fusionar con otro proveedor (mueve sus facturas)"><svg class=ico aria-hidden=true><use href=#i-arrows-shuffle></use></svg></button>
+          <button class="btn btn-ghost" onclick="pvEditarProveedor('${p.id}')" style="padding:4px 8px;font-size:11px"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
         </div>` : ''}
       </div>
     </div>`

@@ -99,7 +99,7 @@
           <input type="date" id="ef-fecha-corte" class="ef-in" style="width:150px">
         </div>
       </div>
-      <div style="text-align:center;margin:0 0 14px"><button class="btn btn-gold" id="ef-conc-guardado">🔄 Conciliar pendientes con datos guardados</button> <button class="btn" id="ef-export">⬇ Exportar Excel</button></div>
+      <div style="text-align:center;margin:0 0 14px"><button class="btn btn-gold" id="ef-conc-guardado"><svg class=ico aria-hidden=true><use href=#i-refresh></use></svg> Conciliar pendientes con datos guardados</button> <button class="btn" id="ef-export"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Exportar Excel</button></div>
       <div id="ef-result"></div>
     </div>
 
