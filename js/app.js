@@ -10462,6 +10462,8 @@ window.parsearFacturasTaxis = async () => {
   if (!fileInput.files.length) return
 
   const file = fileInput.files[0]
+  // El nombre del archivo decide a quién van las ventas: "yonker" en el nombre → Yonker.
+  const esArchivoYonker = /yonker/i.test(file.name)
   const data = await file.arrayBuffer()
   const wb = XLSX.read(data, { type: 'array', cellDates: true, dateNF: 'yyyy-mm-dd' })
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -10657,7 +10659,53 @@ window.parsearFacturasTaxis = async () => {
   }
   flushDia()
 
-  factTaxisParsed = { dias, alertas }
+  // ── DUPLICADOS: el mismo texto ya importado ──
+  // Compara fecha + descripción + monto contra facturas_taxis. Cuenta ocurrencias:
+  // dos líneas idénticas el mismo día son válidas si el Excel trae dos; solo se marcan
+  // las que exceden lo que ya existe. Se ignoran las de partidas anuladas o borradas.
+  const normTxt = (t) => String(t || '').trim().replace(/\s+/g, ' ').toUpperCase()
+  const claveFT = (fecha, desc, monto) => `${fecha}|${normTxt(desc)}|${(Math.round((parseFloat(monto) || 0) * 100) / 100).toFixed(2)}`
+  const fechasArchivo = [...new Set(dias.map(d => d.fecha))]
+  const yaImportadas = new Map()
+  if (fechasArchivo.length) {
+    try {
+      const previas = await _fetchAllPag(() => sb.from('facturas_taxis')
+        .select('id, fecha, descripcion, monto, partida_id').in('fecha', fechasArchivo).order('id'))
+      const idsPart = [...new Set(previas.map(f => f.partida_id).filter(Boolean))]
+      const vivas = new Set()
+      if (idsPart.length) {
+        const { data: parts, error: pe } = await sb.from('partidas_contables').select('id, estado').in('id', idsPart)
+        if (pe) throw pe
+        for (const x of (parts || [])) if (x.estado !== 'anulada') vivas.add(x.id)
+      }
+      for (const f of previas) {
+        if (!vivas.has(f.partida_id)) continue
+        const k = claveFT(f.fecha, f.descripcion, f.monto)
+        yaImportadas.set(k, (yaImportadas.get(k) || 0) + 1)
+      }
+    } catch (e) {
+      console.error('[FACT-TAXIS] No se pudo revisar duplicados:', e)
+      toast('No se pudo revisar si este archivo ya se importó. Reintentá antes de importar.', 'error')
+      factTaxisParsed = null
+      return
+    }
+  }
+  for (const dia of dias) {
+    const usados = new Map()
+    dia.duplicadas = 0
+    for (const l of dia.lineas) {
+      const k = claveFT(dia.fecha, l.descripcion, l.monto)
+      const u = usados.get(k) || 0
+      if (u < (yaImportadas.get(k) || 0)) { l.duplicada = true; dia.duplicadas++ }
+      usados.set(k, u + 1)
+    }
+    // Cuadre: débitos (detalle) contra créditos (filas de resumen del Excel)
+    const deb = dia.lineas.reduce((a, l) => a + l.monto, 0)
+    const cre = dia.resumen.reduce((a, r) => a + r.monto, 0)
+    dia.descuadre = Math.round((deb - cre) * 100) / 100
+  }
+
+  factTaxisParsed = { dias, alertas, esArchivoYonker, nombreArchivo: file.name }
 
   // Stats
   const totalLineas = dias.reduce((s, d) => s + d.lineas.length, 0)
@@ -10683,13 +10731,23 @@ window.parsearFacturasTaxis = async () => {
     alertsEl.innerHTML = '<div style="background:rgba(16,185,129,0.08);border:1px solid var(--green);border-radius:var(--radius);padding:12px;color:var(--green);font-size:13px">✅ Todas las unidades fueron validadas correctamente</div>'
   }
 
+  // Regla de centros aplicada según el nombre del archivo
+  const regla = document.createElement('div')
+  regla.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:13px'
+  regla.textContent = esArchivoYonker
+    ? `📄 "${file.name}" contiene "yonker" → las ventas van a 410301-002 · centro Yonker. Mano de obra → Taxis.`
+    : `📄 "${file.name}" → las ventas van a 410301-004 · centro Tecnicentro (filas "FACTURAS DE YONKER" → Yonker). Mano de obra → Taxis.`
+  alertsEl.prepend(regla)
+
   // Preview table
   const fmtL = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const tbody = document.getElementById('tbody-ift-preview')
   let html = ''
   dias.forEach(dia => {
     // Header del día
-    html += `<tr style="background:var(--bg3)"><td colspan="7" style="padding:10px 14px;font-weight:600;color:var(--gold)">${dia.fecha} · ${dia.lineas.length} líneas</td></tr>`
+    const avisoDup = dia.duplicadas ? ` · <span style="color:var(--red)">YA IMPORTADO (${dia.duplicadas} de ${dia.lineas.length} líneas) — se omitirá</span>` : ''
+    const avisoCuadre = dia.descuadre ? ` · <span style="color:var(--red)">descuadre L. ${fmtL(dia.descuadre)}</span>` : ''
+    html += `<tr style="background:var(--bg3)"><td colspan="7" style="padding:10px 14px;font-weight:600;color:var(--gold)">${dia.fecha} · ${dia.lineas.length} líneas${avisoDup}${avisoCuadre}</td></tr>`
     dia.lineas.forEach(l => {
       const color = l.estado === 'alerta' ? 'rgba(239,68,68,0.06)' : ''
       html += `<tr style="${color ? 'background:'+color : ''}">
@@ -10699,7 +10757,7 @@ window.parsearFacturasTaxis = async () => {
         <td style="font-size:12px">${l.propietario || '—'}</td>
         <td style="font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${l.descripcion}">${l.es_mano_obra ? '🔧 ' : ''}${l.descripcion}</td>
         <td style="text-align:right;font-family:var(--mono);font-size:13px">L. ${fmtL(l.monto)}</td>
-        <td>${l.estado === 'alerta' ? '<span class="badge badge-red">⚠️</span>' : '<span style="color:var(--green)">✓</span>'}</td>
+        <td>${l.duplicada ? '<span class="badge badge-red">ya importada</span>' : l.estado === 'alerta' ? '<span class="badge badge-red">⚠️</span>' : '<span style="color:var(--green)">✓</span>'}</td>
       </tr>`
     })
     // Resumen del día
@@ -10722,8 +10780,9 @@ window.importarFacturasTaxis = async () => {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Importando...'
 
   const lote = new Date().toISOString().split('T')[0] + '_' + Date.now()
-  const { dias } = factTaxisParsed
+  const { dias, esArchivoYonker } = factTaxisParsed
   let partidasCreadas = 0
+  const omitidos = [], fallos = []
 
   // Obtener cuentas del catálogo
   const getCuenta = (codigo) => (window.catalogoCuentas || []).find(c => c.codigo === codigo)
@@ -10737,22 +10796,37 @@ window.importarFacturasTaxis = async () => {
 
   if (!ctaCosto) { toast('Cuenta 510101-001 no encontrada en el catálogo', 'error'); btn.disabled = false; btn.textContent = 'Importar y generar partidas →'; return }
 
-  // Obtener centro de costo TAXIS
+  // Centros: mano de obra → Taxis; ventas → Tecnicentro, o Yonker si el archivo/fila es de Yonker
   const centroTaxis = empresas.find(e => e.nombre.toUpperCase().includes('TAXI'))
+  const ccTecni = empresas.find(e => /tecni/i.test(e.nombre) && !/yonker|taxi/i.test(e.nombre))
+  const ccYonker = empresas.find(e => /yonker/i.test(e.nombre))
+  const faltan = [!centroTaxis && 'centro Taxis', !ccTecni && 'centro Tecnicentro', !ccYonker && 'centro Yonker',
+    !ctaMO && FACT_TAXIS_CUENTAS.mano_obra.codigo, !ctaFactTaxis && FACT_TAXIS_CUENTAS.factura_taxis.codigo,
+    !ctaFactYonker && FACT_TAXIS_CUENTAS.factura_yonker.codigo].filter(Boolean)
+  if (faltan.length) {
+    toast('No se encontró: ' + faltan.join(', '), 'error')
+    btn.disabled = false; btn.textContent = 'Importar y generar partidas →'; return
+  }
+
+  // Días descuadrados (detalle ≠ resumen del Excel): se importan solo si confirmás
+  const descuadrados = dias.filter(d => d.lineas.length && !d.duplicadas && d.descuadre)
+  if (descuadrados.length && !confirm('Estos días no cuadran (detalle vs. resumen del Excel):\n\n' +
+      descuadrados.map(d => `${d.fecha}: diferencia L. ${d.descuadre.toFixed(2)}`).join('\n') +
+      '\n\nSe crearán como borrador descuadrado. ¿Continuar?')) {
+    btn.disabled = false; btn.textContent = 'Importar y generar partidas →'; return
+  }
   console.log('[FACT-TAXIS] Centro taxis:', centroTaxis?.id, centroTaxis?.nombre)
   console.log('[FACT-TAXIS] Días a procesar:', dias.length)
 
   for (const dia of dias) {
     console.log(`[FACT-TAXIS] Procesando día ${dia.fecha}: ${dia.lineas.length} líneas, ${dia.resumen.length} resumen`)
     if (!dia.lineas.length) { console.log('[FACT-TAXIS] Día sin líneas, saltando'); continue }
+    if (dia.duplicadas) { omitidos.push(`${dia.fecha} (${dia.duplicadas} de ${dia.lineas.length} líneas ya importadas)`); continue }
 
     // Obtener siguiente número de partida (atómico)
     const numPartida = await window.siguienteNumeroPartida()
 
     const totalDebitos = dia.lineas.reduce((s, l) => s + l.monto, 0)
-    const totalMO = dia.resumen.filter(r => r.concepto === 'MANO DE OBRA').reduce((s, r) => s + r.monto, 0)
-    const factTaxi = dia.resumen.filter(r => r.concepto === 'FACTURAS DE TAXIS').reduce((s, r) => s + r.monto, 0)
-    const factYonker = dia.resumen.filter(r => r.concepto === 'FACTURAS DE YONKER').reduce((s, r) => s + r.monto, 0)
 
     // Crear partida
     const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
@@ -10760,13 +10834,13 @@ window.importarFacturasTaxis = async () => {
       fecha_partida: dia.fecha,
       descripcion: `Facturas taxis ${dia.fecha} · ${dia.lineas.length} líneas · L. ${totalDebitos.toFixed(2)} [IMP-FACT-TAXIS]`,
       estado: 'borrador',
-      tipo_origen: 'IMP-FACT-TAXIS',
+      tipo_origen: 'imp_fact_taxis',
       generada_por: currentProfile.id,
       centro_costo_id: centroTaxis?.id || null,
       total: Math.round(totalDebitos * 100) / 100
     }).select().single()
 
-    if (pErr) { console.error('[FACT-TAXIS] Error creando partida:', pErr.message); continue }
+    if (pErr) { console.error('[FACT-TAXIS] Error creando partida:', pErr.message); fallos.push(`${dia.fecha}: ${pErr.message}`); continue }
     console.log(`[FACT-TAXIS] Partida #${numPartida} creada: ${partida.id}`)
 
     // Líneas de débito: VIN → Inventario (110501-001) con centro del propietario
@@ -10796,52 +10870,45 @@ window.importarFacturasTaxis = async () => {
       }
     })
 
-    // Líneas de crédito (resumen)
-    if (totalMO > 0) {
+    // Líneas de crédito (resumen), agrupadas por cuenta + centro:
+    //   MANO DE OBRA → 410101-004 · Taxis
+    //   archivo "yonker" o fila "FACTURAS DE YONKER" → 410301-002 · Yonker
+    //   resto de "FACTURAS DE …" → 410301-004 · Tecnicentro
+    const creditos = new Map()
+    for (const r of dia.resumen) {
+      let cta, cc, desc
+      if (r.concepto === 'MANO DE OBRA') { cta = FACT_TAXIS_CUENTAS.mano_obra; cc = centroTaxis; desc = `Mano de obra taxis ${dia.fecha}` }
+      else if (esArchivoYonker || /YONKER/i.test(r.concepto)) { cta = FACT_TAXIS_CUENTAS.factura_yonker; cc = ccYonker; desc = `Facturas de yonker ${dia.fecha}` }
+      else { cta = FACT_TAXIS_CUENTAS.factura_taxis; cc = ccTecni; desc = `Facturas de taxis ${dia.fecha}` }
+      const k = cta.codigo + '|' + cc.id
+      if (!creditos.has(k)) creditos.set(k, { cta, cc, desc, monto: 0 })
+      creditos.get(k).monto += r.monto
+    }
+    for (const c of creditos.values()) {
       lineasPartida.push({
         partida_id: partida.id,
         tipo: 'credito',
-        cuenta_id: ctaMO?.id || null,
-        cuenta_codigo: FACT_TAXIS_CUENTAS.mano_obra.codigo,
-        cuenta_nombre: FACT_TAXIS_CUENTAS.mano_obra.nombre,
-        monto: totalMO,
-        descripcion: `Mano de obra taxis ${dia.fecha}`,
-        centro_costo_id: centroTaxis?.id || null,
+        cuenta_id: getCuenta(c.cta.codigo)?.id || null,
+        cuenta_codigo: c.cta.codigo,
+        cuenta_nombre: c.cta.nombre,
+        monto: Math.round(c.monto * 100) / 100,
+        descripcion: c.desc,
+        centro_costo_id: c.cc.id,
         aplica_fiscal: true
       })
     }
 
-    if (factTaxi > 0) {
-      lineasPartida.push({
-        partida_id: partida.id,
-        tipo: 'credito',
-        cuenta_id: ctaFactTaxis?.id || null,
-        cuenta_codigo: FACT_TAXIS_CUENTAS.factura_taxis.codigo,
-        cuenta_nombre: FACT_TAXIS_CUENTAS.factura_taxis.nombre,
-        monto: factTaxi,
-        descripcion: `Facturas de taxis ${dia.fecha}`,
-        centro_costo_id: centroTaxis?.id || null,
-        aplica_fiscal: true
-      })
+    // Si algo falla, se deshace la partida del día: antes quedaba el encabezado sin
+    // líneas y el mensaje final igual decía "creadas ✓".
+    const deshacer = async (motivo) => {
+      await sb.from('facturas_taxis').delete().eq('partida_id', partida.id)
+      await sb.from('lineas_partida').delete().eq('partida_id', partida.id)
+      const { error: delErr } = await sb.from('partidas_contables').delete().eq('id', partida.id)
+      fallos.push(`${dia.fecha}: ${motivo}${delErr ? ` — la partida #${numPartida} quedó creada, revisala` : ''}`)
     }
-
-    if (factYonker > 0) {
-      lineasPartida.push({
-        partida_id: partida.id,
-        tipo: 'credito',
-        cuenta_id: ctaFactYonker?.id || null,
-        cuenta_codigo: FACT_TAXIS_CUENTAS.factura_yonker.codigo,
-        cuenta_nombre: FACT_TAXIS_CUENTAS.factura_yonker.nombre,
-        monto: factYonker,
-        descripcion: `Facturas de yonker ${dia.fecha}`,
-        centro_costo_id: centroTaxis?.id || null,
-        aplica_fiscal: true
-      })
-    }
-
     const { error: linErr } = await sb.from('lineas_partida').insert(lineasPartida)
-    if (linErr) console.error('[FACT-TAXIS] Error insertando líneas:', linErr.message)
-    else console.log(`[FACT-TAXIS] ${lineasPartida.length} líneas insertadas`)
+    if (linErr) { console.error('[FACT-TAXIS] Error insertando líneas:', linErr.message); await deshacer(linErr.message); continue }
+    console.log(`[FACT-TAXIS] ${lineasPartida.length} líneas insertadas`)
 
     // Guardar detalle en facturas_taxis
     const detalleRows = dia.lineas.map(l => ({
@@ -10856,7 +10923,9 @@ window.importarFacturasTaxis = async () => {
       lote_importacion: lote,
       partida_id: partida.id
     }))
-    await sb.from('facturas_taxis').insert(detalleRows)
+    // facturas_taxis es lo que usa el control de duplicados: si no se graba, se deshace
+    const { error: ftErr } = await sb.from('facturas_taxis').insert(detalleRows)
+    if (ftErr) { console.error('[FACT-TAXIS] Error en facturas_taxis:', ftErr.message); await deshacer(ftErr.message); continue }
 
     // Guardar resumen
     const resumenRows = dia.resumen.map(r => ({
@@ -10872,7 +10941,11 @@ window.importarFacturasTaxis = async () => {
   }
 
   btn.disabled = false; btn.textContent = 'Importar y generar partidas →'
-  toast(`${partidasCreadas} partida(s) creadas desde facturas taxis ✓`, 'success')
+  toast(`${partidasCreadas} partida(s) creadas desde facturas taxis ✓`, partidasCreadas ? 'success' : 'info')
+  if (omitidos.length || fallos.length) {
+    alert((omitidos.length ? 'Días omitidos porque ya estaban importados:\n' + omitidos.join('\n') + '\n\n' : '') +
+          (fallos.length ? 'Días que fallaron (no se creó partida):\n' + fallos.join('\n') : ''))
+  }
   factTaxisParsed = null
   document.getElementById('ift-file').value = ''
   document.getElementById('ift-preview').classList.add('hidden')
