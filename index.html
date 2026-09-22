@@ -322,6 +322,9 @@
           <div class="nav-item" id="nav-rangos-ventas" onclick="showView('rangos-ventas','Control de rango de ventas')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-adjustments-horizontal></use></svg>Rango de ventas
           </div>
+          <div class="nav-item hidden" id="nav-export-fiscal" onclick="showView('export-fiscal','Exportar a fiscal')">
+            <svg class="ico nav-svg" aria-hidden=true><use href=#i-file-download></use></svg>Exportar a fiscal
+          </div>
         </div>
       </div>
 
@@ -1746,6 +1749,57 @@
         </div>
         <div id="act-stats" style="margin-bottom:16px"></div>
         <div id="act-tabla"></div>
+      </div>
+
+      <div class="view" id="view-export-fiscal">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Exportar a fiscal</div>
+            <div class="page-sub">Genera el archivo con solo lo fiscal (líneas marcadas, sin centros personales) para importarlo en el sistema fiscal</div>
+          </div>
+        </div>
+
+        <div id="ef-filtros">
+          <div class="form-card">
+            <div class="form-grid">
+              <div class="fld"><label>Desde</label><input type="date" id="ef-desde"></div>
+              <div class="fld"><label>Hasta</label><input type="date" id="ef-hasta"></div>
+              <div class="fld"><label>Mostrar</label>
+                <select id="ef-filtro" onchange="efFiltrar()">
+                  <option value="todas">Todas</option>
+                  <option value="ok">Listas</option>
+                  <option value="descuadre">Descuadradas</option>
+                  <option value="sin">Sin fiscal</option>
+                  <option value="anulada">Anuladas</option>
+                  <option value="sel">Seleccionadas</option>
+                </select>
+              </div>
+              <div class="fld"><label>Buscar</label><input type="text" id="ef-buscar" placeholder="Documento, descripción o N°" oninput="efFiltrar()"></div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;font-size:13px;color:var(--text2)">
+              <label><input type="checkbox" id="ef-excl-privados" checked onchange="efReanalizar()"> Excluir centros privados 🔒</label>
+              <label><input type="checkbox" id="ef-ver-sin" onchange="efFiltrar()"> Ver partidas sin líneas fiscales</label>
+              <label><input type="checkbox" id="ef-fotos" checked> Incluir fotos adjuntas</label>
+              <label title="Si una partida ya se exportó antes y ahora no la marcas, se anula en el fiscal"><input type="checkbox" id="ef-retirar-desmarcadas"> Anular en el fiscal las no seleccionadas</label>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:center">
+              <button class="btn btn-ghost" onclick="efCargar()">Cargar</button>
+              <button class="btn btn-ghost" onclick="efMarcarTodas(true)">Marcar listas</button>
+              <button class="btn btn-ghost" onclick="efMarcarTodas(false)">Desmarcar</button>
+              <button class="btn btn-gold" id="ef-btn-generar" onclick="efGenerar()" disabled>Generar archivo</button>
+              <span id="ef-progreso" style="font-size:12px;color:var(--text2)"></span>
+            </div>
+          </div>
+
+          <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+            <div class="stat-card"><div class="stat-num" id="ef-stat-ok" style="color:var(--green)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Listas</div></div>
+            <div class="stat-card"><div class="stat-num" id="ef-stat-desc" style="color:var(--red)">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Descuadradas</div></div>
+            <div class="stat-card"><div class="stat-num" id="ef-stat-sin">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Sin fiscal</div></div>
+            <div class="stat-card"><div class="stat-num" id="ef-stat-sel" style="font-size:18px">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Seleccionadas</div></div>
+          </div>
+        </div>
+
+        <div id="ef-contenido"></div>
       </div>
 
       <div class="view" id="view-declaracion-isv">
@@ -3718,7 +3772,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260922a"></script>
+<script type="module" src="js/app.js?v=20260922b"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3740,6 +3794,7 @@
 <script defer src="js/cuentas-cobrar.js?v=20260921t"></script>
 <script defer src="js/conciliacion.js?v=20260921t"></script>
 <script defer src="js/fiscal.js?v=20260921t"></script>
+<script defer src="js/export_fiscal.js?v=20260922a"></script>
 <script defer src="js/revision_taxis.js?v=20260921t"></script>
 <script defer src="js/conciliacion_taxis.js?v=20260921t"></script>
 <script defer src="js/yonker.js?v=20260921t"></script>

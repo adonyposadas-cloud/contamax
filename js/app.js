@@ -1,5 +1,5 @@
 // CONTAMAX · app.js
-try { window.__appBuild = '20260825-cxpfiltro' } catch (e) {}
+try { window.__appBuild = '20260922-exportfiscal' } catch (e) {}
 // ⚠️ CDN: se pasó de esm.sh a jsDelivr el 14/07/2026.
 // esm.sh empezó a devolver 502 y la app NO ARRANCABA: sin supabase-js no hay cliente, y
 // sin cliente no hay sistema. Todo Tecnimax colgado de un CDN gratuito sin SLA.
@@ -161,7 +161,7 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
     contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
@@ -281,7 +281,7 @@ function setupUI() {
 
   // Ocultar sección Fiscal si no tiene el módulo
   const sectionFiscal = document.getElementById('section-fiscal')
-  if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv') && !visibles.includes('nav-rangos-ventas'))
+  if (sectionFiscal) sectionFiscal.classList.toggle('hidden', !visibles.includes('nav-declaracion-isv') && !visibles.includes('nav-rangos-ventas') && !visibles.includes('nav-export-fiscal'))
 
   // Ocultar sección Cotizador si no tiene el módulo
   const sectionCotizador = document.getElementById('section-cotizador')
@@ -401,6 +401,7 @@ window.showView = (id, label) => {
   if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
   if (id === 'actividad') loadActividad()
   if (id === 'declaracion-isv' && window.loadDeclaracionISV) window.loadDeclaracionISV()
+  if (id === 'export-fiscal' && window.initExportFiscal) window.initExportFiscal()
   if (id === 'planilla' && window.initPlanilla) window.initPlanilla()
   if (id === 'prestamos-emp' && window.loadPrestamosEmp) window.loadPrestamosEmp()
   if (id === 'cotizador' && window.initCotizador) window.initCotizador()
@@ -2489,7 +2490,10 @@ async function initPartidaNueva() {
   // Prellenado externo (ej. partida de ajuste de arqueo): reemplaza las líneas
   if (window._prefillPartida) {
     const pf = window._prefillPartida; window._prefillPartida = null
-    if (Array.isArray(pf.lineas) && pf.lineas.length) { partidaLineas = pf.lineas; renderLineas() }
+    // Renumerar: el editor pone l.id sin comillas en los onclick/oninput
+    // (updLinea(${l.id},…)). Un id tipo UUID rompía esos handlers y las
+    // líneas del ajuste de arqueo no se podían editar.
+    if (Array.isArray(pf.lineas) && pf.lineas.length) { partidaLineas = pf.lineas.map(l => ({ ...l, id: ++lineaCounter })); renderLineas() }
     if (pf.descripcion) { const d = document.getElementById('pn-descripcion'); if (d) d.value = pf.descripcion }
     calcTotales()
   }
@@ -6608,7 +6612,9 @@ window.generarAjusteArqueo = () => {
     else { dec[d] = -x; decVal += (-x) * d }
   })
 
-  const uid = () => (window.crypto?.randomUUID ? crypto.randomUUID() : 'l' + Math.random().toString(36).slice(2))
+  // El editor renumera las líneas al prellenar (ids numéricos); estos son provisionales.
+  let n = 0
+  const uid = () => ++n
   const cta = (window.catalogoCuentas || []).find(c => String(c.codigo).trim() === CAJA)
   const cajaId = cta ? cta.id : ''
   const cajaNom = cta ? cta.nombre : ctx.cajaNombre
