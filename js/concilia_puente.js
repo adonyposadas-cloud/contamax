@@ -171,7 +171,7 @@ function cpRender() {
             <tbody>${sugeridas.map(s => `<tr style="background:rgba(16,185,129,0.08)">
               <td style="font-size:12px"><span style="font-family:var(--mono);font-size:11px">#${s.d.numPartida} · ${s.d.fecha}</span><br>${s.d.descripcion || '—'}</td>
               <td style="font-size:12px"><span style="font-family:var(--mono);font-size:11px">#${s.h.numPartida} · ${s.h.fecha}</span><br>${s.h.descripcion || '—'}</td>
-              <td style="text-align:right;font-family:var(--mono);font-weight:600">L. ${cpFmt(s.d.monto)}</td>
+              <td style="text-align:right;font-family:var(--mono);font-weight:600;white-space:nowrap">L. ${cpFmt(s.d.monto)}</td>
               <td><button class="btn btn-ghost" onclick="cpConciliarUno('${s.d.id}','${s.h.id}')" style="padding:4px 10px;font-size:11px;border-color:var(--green);color:var(--green)">Conciliar</button></td>
             </tr>`).join('')}</tbody>
           </table>
@@ -200,7 +200,7 @@ function cpRender() {
       return `<tr style="opacity:0.85">
         <td style="font-size:12px">${d ? `#${d.numPartida} ${d.descripcion || ''}` : '—'}</td>
         <td style="font-size:12px">${h ? `#${h.numPartida} ${h.descripcion || ''}` : '—'}</td>
-        <td style="text-align:right;font-family:var(--mono)">L. ${cpFmt(monto)}</td>
+        <td style="text-align:right;font-family:var(--mono);white-space:nowrap">L. ${cpFmt(monto)}</td>
         <td><button class="btn btn-ghost" onclick="cpDesconciliar('${g}')" style="padding:3px 10px;font-size:11px;border-color:var(--amber);color:var(--amber)">Deshacer</button></td>
       </tr>`
     }).join('')
@@ -227,10 +227,10 @@ function cpPintaLado(lado, movs) {
     const sugiere = movOpuesto && Math.abs(m.monto - movOpuesto.monto) < 0.01
     const bg = selected ? 'background:rgba(96,165,250,0.18);' : sugiere ? 'background:rgba(245,158,11,0.10);' : ''
     return `<tr style="cursor:pointer;${bg}" onclick="cpSeleccionar('${lado}','${m.id}')">
-      <td style="font-family:var(--mono);font-size:11px">${m.fecha}</td>
-      <td style="font-family:var(--mono);font-size:11px">#${m.numPartida}</td>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${m.fecha}</td>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">#${m.numPartida}</td>
       <td style="font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(m.descripcion || '').replace(/"/g, '&quot;')}">${m.descripcion || '—'}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${cpFmt(m.monto)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;white-space:nowrap">L. ${cpFmt(m.monto)}</td>
     </tr>`
   }).join('') || `<tr><td colspan="4" style="text-align:center;padding:16px;color:var(--text3)">Sin movimientos pendientes</td></tr>`
 }

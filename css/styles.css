@@ -489,6 +489,22 @@ tbody tr:hover,.tree-row:hover{background:var(--row-hover)}
 @media(max-width:768px){.btn-tema{width:30px;height:30px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 
+/* Grilla adaptable: columnas lado a lado solo si cada una tiene >= 420 px; si no, se apilan */
+.grid-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px}
+.grid-auto > *{min-width:0}
+/* Media pantalla y tablet (el menú lateral se come ~210 px) */
+#act-tabla{overflow-x:auto}
+#view-cotizador .cot-tabs{flex-wrap:wrap}
+/* Caja General: si las cifras no entran junto al saldo, bajan de línea (en laptop siguen en una fila) */
+.cj-saldo-card{flex-wrap:wrap;gap:14px}
+.cj-saldo-cifras{flex-wrap:wrap;justify-content:flex-end}
+
+/* Conciliación Puente: Cargos y Abonos lado a lado solo si cada tabla tiene >= 460 px;
+   si no (media pantalla, tablet), se apilan. Depende del espacio real, no de la ventana. */
+.cp-dos-lados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px}
+.cp-dos-lados > *{min-width:0}
+.cp-dos-lados td,.cp-dos-lados th{padding-left:12px;padding-right:12px}
+
 /* ══════════════════════════════
    CELULAR · nada se sale del ancho de pantalla (solo <= 768px)
    Muchas pantallas arman filas y grillas con estilos en línea; estas reglas

@@ -135,7 +135,15 @@ async function initSession(user) {
       dl = el ? (el.textContent || '').replace(/\s+\d+\s*$/, '').trim() : dv
     }
   }
-  showView(dv, dl)
+  // Al actualizar la página se vuelve a la pantalla donde estaba (misma pestaña). Solo si el
+  // usuario todavía tiene permiso para verla; se abre con su clic del menú para que corra su carga.
+  let navPrevio = null
+  try {
+    const u = sessionStorage.getItem('contamax-vista')
+    if (u && _vis.includes(u)) navPrevio = document.getElementById(u)
+  } catch (e) { /* sin storage: vista inicial */ }
+  if (navPrevio) navPrevio.click()
+  else showView(dv, dl)
   // Load caja badge for super_admin
   if (profile.rol === 'super_admin') initCajaBadge()
   initAprobacionesBadge()
@@ -326,6 +334,7 @@ window.doLogin = async () => {
 }
 
 window.doLogout = async () => {
+  try { sessionStorage.removeItem('contamax-vista') } catch (e) {}
   await sb.auth.signOut()
   currentUser = null; currentProfile = null
   showScreen('login-screen')
@@ -349,6 +358,9 @@ window.showView = (id, label) => {
   if (view) view.classList.add('active')
   const nav = document.getElementById('nav-' + id)
   if (nav) nav.classList.add('active')
+  // Recordar la pantalla del menú para volver a ella al actualizar (ver initSession).
+  // Formularios como 'partida-nueva' no tienen ítem de menú: al recargar se vuelve al listado.
+  if (nav) { try { sessionStorage.setItem('contamax-vista', nav.id) } catch (e) { /* sin storage: no pasa nada */ } }
   if (id === 'partida-nueva') { const np = document.getElementById('nav-partidas'); if(np) np.classList.add('active') }
   if (id === 'importar-compras') { const ni = document.getElementById('nav-importar-compras'); if(ni) ni.classList.add('active') }
   if (id === 'importar-costos') { const ni = document.getElementById('nav-importar-costos'); if(ni) ni.classList.add('active') }
