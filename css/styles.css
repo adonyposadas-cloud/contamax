@@ -488,3 +488,35 @@ tbody tr:hover,.tree-row:hover{background:var(--row-hover)}
 
 @media(max-width:768px){.btn-tema{width:30px;height:30px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* ══════════════════════════════
+   CELULAR · nada se sale del ancho de pantalla (solo <= 768px)
+   Muchas pantallas arman filas y grillas con estilos en línea; estas reglas
+   las adaptan sin tocar cada módulo. En escritorio no cambia nada.
+══════════════════════════════ */
+@media(max-width:768px){
+  /* Filas flexibles: si no entran, bajan de línea en vez de desbordar */
+  .view :is(div,span,section,label,form)[style*="display:flex"],
+  .view :is(div,span,section,label,form)[style*="display: flex"],
+  .view :is(div,span,section,label,form)[style*="display:inline-flex"],
+  .view :is(div,span,section,label,form)[style*="display: inline-flex"]{flex-wrap:wrap}
+  /* Los hijos de grillas pueden achicarse (por defecto no bajan del ancho de su contenido) */
+  .view [style*="grid-template-columns"] > *,.form-grid > *,.form-grid-3 > *,.stats-row > *{min-width:0}
+  /* Grillas de 2 o más columnas escritas en el HTML: una sola columna */
+  .view [style*="grid-template-columns:1fr 1fr"],.view [style*="grid-template-columns: 1fr 1fr"]{grid-template-columns:1fr!important}
+  /* Totales: 2 por fila aunque el HTML fije 4 (el estilo en línea le ganaba a la regla de celular) */
+  .stats-row{grid-template-columns:repeat(2,1fr)!important}
+  .stat-num{font-size:clamp(15px,4.6vw,18px);overflow-wrap:anywhere}
+  /* Campos al ancho disponible */
+  .view :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea){max-width:100%}
+  /* Tablas que no están dentro de un contenedor con desplazamiento: se desplazan solas */
+  .view table:not(.table-wrap table):not(.tree-wrap table){display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* Pestañas internas (Yonker): tira deslizable en vez de desbordar */
+  .yk-tabbar{flex-wrap:nowrap!important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+  .yk-tabbar > *{flex-shrink:0}
+  /* Caja General: la tarjeta de efectivo se apila y las cifras se reparten */
+  .cj-saldo-card{flex-direction:column;align-items:stretch!important;gap:14px}
+  .cj-saldo-cifras{justify-content:space-between;gap:12px 16px!important}
+  .cj-saldo-cifras > div{flex:1 1 28%}
+  .cj-saldo-cifras > .btn{flex:1 1 auto;justify-content:center}
+}

@@ -48,7 +48,7 @@
   }
 })()
 </script>
-<link rel="stylesheet" href="css/styles.css?v=20260921t">
+<link rel="stylesheet" href="css/styles.css?v=20260921m">
 <style>
 .ac-wrap{position:relative}
 .ac-list{position:absolute;top:100%;left:0;right:0;z-index:100;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 var(--radius) var(--radius);max-height:180px;overflow-y:auto;box-shadow:var(--shadow-md)}
@@ -818,12 +818,12 @@
           <button class="btn btn-ghost" onclick="loadCaja()">↻ Actualizar</button>
         </div>
         <!-- SALDO ACUMULADO LEMPIRAS -->
-        <div style="background:var(--bg2);border:1px solid var(--gold);border-radius:var(--radius-lg);padding:20px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
+        <div class="cj-saldo-card" style="background:var(--bg2);border:1px solid var(--gold);border-radius:var(--radius-lg);padding:20px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
           <div>
             <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">💵 Efectivo Lempiras</div>
             <div style="font-size:28px;font-family:var(--mono);font-weight:500;margin-top:4px" id="cj-saldo">—</div>
           </div>
-          <div style="display:flex;gap:20px;align-items:center">
+          <div class="cj-saldo-cifras" style="display:flex;gap:20px;align-items:center">
             <div style="text-align:center">
               <div style="font-size:18px;font-family:var(--mono);color:var(--text2)" id="cj-vienen">—</div>
               <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:2px">Vienen (día ant.)</div>
