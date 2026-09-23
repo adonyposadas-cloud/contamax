@@ -562,7 +562,9 @@ window.generarPlanilla = async () => {
     // ── Salvaguarda: un borrador NO se recalcula al cargar. Si desde que se generó cambió el
     // roster (ej. un empleado pasó a salario partido y ahora debe salir en esta planilla),
     // avisamos qué personas faltan para que el usuario regenere en vez de aprobar algo incompleto.
-    try {
+    // Solo en BORRADORES: una aprobada/pagada muestra lo que se pagó; compararla con
+    // la gente de hoy tapaba el mensaje "se muestra tal como se pagó" con un aviso falso.
+    if (existing.estado === 'borrador') try {
       if (allEmpleados.length === 0) {
         const { data: _emps } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
         allEmpleados = _emps || []
