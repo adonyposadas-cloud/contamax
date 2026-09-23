@@ -111,6 +111,23 @@ function _puedeVerConfidencial() {
   return ['super_admin', 'contador'].includes(window._currentProfile?.()?.rol)
 }
 
+// Candado: ¿esta quincena ya tiene su partida de planilla? Si existe (y no está
+// anulada), la quincena YA SE PAGÓ: generar o regenerar crearía un detalle que no es
+// lo que se pagó y, al aprobarlo, repetiría vacaciones y abonos a préstamos.
+// Pasó el 17/08 con 2026-08-Q1. Devuelve el número de partida o null.
+async function _partidaPlanillaExistente(periodo, esConf) {
+  const desc = esConf ? `PLANILLA CONFIDENCIAL ${periodo}` : `PLANILLA ${periodo}`
+  const { data, error } = await getSb().from('partidas_contables')
+    .select('numero_partida, estado').ilike('descripcion', `${desc}%`).neq('estado', 'anulada').limit(1)
+  if (error) { console.warn('candado partida planilla:', error.message); return null }
+  return data?.[0]?.numero_partida ?? null
+}
+function _avisoQuincenaPagada(periodo, numero, accion) {
+  alert(`No se puede ${accion}: la quincena ${periodo} ya tiene su partida de planilla (#${numero}), o sea que ya se pagó.\n\n` +
+    'Hacerlo crearía un detalle distinto de lo que se pagó y, al aprobarlo, se repetirían vacaciones y abonos a préstamos.\n\n' +
+    'Si de verdad hay que corregir esa quincena, primero hay que anular o revertir la partida.')
+}
+
 // Cuántos empleados activos con salario partido NO puede ver este usuario (el RLS
 // oculta todo empleado con planilla_confidencial a quien no es super_admin/contador,
 // aunque su parte visible vaya en la planilla general). Lo decide la base
@@ -487,6 +504,9 @@ window.regenerarPlanilla = async () => {
       'Si de verdad hay que modificarla, usá "Reabrir planilla": revierte la partida con un contra-asiento y repone los saldos.')
     return
   }
+  // Se revisa ANTES de borrar: si no, se borraba el borrador y después no se podía generar.
+  const _pagada = await _partidaPlanillaExistente(currentPlanilla.periodo, !!currentPlanilla.es_confidencial)
+  if (_pagada) { _avisoQuincenaPagada(currentPlanilla.periodo, _pagada, 'regenerar esta planilla'); return }
   if (!confirm('¿Regenerar la planilla? Se borrarán los datos actuales y se recalculará todo.')) return
   
   // Delete existing details and header
@@ -578,6 +598,10 @@ window.generarPlanilla = async () => {
   }
 
   document.getElementById('pl-existing').classList.add('hidden')
+
+  // Quincena ya pagada (tiene partida) pero sin registro de planilla: no generar.
+  const _pagada = await _partidaPlanillaExistente(periodo, planillaModoConf)
+  if (_pagada) { _avisoQuincenaPagada(periodo, _pagada, 'generar esta planilla'); return }
 
   // La general la tiene que generar alguien que vea a TODOS sus empleados: los de
   // salario partido están marcados confidenciales y el RLS se los oculta a quien no
