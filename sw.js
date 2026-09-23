@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v30-exportfiscal'
+const CACHE_NAME = 'contamax-v31-planilla'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

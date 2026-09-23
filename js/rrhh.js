@@ -111,6 +111,21 @@ function _puedeVerConfidencial() {
   return ['super_admin', 'contador'].includes(window._currentProfile?.()?.rol)
 }
 
+// Cuántos empleados activos con salario partido NO puede ver este usuario (el RLS
+// oculta todo empleado con planilla_confidencial a quien no es super_admin/contador,
+// aunque su parte visible vaya en la planilla general). Lo decide la base
+// (función planilla_partidos_ocultos); si la función no existe, no bloquea.
+async function _partidosOcultos() {
+  try {
+    const { data, error } = await getSb().rpc('planilla_partidos_ocultos')
+    if (error) throw error
+    return Number(data) || 0
+  } catch (e) {
+    console.warn('planilla_partidos_ocultos:', e?.message || e)
+    return 0
+  }
+}
+
 function ensurePlanillaTabs() {
   if (!_puedeVerConfidencial()) return
   if (document.getElementById('pl-tabs-conf')) return
@@ -534,14 +549,27 @@ window.generarPlanilla = async () => {
       }
       const _split = e => (parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0)
       const _fullConf = e => !!e.planilla_confidencial && !_split(e)
-      const _esperados = allEmpleados.filter(e => e.activo && (planillaModoConf ? (_fullConf(e) || _split(e)) : !_fullConf(e)))
+      // Quien entró DESPUÉS de terminar la quincena no tenía por qué estar: en borradores
+      // viejos el aviso salía con toda la gente contratada después (puro ruido).
+      const _finISO = fechaFin.toLocaleDateString('en-CA')
+      const _esperados = allEmpleados.filter(e => e.activo &&
+        (!e.fecha_ingreso || String(e.fecha_ingreso).slice(0, 10) <= _finISO) &&
+        (planillaModoConf ? (_fullConf(e) || _split(e)) : !_fullConf(e)))
+      // La misma persona puede tener un registro nuevo (ficha recreada): se reconoce
+      // por id, por identidad o por nombre, no solo por id.
+      const _norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
       const _idsBorrador = new Set(currentDetalle.map(d => d.empleado_id))
-      const _faltantes = _esperados.filter(e => !_idsBorrador.has(e.id))
-      if (_faltantes.length) {
-        const _nombres = _faltantes.map(e => e.nombre).join(', ')
-        document.getElementById('pl-existing-msg').textContent =
-          `⚠ Este borrador no incluye a ${_faltantes.length} empleado(s) que hoy deberían estar: ${_nombres}. Regenerá para actualizarlo.`
-        window.toast?.(`El borrador no incluye a: ${_nombres}. Regenerá para actualizar.`, 'error')
+      const _nombresBorrador = new Set(currentDetalle.map(d => _norm(d.nombre)))
+      const _identBorrador = new Set(allEmpleados.filter(e => _idsBorrador.has(e.id) && e.identidad).map(e => String(e.identidad)))
+      const _faltantes = _esperados.filter(e => !_idsBorrador.has(e.id) &&
+        !(e.identidad && _identBorrador.has(String(e.identidad))) && !_nombresBorrador.has(_norm(e.nombre)))
+      const _ocultos = planillaModoConf ? 0 : await _partidosOcultos()
+      const _avisos = []
+      if (_faltantes.length) _avisos.push(`no incluye a ${_faltantes.length} empleado(s) que hoy deberían estar: ${_faltantes.map(e => e.nombre).join(', ')}`)
+      if (_ocultos) _avisos.push(`hay ${_ocultos} empleado(s) con salario partido que tu usuario no puede ver; esta planilla general debe generarla super_admin o contador`)
+      if (_avisos.length) {
+        document.getElementById('pl-existing-msg').textContent = `⚠ Este borrador ${_avisos.join('; y ')}.${_faltantes.length ? ' Regenerá para actualizarlo.' : ''}`
+        window.toast?.(`Borrador incompleto: ${_avisos.join('; ')}`, 'error')
       }
     } catch (e) { console.warn('chequeo roster borrador:', e) }
 
@@ -550,6 +578,18 @@ window.generarPlanilla = async () => {
   }
 
   document.getElementById('pl-existing').classList.add('hidden')
+
+  // La general la tiene que generar alguien que vea a TODOS sus empleados: los de
+  // salario partido están marcados confidenciales y el RLS se los oculta a quien no
+  // es super_admin/contador, así que saldrían sin pagarse en la general.
+  if (!planillaModoConf) {
+    const ocultos = await _partidosOcultos()
+    if (ocultos) {
+      alert(`No podés generar la planilla general: hay ${ocultos} empleado(s) con salario partido que tu usuario no puede ver, ` +
+        'y quedarían fuera (sin pago) en la planilla.\n\nLa planilla general tiene que generarla un super_admin o un contador.')
+      return
+    }
+  }
 
   // Load empleados activos (not socios)
   if (allEmpleados.length === 0) {
@@ -1534,6 +1574,16 @@ async function generarPartidaConfidencial(periodo, fechaPartida) {
 // ── Aprobar planilla: rebaja saldo de vacaciones usado + genera partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
+  // Mismo candado que al generar: sin ver a los de salario partido, la general
+  // se aprobaría sin ellos (y sus provisiones se calcularían sin su ficha).
+  if (!currentPlanilla.es_confidencial) {
+    const ocultos = await _partidosOcultos()
+    if (ocultos) {
+      alert(`No podés aprobar esta planilla general: hay ${ocultos} empleado(s) con salario partido que tu usuario no puede ver.\n\n` +
+        'Tiene que revisarla y aprobarla un super_admin o un contador.')
+      return
+    }
+  }
   // Préstamos con saldo que no se descontaron por no tener cuota definida.
   if (window._plPrestSinCuota?.length) {
     if (!confirm(`⚠️ ${window._plPrestSinCuota.length} préstamo(s) con saldo NO se descontaron en esta planilla ` +
