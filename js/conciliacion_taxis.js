@@ -604,6 +604,7 @@
       // El matching por identificador fuerte depende de la institución: se corre
       // una pasada por cada una, viendo solo sus propios depósitos.
       ctxRes = conciliarMulti(entregas, movs, instituciones)
+      ctxSelDepositos = []   // el cálculo nuevo renumera los depósitos: lo elegido antes ya no aplica
       ctxRes.duplicados = duplicados
       ctxRes.codigos = codigos
       // Parcial = faltan bancos por conciliar, no que hayas desmarcado archivos.
@@ -727,6 +728,15 @@
     const cConc = `<div class="ctx-grp"><div class="ctx-grp-t ok">✓ Conciliados (${conc})</div>${concRows || '<div class="ctx-empty">—</div>'}</div>`
 
     // Depósitos huérfanos (selección múltiple para emparejar)
+    // La selección guarda POSICIONES de la lista. Si el depósito elegido se concilió
+    // por otro lado (o cambió el cálculo), esa posición queda colgada: la barra azul
+    // no se podía soltar y "emparejar" habría usado el depósito equivocado.
+    const vivos = new Set(r.depositosHuerfanos.map(mv => mv.idx))
+    const habiaSel = ctxSelDepositos.length
+    ctxSelDepositos = ctxSelDepositos.filter(i => vivos.has(i))
+    if (habiaSel && !ctxSelDepositos.length) {
+      window.toast?.('El depósito que tenías elegido ya quedó conciliado: se limpió la selección', 'info')
+    }
     const sumSel = ctxSelDepositos.reduce((s, i) => s + (r.movs[i] ? r.movs[i].monto : 0), 0)
     const depRows = r.depositosHuerfanos.map(mv => {
       const sel = ctxSelDepositos.includes(mv.idx)
@@ -749,7 +759,8 @@
       </div>`
     }).join('')
     const selInfo = ctxSelDepositos.length
-      ? `<div class="ctx-selinfo">${ctxSelDepositos.length} depósito(s) elegidos · suma <b>${fmt(sumSel)}</b> — ahora tocá "emparejar" en la entrega que corresponda</div>`
+      ? `<div class="ctx-selinfo">${ctxSelDepositos.length} depósito(s) elegidos · suma <b>${fmt(sumSel)}</b> — ahora tocá "emparejar" en la entrega que corresponda
+           <button class="ctx-punto-btn" style="margin-left:8px" onclick="ctxLimpiarSeleccion()" title="Soltar los depósitos elegidos">limpiar</button></div>`
       : ''
     const buscador = r.depositosHuerfanos.length > 3
       ? `<div class="ctx-dep-search"><input id="ctx-dep-search" type="text" placeholder="🔎 Buscar por referencia, nombre o monto…" value="${ctxDepFiltro.replace(/"/g, '&quot;')}" oninput="ctxDepBuscar(this.value)" autocomplete="off" style="width:100%;padding:8px 10px;border-radius:8px;background:var(--bg-inset,#0f1115);border:1px solid #2a2f3a;color:var(--text,#e6e8ec);font-size:13px;margin:6px 0"><span id="ctx-dep-count" style="color:var(--text2,#8b8f98);font-size:11px"></span></div>`
@@ -903,6 +914,8 @@
     if (cnt) cnt.textContent = q ? `${vis} de ${filas.length} depósito(s)` : ''
   }
   window.ctxDepBuscar = (v) => { ctxDepFiltro = v || ''; ctxDepAplicarFiltro() }
+
+  window.ctxLimpiarSeleccion = () => { ctxSelDepositos = []; ctxRender() }
 
   window.ctxElegirDeposito = (idx) => {
     const p = ctxSelDepositos.indexOf(idx)
