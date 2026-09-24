@@ -66,6 +66,7 @@ const _sumaHaber = (ls) => _r2(ls.filter(l => l.tipo === 'credito').reduce((s, l
 // Líneas de gasto del CC Taxis que no se pudieron asignar a una unidad. Se muestran
 // SIEMPRE: si se ocultaran, el pool pagaría cosas en silencio y nadie se enteraría.
 let _cierreSinUnidad = []
+let _cierreDetFact = {}   // registro → líneas de gasto que se le retienen (para el PDF)
 
 window.verLineasSinUnidad = function () {
   const lista = _cierreSinUnidad || []
@@ -206,6 +207,7 @@ window.consultarCierreMensual = async function () {
   for (const e of entregas) { const k = _normReg(e.unidad); ingresoPorReg[k] = (ingresoPorReg[k] || 0) + (parseFloat(e.monto) || 0) }
   const facturaPorReg = {}
   _cierreSinUnidad = []   // líneas de gasto que no nombran unidad → las paga el pool
+  _cierreDetFact = {}
   for (const l of (lineasGasto || [])) {
     const p = _partidaDeLinea(l)
     if (!p || p.estado !== 'aprobada') continue
@@ -221,6 +223,7 @@ window.consultarCierreMensual = async function () {
       continue
     }
     facturaPorReg[k] = _r2((facturaPorReg[k] || 0) + monto)
+    ;(_cierreDetFact[k] = _cierreDetFact[k] || []).push({ fecha: p.fecha_partida, desc: l.descripcion || '', monto })
   }
   const gpsSegPorReg = {}
   for (const r of recibos) {
@@ -252,7 +255,7 @@ window.consultarCierreMensual = async function () {
 
   const T = { n: filas.reduce((s, g) => s + g.n, 0) }
   ;['ingreso', 'gpsSeg', 'facturas', 'admin', 'neto', 'debito'].forEach(kk => T[kk] = _r2(filas.reduce((s, g) => s + g[kk], 0)))
-  _cierreData = { desde, hasta, propSel, filas, T }
+  _cierreData = { desde, hasta, propSel, filas, T, detFact: _cierreDetFact }
 
   if (!filas.length) { window.toast?.('No hay unidades con ingresos en ese rango', 'info'); document.getElementById('cierre-resultado').classList.add('hidden'); return }
 
@@ -840,4 +843,93 @@ window.generarPartidaCentralizacion = async function () {
   if (window.logActividad) window.logActividad('centralizacion_generada', 'taxis', `Centralización ${periodo}: partida #${numero} · neto L. ${_fmtL(D.debito)} · ${marcadas} líneas marcadas`, partida.id)
   window.toast?.(`Partida de centralización #${numero} generada en borrador · ${marcadas} líneas marcadas`, 'success')
   reset(); document.getElementById('cent-btn-generar').style.display = 'none'
+}
+
+// ══════════════════════════════════════════════
+// PDF del cierre para enviarle al socio
+// Una hoja por socio: sus unidades, lo retenido y el neto, más el detalle de las
+// facturas que se le cargan (para que pueda verificarlas). Usa jsPDF + autoTable,
+// que ya vienen cargados en index.html.
+// ══════════════════════════════════════════════
+window.cierrePDF = function (datos) {
+  const d = datos || _cierreData
+  if (!d || !d.filas || !d.filas.length) { window.toast?.('Primero consultá un período', 'info'); return }
+  const JsPDF = window.jspdf && window.jspdf.jsPDF
+  if (!JsPDF) { window.toast?.('No se pudo cargar el generador de PDF', 'error'); return }
+
+  const doc = new JsPDF({ unit: 'pt', format: 'letter' })
+  if (typeof doc.autoTable !== 'function') { window.toast?.('Falta el complemento de tablas del PDF', 'error'); return }
+  const M = 40
+  const hoy = new Date().toLocaleString('es-HN', { dateStyle: 'short', timeStyle: 'short' })
+  // La fuente estandar del PDF (WinAnsi) no tiene los signos tipograficos: se pasan a ASCII
+  const asc = t => String(t == null ? '' : t).replace(/[−–—]/g, '-').replace(/·/g, '-').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+
+  d.filas.forEach((g, idx) => {
+    if (idx) doc.addPage()
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
+    doc.text('TECNIMAX · Cierre mensual de taxis', M, 54)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5)
+    doc.text(asc('Socio: ' + g.prop), M, 74)
+    doc.text('Período: ' + d.desde + ' al ' + d.hasta, M, 89)
+    doc.text('Unidades con ingresos: ' + g.n, M, 104)
+
+    const unidades = g.unidades.slice().sort((a, b) => b.ingreso - a.ingreso)
+    const cuerpo = unidades.map(x => [
+      asc(x.registro + ' - ' + x.modalidad + (x.esTaxi ? ' (taxi)' : '')),
+      _fmtL(x.ingreso), _fmtL(x.gpsSeg), _fmtL(x.facturas), _fmtL(x.admin), _fmtL(x.neto)
+    ])
+    cuerpo.push(['TOTAL', _fmtL(g.ingreso), _fmtL(g.gpsSeg), _fmtL(g.facturas), _fmtL(g.admin), _fmtL(g.neto)])
+
+    doc.autoTable({
+      startY: 122,
+      head: [['Unidad', 'Ingreso', 'GPS/Seguro', 'Facturas', 'Administración', 'Neto']],
+      body: cuerpo,
+      margin: { left: M, right: M },
+      styles: { font: 'helvetica', fontSize: 9.5, cellPadding: 5, lineColor: [205, 211, 219], lineWidth: 0.5, halign: 'right' },
+      headStyles: { fillColor: [31, 35, 40], textColor: 255, halign: 'right', fontStyle: 'bold' },
+      columnStyles: { 0: { halign: 'left', cellWidth: 150 } },
+      didParseCell: h => { if (h.section === 'body' && h.row.index === cuerpo.length - 1) h.cell.styles.fontStyle = 'bold' }
+    })
+
+    let y = doc.lastAutoTable.finalY + 24
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.text(g.neto >= 0 ? 'Neto a pagar al socio: L. ' + _fmtL(g.neto)
+                        : 'Saldo en contra del socio: L. ' + _fmtL(Math.abs(g.neto)), M, y)
+    y += 22
+
+    // Detalle de las facturas retenidas, por unidad
+    const det = []
+    unidades.forEach(u => {
+      const filas = (d.detFact && d.detFact[String(u.registro).replace(/\D/g, '').replace(/^0+/, '')]) || []
+      filas.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
+        .forEach(f => det.push([String(u.registro), f.fecha, asc(f.desc).slice(0, 70), _fmtL(f.monto)]))
+    })
+    if (det.length) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5)
+      doc.text('Detalle de facturas retenidas', M, y)
+      doc.autoTable({
+        startY: y + 8,
+        head: [['Unidad', 'Fecha', 'Concepto', 'Monto']],
+        body: det,
+        margin: { left: M, right: M },
+        styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 4, lineColor: [205, 211, 219], lineWidth: 0.5 },
+        headStyles: { fillColor: [90, 98, 108], textColor: 255, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 52 }, 1: { cellWidth: 62 }, 3: { halign: 'right', cellWidth: 70 } }
+      })
+      y = doc.lastAutoTable.finalY + 18
+    }
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+    doc.setTextColor(110)
+    const pie = asc('Neto = ingreso por entregas - GPS/seguro (no aplica a unidades TAXI) - facturas - administración.')
+    doc.text(pie, M, Math.min(y, doc.internal.pageSize.getHeight() - 46))
+    doc.text('Emitido el ' + hoy, M, Math.min(y + 12, doc.internal.pageSize.getHeight() - 34))
+    doc.setTextColor(0)
+  })
+
+  const base = d.filas.length === 1
+    ? 'cierre_' + d.desde + '_' + d.filas[0].prop
+    : 'cierre_' + d.desde + '_' + d.hasta
+  doc.save(base.replace(/[^\w-]+/g, '_').slice(0, 80) + '.pdf')
+  window.toast?.('PDF generado', 'success')
 }
