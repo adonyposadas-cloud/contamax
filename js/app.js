@@ -16,6 +16,22 @@ const sb = createClient(
 window._sb = sb
 
 // ── HELPERS ──
+// Supabase filtra con .in(...) dentro de la URL, y la URL tiene un largo máximo (~8 KB).
+// Con UUIDs (39 caracteres cada uno ya codificados), pasadas las ~200 ids el servidor
+// responde 404 con "No API key found in request" — un mensaje que despista, porque la
+// llave sí iba. Medido: 200 ids (~8 KB) y hasta 19 KB pasan sin problema; el riesgo
+// real son las listas sin tope (Rentabilidad por unidad podía mandar 5000 ids, ~190 KB).
+// enLotes parte la lista y propaga el error en vez de tragárselo.
+window.enLotes = async (lista, consulta, tam = 200) => {
+  const ids = [...new Set((lista || []).filter(v => v != null && v !== ''))]
+  const out = []
+  for (let i = 0; i < ids.length; i += tam) {
+    const { data, error } = await consulta(ids.slice(i, i + tam))
+    if (error) throw error
+    if (data && data.length) out.push(...data)
+  }
+  return out
+}
 // Returns YYYY-MM-DD in local timezone (not UTC)
 function localDateStr(d) {
   const dt = d || new Date()
@@ -4242,10 +4258,15 @@ async function loadCaja() {
   const partidaIds = [...new Set(lineasCaja.map(l => l.partida_id))]
 
   // Cargar esas partidas con detalles
-  const { data: partidas, error: pErr } = await sb.from('partidas_contables')
-    .select('*, generador:usuarios!generada_por(nombre), aprobador:usuarios!aprobada_por(nombre)')
-    .in('id', partidaIds)
-    .order('created_at', { ascending: false })
+  let partidas = [], pErr = null
+  try {
+    partidas = await enLotes(partidaIds, lote => sb.from('partidas_contables')
+      .select('*, generador:usuarios!generada_por(nombre), aprobador:usuarios!aprobada_por(nombre)')
+      .in('id', lote)
+      .order('created_at', { ascending: false }))
+    // El orden se pierde al partir en lotes: se reordena sobre el total
+    partidas.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+  } catch (e) { pErr = e }
 
   if (pErr) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${pErr.message}</div></div>`
@@ -4268,9 +4289,9 @@ async function loadCaja() {
   })
 
   // Cargar conteos de billetes
-  const { data: conteos } = await sb.from('conteo_billetes')
+  const conteos = await enLotes(partidaIds, lote => sb.from('conteo_billetes')
     .select('*')
-    .in('partida_id', partidaIds)
+    .in('partida_id', lote)).catch(() => [])
   if (conteos?.length) {
     for (const p of cajaPartidas) {
       p.billetes = conteos.filter(c => c.partida_id === p.id)
@@ -10277,9 +10298,9 @@ window.cargarDetalleUnidad = async () => {
       .select('id').eq('estado', 'aprobada').ilike('descripcion', pat)
       .gte('fecha_partida', desde).lte('fecha_partida', hasta).limit(5000)
     if (heads?.length) {
-      const { data } = await sb.from('lineas_partida')
+      const data = await enLotes(heads.map(h => h.id), lote => sb.from('lineas_partida')
         .select('descripcion, monto, tipo, cuenta_codigo, centro_costo_id, partida_id, partida:partidas_contables(id, fecha_partida, descripcion, estado)')
-        .in('partida_id', heads.map(h => h.id))
+        .in('partida_id', lote)).catch(() => [])
       if (data?.length) lineasCrudas.push(...data)
     }
   }
@@ -11002,8 +11023,8 @@ window.loadCajaChica = async () => {
   // Cargar conteos de billetes de caja chica (para mostrar el detalle en la tarjeta)
   const ccPartidaIds = [...new Set(movs.map(l => l.partida.id))]
   if (ccPartidaIds.length) {
-    const { data: ccConteos } = await sb.from('conteo_billetes')
-      .select('*').in('partida_id', ccPartidaIds).eq('cuenta_codigo', CUENTA_CAJA_CHICA)
+    const ccConteos = await enLotes(ccPartidaIds, lote => sb.from('conteo_billetes')
+      .select('*').in('partida_id', lote).eq('cuenta_codigo', CUENTA_CAJA_CHICA)).catch(() => [])
     if (ccConteos?.length) {
       for (const l of movs) l.billetes = ccConteos.filter(c => c.partida_id === l.partida.id)
     }
@@ -11256,10 +11277,10 @@ window.verArqueoCajaChica = async () => {
   if (conteosNull?.length) {
     const partidaIds = [...new Set(conteosNull.map(c => c.partida_id).filter(Boolean))]
     if (partidaIds.length) {
-      const { data: lineasCC } = await sb.from('lineas_partida')
+      const lineasCC = await enLotes(partidaIds, lote => sb.from('lineas_partida')
         .select('partida_id')
         .eq('cuenta_codigo', CUENTA_CAJA_CHICA)
-        .in('partida_id', partidaIds)
+        .in('partida_id', lote)).catch(() => [])
       const ccPartidaIds = new Set((lineasCC || []).map(l => l.partida_id))
       conteosFromPartidas = conteosNull.filter(c => ccPartidaIds.has(c.partida_id))
     }
