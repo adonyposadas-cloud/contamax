@@ -388,6 +388,20 @@ window.generarPartidaCierre = async function () {
     const { error: lErr } = await sb.from('lineas_partida').insert(lineas.map(l => ({ ...l, partida_id: partida.id })))
     if (lErr) { await sb.from('partidas_contables').delete().eq('id', partida.id); logs.push(`❌ ${g.prop}: error líneas — ${lErr.message}`); continue }
     creadas++
+    // Se archiva la foto del cálculo para poder reimprimir el MISMO PDF más adelante,
+    // aunque después cambien entregas, facturas o recibos (como el snapshot de los recibos).
+    try {
+      const detSocio = {}
+      for (const u of g.unidades) { const k = _normReg(u.registro); if (_cierreDetFact[k]) detSocio[k] = _cierreDetFact[k] }
+      const { error: aErr } = await sb.from('cierres_socio').insert({
+        socio: g.prop, desde, hasta, unidades: g.n,
+        ingreso: g.ingreso, gps_seg: g.gpsSeg, facturas: g.facturas, admin: g.admin, neto: g.neto,
+        detalle: { fila: g, detFact: detSocio },
+        partida_id: partida.id, numero_partida: numero, generado_por: quienId
+      })
+      if (aErr) console.warn('[cierre] no se archivó el snapshot:', aErr.message)
+    } catch (e) { console.warn('[cierre] no se archivó el snapshot:', e.message || e) }
+
     const etiq = g.neto < 0 ? `DEBE L. ${_fmtL(-g.neto)}` : `neto L. ${_fmtL(g.neto)}`
     logs.push(`${regenerado ? '♻️' : '✓'} ${g.prop}: partida #${numero} · ${etiq} · admin L. ${_fmtL(g.admin)}${regenerado ? ' (regenerada)' : ''}`)
   }
@@ -932,4 +946,66 @@ window.cierrePDF = function (datos) {
     : 'cierre_' + d.desde + '_' + d.hasta
   doc.save(base.replace(/[^\w-]+/g, '_').slice(0, 80) + '.pdf')
   window.toast?.('PDF generado', 'success')
+}
+
+
+// ══════════════════════════════════════════════
+// CIERRES ARCHIVADOS · reimprimir el PDF que se le envió al socio
+// La foto se guarda al generar la partida de cierre (tabla cierres_socio).
+// ══════════════════════════════════════════════
+let _cierreArch = {}   // id → fila archivada
+
+window.cierreArchivoCargar = async function () {
+  const cont = document.getElementById('cierre-arch-lista')
+  if (!cont) return
+  const q = (document.getElementById('cierre-arch-socio')?.value || '').trim()
+  cont.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:10px 0">Buscando…</div>'
+  let consulta = window._sb.from('cierres_socio')
+    .select('id, socio, desde, hasta, unidades, ingreso, gps_seg, facturas, admin, neto, numero_partida, created_at')
+    .order('desde', { ascending: false }).order('socio').limit(300)
+  if (q) consulta = consulta.ilike('socio', '%' + q + '%')
+  const { data, error } = await consulta
+  if (error) {
+    const falta = /does not exist|schema cache|42P01/i.test(error.message || '')
+    cont.innerHTML = '<div style="color:var(--red-fg,#f85149);font-size:13px;padding:10px 0">' +
+      (falta ? 'Falta crear la tabla: ejecutá <b>sql/cierres_socio.sql</b> en Supabase.' : 'Error: ' + error.message) + '</div>'
+    return
+  }
+  if (!data || !data.length) {
+    cont.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:10px 0">Todavía no hay cierres archivados. Se archivan solos al generar la partida de cierre.</div>'
+    return
+  }
+  _cierreArch = {}
+  const filas = data.map(r => {
+    _cierreArch[r.id] = r
+    const emitido = new Date(r.created_at).toLocaleDateString('es-HN')
+    return `<tr>
+      <td>${r.socio}</td>
+      <td class="mono" style="white-space:nowrap">${r.desde} a ${r.hasta}</td>
+      <td style="text-align:right" class="mono">${r.unidades}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${r.neto < 0 ? 'var(--red-fg,#f85149)' : 'var(--green-fg,#4ade80)'};white-space:nowrap">L. ${_fmtL(r.neto)}</td>
+      <td class="mono" style="white-space:nowrap">${r.numero_partida ? '#' + r.numero_partida : '—'}</td>
+      <td class="mono" style="white-space:nowrap">${emitido}</td>
+      <td><button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" onclick="cierreArchivoPDF('${r.id}')"><svg class=ico aria-hidden=true><use href=#i-printer></use></svg> PDF</button></td>
+    </tr>`
+  }).join('')
+  cont.innerHTML = `<div class="table-wrap" style="max-height:340px;overflow-y:auto">
+    <table><thead><tr>
+      <th>Socio</th><th>Período</th><th style="text-align:right">Und.</th>
+      <th style="text-align:right">Neto</th><th>Partida</th><th>Emitido</th><th></th>
+    </tr></thead><tbody>${filas}</tbody></table></div>`
+}
+
+window.cierreArchivoPDF = async function (id) {
+  const base = _cierreArch[id]
+  if (!base) return
+  const { data, error } = await window._sb.from('cierres_socio').select('detalle, desde, hasta').eq('id', id).single()
+  if (error || !data?.detalle?.fila) { window.toast?.('No se pudo leer el cierre archivado', 'error'); return }
+  const fila = data.detalle.fila
+  window.cierrePDF({
+    desde: data.desde, hasta: data.hasta,
+    filas: [fila],
+    T: { n: fila.n, ingreso: fila.ingreso, gpsSeg: fila.gpsSeg, facturas: fila.facturas, admin: fila.admin, neto: fila.neto },
+    detFact: data.detalle.detFact || {}
+  })
 }
