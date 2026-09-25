@@ -2120,8 +2120,14 @@
       numero_orden: orden, tipo_solicitud: PF.tipo_solicitud || 'solicitado',
       items: PF.items, solicitados: PF.solicitados || [], subtotal: t.subtotal, isv: t.isv, total: t.total,
       descuento: t.descPct, notas: PF.notas || '', jefe_pista: PF.jefe_pista || '',
-      ganancia_default: getGanDefault(), estado: PF.estado || 'pendiente'
+      ganancia_default: getGanDefault()
     }
+    // OJO: 'estado' NO va acá. Este payload también se usa para actualizar, y PF.estado
+    // es el valor que se cargó al abrir la cotización. Si mientras estaba abierta alguien
+    // la autorizaba (el jefe de pista, otra pestaña), al guardar se reescribía 'pendiente'
+    // encima: la orden quedaba en "Pedido de repuestos" (proc_aprobada sí se guardó) pero
+    // con etiqueta PENDIENTE y sin poder trabajarse. El estado lo manejan las acciones
+    // propias: cot_autorizar, finalizar, no vendida, reiniciar proceso.
     // Al cambiar los ítems, el PDF oficial que hubiera queda VIEJO. Se invalida acá
     // para que nadie mande al cliente un PDF que ya no corresponde. generarPDF()
     // guarda primero y sube después, así que ahí se vuelve a llenar enseguida.
@@ -2141,10 +2147,15 @@
         let { error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)
         if (sinCols(error)) { console.warn('[cotizador] falta cot_pdf_canonico_01.sql'); quitarCols(); ({ error } = await sb().from('cotizador_proformas').update(payload).eq('id', PF.id)) }
         if (error) throw error
+        // El estado pudo cambiar mientras la cotización estaba abierta: se relee.
+        try {
+          const { data: act } = await sb().from('cotizador_proformas').select('estado, proc_aprobada').eq('id', PF.id).single()
+          if (act) { PF.estado = act.estado; PF.proc_aprobada = act.proc_aprobada }
+        } catch (e) { /* si falla, se sigue con lo que había */ }
         if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' actualizada', 'success')
       } else {
-        let { data, error } = await sb().from('cotizador_proformas').insert(payload).select('id,correlativo,estado').single()
-        if (sinCols(error)) { console.warn('[cotizador] falta cot_pdf_canonico_01.sql'); quitarCols(); ({ data, error } = await sb().from('cotizador_proformas').insert(payload).select('id,correlativo,estado').single()) }
+        let { data, error } = await sb().from('cotizador_proformas').insert({ ...payload, estado: PF.estado || 'pendiente' }).select('id,correlativo,estado').single()
+        if (sinCols(error)) { console.warn('[cotizador] falta cot_pdf_canonico_01.sql'); quitarCols(); ({ data, error } = await sb().from('cotizador_proformas').insert({ ...payload, estado: PF.estado || 'pendiente' }).select('id,correlativo,estado').single()) }
         if (error) throw error
         PF.id = data.id; PF.correlativo = data.correlativo; PF.estado = data.estado
         if (!opts.silencioso) toast('Cotización N° ' + numeroProforma() + ' guardada', 'success')
