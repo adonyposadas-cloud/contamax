@@ -11403,6 +11403,7 @@ window.buscarCuentasCxP = (val) => {
   if (codigoTyped.length === 6 && !codigoTyped.includes('-')) {
     const grupo = matches.find(c => c.codigo.toLowerCase() === codigoTyped && esGrupo(c))
     if (grupo) {
+      cxpSoltarSiCambiaCuenta(grupo.id)
       document.getElementById('cxp-cuenta-id').value = grupo.id
       document.getElementById('cxp-cuenta-es-grupo').value = grupo.codigo
       const hijas = catalogo.filter(c => c.codigo.startsWith(grupo.codigo + '-'))
@@ -11420,7 +11421,25 @@ window.buscarCuentasCxP = (val) => {
   }
 }
 
+// Al cambiar de proveedor se suelta lo seleccionado. Antes se arrastraba: si alguien
+// elegía facturas de un proveedor, cambiaba de cuenta y pagaba el segundo, el pago
+// enlazaba también las del primero (caso partida #5648: 3 líneas de BARJUM por
+// L.9,250 pero 33 movimientos marcados, la mayoría de ALLAS).
+function cxpSoltarSiCambiaCuenta (nuevoId) {
+  const prev = document.getElementById('cxp-cuenta-id')?.value
+  if (!prev || prev === nuevoId || !cxpSeleccionados.size) return
+  const n = cxpSeleccionados.size
+  cxpSeleccionados = new Set()
+  cxpMontos = {}
+  cxpSeleccionActiva = null
+  guardarCxPSeleccion()
+  document.querySelectorAll('.cxp-check').forEach(cb => { cb.checked = false })
+  try { updateSumaCxP() } catch (e) {}
+  toast(`Se soltaron ${n} factura(s) del proveedor anterior: la selección no se mezcla entre cuentas`, 'info')
+}
+
 window.selCuentaCxP = (id, codigo, nombre, isGroup) => {
+  cxpSoltarSiCambiaCuenta(id)
   document.getElementById('cxp-cuenta-buscar').value = `${codigo} ${nombre}`
   document.getElementById('cxp-cuenta-id').value = id
   document.getElementById('cxp-cuenta-list').classList.add('hidden')
@@ -12361,7 +12380,16 @@ function cxpModal(titulo, html) {
 
 window.generarPagoCxP = async () => {
   if (!cxpSeleccionados.size) return
-  const ids = Array.from(cxpSeleccionados)
+  // Solo se paga lo que está a la vista. Una línea seleccionada que ya no aparece en
+  // la consulta actual (otro proveedor, otro filtro) no puede entrar al pago: así fue
+  // como la partida #5648 terminó enlazando facturas de un proveedor distinto.
+  const _visibles = new Set(cxpMovimientos.map(m => m.id))
+  const ids = Array.from(cxpSeleccionados).filter(id => _visibles.has(id))
+  const _fuera = cxpSeleccionados.size - ids.length
+  if (_fuera) {
+    if (!confirm(`${_fuera} factura(s) seleccionada(s) no están en la consulta actual (otro proveedor u otro filtro).\n\nSe van a EXCLUIR del pago. Solo se pagarán las ${ids.length} que ves en pantalla.\n\n¿Continuar?`)) return
+  }
+  if (!ids.length) { toast('Ninguna de las facturas seleccionadas está en la consulta actual', 'error'); return }
   let suma = 0
   cxpMovimientos.filter(l => cxpSeleccionados.has(l.id)).forEach(l => { suma += parseFloat(l.monto) || 0 })
   suma = Math.round(suma * 100) / 100
