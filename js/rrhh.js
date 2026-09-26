@@ -223,10 +223,15 @@ const _rapVigente = () => String(currentPlanilla?.fecha_inicio || '').slice(0, 1
 
 // Cuentas del RAP/FOVIIF: gasto por sección (mismo prefijo que sus sueldos: GO 610101,
 // GV 610102, GA 610103) y por pagar junto al IHSS. Crearlas con sql/rap_foviif.sql.
+// OJO con los sufijos: 041 y 042 NO se pueden usar, ya están ocupados por cuentas de
+// otro uso (610101-041 remodelación Yonker, 610101-042 canon IHTT, 610102-041
+// mantenimiento de vehículos, esta última con movimientos). Se usan 044 y 045, que
+// estaban libres en las tres secciones. Si cambiás estos códigos, cambialos también
+// en sql/rap_foviif.sql.
 for (const C of Object.values(CUENTAS_SECCION)) {
   const pre = String(C.sueldos).slice(0, 6)
-  C.rap_gasto = `${pre}-041`
-  C.foviif_gasto = `${pre}-042`
+  C.rap_gasto = `${pre}-044`
+  C.foviif_gasto = `${pre}-045`
   C.rap_cxp = '210303-003'
   C.foviif_cxp = '210303-004'
 }
