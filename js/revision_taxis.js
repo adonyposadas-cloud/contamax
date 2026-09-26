@@ -719,7 +719,24 @@ function rtx7dEnsure() {
     .mot-estado.off{background:rgba(120,128,140,.18);color:var(--text2,#9aa0aa)}
     .mot-sub{font-size:12px;color:var(--text2,#9aa0aa);margin:7px 0}
     .mot-sub b{color:var(--text,#cfd3da)}.mot-sub b.mot-debe{color:var(--gold,#f0a500)}
-    .mot-acts{display:flex;gap:7px;margin-top:6px}
+    .mot-acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}   /* en celular los 3 botones no caben en una línea */
+    /* ── Fotos del motorista ── */
+    .mot-cab{display:flex;gap:11px;align-items:flex-start}
+    .mot-cab-txt{flex:1;min-width:0}
+    .mot-av{width:46px;height:46px;border-radius:50%;flex:0 0 auto;overflow:hidden;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;border:1px solid var(--border,#2a2e37);background:var(--bg3,#1b1e25);position:relative}
+    .mot-av.clic{cursor:pointer}
+    .mot-av img{width:100%;height:100%;object-fit:cover;display:block}
+    .mot-av.dos::after{content:'2';position:absolute;right:-2px;bottom:-2px;background:var(--bg,#0d1117);color:var(--text2,#9aa0aa);font-size:9px;line-height:1;padding:2px 4px;border-radius:7px;border:1px solid var(--border,#2a2e37)}
+    .mot-visor{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:10001;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px}
+    .mot-visor img{max-width:100%;max-height:76vh;border-radius:10px;object-fit:contain}
+    .mot-visor-bar{display:flex;gap:10px;align-items:center;color:#fff;font-size:13px;flex-wrap:wrap;justify-content:center}
+    .mot-fotos{display:flex;gap:10px;margin-top:6px}
+    .mot-slot{flex:1;min-width:0}
+    .mot-slot-prev{width:100%;height:96px;border-radius:10px;border:1px dashed var(--border,#2a2e37);background:var(--bg2,#15171c);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--text2,#8b8f98);font-size:11px}
+    .mot-slot-prev img{width:100%;height:100%;object-fit:cover}
+    .mot-slot-btns{display:flex;gap:4px;margin-top:5px}
+    .mot-slot-btns button{flex:1;padding:6px 0;font-size:11px;border-radius:7px;border:1px solid var(--border,#2a2e37);background:var(--bg2,#15171c);color:var(--text,#e8eaed);cursor:pointer}
+    .mot-slot-btns button:active{background:var(--bg3,#1a1d24)}
   `
   document.head.appendChild(st)
   const ov = document.createElement('div')
@@ -1542,6 +1559,7 @@ async function rtxMotCargar() {
     if (error) throw error
     rtxMotData = data || []
     rtxMotPintar()
+    rtxMotCargarFotos()   // firma las URLs y repinta; la lista no espera por esto
   } catch (e) { pane.innerHTML = '<div class="rtx-empty">Error: ' + (e.message || e) + '</div>' }
 }
 
@@ -1742,12 +1760,17 @@ function rtxMotPintar() {
         <button class="rtx-b ${m.activo ? 'rec' : 'ok'}" onclick="rtxMotToggle('${m.identidad}', ${!m.activo})">${m.activo ? '⏸ Desactivar' : '▶ Activar'}</button>
       </div>` : ''
     return `<div class="mot-row ${m.activo ? '' : 'off'}">
+      <div class="mot-cab">
+        ${rtxMotAvatar(m, puedeAdmin)}
+        <div class="mot-cab-txt">
       <div class="mot-top">
         <div class="mot-id"><b>#${m.unidad}</b> · ${m.nombre}</div>
         <span class="mot-estado ${m.activo ? 'on' : 'off'}">${m.activo ? 'Activo' : 'Inactivo'}</span>
       </div>
       <div class="mot-sub">Cédula: ${m.identidad} · Tarifa: L. ${rtxFmt(m.tarifa)} · Grupo ${m.grupo}${m.telefono ? ' · 📱 ' + m.telefono : ' · <span style="color:#d29922">sin teléfono</span>'} · Saldo: <b class="${m.saldo > 0 ? 'mot-debe' : ''}">L. ${rtxFmt(m.saldo)}</b></div>
       ${rtxMotLpkLinea(m)}
+        </div>
+      </div>
       ${acciones}
     </div>`
   }).join('')
@@ -2490,12 +2513,206 @@ function rtxHistNota(nota) {
   return n || '—'
 }
 
+// ══════════════════════════════════════════════════════════════
+// ── FOTOS DEL MOTORISTA ───────────────────────────────────────
+// Con 203 motoristas, acordarse de quién es quién por el nombre es imposible.
+// Cada ficha lleva hasta 2 fotos: la primera es la miniatura de la lista.
+// El bucket es PRIVADO (son fotos de personas junto a su número de cédula), así
+// que la lista se pinta con URLs firmadas por 8 h: alcanza para una jornada sin
+// que a nadie se le rompan las miniaturas a media mañana.
+// ══════════════════════════════════════════════════════════════
+const MOT_BUCKET = 'motoristas-fotos'
+let rtxMotFotoUrl = {}     // identidad -> [urlFirmada1, urlFirmada2]
+let rtxMotFotoBuf = null   // ranuras del modal abierto: { 1:{...}, 2:{...} }
+
+function rtxMotIniciales (nombre) {
+  const p = String(nombre || '').trim().split(/\s+/).filter(Boolean)
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '?'
+}
+
+// Color estable derivado de la cédula: el mismo motorista sale siempre del mismo
+// color, así la lista se vuelve reconocible aunque todavía no tenga foto.
+function rtxMotColor (ident) {
+  let h = 0
+  for (const c of String(ident || '')) h = (h * 31 + c.charCodeAt(0)) % 360
+  return 'hsl(' + h + ' 42% 36%)'
+}
+
+function rtxMotAvatar (m, puedeAdmin) {
+  const urls = (rtxMotFotoUrl[m.identidad] || []).filter(Boolean)
+  const dos = urls.length > 1 ? ' dos' : ''
+  if (urls.length) {
+    return '<div class="mot-av clic' + dos + '" onclick="rtxMotVisor(&quot;' + m.identidad + '&quot;)" title="Ver fotos">' +
+           '<img src="' + urls[0] + '" alt="" loading="lazy"></div>'
+  }
+  const extra = puedeAdmin
+    ? ' clic" onclick="rtxMotEditar(&quot;' + m.identidad + '&quot;)" title="Agregar foto'
+    : '" title="Sin foto'
+  return '<div class="mot-av' + extra + '" style="background:' + rtxMotColor(m.identidad) + '">' +
+         rtxMotIniciales(m.nombre) + '</div>'
+}
+
+// Se firman todas las fotos de un saque, no una consulta por motorista.
+async function rtxMotCargarFotos () {
+  const paths = [], ref = []
+  for (const m of rtxMotData) {
+    const suyas = [m.foto1, m.foto2]
+    suyas.forEach((p, i) => { if (p) { paths.push(p); ref.push([m.identidad, i]) } })
+  }
+  rtxMotFotoUrl = {}
+  if (!paths.length) return
+  try {
+    const { data, error } = await rtxSb().storage.from(MOT_BUCKET).createSignedUrls(paths, 8 * 3600)
+    if (error) throw error
+    ;(data || []).forEach((d, k) => {
+      if (!d || !d.signedUrl) return
+      const par = ref[k]
+      if (!rtxMotFotoUrl[par[0]]) rtxMotFotoUrl[par[0]] = []
+      rtxMotFotoUrl[par[0]][par[1]] = d.signedUrl
+    })
+    rtxMotPintar()
+  } catch (e) {
+    // Sin fotos la pantalla sigue sirviendo: se cae a las iniciales y ya.
+    console.warn('[rtx] no se pudieron firmar las fotos:', e.message || e)
+  }
+}
+
+window.rtxMotVisor = (ident) => {
+  const urls = (rtxMotFotoUrl[ident] || []).filter(Boolean)
+  if (!urls.length) { window.toast?.('Este motorista todavía no tiene fotos', 'info'); return }
+  const m = rtxMotData.find(x => x.identidad === ident)
+  let k = 0
+  document.getElementById('mot-visor')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'mot-visor'
+  ov.className = 'mot-visor'
+  const quien = m ? ('#' + m.unidad + ' · ' + m.nombre) : ''
+  const pintar = () => {
+    const nav = urls.length > 1
+    ov.innerHTML =
+      '<img src="' + urls[k] + '" alt="Foto del motorista">' +
+      '<div class="mot-visor-bar">' +
+        (nav ? '<button class="rtx-b" data-nav="-1">&lsaquo;</button>' : '') +
+        '<span>' + quien + (nav ? ' · ' + (k + 1) + '/' + urls.length : '') + '</span>' +
+        (nav ? '<button class="rtx-b" data-nav="1">&rsaquo;</button>' : '') +
+        '<button class="rtx-b" data-cerrar="1">Cerrar</button>' +
+      '</div>'
+  }
+  const tecla = (ev) => {
+    if (ev.key === 'Escape') cerrar()
+    else if (ev.key === 'ArrowRight' && urls.length > 1) { k = (k + 1) % urls.length; pintar() }
+    else if (ev.key === 'ArrowLeft' && urls.length > 1) { k = (k - 1 + urls.length) % urls.length; pintar() }
+  }
+  const cerrar = () => { ov.remove(); document.removeEventListener('keydown', tecla) }
+  ov.onclick = (ev) => {
+    const nav = ev.target.closest('[data-nav]')
+    if (nav) { k = (k + Number(nav.dataset.nav) + urls.length) % urls.length; pintar(); return }
+    if (ev.target === ov || ev.target.closest('[data-cerrar]')) cerrar()
+  }
+  pintar()
+  document.addEventListener('keydown', tecla)
+  document.body.appendChild(ov)
+}
+
+// Una foto de celular pesa 3-5 MB. Con datos móviles en el plantel eso no sube.
+// A 1280 px y calidad 0.72 quedan ~200 KB y se ven bien en la ficha.
+async function rtxMotComprimir (file, max = 1280, calidad = 0.72) {
+  try {
+    const img = await createImageBitmap(file)
+    const escala = Math.min(1, max / Math.max(img.width, img.height))
+    const w = Math.round(img.width * escala), h = Math.round(img.height * escala)
+    const c = document.createElement('canvas'); c.width = w; c.height = h
+    c.getContext('2d').drawImage(img, 0, 0, w, h)
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', calidad))
+    return (blob && blob.size < file.size) ? blob : file
+  } catch (e) { return file }   // si el navegador no puede, se sube tal cual
+}
+
+// Cámara y galería van en botones separados a propósito: en iPhone el atributo
+// capture fuerza la cámara y no deja llegar al carrete.
+window.rtxMotFotoPedir = (n, camara) => {
+  if (!rtxMotFotoBuf) return
+  const inp = document.createElement('input')
+  inp.type = 'file'
+  inp.accept = 'image/*'
+  if (camara) inp.capture = 'environment'
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]
+    if (!f) return
+    if (!/^image\//.test(f.type)) { window.toast?.('Ese archivo no es una imagen', 'error'); return }
+    const s = rtxMotFotoBuf[n]
+    if (s.local) URL.revokeObjectURL(s.local)
+    s.blob = await rtxMotComprimir(f)
+    s.quitar = false
+    s.local = URL.createObjectURL(s.blob)
+    rtxMotFotoPintarSlot(n)
+  }
+  inp.click()
+}
+
+window.rtxMotFotoQuitar = (n) => {
+  const s = rtxMotFotoBuf && rtxMotFotoBuf[n]
+  if (!s) return
+  if (!s.blob && !s.path) { window.toast?.('Esa ranura ya está vacía', 'info'); return }
+  if (s.local) { URL.revokeObjectURL(s.local); s.local = null }
+  s.blob = null
+  s.quitar = true
+  rtxMotFotoPintarSlot(n)
+}
+
+function rtxMotFotoPintarSlot (n) {
+  const el = document.getElementById('mot-prev-' + n)
+  if (!el) return
+  const s = rtxMotFotoBuf[n]
+  const url = s.local || (s.quitar ? null : s.url)
+  el.innerHTML = url ? '<img src="' + url + '" alt="">' : (s.quitar ? 'Se quitará' : 'Sin foto')
+}
+
+// Se guarda DESPUÉS de los datos del motorista y solo si algo cambió.
+async function rtxMotFotosGuardar (identidad) {
+  if (!rtxMotFotoBuf) return
+  const hayCambios = [1, 2].some(n => rtxMotFotoBuf[n].blob || rtxMotFotoBuf[n].quitar)
+  if (!hayCambios) return
+  const finales = {}, borrar = []
+  for (const n of [1, 2]) {
+    const s = rtxMotFotoBuf[n]
+    if (s.blob) {
+      // Nombre único: siempre es INSERT, nunca UPDATE (upsert pediría otra policy).
+      const path = identidad + '/' + n + '_' + Date.now() + '.jpg'
+      const { error } = await rtxSb().storage.from(MOT_BUCKET)
+        .upload(path, s.blob, { contentType: 'image/jpeg', cacheControl: '3600' })
+      if (error) throw new Error('No se pudo subir la foto ' + n + ': ' + error.message)
+      if (s.path) borrar.push(s.path)
+      finales[n] = path
+    } else if (s.quitar) {
+      if (s.path) borrar.push(s.path)
+      finales[n] = null
+    } else {
+      finales[n] = s.path || null
+    }
+  }
+  const { data, error } = await rtxSb().rpc('tx_motorista_fotos',
+    { p_identidad: identidad, p_foto1: finales[1], p_foto2: finales[2] })
+  if (error) throw error
+  if (!data || !data.ok) throw new Error((data && data.error) || 'No se pudieron guardar las fotos')
+  // El archivo viejo se borra recién cuando la ficha ya apunta al nuevo: si el
+  // borrado falla queda un huérfano en el bucket, que es mejor que una ficha
+  // apuntando a un archivo que ya no existe.
+  if (borrar.length) { try { await rtxSb().storage.from(MOT_BUCKET).remove(borrar) } catch (e) {} }
+}
+
 window.rtxMotEditar = (identidad) => {
   const m = rtxMotData.find(x => x.identidad === identidad)
   if (!m) return
+  const urls = rtxMotFotoUrl[identidad] || []
+  rtxMotFotoBuf = {
+    1: { path: m.foto1 || null, url: urls[0] || null, blob: null, local: null, quitar: false },
+    2: { path: m.foto2 || null, url: urls[1] || null, blob: null, local: null, quitar: false }
+  }
   rtxMotModal({
     titulo: 'Editar motorista', sub: `Cédula: ${m.identidad}`,
     nombre: m.nombre, tarifa: m.tarifa, grupo: m.grupo, telefono: m.telefono || '', identReadonly: true, ident: m.identidad,
+    fotos: true,
     onGuardar: 'rtxMotGuardarEdicion'
   })
 }
@@ -2511,6 +2728,21 @@ let rtxMotOv = null
 function rtxMotModal(o) {
   const ov = document.createElement('div')
   ov.className = 'rtx-edit-ov show'
+  // Las fotos solo al editar: la ruta en el bucket cuelga de la cédula, y en el
+  // alta todavía no hay ficha a la cual colgarlas. Se agregan entrando a Editar.
+  const fotosBloque = o.fotos ? `
+      <label>Fotos (hasta 2)</label>
+      <div class="mot-fotos">
+        ${[1, 2].map(n => `
+          <div class="mot-slot">
+            <div class="mot-slot-prev" id="mot-prev-${n}"></div>
+            <div class="mot-slot-btns">
+              <button type="button" onclick="rtxMotFotoPedir(${n},true)" title="Tomar la foto con la cámara">Cámara</button>
+              <button type="button" onclick="rtxMotFotoPedir(${n},false)" title="Elegir de la galería o de un archivo">Galería</button>
+              <button type="button" onclick="rtxMotFotoQuitar(${n})" title="Quitar esta foto">✕</button>
+            </div>
+          </div>`).join('')}
+      </div>` : ''
   const identFld = o.identReadonly
     ? `<input type="text" id="rtx-mot-ident" value="${o.ident}" disabled>`
     : `<input type="text" id="rtx-mot-ident" placeholder="Cédula (13 dígitos)" inputmode="numeric">`
@@ -2527,6 +2759,7 @@ function rtxMotModal(o) {
       <input type="number" id="rtx-mot-grupo" value="${o.grupo}" min="1" max="10" inputmode="numeric">
       <label>Teléfono (WhatsApp)</label>
       <input type="tel" id="rtx-mot-telefono" value="${(o.telefono || '').replace(/"/g, '&quot;')}" placeholder="Ej: 9988-7766" inputmode="tel">
+      ${fotosBloque}
       <div class="rtx-edit-acts">
         <button class="rtx-b ghost" onclick="rtxMotCerrar()">Cancelar</button>
         <button class="rtx-b ok" onclick="${o.onGuardar}('${o.ident}')">Guardar</button>
@@ -2535,8 +2768,15 @@ function rtxMotModal(o) {
   ov.onclick = (ev) => { if (ev.target === ov) rtxMotCerrar() }
   document.body.appendChild(ov)
   rtxMotOv = ov
+  if (o.fotos) { rtxMotFotoPintarSlot(1); rtxMotFotoPintarSlot(2) }
 }
-window.rtxMotCerrar = () => { if (rtxMotOv) { rtxMotOv.remove(); rtxMotOv = null } }
+window.rtxMotCerrar = () => {
+  if (rtxMotFotoBuf) {
+    for (const n of [1, 2]) if (rtxMotFotoBuf[n].local) URL.revokeObjectURL(rtxMotFotoBuf[n].local)
+    rtxMotFotoBuf = null
+  }
+  if (rtxMotOv) { rtxMotOv.remove(); rtxMotOv = null }
+}
 
 function rtxMotLeerModal() {
   return {
@@ -2555,6 +2795,15 @@ window.rtxMotGuardarEdicion = async (identidad) => {
     const { data, error } = await rtxSb().rpc('tx_motorista_editar', { p_identidad: identidad, p_nombre: f.nombre, p_tarifa: f.tarifa, p_grupo: f.grupo, p_telefono: f.telefono })
     if (error) throw error
     if (!data?.ok) { window.toast?.(data?.error || 'No se pudo editar', 'error'); return }
+    try {
+      await rtxMotFotosGuardar(identidad)
+    } catch (e) {
+      // Los datos ya quedaron guardados; lo que falló fue la foto. El modal se
+      // deja abierto para reintentar sin tener que volver a elegirla.
+      window.toast?.(e.message || 'No se pudieron guardar las fotos', 'error')
+      rtxMotCargar()
+      return
+    }
     window.toast?.('Motorista actualizado', 'success')
     rtxMotCerrar(); rtxMotCargar()
   } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
