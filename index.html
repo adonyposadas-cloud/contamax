@@ -2915,7 +2915,7 @@
           <button class="btn btn-ghost" onclick="loadVehiculos()" style="padding:8px 14px;font-size:12px">↻ Actualizar</button>
           <button class="btn btn-ghost" onclick="exportarVehiculosExcel()" style="padding:8px 14px;font-size:12px"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Excel</button>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stats-row" id="vin-stats" style="grid-template-columns:repeat(4,1fr)">
           <div class="stat-card"><div class="stat-num" id="vin-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total vehículos</div></div>
           <div class="stat-card"><div class="stat-num" id="vin-stat-props">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--gold-bg)"></span>Propietarios</div></div>
           <div class="stat-card"><div class="stat-num" id="vin-stat-costo">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span><span id="vin-stat-costo-lbl">Costo total</span></div></div>
@@ -2936,7 +2936,7 @@
                 <th>Marca</th>
                 <th>Modelo</th>
                 <th>Año</th>
-                <th style="text-align:right">Costo Copart</th>
+                <th style="text-align:right" id="vin-th-costo">Costo Copart</th>
                 <th>Fecha compra</th>
                 <th>Ubicación</th>
                 <th style="width:70px;text-align:center">Acc.</th>
@@ -3797,7 +3797,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20260925b"></script>
+<script type="module" src="js/app.js?v=20260926a"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>

@@ -9307,7 +9307,19 @@ function vinUrlSegura(u) {
   return p.href.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// Recuadro de totales y columna de costo: se aplica al cargar y al repintar, para
+// que no alcancen a verse mientras llegan los datos.
+function vinAplicarVisibilidadCostos () {
+  const ver = window.vinVeCostos()
+  const stats = document.getElementById('vin-stats')
+  if (stats) stats.classList.toggle('hidden', !ver)
+  const th = document.getElementById('vin-th-costo')
+  if (th) th.style.display = ver ? '' : 'none'
+  return ver
+}
+
 async function loadVehiculos() {
+  vinAplicarVisibilidadCostos()
   const tbody = document.getElementById('tbody-vehiculos')
   if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
 
@@ -9427,8 +9439,12 @@ function renderVehiculosTable() {
   const tbody = document.getElementById('tbody-vehiculos')
   if (!tbody) return
 
+  // Totales y costo por vehículo: solo para quien puede verlos. Va antes del caso
+  // "sin resultados" para que el recuadro tampoco asome con la tabla vacía.
+  const _verCostos = vinAplicarVisibilidadCostos()
+
   if (!filteredVehiculos.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron vehículos</td></tr>'
+    tbody.innerHTML = `<tr><td colspan="${_verCostos ? 10 : 9}" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron vehículos</td></tr>`
     return
   }
 
@@ -9465,7 +9481,7 @@ function renderVehiculosTable() {
       <td>${v.marca}</td>
       <td>${v.modelo}</td>
       <td style="font-family:var(--mono)">${v.anio || '—'}</td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:500">$${fmtD(v.costo_copart)}</td>
+      ${_verCostos ? `<td style="text-align:right;font-family:var(--mono);font-weight:500">$${fmtD(v.costo_copart)}</td>` : ''}
       <td style="font-size:12px;color:var(--text3)">${fecha}</td>
       <td>${ubicBadge(v.ubicacion)}</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
@@ -9613,6 +9629,10 @@ window.guardarVehiculo = async () => {
   loadVehiculos()
 }
 
+// Quién ve los costos de los vehículos: admin y super admin ('admin' viene aliasado
+// como super_admin desde initSession). El resto ve la pantalla sin montos.
+window.vinVeCostos = () => currentProfile?.rol === 'super_admin'
+
 window.exportarVehiculosExcel = () => {
   if (!filteredVehiculos.length) { toast('No hay vehículos para exportar', 'error'); return }
   const rows = filteredVehiculos.map(v => ({
@@ -9621,7 +9641,7 @@ window.exportarVehiculosExcel = () => {
     'Marca': v.marca,
     'Modelo': v.modelo,
     'Año': v.anio || '',
-    'Costo Copart (USD)': v.costo_copart || 0,
+    ...(window.vinVeCostos() ? { 'Costo Copart (USD)': v.costo_copart || 0 } : {}),
     'Fecha Compra': v.fecha_compra || '',
     'Ubicación': v.ubicacion || 'Sin asignar',
     'Notas': v.notas || ''
@@ -9842,7 +9862,8 @@ window.verDetalleVin = async (vinId) => {
       <div><span style="color:var(--text3);font-size:11px">VIN completo</span><div style="font-family:var(--mono);font-size:12px;letter-spacing:1px">${v.vin}</div></div>
       <div><span style="color:var(--text3);font-size:11px">Propietario</span><div><span class="badge badge-blue">${v.propietario}</span></div></div>
       <div><span style="color:var(--text3);font-size:11px">Vehículo</span><div>${v.marca} ${v.modelo} ${v.anio || ''}</div></div>
-      <div><span style="color:var(--text3);font-size:11px">Costo Copart</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div></div>
+      ${window.vinVeCostos() ? `<div><span style="color:var(--text3);font-size:11px">Costo Copart</span><div style="font-family:var(--mono);font-weight:600;color:var(--gold)">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div></div>
+` : ''}
       <div><span style="color:var(--text3);font-size:11px">Ubicación</span><div>${v.ubicacion ? `<span class="badge ${({'Tránsito a puerto':'badge-amber','Bodega USA':'badge-blue','En tránsito marítimo':'badge-blue','Trámites aduaneros':'badge-amber','Grúa a TGU':'badge-purple','Grúa a SPS':'badge-purple','Llegado a plantel':'badge-on','Vendido':'badge-off'})[v.ubicacion] || 'badge-off'}">${v.ubicacion}</span>` : '<span style="color:var(--text3)">Sin asignar</span>'}</div></div>
       ${vinUrlSegura(v.enlace) ? `<div><span style="color:var(--text3);font-size:11px">Enlace</span><div><a href="${vinUrlSegura(v.enlace)}" target="_blank" rel="noopener noreferrer" style="color:var(--gold)">🔗 Ver vehículo</a></div></div>` : ''}
     </div>`
@@ -9923,8 +9944,8 @@ window.verDetalleVin = async (vinId) => {
 
   // Resumen
   document.getElementById('dv-resumen').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
-      <div class="stat-card"><div class="stat-num" style="color:var(--gold);font-size:16px">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div><div class="stat-label">Costo Copart</div></div>
+    <div style="display:grid;grid-template-columns:repeat(${window.vinVeCostos() ? 4 : 3},1fr);gap:12px">
+      ${!window.vinVeCostos() ? '' : `<div class="stat-card"><div class="stat-num" style="color:var(--gold);font-size:16px">$ ${(v.costo_copart || 0).toLocaleString('en-US',{minimumFractionDigits:2})}</div><div class="stat-label">Costo Copart</div></div>`}
       <div class="stat-card"><div class="stat-num" style="color:var(--red);font-size:16px">L. ${fmtL(totalGastos)}</div><div class="stat-label">Gastos adicionales</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--amber);font-size:16px">L. ${fmtL(totalMO)}</div><div class="stat-label">Mano de obra</div></div>
       <div class="stat-card"><div class="stat-num" style="color:var(--blue);font-size:16px">${todosGastos.length}</div><div class="stat-label">Movimientos</div></div>
