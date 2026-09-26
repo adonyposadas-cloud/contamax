@@ -198,6 +198,39 @@ function getIHSSConfig() {
   }
 }
 
+// ── RAP y FOVIIF (comunicado RAP 12/05/2026, Decreto 47-2024) ──
+//  · Fondo de Reserva Laboral: 4 % PATRONAL del salario, con techo de 3 salarios
+//    mínimos (L 57,896.16 en 2026).
+//  · FOVIIF (vivienda): 1.5 % patronal + 1.5 % del trabajador sobre lo que el
+//    salario ordinario pase del piso IHSS-IVM (L 11,903.13).
+//  Base: sueldo MENSUAL completo (como el IHSS); cada quincena lleva la mitad.
+//  Solo planilla general, no socios ni confidencial. Se aplica a planillas que
+//  empiezan desde RAP_VIGENTE_DESDE: las anteriores no cambian al regenerarlas.
+//  Los valores se pueden cambiar en config_planilla (claves rap_*/foviif_*).
+const RAP_VIGENTE_DESDE = '2026-10-01'
+function getRAPConfig() {
+  const cfg = window._configPlanilla || {}
+  const pct = (v, def) => (v > 0 ? (v > 1 ? v / 100 : v) : def)   // acepta 4 o 0.04; 0/vacío = valor por defecto
+  return {
+    rapPct: pct(cfg.rap_pct_patronal, 0.04),
+    rapTecho: cfg.rap_techo_mensual || 57896.16,
+    foviifPiso: cfg.foviif_piso_mensual || 11903.13,
+    foviifPctPatronal: pct(cfg.foviif_pct_patronal, 0.015),
+    foviifPctLaboral: pct(cfg.foviif_pct_laboral, 0.015),
+  }
+}
+const _rapVigente = () => String(currentPlanilla?.fecha_inicio || '').slice(0, 10) >= RAP_VIGENTE_DESDE
+
+// Cuentas del RAP/FOVIIF: gasto por sección (mismo prefijo que sus sueldos: GO 610101,
+// GV 610102, GA 610103) y por pagar junto al IHSS. Crearlas con sql/rap_foviif.sql.
+for (const C of Object.values(CUENTAS_SECCION)) {
+  const pre = String(C.sueldos).slice(0, 6)
+  C.rap_gasto = `${pre}-041`
+  C.foviif_gasto = `${pre}-042`
+  C.rap_cxp = '210303-003'
+  C.foviif_cxp = '210303-004'
+}
+
 // ══════════════════════════════════════════════
 // ═══  1. EXPEDIENTE DE EMPLEADOS  ═══
 // ══════════════════════════════════════════════
@@ -945,6 +978,17 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
     ihssLaboral = Math.round(ihssCfg.techo * ihssCfg.pctLaboral * 100) / 100
     ihssPatronal = Math.round(ihssCfg.techo * ihssCfg.pctPatronal * 100) / 100
   }
+  // RAP (patronal) y FOVIIF (patronal + laboral): mismo alcance que el IHSS, desde la vigencia
+  let rapPatronal = 0, foviifPatronal = 0, foviifLaboral = 0
+  const rapAplica = _rapVigente()
+  if (rapAplica && !emp.es_socio && !emp.planilla_confidencial) {
+    const rc = getRAPConfig()
+    const r2q = x => Math.round(x / 2 * 100) / 100   // mitad del mensual por quincena
+    rapPatronal = r2q(Math.min(sueldoMensual, rc.rapTecho) * rc.rapPct)
+    const exceso = Math.max(0, sueldoMensual - rc.foviifPiso)
+    foviifPatronal = r2q(exceso * rc.foviifPctPatronal)
+    foviifLaboral = r2q(exceso * rc.foviifPctLaboral)
+  }
   // Impuesto vecinal: SÍ aplica a confidenciales (obligación municipal); socios no
   if (!emp.es_socio) {
     impVecinal = overrides.imp_vecinal ?? 0
@@ -964,7 +1008,7 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
   const PISO_NETO = 1
   if (!emp.es_socio) {
     const objetivo = Math.min(PISO_NETO, Math.max(0, totalDevengado))
-    const totalDed = ihssLaboral + impVecinal + trucha + otrasDeducciones + anticipos + cxc
+    const totalDed = ihssLaboral + foviifLaboral + impVecinal + trucha + otrasDeducciones + anticipos + cxc
     let exceso = Math.round((totalDed - (totalDevengado - objetivo)) * 100) / 100   // monto que NO se puede deducir
     if (exceso > 0.005) {
       const recortar = (m) => { const r = Math.min(m, exceso); exceso = Math.round((exceso - r) * 100) / 100; return Math.round((m - r) * 100) / 100 }
@@ -973,11 +1017,12 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
       trucha = recortar(trucha)
       otrasDeducciones = recortar(otrasDeducciones)
       ihssLaboral = recortar(ihssLaboral)
+      foviifLaboral = recortar(foviifLaboral)
       impVecinal = recortar(impVecinal)
     }
   }
 
-  const totalDeducciones = Math.round((ihssLaboral + impVecinal + trucha + otrasDeducciones + anticipos + cxc) * 100) / 100
+  const totalDeducciones = Math.round((ihssLaboral + foviifLaboral + impVecinal + trucha + otrasDeducciones + anticipos + cxc) * 100) / 100
   const sueldoNeto = Math.round((totalDevengado - totalDeducciones) * 100) / 100
 
   return {
@@ -1014,6 +1059,9 @@ function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
     total_deducciones: Math.round(totalDeducciones * 100) / 100,
     sueldo_neto: Math.round(sueldoNeto * 100) / 100,
     ihss_patronal: ihssPatronal,
+    // Solo desde la vigencia: así las planillas anteriores no dependen de las
+    // columnas nuevas de detalle_planilla (sql/rap_foviif.sql).
+    ...(rapAplica ? { rap_patronal: rapPatronal, foviif_patronal: foviifPatronal, foviif_laboral: foviifLaboral } : {}),
   }
 }
 
@@ -1037,6 +1085,12 @@ function renderPlanilla() {
   document.getElementById('pl-stat-deduc').textContent = 'L. ' + fmt(totalDeduc)
   document.getElementById('pl-stat-neto').textContent = 'L. ' + fmt(totalNeto)
   document.getElementById('pl-stat-patronal').textContent = 'L. ' + fmt(totalPatronal)
+  const totalRap = currentDetalle.reduce((s, d) => s + (d.rap_patronal || 0) + (d.foviif_patronal || 0), 0)
+  const elRap = document.getElementById('pl-stat-rap')
+  if (elRap) {
+    elRap.textContent = 'L. ' + fmt(totalRap)
+    elRap.closest('.stat-card').style.display = totalRap > 0 ? '' : 'none'   // antes de la vigencia no aplica
+  }
 
   // Tabs by section
   const secciones = [...new Set(currentDetalle.map(d => d.seccion))]
@@ -1098,6 +1152,7 @@ function renderPlanillaTable() {
       <td style="text-align:right">${otrosIng > 0 ? fmt(otrosIng) : '—'}</td>
       <td style="text-align:right;font-weight:500">${fmt(d.total_devengado)}</td>
       <td style="text-align:right">${fmt(d.ihss_laboral)}</td>
+      <td style="text-align:right">${(d.foviif_laboral || 0) > 0 ? fmt(d.foviif_laboral) : '—'}</td>
       <td style="text-align:right">${d.imp_vecinal > 0 ? fmt(d.imp_vecinal) : '—'}</td>
       <td style="text-align:right">${d.anticipos > 0 ? fmt(d.anticipos) : '—'}</td>
       <td style="text-align:right">${(d.cxc || 0) > 0 ? fmt(d.cxc) : '—'}</td>
@@ -1118,6 +1173,7 @@ function renderPlanillaTable() {
                      (d.bonificaciones || 0) + (d.otros_ingresos || 0) + (d.comisiones_venta || 0)
     acc.devengado += d.total_devengado || 0
     acc.ihss += d.ihss_laboral || 0
+    acc.foviif += d.foviif_laboral || 0
     acc.vecinal += d.imp_vecinal || 0
     acc.anticipos += (d.anticipos || 0)
     acc.prestamo += (d.cxc || 0)
@@ -1126,7 +1182,7 @@ function renderPlanillaTable() {
     acc.deducciones += d.total_deducciones || 0
     acc.neto += d.sueldo_neto || 0
     return acc
-  }, { quincenal: 0, he: 0, otros_ing: 0, devengado: 0, ihss: 0, vecinal: 0, anticipos: 0, prestamo: 0, trucha: 0, otras_ded: 0, deducciones: 0, neto: 0 })
+  }, { quincenal: 0, he: 0, otros_ing: 0, devengado: 0, ihss: 0, foviif: 0, vecinal: 0, anticipos: 0, prestamo: 0, trucha: 0, otras_ded: 0, deducciones: 0, neto: 0 })
 
   tfoot.innerHTML = `
     <tr style="font-weight:600;border-top:2px solid var(--border)">
@@ -1136,6 +1192,7 @@ function renderPlanillaTable() {
       <td style="text-align:right">${totals.otros_ing > 0 ? fmt(totals.otros_ing) : '—'}</td>
       <td style="text-align:right">${fmt(totals.devengado)}</td>
       <td style="text-align:right">${fmt(totals.ihss)}</td>
+      <td style="text-align:right">${totals.foviif > 0 ? fmt(totals.foviif) : '—'}</td>
       <td style="text-align:right">${fmt(totals.vecinal)}</td>
       <td style="text-align:right">${fmt(totals.anticipos)}</td>
       <td style="text-align:right">${fmt(totals.prestamo)}</td>
@@ -1313,9 +1370,13 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
     addD(C.bonificaciones, zona, d.bonificaciones || 0)
     addD(C.otros, zona, (d.otros_ingresos || 0) + (d.ajuste_sueldo || 0) + (d.comisiones_venta || 0))
     addD(C.ihss_patronal_gasto, zona, d.ihss_patronal || 0)
+    addD(C.rap_gasto, zona, d.rap_patronal || 0)
+    addD(C.foviif_gasto, zona, d.foviif_patronal || 0)
     // Créditos (por pagar / banco)
     addC(C.ihss_laboral, d.ihss_laboral || 0)
     addC(C.ihss_patronal_cxp, d.ihss_patronal || 0)
+    addC(C.rap_cxp, d.rap_patronal || 0)
+    addC(C.foviif_cxp, (d.foviif_patronal || 0) + (d.foviif_laboral || 0))   // aporte + retención
     addC(C.imp_vecinal, d.imp_vecinal || 0)
     // La trucha es cuenta por cobrar del empleado (se carga a su CXC al consumir, contra el
     // ingreso 410305-002). En planilla se RECUPERA abonando a su CXC 110301-XXX — NO se abona
@@ -1936,6 +1997,7 @@ window.imprimirVouchersPlanilla = async () => {
     const prestLineas = prestBreakdown[d.empleado_id] || []
     const dedArr = [
       ['IHSS', d.ihss_laboral],
+      ['FOVIIF (vivienda)', d.foviif_laboral],
       ['Impuesto vecinal', d.imp_vecinal],
       ['Anticipos', d.anticipos]
     ]
@@ -2026,7 +2088,8 @@ window.exportarPlanillaExcel = () => {
     'Ajuste Sueldo', 'Vacaciones', 'Incapacidad', 'Bonificaciones',
     'Otros Ingresos', 'Comisiones', 'Total Devengado',
     'Imp. Vecinal', 'Anticipos', 'Préstamo', 'Trucha', 'Otras Ded.',
-    'IHSS Laboral', 'Total Deducciones', 'Sueldo Neto', 'IHSS Patronal',
+    'IHSS Laboral', 'FOVIIF Laboral', 'Total Deducciones', 'Sueldo Neto', 'IHSS Patronal',
+    'RAP Patronal', 'FOVIIF Patronal',
     'Banco', 'Cuenta', 'Forma Pago'
   ]
 
@@ -2036,7 +2099,8 @@ window.exportarPlanillaExcel = () => {
     d.ajuste_sueldo, d.vacaciones, d.incapacidad, d.bonificaciones,
     d.otros_ingresos, d.comisiones_venta, d.total_devengado,
     d.imp_vecinal, d.anticipos, d.cxc, d.trucha, d.otras_deducciones,
-    d.ihss_laboral, d.total_deducciones, d.sueldo_neto, d.ihss_patronal,
+    d.ihss_laboral, d.foviif_laboral || 0, d.total_deducciones, d.sueldo_neto, d.ihss_patronal,
+    d.rap_patronal || 0, d.foviif_patronal || 0,
     d.banco, d.cuenta_bancaria, d.forma_pago
   ])
 

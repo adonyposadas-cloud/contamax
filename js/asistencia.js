@@ -1695,13 +1695,21 @@ window.cargarHistorialAsistencia = async () => {
 }
 
 // ── CONFIG IHSS ──
+// Valores por defecto de claves nuevas (RAP/FOVIIF 2026) mientras no estén en config_planilla
+const _CFG_DEFAULTS = { rap_pct_patronal: 0.04, rap_techo_mensual: 57896.16, foviif_piso_mensual: 11903.13, foviif_pct_patronal: 0.015, foviif_pct_laboral: 0.015 }
+
 window.loadConfigPlanilla = async () => {
   await loadConfig()
-  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min', 'bono_educativo_monto', 'bono_educativo_tope', 'bono_educativo_anio']
+  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'rap_pct_patronal', 'rap_techo_mensual', 'foviif_piso_mensual', 'foviif_pct_patronal', 'foviif_pct_laboral', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min', 'bono_educativo_monto', 'bono_educativo_tope', 'bono_educativo_anio']
   const labels = {
     ihss_techo_mensual: 'Techo IHSS mensual (L.)',
     ihss_pct_laboral: 'IHSS % laboral (ej: 0.025 = 2.5%)',
     ihss_pct_patronal: 'IHSS % patronal (ej: 0.05 = 5%)',
+    rap_pct_patronal: 'RAP Reserva Laboral % patronal (ej: 0.04 = 4%)',
+    rap_techo_mensual: 'RAP techo mensual (3 salarios mínimos, L.)',
+    foviif_piso_mensual: 'FOVIIF piso mensual (techo IHSS-IVM, L.)',
+    foviif_pct_patronal: 'FOVIIF % patronal sobre el exceso (ej: 0.015 = 1.5%)',
+    foviif_pct_laboral: 'FOVIIF % del trabajador sobre el exceso (ej: 0.015 = 1.5%)',
     gracia_tarde_min: 'Gracia tardes (min/quincena)',
     he_gracia_lv_min: 'Gracia HE Lun-Vie (min después de 5PM)',
     he_bloque_min: 'Bloque HE (min)',
@@ -1714,7 +1722,7 @@ window.loadConfigPlanilla = async () => {
   container.innerHTML = keys.map(k => `
     <div class="fld" style="margin-bottom:8px">
       <label>${labels[k] || k}</label>
-      <input type="number" id="cfg-${k}" value="${configPlanilla[k] || 0}" step="any" style="max-width:200px">
+      <input type="number" id="cfg-${k}" value="${configPlanilla[k] || _CFG_DEFAULTS[k] || 0}" step="any" style="max-width:200px">
     </div>
   `).join('')
   
@@ -1727,7 +1735,7 @@ window.loadConfigPlanilla = async () => {
 }
 
 window.guardarConfigPlanilla = async () => {
-  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min', 'bono_educativo_monto', 'bono_educativo_tope', 'bono_educativo_anio']
+  const keys = ['ihss_techo_mensual', 'ihss_pct_laboral', 'ihss_pct_patronal', 'rap_pct_patronal', 'rap_techo_mensual', 'foviif_piso_mensual', 'foviif_pct_patronal', 'foviif_pct_laboral', 'gracia_tarde_min', 'he_gracia_lv_min', 'he_bloque_min', 'bono_educativo_monto', 'bono_educativo_tope', 'bono_educativo_anio']
   for (const k of keys) {
     const val = parseFloat(document.getElementById(`cfg-${k}`).value) || 0
     await getSb().from('config_planilla').upsert({ clave: k, valor: val, updated_at: new Date().toISOString() }, { onConflict: 'clave' })
