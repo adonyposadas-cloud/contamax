@@ -3454,19 +3454,34 @@ window.guardarPartida = async (estado) => {
 
   let estadoFinal = estado
   if (tocaCaja && estado === 'aprobada') {
-    // Super Admin con conteo de billetes hecho → aprobada directamente
-    // Super Admin sin conteo → pendiente_caja (se obliga a aprobar con conteo)
-    // Aux. Contable con conteo en caja chica → aprobada directamente
-    // Otros roles → pendiente_caja siempre
-    const lineasCajaConBilletes = lineasValidas.filter(l => l.billetes && esCuentaCaja(l.cuenta_codigo))
-    const lineasCajaChicaConBilletes = lineasValidas.filter(l => l.billetes && l.cuenta_codigo === CUENTA_CAJA_CHICA)
-    if (esSuperAdmin && lineasCajaConBilletes.length > 0) {
+    // TODAS las líneas de caja necesitan su conteo, no una cualquiera.
+    //
+    // Antes esto medía `lineasCajaConBilletes.length > 0`: alcanzaba con contar UNA
+    // línea para que la partida entera quedara aprobada, y el resto del efectivo
+    // entraba sin que nadie lo verificara. Así se aprobó la #5726 (CARGOS TRUCHA):
+    // 4 líneas de caja y solo la de cafetería contada, las otras tres —L.655,
+    // L.422 y L.120— pasaron sin respaldo. El arqueo de ese día cuadra contra
+    // dinero que nadie contó, que es justo lo que el conteo existe para evitar.
+    //
+    // Super Admin con TODAS contadas → aprobada
+    // Dueño de caja chica con TODAS contadas y sin tocar caja general → aprobada
+    // Cualquier otro caso → pendiente_caja
+    const lineasCaja = lineasValidas.filter(l => esCuentaCaja(l.cuenta_codigo) && (parseFloat(l.monto) || 0) > 0)
+    const sinConteo = lineasCaja.filter(l => !l.billetes)
+    const todasContadas = lineasCaja.length > 0 && sinConteo.length === 0
+    const soloCajaChica = !lineasCaja.some(l => l.cuenta_codigo !== CUENTA_CAJA_CHICA)
+    if (esSuperAdmin && todasContadas) {
       estadoFinal = 'aprobada'
-    } else if (esDuenoCajaChica && lineasCajaChicaConBilletes.length > 0 && !lineasValidas.some(l => esCuentaCaja(l.cuenta_codigo) && l.cuenta_codigo !== CUENTA_CAJA_CHICA)) {
-      // Dueño de caja chica (aux_contable/contador) con conteo en caja chica y sin tocar caja general → aprobada
+    } else if (esDuenoCajaChica && todasContadas && soloCajaChica) {
       estadoFinal = 'aprobada'
     } else {
       estadoFinal = 'pendiente_caja'
+      // Que no se entere de casualidad: si quiso aprobar y no se pudo, se le dice
+      // exactamente cuáles líneas le faltan por contar.
+      if (sinConteo.length) {
+        const cuales = sinConteo.map(l => `${l.cuenta_codigo} ${fmtL(parseFloat(l.monto) || 0)}`).join(' · ')
+        toast(`Queda PENDIENTE DE CAJA: falta contar ${sinConteo.length} línea(s) de caja — ${cuales}. Contalas con el botón de billetes y volvé a guardar.`, 'error')
+      }
     }
   }
 
