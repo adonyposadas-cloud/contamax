@@ -6668,26 +6668,49 @@ window.generarAjusteArqueo = () => {
     tipo: 'credito', monto: decVal, centro_costo_id: '',
     descripcion: 'Ajuste de arqueo · faltante de billetes', aplica_fiscal: false, billetes: { ...dec }
   })
-  // Contracuenta editable: el usuario elige faltante/sobrante y revisa
+  // Contracuenta: los sobrantes y faltantes de caja tienen cuenta propia.
+  //
+  // Antes esta línea salía VACÍA para que el usuario eligiera, y terminaban
+  // acreditados a Venta Cafetería y Venta Trucha: entre julio y septiembre 2026
+  // eso metió L. 9,410 netos de "ventas" que no fueron ventas, y de paso borró el
+  // rastro de las diferencias de arqueo. Un sobrante de caja es dinero sin origen
+  // conocido, no una venta; un faltante no es un menor ingreso.
+  //
+  // Viene cargada pero editable: hay casos con origen conocido y ahí corresponde
+  // otra cuenta (el faltante del 10/8/2026 era una comisión pagada en efectivo y
+  // se cargó a bonificaciones, que estuvo bien).
+  const CTA_SOBRANTE = '410306'      // SOBRANTE DE EFECTIVO EN CAJA (otros ingresos)
+  const CTA_FALTANTE = '620201-002'  // OG - FALTANTE DE EFECTIVO EN CAJA
+  const codigoContra = difTotal > 0 ? CTA_SOBRANTE : CTA_FALTANTE
+  const ctaContra = (window.catalogoCuentas || []).find(c => String(c.codigo).trim() === codigoContra)
+  const detalleContra = difTotal > 0 ? 'Sobrante de caja' : 'Faltante de caja'
   const contraTipo = difTotal > 0 ? 'credito' : 'debito'
   lineas.push({
-    id: uid(), cuenta_id: '', cuenta_codigo: '', cuenta_nombre: '',
+    id: uid(),
+    cuenta_id: ctaContra ? ctaContra.id : '',
+    cuenta_codigo: ctaContra ? codigoContra : '',
+    cuenta_nombre: ctaContra ? ctaContra.nombre : '',
     tipo: contraTipo, monto: Math.abs(difTotal), centro_costo_id: '',
-    descripcion: difTotal > 0 ? 'Sobrante de caja — elegí la cuenta' : 'Faltante de caja — elegí la cuenta',
+    // Si la cuenta no está en el catálogo (falta correr sql/sobrante_faltante_caja.sql)
+    // se cae al comportamiento viejo en vez de dejar una línea muda.
+    descripcion: ctaContra ? detalleContra : `${detalleContra} — elegí la cuenta`,
     aplica_fiscal: false
   })
 
-  const fechaTxt = new Date().toLocaleDateString('es-HN')
-  const montoTxt = Math.abs(difTotal).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  // La descripción NO repite fecha ni monto. Se armaba al prellenar y quedaba
+  // congelada: si después se editaban las líneas —que es lo que se espera— el texto
+  // mentía. Pasó en la #4842 ("SOBRANTE L. 2,412.00" con líneas de L. 2,417.00) y en
+  // la #5459 ("FALTANTE L. 12,250.00" cargando en realidad L. 3,000.00). La fecha y
+  // los montos ya están en la partida y en sus líneas, que es donde no pueden mentir.
   window._prefillPartida = {
     lineas,
-    descripcion: `AJUSTE DE ARQUEO ${String(ctx.cajaNombre).toUpperCase()} ${fechaTxt} · ${difTotal > 0 ? 'Sobrante' : 'Faltante'} L. ${montoTxt}`
+    descripcion: `AJUSTE DE ARQUEO ${String(ctx.cajaNombre).toUpperCase()} · ${difTotal > 0 ? 'SOBRANTE' : 'FALTANTE'} DE CAJA`
   }
 
   document.getElementById(ctx.modalId)?.classList.remove('open')
   if (typeof window.nuevaPartida === 'function') window.nuevaPartida()
   else showView('partida-nueva', 'Partida de ajuste de arqueo')
-  window.toast?.('Revisá y elegí la contracuenta del ajuste antes de guardar.', 'info')
+  window.toast?.('Revisá el ajuste antes de guardar. La contracuenta ya viene puesta; cambiala solo si el origen del sobrante o faltante es conocido.', 'info')
 }
 
 // ══════════════════════════════════════════════
