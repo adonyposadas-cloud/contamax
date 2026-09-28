@@ -10686,6 +10686,23 @@ window.parsearFacturasTaxis = async () => {
       continue
     }
 
+    // Monto en la columna de resumen que no coincide con ninguna regla.
+    //
+    // Antes esto se ignoraba EN SILENCIO: el día quedaba descuadrado y nada decía
+    // por qué. Pasó con el archivo del 21-sep-2026, donde la línea decía "VENTAS DE
+    // FACTURAS TAXIS" en vez de empezar con "FACTURAS DE": L. 84,517.09 de ventas
+    // se quedaron fuera de la importación sin un solo aviso.
+    // Se exige colD === 0 para no tocar ninguna fila que hoy sí se importa: si trae
+    // monto en las dos columnas sigue su camino normal como línea de detalle.
+    if (colE > 0 && colD === 0) {
+      alertas.push({
+        fecha: currentFecha,
+        desc: colC,
+        msg: `Línea de resumen no reconocida — tiene que decir "MANO DE OBRA" o empezar con "FACTURAS DE". Sus L. ${colE.toLocaleString('es-HN', { minimumFractionDigits: 2 })} NO se importaron`
+      })
+      continue
+    }
+
     // Líneas de detalle (tienen monto en colD)
     if (colD > 0 && currentFecha) {
       const parsed = parseFactTaxisPrefix(colC)
