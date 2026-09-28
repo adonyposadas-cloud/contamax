@@ -79,6 +79,16 @@
         </div>
       </div>
 
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-card-title">3 · Conciliar aviso de cobro del IHTT (canon)</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="file" id="ef-file-aviso" accept=".pdf,application/pdf" style="max-width:320px">
+          <button class="btn btn-gold" id="ef-aviso-btn" disabled>Conciliar aviso →</button>
+        </div>
+        <div class="ef-info">Subí el PDF del aviso de cobro (SIGRE IHTT). Se compara placa por placa contra los estados físicos: cuáles tenemos, cuáles ya se facturaron al cliente, cuáles no están en la base y cuáles vienen cobrados dos veces.</div>
+      </div>
+      <div id="ef-aviso-res"></div>
+
       <!-- Corte inicial: se usó en la primera carga. Se deja escondido por si hace falta. -->
       <div style="margin-bottom:10px">
         <button class="btn" id="ef-corte-toggle" style="font-size:12px;padding:4px 10px;color:var(--text3,#8b949e)">⚙ Corte inicial y cierres <span id="ef-corte-caret">▸</span></button>
@@ -175,7 +185,179 @@
     $('ef-modal-cancel').addEventListener('click', () => $('ef-modal').classList.remove('open'))
     $('ef-modal-ok').addEventListener('click', aplicarManual)
     $('ef-modal-num').addEventListener('input', hintManual)
+    $('ef-file-aviso').addEventListener('change', e => { $('ef-aviso-btn').disabled = !e.target.files[0] })
+    $('ef-aviso-btn').addEventListener('click', conciliarAvisoIHTT)
   }
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  CONCILIACIÓN DEL AVISO DE COBRO IHTT (canon por estado físico)
+  //  El IHTT cobra un "NUEVO COBRO" por placa. Se cruza cada línea del aviso con
+  //  los estados físicos de la base para ver: si lo tenemos, si ya se le facturó
+  //  al cliente, si no existe en la base (posible cobro indebido) o si viene
+  //  repetido (dos cobros para la misma placa y un solo estado físico).
+  // ══════════════════════════════════════════════════════════════════════
+  const AVISO_DIAS_VIEJO = 90   // EF más viejo que esto respecto al aviso: pudo cobrarse en un aviso anterior
+
+  async function pdfTexto (file) {
+    const lib = window.pdfjsLib
+    if (!lib) throw new Error('el lector de PDF no cargó; recargá la página e intentá de nuevo')
+    try { lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {}
+    const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise
+    let texto = ''
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const tc = await (await pdf.getPage(p)).getTextContent()
+      const rows = new Map()   // agrupar por renglón (misma altura), de arriba a abajo y de izquierda a derecha
+      tc.items.forEach(it => { const s = (it.str || '').trim(); if (!s) return; const y = Math.round(it.transform[5]); if (!rows.has(y)) rows.set(y, []); rows.get(y).push({ x: it.transform[4], s }) })
+      texto += [...rows.keys()].sort((a, b) => b - a).map(y => rows.get(y).sort((a, b) => a.x - b.x).map(i => i.s).join(' ')).join('\n') + '\n'
+    }
+    return texto
+  }
+
+  // Formato SIGRE: "N IHTT-3306 NUEVO COBRO DE <tipo>, PENDIENTE, <PLACA>, <RTN>, TECNIMAX S DE RL, <servicio> 134.00"
+  // Un ítem puede partirse entre páginas: se quitan encabezados/pies y se une todo.
+  function parsearAvisoIHTT (texto) {
+    const numAviso = (texto.match(/AVISO DE COBRO:\s*(\d+)/) || [])[1] || ''
+    const fEm = texto.match(/FECHA EMISI[ÓO]N:\s*(\d{2})\/(\d{2})\/(\d{4})/) || []
+    const emision = fEm[3] ? `${fEm[3]}-${fEm[2]}-${fEm[1]}` : hoy()
+    const totalAviso = num((texto.match(/TOTAL AVISO:\s*([\d,]+\.\d{2})/) || [])[1] || '0')
+    const limpio = texto.split('\n')
+      .filter(l => !/^(AVISO DE COBRO:|FECHA EMISI|FECHA VENCIMIENTO|DETALLE AVISO DE COBRO|Generado por SIGRE)/.test(l.trim()))
+      .join(' ').replace(/\s+/g, ' ')
+    const ini = limpio.indexOf('ITEM CODIGO DETALLE'), fin = limpio.indexOf('TOTAL AVISO')
+    const cuerpo = limpio.slice(ini >= 0 ? ini : 0, fin > 0 ? fin : undefined)
+    const re = /(?:^|\s)(\d{1,4})\s+(IHTT-\d{3,5})\s+(.*?)\s(\d{1,3}(?:,\d{3})*\.\d{2})(?=\s+\d{1,4}\s+IHTT-|\s*$)/g
+    const items = []
+    let m
+    while ((m = re.exec(cuerpo))) {
+      const desc = m[3]
+      items.push({
+        item: +m[1], codigo: m[2],
+        placa: cleanPlate((desc.match(/PENDIENTE,\s*([A-Z]{3}\s?\d{4})\s*,/) || [])[1] || ''),
+        tipo: ((desc.match(/NUEVO COBRO DE (.*?),\s*PENDIENTE/) || [])[1] || desc.slice(0, 40)).trim(),
+        servicio: ((desc.match(/TECNIMAX S DE RL,\s*(.*)$/) || [])[1] || '').trim(),
+        valor: num(m[4]),
+      })
+    }
+    return { numAviso, emision, totalAviso, items }
+  }
+
+  // Clasifica cada línea. Si una placa viene N veces se le asignan hasta N estados
+  // físicos distintos (el más cercano a la fecha del aviso primero); lo que sobra es cobro repetido.
+  function cruzarAviso (av) {
+    const porPlaca = {}
+    ALL.forEach(e => { if (e.placa_norm) (porPlaca[e.placa_norm] = porPlaca[e.placa_norm] || []).push(e) })
+    const usados = new Set()
+    const dist = (e) => daysDiff(String(e.fecha_subida || '').slice(0, 10), av.emision)
+    return av.items.map(it => {
+      const cands = (porPlaca[it.placa] || []).filter(e => !usados.has(e.id))
+      const vivos = cands.filter(e => !e.descartado).sort((a, b) => dist(a) - dist(b))
+      const ef = vivos[0] || cands.sort((a, b) => dist(a) - dist(b))[0] || null
+      if (ef) usados.add(ef.id)
+      let estado
+      if (!it.placa) estado = 'sin_placa'
+      else if (!ef) estado = (porPlaca[it.placa] || []).length ? 'repetido' : 'no_en_base'
+      else if (ef.descartado) estado = 'descartado'
+      else if (ef.facturado) estado = 'facturado'
+      else if (ef.cerrado) estado = 'cerrado'
+      else estado = 'pendiente'
+      const viejo = ef && dist(ef) > AVISO_DIAS_VIEJO
+      return { ...it, ef, estado, viejo }
+    })
+  }
+
+  const AV_ESTADOS = {
+    facturado: { t: 'Facturado al cliente', c: 'var(--green,#3fb950)' },
+    pendiente: { t: 'En base, SIN facturar', c: 'var(--gold,#c8a24a)' },
+    cerrado: { t: 'Cerrado sin factura', c: 'var(--text2,#adbac7)' },
+    descartado: { t: 'Descartado en base', c: 'var(--text2,#adbac7)' },
+    no_en_base: { t: 'NO está en la base', c: 'var(--red,#f85149)' },
+    repetido: { t: 'Cobro repetido', c: 'var(--red,#f85149)' },
+    sin_placa: { t: 'Sin placa en el aviso', c: 'var(--red,#f85149)' },
+  }
+  let AV_ULT = null, AV_FILTRO = ''
+
+  async function conciliarAvisoIHTT () {
+    const file = $('ef-file-aviso').files[0]
+    if (!file) return
+    const cont = $('ef-aviso-res')
+    cont.innerHTML = '<div class="ef-info">Leyendo el aviso…</div>'
+    try {
+      if (!ALL.length) await cargarEstado()
+      const av = parsearAvisoIHTT(await pdfTexto(file))
+      if (!av.items.length) throw new Error('no se encontraron líneas de cobro; ¿es un aviso de cobro del SIGRE IHTT?')
+      const suma = Math.round(av.items.reduce((s, i) => s + i.valor, 0) * 100) / 100
+      AV_ULT = { ...av, suma, filas: cruzarAviso(av) }
+      AV_FILTRO = ''
+      pintarAviso()
+      window.logActividad?.('conciliar_aviso_ihtt', 'estados_fisicos', `Aviso ${av.numAviso}: ${av.items.length} cobros, L ${fmt(suma)}`)
+    } catch (e) {
+      console.error('[aviso IHTT]', e)
+      cont.innerHTML = `<div class="ef-info" style="color:var(--red,#f85149)">No se pudo conciliar: ${esc(e.message || e)}</div>`
+    }
+  }
+
+  function pintarAviso () {
+    const R = AV_ULT, cont = $('ef-aviso-res')
+    if (!R) { cont.innerHTML = ''; return }
+    const grupo = (k) => R.filas.filter(f => f.estado === k)
+    const monto = (arr) => arr.reduce((s, f) => s + f.valor, 0)
+    const cuadra = Math.abs(R.suma - R.totalAviso) < 0.005
+    const orden = ['no_en_base', 'repetido', 'sin_placa', 'pendiente', 'cerrado', 'descartado', 'facturado']
+    const tarjetas = orden.filter(k => grupo(k).length).map(k => `
+      <button class="ef-stat" data-avf="${k}" style="cursor:pointer;${AV_FILTRO === k ? 'outline:2px solid ' + AV_ESTADOS[k].c : ''}">
+        <div style="font-size:22px;font-weight:700;color:${AV_ESTADOS[k].c}">${grupo(k).length}</div>
+        <div style="font-size:11px">${AV_ESTADOS[k].t}</div>
+        <div style="font-size:11px;color:var(--text3,#8b949e)">L. ${fmt(monto(grupo(k)))}</div>
+      </button>`).join('')
+    const viejos = R.filas.filter(f => f.viejo && f.estado !== 'no_en_base')
+    const vis = R.filas.filter(f => !AV_FILTRO || f.estado === AV_FILTRO)
+      .sort((a, b) => orden.indexOf(a.estado) - orden.indexOf(b.estado) || a.item - b.item)
+    cont.innerHTML = `
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="ef-grp-t">
+          <span>Aviso ${esc(R.numAviso)} · ${esc(R.emision)} · ${R.items.length} cobros · L. ${fmt(R.suma)}</span>
+          <span style="font-size:12px;color:${cuadra ? 'var(--green,#3fb950)' : 'var(--red,#f85149)'}">${cuadra ? '✓ suma igual al total del aviso' : `⚠ el aviso dice L. ${fmt(R.totalAviso)}: revisar lectura`}</span>
+        </div>
+        <div class="ef-stats" style="margin-top:8px">${tarjetas}
+          ${AV_FILTRO ? '<button class="ef-stat" data-avf="" style="cursor:pointer"><div style="font-size:13px;font-weight:600">Ver todo</div></button>' : ''}</div>
+        ${viejos.length ? `<div class="ef-info" style="color:var(--gold,#c8a24a)">⚠ ${viejos.length} placa(s) se cruzaron con un estado físico de hace más de ${AV_DIAS_VIEJO} días: puede que ese ya se haya cobrado en un aviso anterior y este sea un cobro nuevo sin estado físico. Están marcadas con ⏳.</div>` : ''}
+        <div style="text-align:right;margin:6px 0"><button class="btn" id="ef-aviso-xls"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Excel de la conciliación</button></div>
+        <div style="max-height:520px;overflow:auto">
+          <table style="width:100%;font-size:12px">
+            <thead><tr><th>Ítem</th><th>Placa</th><th>Tipo</th><th style="text-align:right">Valor</th><th>Estado</th><th>EF N°</th><th>Fecha EF</th><th>Propietario</th><th>Factura</th></tr></thead>
+            <tbody>${vis.map(f => `<tr>
+              <td>${f.item}</td><td class="ef-plate">${esc(f.placa || '—')}</td>
+              <td>${esc(f.tipo)}</td><td style="text-align:right">${fmt(f.valor)}</td>
+              <td style="color:${AV_ESTADOS[f.estado].c};font-weight:600">${AV_ESTADOS[f.estado].t}${f.viejo ? ' ⏳' : ''}</td>
+              <td>${f.ef ? esc(f.ef.numero) : ''}</td><td>${f.ef ? esc(String(f.ef.fecha_subida || '').slice(0, 10)) : ''}</td>
+              <td>${f.ef ? esc(f.ef.propietario || '') : ''}</td>
+              <td>${f.ef && f.ef.facturado ? esc(f.ef.factura_ref || '') + (f.ef.fecha_factura ? ' · ' + esc(String(f.ef.fecha_factura).slice(0, 10)) : '') : ''}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </div>
+      </div>`
+    cont.querySelectorAll('[data-avf]').forEach(b => b.addEventListener('click', () => { AV_FILTRO = b.dataset.avf; pintarAviso() }))
+    $('ef-aviso-xls').addEventListener('click', exportarAviso)
+  }
+
+  function exportarAviso () {
+    const R = AV_ULT
+    if (!R || !window.XLSX) return
+    const filas = R.filas.map(f => ({
+      'Ítem': f.item, 'Código': f.codigo, 'Placa': f.placa, 'Tipo': f.tipo, 'Servicio': f.servicio, 'Valor': f.valor,
+      'Estado': AV_ESTADOS[f.estado].t + (f.viejo ? ' (EF antiguo)' : ''),
+      'EF N°': f.ef?.numero ?? '', 'Fecha EF': String(f.ef?.fecha_subida || '').slice(0, 10), 'Categoría EF': f.ef?.categoria || '',
+      'Propietario': f.ef?.propietario || '', 'Factura': f.ef?.facturado ? (f.ef.factura_ref || '') : '',
+      'Fecha factura': f.ef?.facturado ? String(f.ef.fecha_factura || '').slice(0, 10) : '', 'Monto facturado': f.ef?.facturado ? (f.ef.monto ?? '') : '',
+    }))
+    const ws = window.XLSX.utils.json_to_sheet(filas)
+    const wb = window.XLSX.utils.book_new()
+    window.XLSX.utils.book_append_sheet(wb, ws, 'Conciliación')
+    window.XLSX.writeFile(wb, `Conciliacion_aviso_IHTT_${R.numAviso || R.emision}.xlsx`)
+  }
+
+  // Expuesto solo para pruebas del lector (no toca datos)
+  window._efAviso = { parsearAvisoIHTT, cruzarAviso: (av, all) => { const prev = ALL; ALL = all; try { return cruzarAviso(av) } finally { ALL = prev } } }
 
   function leerXlsx (file, cb) {
     if (!window.XLSX) { toast('Falta la librería XLSX', 'error'); return }
