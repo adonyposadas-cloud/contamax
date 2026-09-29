@@ -12177,7 +12177,9 @@ function cxpAplicarConciliacion(parsed) {
 // Parser de PDF de tarjeta (usa pdf.js). Reconstruye filas por posición (x,y) y clasifica
 // Lempiras vs Dólares por el borde derecho del monto (el más cercano al header).
 //
-// Lee DOS formatos de BAC con el mismo recorrido:
+// Lee los formatos de BAC (A y B) y el de Ficohsa (C) con el mismo recorrido:
+//   C) Ficohsa → Fecha | Comprobante | Detalle | CAT | Lempiras | Dólares, montos con la
+//      moneda pegada (L31,791.00, -L12,642.60, $13.99) y el resumen a dos columnas.
 //   A) "Transacciones del periodo"  → Fecha | Concepto | Local | Dólares
 //      Fecha completa dd/mm/yyyy en la primera columna. Es el que se usaba hasta ahora.
 //   B) "Estado de cuenta" (QEM)     → No. de referencia | Fecha | Concepto | Lempiras | Dólares
@@ -12199,10 +12201,16 @@ async function cxpParsePDF(arrayBuffer) {
   try { lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch (e) {}
   const pdf = await lib.getDocument({ data: arrayBuffer }).promise
   // Montos válidos: 1,583.10 · -66136.42 · $864.29 · 102,536.51- (signo al final = BAC QEM)
-  const isAmt = s => /^-?\$?[\d,]+\.\d{2}-?$/.test(String(s).trim())
+  // Ficohsa pega la moneda al monto: L31,791.00 / -L12,642.60
+  const isAmt = s => /^-?[$L]?[\d,]+\.\d{2}-?$/.test(String(s).trim())
   const items = []
   let saldoAntHNL = null, saldoAntUSD = null, xLempR = null, xDolR = null
   let corteMes = null, corteAnio = null, ctrlHNL = null, ctrlUSD = null
+  let ficoCompras = null, ficoCargos = null, ficoFinanc = null   // totales del bloque de movimientos de Ficohsa (control de lectura)
+  // Ficohsa trae una tabla "FINANCIAMIENTOS" (compras a plazos) CON fecha de desembolso: no son
+  // cargos del período (la cuota del mes ya viene en los movimientos). Se ignora hasta el
+  // siguiente "MOVIMIENTO DE CUENTA".
+  let enFinanciamientos = false
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p)
     const tc = await page.getTextContent()
@@ -12242,13 +12250,29 @@ async function cxpParsePDF(arrayBuffer) {
         continue
       }
       if (/saldo anterior|previous balance/i.test(txt)) {
-        const amts = line.filter(i => isAmt(i.s)).map(i => Math.abs(cxpNum(i.s))).filter(v => v > 0)
+        // Solo los montos a la DERECHA de la etiqueta: Ficohsa pone en la misma fila, a la
+        // izquierda, "Pago de contado: L162,895.08" (otra columna) y se tomaba ese.
+        const iLbl = line.findIndex(i => /saldo anterior|previous balance/i.test(i.s))
+        const amts = line.slice(iLbl >= 0 ? iLbl + 1 : 0).filter(i => isAmt(i.s)).map(i => Math.abs(cxpNum(i.s))).filter(v => v > 0)
         if (saldoAntHNL == null && amts.length) { saldoAntHNL = amts[0]; if (amts.length > 1) saldoAntUSD = amts[1] }
         continue
       }
       // ── Ubicar la fecha de la fila ──
       // Formato A: dd/mm/yyyy en la primera columna.
       // Formato B: "AGO/01" dentro de las primeras 3 columnas (después de la referencia).
+      // Ficohsa: el total declarado viene como "+ TOTAL DE COMPRAS Y RETIROS" y "+ TOTAL DE CARGOS,
+      // COMISIONES E INTERESES" (los "TOTAL DE TARJETA ... + TOTAL DE COMPRAS" son subtotales por tarjeta).
+      if (/^FINANCIAMIENTOS$/i.test(txt.trim())) { enFinanciamientos = true; continue }
+      if (/MOVIMIENTO DE CUENTA/i.test(txt)) { enFinanciamientos = false; continue }
+      if (enFinanciamientos) continue
+      if (/^\+\s*TOTAL DE (COMPRAS Y RETIROS|CARGOS|FINANCIAMIENTOS)/i.test(txt)) {
+        const hnl = line.filter(i => /^-?L/.test(i.s) && isAmt(i.s)).map(i => Math.abs(cxpNum(i.s)))[0] || 0
+        const usd = line.filter(i => /^-?\$/.test(i.s) && isAmt(i.s)).map(i => Math.abs(cxpNum(i.s)))[0] || 0
+        if (/COMPRAS/i.test(txt)) ficoCompras = { hnl, usd }
+        else if (/FINANCIAMIENTOS/i.test(txt)) ficoFinanc = { hnl, usd }
+        else ficoCargos = { hnl, usd }
+        continue
+      }
       let iF = -1, fechaISO = ''
       if (/^\d{2}\/\d{2}\/\d{4}$/.test(line[0].s)) { iF = 0; fechaISO = cxpFechaISO(line[0].s) }
       else {
@@ -12264,6 +12288,7 @@ async function cxpParsePDF(arrayBuffer) {
       amtItems.forEach(a => {
         const v = Math.abs(cxpNum(a.s))
         const esUSD = /^\s*-?\$/.test(a.s) ? true
+          : /^\s*-?L/.test(a.s) ? false
           : (xLempR != null && xDolR != null) ? Math.abs(a.x1 - xDolR) < Math.abs(a.x1 - xLempR)
           : a.x1 > 505
         if (esUSD) dolarV = Math.max(dolarV, v); else localV = Math.max(localV, v)
@@ -12280,6 +12305,11 @@ async function cxpParsePDF(arrayBuffer) {
       const ref = iF > 0 ? line.slice(0, iF).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim() : ''
       items.push({ fecha: fechaISO, desc, ref, monto, moneda, tipo: cxpTipoMov(desc) })
     }
+  }
+  if (ctrlHNL == null && (ficoCompras || ficoCargos || ficoFinanc)) {
+    const r2 = v => Math.round(v * 100) / 100
+    ctrlHNL = r2((ficoCompras?.hnl || 0) + (ficoCargos?.hnl || 0) + (ficoFinanc?.hnl || 0))
+    ctrlUSD = r2((ficoCompras?.usd || 0) + (ficoCargos?.usd || 0) + (ficoFinanc?.usd || 0))
   }
   return { items, saldoAnterior: { hnl: saldoAntHNL, usd: saldoAntUSD }, control: { hnl: ctrlHNL, usd: ctrlUSD } }
 }
