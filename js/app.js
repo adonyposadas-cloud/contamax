@@ -3281,7 +3281,7 @@ window.guardarPartida = async (estado) => {
   document.querySelectorAll('#view-partida-nueva .btn-gold, #view-partida-nueva .btn-green').forEach(b => b.disabled = true)
   try {
   const fecha = document.getElementById('pn-fecha').value
-  const descripcion = document.getElementById('pn-descripcion').value.trim().toUpperCase()
+  let descripcion = document.getElementById('pn-descripcion').value.trim().toUpperCase()   // let: el candado de VIN puede corregirla
   const documento = document.getElementById('pn-documento').value.trim().toUpperCase()
   const tipo_origen = document.getElementById('pn-origen').value
   if (!fecha) { toast('Selecciona la fecha', 'error'); return }
@@ -3315,28 +3315,61 @@ window.guardarPartida = async (estado) => {
   // el gasto no se puede atribuir: los reportes se lo cargarían a ambos. El buscador ya
   // inserta un sufijo largo, pero la descripción también se escribe a mano, así que se
   // valida acá, que es por donde pasa todo.
+  // Antes solo avisaba y "Aceptar" guardaba SIN corregir (la descripción quedaba con el
+  // VIN ambiguo). Ahora, si se puede deducir el vehículo (propietario, modelo o fecha en
+  // el texto), ofrece corregir la descripción sola; si no, pide corregirla a mano.
   await ensureVinCache()
   if (vinCache && vinCache.length) {
-    const choques = []
-    for (const l of lineasValidas) {
-      const txt = String(l.descripcion || '')
-      for (const m of txt.matchAll(/\bVIN\s*[:#-]?\s*(\d{4,17})\b/gi)) {
+    const reVin = /\bVIN\s*[:#-]?\s*(\d{4,17})\b/gi
+    const choques = []   // { donde: 'enc' | línea, num, cand, deduc }
+    const revisar = (donde, txt, contexto) => {
+      for (const m of String(txt || '').matchAll(reVin)) {
         const num = m[1]
         const cand = vinCache.filter(v => String(v.vin || '').endsWith(num))
-        if (cand.length > 1) choques.push({ num, cand, desc: txt })
+        if (cand.length > 1 && !choques.some(c => c.donde === donde && c.num === num)) {
+          choques.push({ donde, num, cand, deduc: vinDeducir(`${txt} ${contexto}`, cand, fecha) })
+        }
       }
     }
+    revisar('enc', descripcion, '')
+    for (const l of lineasValidas) if (l.descripcion) revisar(l, l.descripcion, descripcion)
     if (choques.length) {
-      const det = choques.map(c =>
+      const resueltos = choques.filter(c => c.deduc)
+      const pendientes = choques.filter(c => !c.deduc)
+      const nombre = v => `${v.marca || ''} ${v.modelo || ''} ${v.anio || ''} (${v.propietario})`.replace(/\s+/g, ' ').trim()
+      const txtRes = resueltos.map(c => {
+        const nuevo = vinSufijoUnico(c.deduc.v.vin, vinCache)
+        return `• "VIN ${c.num}" → "VIN ${nuevo}"  ${nombre(c.deduc.v)}  [por ${c.deduc.por}]`
+      }).join('\n')
+      const txtPend = pendientes.map(c =>
         `• "VIN ${c.num}" → ${c.cand.length} vehículos:\n` +
-        c.cand.map(v => `     ${v.vin}  (${v.propietario})  → usá VIN ${vinSufijoUnico(v.vin, vinCache)}`).join('\n')
-      ).join('\n\n')
-      const ok = confirm(
-        `VIN ambiguo en la partida\n\n${det}\n\n` +
-        `Con esos dígitos el gasto no se puede atribuir a un solo vehículo.\n` +
-        `Corregí la descripción con los dígitos que se indican arriba.\n\n` +
-        `¿Guardar de todos modos?`)
-      if (!ok) return
+        c.cand.map(v => `     VIN ${vinSufijoUnico(v.vin, vinCache)}  ${nombre(v)}`).join('\n')
+      ).join('\n')
+      let aplicar = false
+      if (!pendientes.length) {
+        aplicar = confirm(`VIN repetido en la partida: otro vehículo termina con los mismos dígitos.\n\n` +
+          `Se va a corregir así:\n${txtRes}\n\nAceptar = corregir y guardar\nCancelar = volver a la partida sin guardar`)
+        if (!aplicar) return
+      } else {
+        const ok = confirm(`VIN repetido en la partida y NO se puede saber de qué vehículo es:\n\n${txtPend}` +
+          (resueltos.length ? `\n\nEstos sí se corrigen solos:\n${txtRes}` : '') +
+          `\n\nCorregí la descripción con los dígitos de arriba (o agregá el modelo o el propietario).\n\n` +
+          `Cancelar = volver a corregir (recomendado)\nAceptar = guardar así (el gasto no se podrá atribuir a un vehículo)`)
+        if (!ok) return
+        aplicar = resueltos.length > 0
+      }
+      if (aplicar) {
+        for (const c of resueltos) {
+          const nuevo = vinSufijoUnico(c.deduc.v.vin, vinCache)
+          if (c.donde === 'enc') {
+            descripcion = vinReemplazar(descripcion, c.num, nuevo)
+            const inp = document.getElementById('pn-descripcion'); if (inp) inp.value = descripcion
+          } else {
+            c.donde.descripcion = vinReemplazar(c.donde.descripcion, c.num, nuevo)
+          }
+        }
+        renderLineas()
+      }
     }
   }
 
@@ -9334,6 +9367,36 @@ function vinSufijoUnico(vin, lista, min = 4) {
   return v
 }
 
+// ── Deducir a qué vehículo se refiere un "VIN 1234" que comparten varios ──
+// Cuando dos VIN terminan igual (ej. 3437), una descripción vieja o escrita a mano
+// no dice de cuál es. Se decide, en este orden, y solo si queda UNO:
+//   1) el propietario escrito en el texto ("... VIN 3437 (AUTOLOTE)")
+//   2) el modelo (o la marca, si solo uno de los candidatos la tiene) en el texto
+//   3) la fecha: un gasto anterior a la fecha de compra no puede ser de ese vehículo
+// Devuelve { v, por } o null si sigue siendo ambiguo.
+function vinDeducir(texto, cand, fecha) {
+  const norm = s => ' ' + String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim() + ' '
+  const T = norm(texto)
+  const esta = w => { const n = norm(w); return n.trim().length >= 3 && T.includes(n) }
+  let c = (cand || []).slice()
+  const pasos = [
+    ['propietario', v => esta(v.propietario)],
+    ['modelo', v => esta(v.modelo) || (esta(v.marca) && c.filter(o => norm(o.marca) === norm(v.marca)).length === 1)],
+    ['fecha de compra', v => !fecha || !v.fecha_compra || String(v.fecha_compra).slice(0, 10) <= String(fecha).slice(0, 10)],
+  ]
+  for (const [por, ok] of pasos) {
+    const f = c.filter(ok)
+    if (f.length === 1) return { v: f[0], por }
+    if (f.length > 1) c = f
+  }
+  return null
+}
+
+// Reemplaza "VIN <num>" (con o sin ':' '#' '-') por "VIN <nuevo>" en un texto
+function vinReemplazar(texto, num, nuevo) {
+  return String(texto || '').replace(new RegExp(`\\bVIN(\\s*[:#-]?\\s*)${num}\\b`, 'gi'), (m, sep) => `VIN${sep}${nuevo}`)
+}
+
 // ── Enlace del vehículo: solo http/https, escapado para insertar en HTML ──
 // Devuelve '' si la URL es inválida o usa un esquema peligroso (javascript:, data:, ...)
 function vinUrlSegura(u) {
@@ -9634,6 +9697,23 @@ window.guardarVehiculo = async () => {
   if (!propietario) { showError(err, 'El propietario es obligatorio'); return }
   if (enlace && !vinUrlSegura(enlace)) { showError(err, 'El enlace debe empezar con http:// o https://'); return }
 
+  // Aviso de últimos 4 repetidos: las partidas identifican el vehículo con "VIN 1234".
+  // Si otro vehículo ya termina igual, desde ahora hay que usar más dígitos y los
+  // movimientos viejos "VIN 1234" dejan de ser de uno solo.
+  if (!editingVinId) {
+    const otros = (allVehiculos || []).filter(x => x.activo !== false && x.vin !== vin && String(x.vin || '').endsWith(vin.slice(-4)))
+    if (otros.length) {
+      const lista = [...otros, { vin, propietario, marca, modelo, anio }]
+      const ok = confirm(`⚠ Otro vehículo ya termina en ${vin.slice(-4)}:\n\n` +
+        otros.map(x => `• ${x.vin}  ${x.marca || ''} ${x.modelo || ''} ${x.anio || ''} (${x.propietario})`).join('\n') +
+        `\n\nDesde ahora, en las partidas:\n` +
+        lista.map(x => `• ${x.marca || ''} ${x.modelo || ''} (${x.propietario}) → VIN ${vinSufijoUnico(x.vin, lista)}`).join('\n') +
+        `\n\nLos movimientos que ya dicen "VIN ${vin.slice(-4)}" se asignan solos si el texto dice el modelo o el propietario; ` +
+        `los demás aparecen en el detalle del vehículo para asignarlos.\n\n¿Guardar el vehículo?`)
+      if (!ok) return
+    }
+  }
+
   const btn = document.getElementById('btn-guardar-vin')
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'
 
@@ -9712,7 +9792,7 @@ let vinCache = null
 async function ensureVinCache() {
   if (vinCache) return
   const { data } = await sb.from('vehiculos_vin')
-    .select('vin, propietario, marca, modelo, anio, costo_copart')
+    .select('vin, propietario, marca, modelo, anio, costo_copart, fecha_compra')
     .eq('activo', true)
     .order('propietario')
   vinCache = data || []
@@ -9923,7 +10003,7 @@ window.verDetalleVin = async (vinId) => {
   const orFilter = [...new Set(lineaFilters)].join(',')
 
   const { data: lineasVin } = await sb.from('lineas_partida')
-    .select('monto, descripcion, tipo, partida:partidas_contables(fecha_partida, estado, descripcion)')
+    .select('id, partida_id, monto, descripcion, tipo, partida:partidas_contables(id, fecha_partida, estado, descripcion)')
     .or(orFilter)
 
   // Also search partidas whose description mentions this VIN
@@ -9936,7 +10016,7 @@ window.verDetalleVin = async (vinId) => {
   if (partidasVin?.length) {
     const ids = partidasVin.map(p => p.id)
     const { data: lp } = await sb.from('lineas_partida')
-      .select('monto, descripcion, tipo, partida_id')
+      .select('id, monto, descripcion, tipo, partida_id')
       .in('partida_id', ids)
       .eq('tipo', 'debito')
     lineasVinPadre = (lp || []).map(l => {
@@ -9964,6 +10044,47 @@ window.verDetalleVin = async (vinId) => {
     fuente: 'partida'
   }))
 
+  // 2b. Movimientos con un sufijo CORTO que comparte con otro vehículo (ej. "VIN 3437"
+  // cuando dos VIN terminan en 3437). Antes se descartaban y los gastos viejos
+  // desaparecían del detalle. Ahora se atribuyen con vinDeducir (propietario, modelo o
+  // fecha en el texto); los que siguen siendo ambiguos se listan para asignarlos a mano.
+  const cortos = [...new Set([v.vin.slice(-4), v.vin.slice(-5)])].filter(s => s.length < minSuf.length)
+  const sinAsignar = []
+  if (cortos.length) {
+    const orCorto = cortos.flatMap(s => [`descripcion.ilike.%VIN ${s}%`, `descripcion.ilike.%VIN_${s}%`]).join(',')
+    const [{ data: lc }, { data: pc }] = await Promise.all([
+      sb.from('lineas_partida').select('id, partida_id, monto, descripcion, tipo, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)').or(orCorto),
+      sb.from('partidas_contables').select('id, numero_partida, fecha_partida, estado, descripcion').or(orCorto).eq('estado', 'aprobada'),
+    ])
+    let lpc = []
+    if (pc?.length) {
+      const { data } = await sb.from('lineas_partida').select('id, partida_id, monto, descripcion, tipo').in('partida_id', pc.map(p => p.id)).eq('tipo', 'debito')
+      lpc = (data || []).map(l => ({ ...l, partida: pc.find(p => p.id === l.partida_id) }))
+    }
+    const reCorto = new RegExp(`\\bVIN[\\s_]*(${cortos.join('|')})\\b`, 'i')
+    const vistos = new Set()
+    for (const l of [...(lc || []), ...lpc]) {
+      if (!l.partida || l.partida.estado !== 'aprobada' || l.tipo !== 'debito') continue
+      const texto = `${l.descripcion || ''} ${l.partida.descripcion || ''}`
+      const m = texto.match(reCorto)
+      if (!m) continue   // el ilike trajo "VIN 34370…": no es este sufijo exacto
+      const clave = `${l.partida.fecha_partida}-${l.monto}`
+      if (seenIds.has(clave) || vistos.has(clave)) continue
+      vistos.add(clave)
+      const num = m[1]
+      const cand = allVehiculos.filter(x => x.activo !== false && String(x.vin || '').endsWith(num))
+      const d = vinDeducir(texto, cand, l.partida.fecha_partida)
+      const mov = {
+        fecha: l.partida.fecha_partida, descripcion: l.descripcion || l.partida.descripcion,
+        monto: parseFloat(l.monto) || 0, fuente: 'partida',
+        es_mano_obra: /mano\s*de\s*obra|mano\s*obra/i.test(texto),
+      }
+      if (d && d.v.id === v.id) { seenIds.add(clave); gastosPartidas.push({ ...mov, nota: `VIN ${num} compartido · asignado por ${d.por}` }) }
+      else if (!d) sinAsignar.push({ ...mov, num, lineaId: l.id, partidaId: l.partida.id, partidaNum: l.partida.numero_partida })
+    }
+  }
+  window._vinSinAsignar = { vinId: v.id, nuevo: minSuf, items: sinAsignar }
+
   // 3. Solo líneas de partida. Las importaciones (facturas_taxis) ya quedan
   // registradas como partida con la misma info; contar ambas duplicaba el total
   // (la grúa y el corte aparecían en Importación y otra vez en Partida, con la
@@ -9990,7 +10111,7 @@ window.verDetalleVin = async (vinId) => {
     </div>`
 
   // Tabla de gastos
-  document.getElementById('dv-contenido').innerHTML = todosGastos.length ? `
+  document.getElementById('dv-contenido').innerHTML = (todosGastos.length ? `
     <div class="table-wrap">
       <div class="table-header"><span class="table-title">Historial de gastos</span></div>
       <table>
@@ -9998,7 +10119,7 @@ window.verDetalleVin = async (vinId) => {
         <tbody>${todosGastos.map(g => `
           <tr>
             <td style="font-family:var(--mono);font-size:12px">${g.fecha || '—'}</td>
-            <td style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.descripcion}">${g.descripcion}</td>
+            <td style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.descripcion}">${g.descripcion}${g.nota ? `<div style="font-size:10px;color:var(--amber)">${g.nota}</div>` : ''}</td>
             <td>${g.es_mano_obra ? '<span class="badge badge-blue" style="font-size:10px">M.O.</span>' : '<span class="badge badge-amber" style="font-size:10px">Repuesto</span>'}</td>
             <td style="font-size:11px;color:var(--text3)">${g.fuente === 'factura' ? '📋 Importación' : '📝 Partida'}</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(g.monto)}</td>
@@ -10010,7 +10131,58 @@ window.verDetalleVin = async (vinId) => {
           <tr style="background:var(--bg3);font-weight:600"><td colspan="4" style="text-align:right;color:var(--red)">Total gastos adicionales</td><td style="text-align:right;font-family:var(--mono);color:var(--red)">L. ${fmtL(totalGastos)}</td></tr>
         </tfoot>
       </table>
-    </div>` : '<div style="text-align:center;padding:30px;color:var(--text3)">No se encontraron gastos registrados para este VIN</div>'
+    </div>` : '<div style="text-align:center;padding:30px;color:var(--text3)">No se encontraron gastos registrados para este VIN</div>') + vinSinAsignarHTML()
+}
+
+// Movimientos con un "VIN 1234" compartido que no se pudieron atribuir: se listan en el
+// detalle de cada vehículo candidato con un botón para asignarlos a este. Asignar
+// reescribe la descripción con el sufijo único ("VIN 3437" → "VIN 343437"), así queda
+// resuelto para siempre (reportes, auxiliar y este detalle).
+function vinSinAsignarHTML() {
+  const S = window._vinSinAsignar
+  if (!S || !S.items.length) return ''
+  const fmtL = (val) => (val || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `
+    <div class="table-wrap" style="margin-top:14px;border-color:var(--amber)">
+      <div class="table-header"><span class="table-title" style="color:var(--amber)">⚠ Movimientos con VIN compartido sin asignar (${S.items.length})</span></div>
+      <div style="font-size:12px;color:var(--text2);padding:0 14px 8px">Dicen "VIN ${S.items[0].num}", pero otro vehículo termina igual y el texto no dice de cuál es. Si es de este vehículo, asignalo: la descripción pasa a "VIN ${S.nuevo}".</div>
+      <table>
+        <thead><tr><th>Fecha</th><th>Partida</th><th>Descripción</th><th style="text-align:right">Monto</th><th></th></tr></thead>
+        <tbody>${S.items.map((g, i) => `<tr>
+          <td style="font-family:var(--mono);font-size:12px">${g.fecha || '—'}</td>
+          <td style="font-family:var(--mono);font-size:12px">${g.partidaNum ?? ''}</td>
+          <td style="font-size:12px">${g.descripcion || ''}</td>
+          <td style="text-align:right;font-family:var(--mono)">L. ${fmtL(g.monto)}</td>
+          <td><button class="btn btn-gold" style="padding:4px 10px;font-size:11px" onclick="asignarVinMovimiento(${i})">Es de este vehículo</button></td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`
+}
+
+window.asignarVinMovimiento = async (i) => {
+  const S = window._vinSinAsignar
+  const g = S?.items?.[i]
+  if (!g) return
+  if (!confirm(`¿Asignar este movimiento a este vehículo?\n\n${g.fecha} · L. ${g.monto}\n${g.descripcion}\n\nLa descripción cambia "VIN ${g.num}" → "VIN ${S.nuevo}".`)) return
+  const re = new RegExp(`\\bVIN[\\s_]*${g.num}\\b`, 'i')
+  const [{ data: lin }, { data: par }] = await Promise.all([
+    sb.from('lineas_partida').select('id, descripcion').eq('id', g.lineaId).maybeSingle(),
+    sb.from('partidas_contables').select('id, descripcion').eq('id', g.partidaId).maybeSingle(),
+  ])
+  let cambios = 0
+  if (lin && re.test(lin.descripcion || '')) {
+    const { error } = await sb.from('lineas_partida').update({ descripcion: vinReemplazar(lin.descripcion, g.num, S.nuevo) }).eq('id', lin.id)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    cambios++
+  }
+  if (par && re.test(par.descripcion || '')) {
+    const { error } = await sb.from('partidas_contables').update({ descripcion: vinReemplazar(par.descripcion, g.num, S.nuevo) }).eq('id', par.id)
+    if (error) { toast('Error: ' + error.message, 'error'); return }
+    cambios++
+  }
+  toast(cambios ? 'Movimiento asignado al vehículo' : 'No se encontró el texto a cambiar', cambios ? 'success' : 'error')
+  window.logActividad?.('vin_asignar', 'vehiculos', `${g.fecha} L.${g.monto}: VIN ${g.num} → VIN ${S.nuevo}`)
+  window.verDetalleVin(S.vinId)
 }
 
 // ══════════════════════════════════════════════

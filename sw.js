@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v43-aviso-ihtt'
+const CACHE_NAME = 'contamax-v44-vin'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
