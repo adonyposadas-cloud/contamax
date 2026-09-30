@@ -1818,31 +1818,92 @@ async function cargarMapeoPins() {
   const pins = [...new Set([...Object.keys(conteo), ...Object.keys(mapaPorPin)])]
     .sort((a, b) => (conteo[b] || 0) - (conteo[a] || 0) || a.localeCompare(b, undefined, { numeric: true }))
 
-  const optEmp = (selId) => `<option value="">— sin asignar —</option>` +
-    _empleadosMapeo.map(e => `<option value="${e.id}" ${selId === e.id ? 'selected' : ''}>${e.nombre}</option>`).join('')
+  // Si el PIN quedó vinculado a alguien que ya no está activo, su nombre no está en
+  // la lista y el select mostraba "— sin asignar —" aunque el vínculo exista. Se le
+  // agrega su propia opción, marcada, para que la fila diga la verdad.
+  const optEmp = (selId, nombreActual) => {
+    const enLista = _empleadosMapeo.some(e => e.id === selId)
+    return `<option value="">— sin asignar —</option>` +
+      (selId && !enLista ? `<option value="${selId}" selected>${nombreActual || 'empleado inactivo'} (inactivo)</option>` : '') +
+      _empleadosMapeo.map(e => `<option value="${e.id}" ${selId === e.id ? 'selected' : ''}>${e.nombre}</option>`).join('')
+  }
 
   const asignados = pins.filter(p => mapaPorPin[p]?.empleado_id).length
+  // El nombre va en la fila (data-emp) para poder filtrar sin volver a consultar.
+  // Se prefiere el del catálogo de activos; si el empleado ya no está activo se usa
+  // el nombre guardado en reloj_empleados, que si no la fila parecería sin asignar.
+  const nombreDe = (pin) => {
+    const m = mapaPorPin[pin]
+    if (!m?.empleado_id) return ''
+    return _empleadosMapeo.find(e => e.id === m.empleado_id)?.nombre || m.empleado_nombre || ''
+  }
   cont.innerHTML = `
-    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">${pins.length} PIN en el reloj · ${asignados} ya vinculados</div>
+    <div style="position:sticky;top:0;z-index:2;background:var(--bg2,#161b22);padding-bottom:9px;margin-bottom:2px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="mp-buscar" type="search" placeholder="Buscar por PIN o empleado…" oninput="mpFiltrarPins()" autocomplete="off"
+          style="flex:1;min-width:190px;padding:7px 10px;background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:7px;color:inherit;font-size:13px">
+        <button id="mp-solo-sin" class="btn btn-ghost" onclick="mpSoloSinAsignar()" style="padding:7px 12px;font-size:12px;white-space:nowrap">Solo sin asignar</button>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:7px">${pins.length} PIN en el reloj · ${asignados} ya vinculados<span id="mp-conteo"></span></div>
+    </div>
     <div class="table-wrap"><table style="width:100%"><thead><tr>
       <th style="width:60px">PIN</th><th style="width:70px;text-align:right">Marcas</th><th>Empleado</th>
     </tr></thead><tbody>
-    ${pins.map(pin => `<tr>
+    ${pins.map(pin => `<tr data-pin="${pin}" data-emp="${nombreDe(pin).toLowerCase().replace(/"/g, '&quot;')}">
       <td style="font-family:var(--mono);font-weight:600">${pin}</td>
       <td style="text-align:right;color:var(--text3);font-size:12px">${conteo[pin] || 0}</td>
-      <td><select style="width:100%;padding:4px 6px" onchange="window.guardarMapeoPin('${pin}', this.value)">${optEmp(mapaPorPin[pin]?.empleado_id || '')}</select></td>
+      <td><select style="width:100%;padding:4px 6px" onchange="window.guardarMapeoPin('${pin}', this.value)">${optEmp(mapaPorPin[pin]?.empleado_id || '', nombreDe(pin))}</select></td>
     </tr>`).join('')}
     </tbody></table></div>`
+  _mpSinAsignar = false
+  mpFiltrarPins()
+}
+
+// Filtra en el DOM, sin volver a consultar: los 66 PIN ya están en pantalla y así
+// no se pierde lo que el usuario acaba de elegir en los desplegables.
+let _mpSinAsignar = false
+
+window.mpFiltrarPins = () => {
+  const q = (document.getElementById('mp-buscar')?.value || '').trim().toLowerCase()
+  const filas = document.querySelectorAll('#mapeo-pins-resultado tbody tr')
+  let visibles = 0
+  filas.forEach(tr => {
+    const pin = tr.dataset.pin || ''
+    const emp = tr.dataset.emp || ''
+    const coincide = !q || pin.toLowerCase().includes(q) || emp.includes(q)
+    const pasaSin = !_mpSinAsignar || !emp
+    const ver = coincide && pasaSin
+    tr.style.display = ver ? '' : 'none'
+    if (ver) visibles++
+  })
+  const c = document.getElementById('mp-conteo')
+  if (c) c.textContent = (visibles === filas.length) ? '' : ` · mostrando ${visibles}`
+}
+
+window.mpSoloSinAsignar = () => {
+  _mpSinAsignar = !_mpSinAsignar
+  const b = document.getElementById('mp-solo-sin')
+  if (b) {
+    b.classList.toggle('btn-gold', _mpSinAsignar)
+    b.textContent = _mpSinAsignar ? '✓ Solo sin asignar' : 'Solo sin asignar'
+  }
+  mpFiltrarPins()
 }
 
 window.guardarMapeoPin = async (pin, empleadoId) => {
   const sb = getSb()
   if (!empleadoId) {
     await sb.from('reloj_empleados').delete().eq('pin', pin)
+    const fila = document.querySelector(`#mapeo-pins-resultado tbody tr[data-pin="${pin}"]`)
+    if (fila) fila.dataset.emp = ''
     window.toast?.(`PIN ${pin}: sin asignar`, 'info')
     return
   }
   const emp = _empleadosMapeo.find(e => e.id === empleadoId)
+  // La fila guarda el nombre para el filtro: si no se actualiza, el PIN recién
+  // vinculado seguiría apareciendo en "solo sin asignar".
+  const fila = document.querySelector(`#mapeo-pins-resultado tbody tr[data-pin="${pin}"]`)
+  if (fila) fila.dataset.emp = (emp?.nombre || '').toLowerCase()
   const { error } = await sb.from('reloj_empleados')
     .upsert({ pin, empleado_id: empleadoId, empleado_nombre: emp?.nombre || null, activo: true }, { onConflict: 'pin' })
   if (error) window.toast?.('Error: ' + error.message, 'error')

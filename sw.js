@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v45-ficohsa'
+const CACHE_NAME = 'contamax-v46-pins'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
