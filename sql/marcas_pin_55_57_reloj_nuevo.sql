@@ -51,3 +51,23 @@ select pin::text as pin,
  where pin::text in ('5', '53', '55', '56', '57', '58')
  group by 1, 2
  order by 1, 2;
+
+-- ═══════════════════════════════════════════════════════════════
+--  CONTINUACIÓN · 30-09-2026 por la mañana
+--
+--  La sincronización de las 08:07 reinsertó las 17 marcas movidas, con el PIN
+--  viejo: quedaron por duplicado, una en el empleado correcto y otra en el
+--  equivocado. Primero se instaló el trigger anti-duplicados
+--  (ver marcaciones_evitar_duplicados.sql) y después se borraron las copias.
+--
+--  El borrado exigía que la gemela existiera: nunca se borró una marca sola.
+--
+--  delete from marcaciones_raw m
+--   where m.pin::text in ('55', '57') and m.user_sn >= 1000
+--     and exists (select 1 from marcaciones_raw g
+--                  where g.user_sn = m.user_sn and g.fecha = m.fecha
+--                    and g.hora = m.hora and g.id <> m.id);
+--
+--  Estado final verificado: PIN 5 con 1 marca, PIN 53 con 20 (16 movidas + 4 de
+--  la tarde del 29), PIN 55 y 57 sin filas del reloj nuevo.
+-- ═══════════════════════════════════════════════════════════════
