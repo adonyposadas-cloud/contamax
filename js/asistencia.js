@@ -1193,7 +1193,14 @@ window.onPermContinuacionChange = async () => {
   }
 }
 
+// Candado contra el doble clic. El insert tarda lo suyo y nada impedía que un
+// segundo clic corriera la función entera otra vez: el permiso entraba dos veces,
+// con el mismo segundo de creación. Pasó con las vacaciones del 21 al 23-sep-2026
+// de un empleado, que quedaron duplicadas día por día.
+let _guardandoPermiso = false
+
 window.guardarPermiso = async () => {
+  if (_guardandoPermiso) return
   const sel = document.getElementById('perm-nombre')
   const empleadoId = sel.value
   const nombre = empleadoId ? sel.options[sel.selectedIndex].text : ''
@@ -1248,6 +1255,13 @@ window.guardarPermiso = async () => {
     reg.a_cuenta_vacaciones = (trat === 'vacaciones')   // compatibilidad con lógica/exportes viejos
   }
 
+  // El candado se toma recién acá: si se cerró antes por una validación, no queda
+  // trabado. Y el botón se apaga para que se vea que está trabajando.
+  _guardandoPermiso = true
+  const _btn = document.getElementById('btn-guardar-permiso')
+  const _txtBtn = _btn ? _btn.textContent : null
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Guardando…' }
+  try {
   const { error } = await getSb().from('permisos_empleados').insert(reg)
 
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
@@ -1260,6 +1274,10 @@ window.guardarPermiso = async () => {
     : `${reg.empleado_nombre} · ${fecha} · ${_tlPerm[tipo] || tipo}${reg.hora_salida ? ' · ' + reg.hora_salida : ''}${reg.tratamiento ? ' · ' + reg.tratamiento : ''}`
   window.logActividad?.('permiso_creado', 'rrhh', _detPerm)
   cargarPermisos()
+  } finally {
+    _guardandoPermiso = false
+    if (_btn) { _btn.disabled = false; _btn.textContent = _txtBtn }
+  }
 }
 
 async function cargarPermisos() {
