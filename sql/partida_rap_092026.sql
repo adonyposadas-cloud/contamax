@@ -13,7 +13,9 @@ begin;
 with p as (
   select
     '110103-001'::text   as banco,     -- CHEQUERA BAC TECNIMAX 730262871
-    '2026-09-30'::date   as fecha      -- el pago se hizo el 30/09/2026
+    '2026-09-30'::date   as fecha,     -- el pago se hizo el 30/09/2026
+    -- generada_por es obligatorio y el editor SQL no corre con sesion: se resuelve por nombre
+    (select id from usuarios where nombre ilike '%adony%posadas%' limit 1) as usuario
 ),
 datos (codigo, centro, tipo, monto, descripcion) as (values
     ('610101-044', 'Tecnicentro', 'debito', 11522.85, 'RAP Reserva Laboral 09/2026 · Taller'),
@@ -91,12 +93,13 @@ chk_centros as (
 ),
 nueva as (
   insert into partidas_contables
-    (numero_partida, fecha_partida, descripcion, tipo_origen, estado, total, centro_costo_id)
+    (numero_partida, fecha_partida, descripcion, tipo_origen, estado, total, centro_costo_id, generada_por)
   select (select coalesce(max(numero_partida), 0) + 1 from partidas_contables),
          (select fecha from p),
          'PLANILLA RAP 09/2026 · N° 12140336 · 45 afiliados',
-         'otro', 'borrador', 30495.72, null
+         'otro', 'borrador', 30495.72, null, (select usuario from p)
    where (select malas from chk_ctas) is null
+     and (select usuario from p) is not null
      and (select malos from chk_centros) is null
   returning id
 )
@@ -117,7 +120,7 @@ begin
   select id into v_id from partidas_contables
    where descripcion like 'PLANILLA RAP 09/2026%' order by created_at desc limit 1;
   if v_id is null then
-    raise exception 'No se creo la partida: alguna cuenta o centro no se pudo resolver. Revisar los frenos.';
+    raise exception 'No se creo la partida. Causas posibles: una cuenta no existe en el catalogo, un centro de costo no resolvio, o no se encontro el usuario ADONY POSADAS en la tabla usuarios.';
   end if;
   select count(*),
          sum(case when tipo = 'debito' then monto else 0 end),
