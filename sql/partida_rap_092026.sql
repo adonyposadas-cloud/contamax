@@ -12,21 +12,21 @@ begin;
 
 with p as (
   select
-    '@BANCO@'::text      as banco,     -- ⚠️ CAMBIAR por la cuenta del banco
-    '2026-09-25'::date   as fecha      -- ⚠️ fecha del pago al RAP
+    '110103-001'::text   as banco,     -- CHEQUERA BAC TECNIMAX 730262871
+    '2026-09-30'::date   as fecha      -- el pago se hizo el 30/09/2026
 ),
 datos (codigo, centro, tipo, monto, descripcion) as (values
-    ('610101-044', 'Taller', 'debito', 11522.85, 'RAP Reserva Laboral 09/2026 · Taller'),
+    ('610101-044', 'Tecnicentro', 'debito', 11522.85, 'RAP Reserva Laboral 09/2026 · Taller'),
     ('610101-044', 'Yonker', 'debito', 6845.70, 'RAP Reserva Laboral 09/2026 · Yonker'),
-    ('610101-045', 'Taller', 'debito', 928.65, 'FOVIIF patronal 09/2026 · Taller'),
+    ('610101-045', 'Tecnicentro', 'debito', 928.65, 'FOVIIF patronal 09/2026 · Taller'),
     ('610101-045', 'Yonker', 'debito', 424.60, 'FOVIIF patronal 09/2026 · Yonker'),
-    ('610102-044', 'Taller', 'debito', 1828.57, 'RAP Reserva Laboral 09/2026 · Taller'),
+    ('610102-044', 'Tecnicentro', 'debito', 1828.57, 'RAP Reserva Laboral 09/2026 · Taller'),
     ('610102-044', 'Yonker', 'debito', 1657.14, 'RAP Reserva Laboral 09/2026 · Yonker'),
-    ('610102-045', 'Taller', 'debito', 150.07, 'FOVIIF patronal 09/2026 · Taller'),
+    ('610102-045', 'Tecnicentro', 'debito', 150.07, 'FOVIIF patronal 09/2026 · Taller'),
     ('610102-045', 'Yonker', 'debito', 85.79, 'FOVIIF patronal 09/2026 · Yonker'),
-    ('610103-044', 'Taller', 'debito', 4205.71, 'RAP Reserva Laboral 09/2026 · Taller'),
+    ('610103-044', 'Tecnicentro', 'debito', 4205.71, 'RAP Reserva Laboral 09/2026 · Taller'),
     ('610103-044', 'Yonker', 'debito', 548.57, 'RAP Reserva Laboral 09/2026 · Yonker'),
-    ('610103-045', 'Taller', 'debito', 327.31, 'FOVIIF patronal 09/2026 · Taller'),
+    ('610103-045', 'Tecnicentro', 'debito', 327.31, 'FOVIIF patronal 09/2026 · Taller'),
     ('610103-045', 'Yonker', 'debito', 27.17, 'FOVIIF patronal 09/2026 · Yonker'),
     ('110301-024', null, 'debito', 46.45, 'FOVIIF 09/2026 · Arlyn Carolina Calix Carrasco'),
     ('110301-002', null, 'debito', 53.95, 'FOVIIF 09/2026 · Alex Gustavo Estrada'),
