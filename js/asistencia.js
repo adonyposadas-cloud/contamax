@@ -1806,19 +1806,30 @@ window.abrirMapeoPins = async () => {
   await cargarMapeoPins()
 }
 
-// Trae TODOS los PIN de marcaciones_raw (paginando) con su conteo
+// Descubre los PIN leyendo marcaciones_raw, de lo más nuevo hacia atrás.
+//
+// Antes paginaba SIN ordenar. Sin ORDER BY, Postgres devuelve las filas en el
+// orden que le conviene, así que las 30.000 que alcanzaba a leer eran siempre
+// las mismas —las más viejas— y un PIN recién creado no aparecía NUNCA en la
+// lista. Por eso los PIN 55 al 58 no se podían vincular: sus marcas estaban en
+// la tabla, pero la pantalla no las veía.
 async function _conteoPins(sb) {
   const conteo = {}
   const size = 1000
-  let from = 0
-  for (let i = 0; i < 30; i++) {
-    const { data, error } = await sb.from('marcaciones_raw').select('pin').range(from, from + size - 1)
+  const maxPaginas = 40          // 40.000 marcas ≈ los últimos 5 meses
+  let truncado = false
+  for (let i = 0; i < maxPaginas; i++) {
+    const from = i * size
+    const { data, error } = await sb.from('marcaciones_raw')
+      .select('pin')
+      .order('id', { ascending: false })
+      .range(from, from + size - 1)
     if (error || !data || !data.length) break
     for (const m of data) conteo[m.pin] = (conteo[m.pin] || 0) + 1
     if (data.length < size) break
-    from += size
+    if (i === maxPaginas - 1) truncado = true
   }
-  return conteo
+  return { conteo, truncado }
 }
 
 async function cargarMapeoPins() {
@@ -1826,7 +1837,7 @@ async function cargarMapeoPins() {
   if (!cont) return
   cont.innerHTML = 'Cargando…'
   const sb = getSb()
-  const conteo = await _conteoPins(sb)
+  const { conteo, truncado } = await _conteoPins(sb)
   const { data: emps } = await sb.from('empleados').select('id, nombre').eq('activo', true).order('nombre')
   _empleadosMapeo = emps || []
   const { data: mapas } = await sb.from('reloj_empleados').select('pin, empleado_id, empleado_nombre, activo')
@@ -1862,7 +1873,7 @@ async function cargarMapeoPins() {
           style="flex:1;min-width:190px;padding:7px 10px;background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:7px;color:inherit;font-size:13px">
         <button id="mp-solo-sin" class="btn btn-ghost" onclick="mpSoloSinAsignar()" style="padding:7px 12px;font-size:12px;white-space:nowrap">Solo sin asignar</button>
       </div>
-      <div style="font-size:12px;color:var(--text3);margin-top:7px">${pins.length} PIN en el reloj · ${asignados} ya vinculados<span id="mp-conteo"></span></div>
+      <div style="font-size:12px;color:var(--text3);margin-top:7px">${pins.length} PIN en el reloj · ${asignados} ya vinculados<span id="mp-conteo"></span>${truncado ? ' · <span style="color:var(--amber,#d29922)">contando las 40.000 marcas más recientes</span>' : ''}</div>
     </div>
     <div class="table-wrap"><table style="width:100%"><thead><tr>
       <th style="width:60px">PIN</th><th style="width:70px;text-align:right">Marcas</th><th>Empleado</th>
