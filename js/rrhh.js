@@ -128,20 +128,11 @@ function _avisoQuincenaPagada(periodo, numero, accion) {
     'Si de verdad hay que corregir esa quincena, primero hay que anular o revertir la partida.')
 }
 
-// Cuántos empleados activos con salario partido NO puede ver este usuario (el RLS
-// oculta todo empleado con planilla_confidencial a quien no es super_admin/contador,
-// aunque su parte visible vaya en la planilla general). Lo decide la base
-// (función planilla_partidos_ocultos); si la función no existe, no bloquea.
-async function _partidosOcultos() {
-  try {
-    const { data, error } = await getSb().rpc('planilla_partidos_ocultos')
-    if (error) throw error
-    return Number(data) || 0
-  } catch (e) {
-    console.warn('planilla_partidos_ocultos:', e?.message || e)
-    return 0
-  }
-}
+// Nota: _partidosOcultos() se eliminó al resolver el problema de raíz. Contaba los
+// empleados de salario partido ocultos para BLOQUEAR la generación de la planilla
+// general. Ahora el roster llega completo desde planilla_roster_general(), con el
+// sueldo confidencial recortado, así que no hay a quién bloquear. La función
+// planilla_partidos_ocultos() de la base quedó sin uso.
 
 function ensurePlanillaTabs() {
   if (!_puedeVerConfidencial()) return
@@ -607,12 +598,20 @@ window.generarPlanilla = async () => {
         const { data: _emps } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
         allEmpleados = _emps || []
       }
-      const _split = e => (parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0)
+      const _split = e => ('es_split' in e) ? !!e.es_split : ((parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0))
       const _fullConf = e => !!e.planilla_confidencial && !_split(e)
       // Quien entró DESPUÉS de terminar la quincena no tenía por qué estar: en borradores
       // viejos el aviso salía con toda la gente contratada después (puro ruido).
       const _finISO = fechaFin.toLocaleDateString('en-CA')
-      const _esperados = allEmpleados.filter(e => e.activo &&
+      // Mismo roster que usa la generación: para la general viene de la base, porque
+      // allEmpleados no trae a los de salario partido si el usuario no puede verlos
+      // y el aviso de "faltantes" saldría equivocado.
+      let _roster = allEmpleados
+      if (!planillaModoConf) {
+        const { data: _r } = await getSb().rpc('planilla_roster_general')
+        if (_r) _roster = _r
+      }
+      const _esperados = _roster.filter(e => e.activo &&
         (!e.fecha_ingreso || String(e.fecha_ingreso).slice(0, 10) <= _finISO) &&
         (planillaModoConf ? (_fullConf(e) || _split(e)) : !_fullConf(e)))
       // La misma persona puede tener un registro nuevo (ficha recreada): se reconoce
@@ -620,13 +619,11 @@ window.generarPlanilla = async () => {
       const _norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
       const _idsBorrador = new Set(currentDetalle.map(d => d.empleado_id))
       const _nombresBorrador = new Set(currentDetalle.map(d => _norm(d.nombre)))
-      const _identBorrador = new Set(allEmpleados.filter(e => _idsBorrador.has(e.id) && e.identidad).map(e => String(e.identidad)))
+      const _identBorrador = new Set(_roster.filter(e => _idsBorrador.has(e.id) && e.identidad).map(e => String(e.identidad)))
       const _faltantes = _esperados.filter(e => !_idsBorrador.has(e.id) &&
         !(e.identidad && _identBorrador.has(String(e.identidad))) && !_nombresBorrador.has(_norm(e.nombre)))
-      const _ocultos = planillaModoConf ? 0 : await _partidosOcultos()
       const _avisos = []
       if (_faltantes.length) _avisos.push(`no incluye a ${_faltantes.length} empleado(s) que hoy deberían estar: ${_faltantes.map(e => e.nombre).join(', ')}`)
-      if (_ocultos) _avisos.push(`hay ${_ocultos} empleado(s) con salario partido que tu usuario no puede ver; esta planilla general debe generarla super_admin o contador`)
       if (_avisos.length) {
         document.getElementById('pl-existing-msg').textContent = `⚠ Este borrador ${_avisos.join('; y ')}.${_faltantes.length ? ' Regenerá para actualizarlo.' : ''}`
         window.toast?.(`Borrador incompleto: ${_avisos.join('; ')}`, 'error')
@@ -643,37 +640,48 @@ window.generarPlanilla = async () => {
   const _pagada = await _partidaPlanillaExistente(periodo, planillaModoConf)
   if (_pagada) { _avisoQuincenaPagada(periodo, _pagada, 'generar esta planilla'); return }
 
-  // La general la tiene que generar alguien que vea a TODOS sus empleados: los de
-  // salario partido están marcados confidenciales y el RLS se los oculta a quien no
-  // es super_admin/contador, así que saldrían sin pagarse en la general.
-  if (!planillaModoConf) {
-    const ocultos = await _partidosOcultos()
-    if (ocultos) {
-      alert(`No podés generar la planilla general: hay ${ocultos} empleado(s) con salario partido que tu usuario no puede ver, ` +
-        'y quedarían fuera (sin pago) en la planilla.\n\nLa planilla general tiene que generarla un super_admin o un contador.')
+  // ── Personal de la planilla ──
+  // La general NO se arma con allEmpleados: el RLS oculta a los de salario partido
+  // a quien no es super_admin/contador, y salían sin pagarse. Antes eso se resolvía
+  // prohibiéndole generar; ahora el dato llega recortado desde la base.
+  // planilla_roster_general() devuelve a todos los que van en la general y, a quien
+  // no puede verlo, le quita el campo sueldo_confidencial: procesa a esa persona
+  // como un empleado normal con su sueldo visible, que es lo que le corresponde acá.
+  // El complemento se sigue pagando en la confidencial.
+  let roster
+  if (planillaModoConf) {
+    if (allEmpleados.length === 0) {
+      const { data } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
+      allEmpleados = data || []
+    }
+    roster = allEmpleados
+  } else {
+    const { data: rst, error: rErr } = await getSb().rpc('planilla_roster_general')
+    if (rErr) {
+      window.toast?.('No se pudo cargar el personal de la planilla: ' + rErr.message, 'error')
       return
     }
-  }
-
-  // Load empleados activos (not socios)
-  if (allEmpleados.length === 0) {
-    const { data } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
-    allEmpleados = data || []
+    roster = rst || []
+    if (!roster.length) { window.toast?.('No hay empleados activos para la planilla', 'error'); return }
   }
 
   // Salario partido / confidencial. El campo sueldo_confidencial = sueldo REAL total.
   // Si supera al visible (sueldo_mensual), hay "complemento" = real − visible, que se paga en
   // la confidencial; el empleado sale en AMBAS planillas (visible en general, complemento en conf).
   // planilla_confidencial marcado SIN complemento = 100% confidencial (solo en la confidencial).
-  const _esSplit = e => (parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0)
+  // Quien no puede ver los montos confidenciales recibe el roster SIN
+  // sueldo_confidencial, así que la comparación daría falso y esa persona quedaría
+  // clasificada como 100% confidencial: se caería de la general, justo lo que hay
+  // que evitar. Por eso la base manda la clasificación aparte, en es_split.
+  const _esSplit = e => ('es_split' in e) ? !!e.es_split : ((parseFloat(e.sueldo_confidencial) || 0) > (e.sueldo_mensual || 0))
   const _esFullConf = e => !!e.planilla_confidencial && !_esSplit(e)
   const _complemento = e => Math.round(((parseFloat(e.sueldo_confidencial) || 0) - (e.sueldo_mensual || 0)) * 100) / 100
 
   // General: todos los que NO son 100% confidenciales (normales + partidos, con su sueldo visible).
   // Confidencial: los 100% confidenciales + los partidos (estos como complemento).
   const activos = planillaModoConf
-    ? allEmpleados.filter(e => e.activo && (_esFullConf(e) || _esSplit(e)))
-    : allEmpleados.filter(e => e.activo && !_esFullConf(e))
+    ? roster.filter(e => e.activo && (_esFullConf(e) || _esSplit(e)))
+    : roster.filter(e => e.activo && !_esFullConf(e))
   if (planillaModoConf && !activos.length) { window.toast?.('No hay empleados confidenciales ni partidos', 'error'); return }
 
   // Ajustes MANUALES del período (ediciones que el usuario hizo al cuadrar). Se reaplican
@@ -1666,16 +1674,6 @@ async function generarPartidaConfidencial(periodo, fechaPartida) {
 // ── Aprobar planilla: rebaja saldo de vacaciones usado + genera partida ──
 window.aprobarPlanilla = async () => {
   if (!currentPlanilla || currentPlanilla.estado !== 'borrador') return
-  // Mismo candado que al generar: sin ver a los de salario partido, la general
-  // se aprobaría sin ellos (y sus provisiones se calcularían sin su ficha).
-  if (!currentPlanilla.es_confidencial) {
-    const ocultos = await _partidosOcultos()
-    if (ocultos) {
-      alert(`No podés aprobar esta planilla general: hay ${ocultos} empleado(s) con salario partido que tu usuario no puede ver.\n\n` +
-        'Tiene que revisarla y aprobarla un super_admin o un contador.')
-      return
-    }
-  }
   // Préstamos con saldo que no se descontaron por no tener cuota definida.
   if (window._plPrestSinCuota?.length) {
     if (!confirm(`⚠️ ${window._plPrestSinCuota.length} préstamo(s) con saldo NO se descontaron en esta planilla ` +

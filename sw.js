@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v46-pins'
+const CACHE_NAME = 'contamax-v47-planilla'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
