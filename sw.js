@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v49-vacfiltro'
+const CACHE_NAME = 'contamax-v50-fotos5'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

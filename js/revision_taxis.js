@@ -726,13 +726,13 @@ function rtx7dEnsure() {
     .mot-av{width:46px;height:46px;border-radius:50%;flex:0 0 auto;overflow:hidden;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;border:1px solid var(--border,#2a2e37);background:var(--bg3,#1b1e25);position:relative}
     .mot-av.clic{cursor:pointer}
     .mot-av img{width:100%;height:100%;object-fit:cover;display:block}
-    .mot-av.dos::after{content:'2';position:absolute;right:-2px;bottom:-2px;background:var(--bg,#0d1117);color:var(--text2,#9aa0aa);font-size:9px;line-height:1;padding:2px 4px;border-radius:7px;border:1px solid var(--border,#2a2e37)}
+    .mot-av[data-n]::after{content:attr(data-n);position:absolute;right:-2px;bottom:-2px;background:var(--bg,#0d1117);color:var(--text2,#9aa0aa);font-size:9px;line-height:1;padding:2px 4px;border-radius:7px;border:1px solid var(--border,#2a2e37)}
     .mot-visor{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:10001;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px}
     .mot-visor img{max-width:100%;max-height:76vh;border-radius:10px;object-fit:contain}
     .mot-visor-bar{display:flex;gap:10px;align-items:center;color:#fff;font-size:13px;flex-wrap:wrap;justify-content:center}
-    .mot-fotos{display:flex;gap:10px;margin-top:6px}
-    .mot-slot{flex:1;min-width:0}
-    .mot-slot-prev{width:100%;height:96px;border-radius:10px;border:1px dashed var(--border,#2a2e37);background:var(--bg2,#15171c);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--text2,#8b8f98);font-size:11px}
+    .mot-fotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;margin-top:6px}
+    .mot-slot{min-width:0}
+    .mot-slot-prev{width:100%;height:84px;border-radius:10px;border:1px dashed var(--border,#2a2e37);background:var(--bg2,#15171c);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--text2,#8b8f98);font-size:11px}
     .mot-slot-prev img{width:100%;height:100%;object-fit:cover}
     .mot-slot-btns{display:flex;gap:4px;margin-top:5px}
     .mot-slot-btns button{flex:1;padding:6px 0;font-size:11px;border-radius:7px;border:1px solid var(--border,#2a2e37);background:var(--bg2,#15171c);color:var(--text,#e8eaed);cursor:pointer}
@@ -2516,14 +2516,17 @@ function rtxHistNota(nota) {
 // ══════════════════════════════════════════════════════════════
 // ── FOTOS DEL MOTORISTA ───────────────────────────────────────
 // Con 203 motoristas, acordarse de quién es quién por el nombre es imposible.
-// Cada ficha lleva hasta 2 fotos: la primera es la miniatura de la lista.
+// Cada ficha lleva hasta 5 fotos (todas opcionales): la primera es la miniatura de la lista.
 // El bucket es PRIVADO (son fotos de personas junto a su número de cédula), así
 // que la lista se pinta con URLs firmadas por 8 h: alcanza para una jornada sin
 // que a nadie se le rompan las miniaturas a media mañana.
 // ══════════════════════════════════════════════════════════════
 const MOT_BUCKET = 'motoristas-fotos'
-let rtxMotFotoUrl = {}     // identidad -> [urlFirmada1, urlFirmada2]
-let rtxMotFotoBuf = null   // ranuras del modal abierto: { 1:{...}, 2:{...} }
+const MOT_MAX_FOTOS = 5    // columnas foto1_path..foto5_path (sql/motoristas_fotos_5.sql)
+const MOT_RANURAS = Array.from({ length: MOT_MAX_FOTOS }, (_, i) => i + 1)   // [1..5]
+const rtxMotPaths = (m) => MOT_RANURAS.map(n => m['foto' + n] || null)
+let rtxMotFotoUrl = {}     // identidad -> [urlFirmada1, …, urlFirmada5]
+let rtxMotFotoBuf = null   // ranuras del modal abierto: { 1:{...}, …, 5:{...} }
 
 function rtxMotIniciales (nombre) {
   const p = String(nombre || '').trim().split(/\s+/).filter(Boolean)
@@ -2540,9 +2543,9 @@ function rtxMotColor (ident) {
 
 function rtxMotAvatar (m, puedeAdmin) {
   const urls = (rtxMotFotoUrl[m.identidad] || []).filter(Boolean)
-  const dos = urls.length > 1 ? ' dos' : ''
+  const cuantas = urls.length > 1 ? ' data-n="' + urls.length + '"' : ''   // insignia con la cantidad
   if (urls.length) {
-    return '<div class="mot-av clic' + dos + '" onclick="rtxMotVisor(&quot;' + m.identidad + '&quot;)" title="Ver fotos">' +
+    return '<div class="mot-av clic"' + cuantas + ' onclick="rtxMotVisor(&quot;' + m.identidad + '&quot;)" title="Ver fotos">' +
            '<img src="' + urls[0] + '" alt="" loading="lazy"></div>'
   }
   const extra = puedeAdmin
@@ -2556,7 +2559,7 @@ function rtxMotAvatar (m, puedeAdmin) {
 async function rtxMotCargarFotos () {
   const paths = [], ref = []
   for (const m of rtxMotData) {
-    const suyas = [m.foto1, m.foto2]
+    const suyas = rtxMotPaths(m)
     suyas.forEach((p, i) => { if (p) { paths.push(p); ref.push([m.identidad, i]) } })
   }
   rtxMotFotoUrl = {}
@@ -2671,10 +2674,10 @@ function rtxMotFotoPintarSlot (n) {
 // Se guarda DESPUÉS de los datos del motorista y solo si algo cambió.
 async function rtxMotFotosGuardar (identidad) {
   if (!rtxMotFotoBuf) return
-  const hayCambios = [1, 2].some(n => rtxMotFotoBuf[n].blob || rtxMotFotoBuf[n].quitar)
+  const hayCambios = MOT_RANURAS.some(n => rtxMotFotoBuf[n].blob || rtxMotFotoBuf[n].quitar)
   if (!hayCambios) return
   const finales = {}, borrar = []
-  for (const n of [1, 2]) {
+  for (const n of MOT_RANURAS) {
     const s = rtxMotFotoBuf[n]
     if (s.blob) {
       // Nombre único: siempre es INSERT, nunca UPDATE (upsert pediría otra policy).
@@ -2691,8 +2694,15 @@ async function rtxMotFotosGuardar (identidad) {
       finales[n] = s.path || null
     }
   }
-  const { data, error } = await rtxSb().rpc('tx_motorista_fotos',
-    { p_identidad: identidad, p_foto1: finales[1], p_foto2: finales[2] })
+  let { data, error } = await rtxSb().rpc('tx_motorista_fotos', {
+    p_identidad: identidad, p_foto1: finales[1], p_foto2: finales[2],
+    p_foto3: finales[3], p_foto4: finales[4], p_foto5: finales[5] })
+  // Si todavía no se corrió sql/motoristas_fotos_5.sql la función de 6 parámetros no
+  // existe: con solo las fotos 1 y 2 se usa la de antes; con más, hay que avisar.
+  if (error && /could not find the function|PGRST202/i.test((error.message || '') + (error.code || ''))) {
+    if ([3, 4, 5].some(n => finales[n])) throw new Error('Para guardar más de 2 fotos falta correr sql/motoristas_fotos_5.sql en Supabase.')
+    ;({ data, error } = await rtxSb().rpc('tx_motorista_fotos', { p_identidad: identidad, p_foto1: finales[1], p_foto2: finales[2] }))
+  }
   if (error) throw error
   if (!data || !data.ok) throw new Error((data && data.error) || 'No se pudieron guardar las fotos')
   // El archivo viejo se borra recién cuando la ficha ya apunta al nuevo: si el
@@ -2705,10 +2715,11 @@ window.rtxMotEditar = (identidad) => {
   const m = rtxMotData.find(x => x.identidad === identidad)
   if (!m) return
   const urls = rtxMotFotoUrl[identidad] || []
-  rtxMotFotoBuf = {
-    1: { path: m.foto1 || null, url: urls[0] || null, blob: null, local: null, quitar: false },
-    2: { path: m.foto2 || null, url: urls[1] || null, blob: null, local: null, quitar: false }
-  }
+  const paths = rtxMotPaths(m)
+  rtxMotFotoBuf = {}
+  MOT_RANURAS.forEach((n, i) => {
+    rtxMotFotoBuf[n] = { path: paths[i], url: urls[i] || null, blob: null, local: null, quitar: false }
+  })
   rtxMotModal({
     titulo: 'Editar motorista', sub: `Cédula: ${m.identidad}`,
     nombre: m.nombre, tarifa: m.tarifa, grupo: m.grupo, telefono: m.telefono || '', identReadonly: true, ident: m.identidad,
@@ -2731,9 +2742,9 @@ function rtxMotModal(o) {
   // Las fotos solo al editar: la ruta en el bucket cuelga de la cédula, y en el
   // alta todavía no hay ficha a la cual colgarlas. Se agregan entrando a Editar.
   const fotosBloque = o.fotos ? `
-      <label>Fotos (hasta 2)</label>
+      <label>Fotos (hasta ${MOT_MAX_FOTOS}, opcionales)</label>
       <div class="mot-fotos">
-        ${[1, 2].map(n => `
+        ${MOT_RANURAS.map(n => `
           <div class="mot-slot">
             <div class="mot-slot-prev" id="mot-prev-${n}"></div>
             <div class="mot-slot-btns">
@@ -2768,11 +2779,11 @@ function rtxMotModal(o) {
   ov.onclick = (ev) => { if (ev.target === ov) rtxMotCerrar() }
   document.body.appendChild(ov)
   rtxMotOv = ov
-  if (o.fotos) { rtxMotFotoPintarSlot(1); rtxMotFotoPintarSlot(2) }
+  if (o.fotos) MOT_RANURAS.forEach(rtxMotFotoPintarSlot)
 }
 window.rtxMotCerrar = () => {
   if (rtxMotFotoBuf) {
-    for (const n of [1, 2]) if (rtxMotFotoBuf[n].local) URL.revokeObjectURL(rtxMotFotoBuf[n].local)
+    for (const n of MOT_RANURAS) if (rtxMotFotoBuf[n].local) URL.revokeObjectURL(rtxMotFotoBuf[n].local)
     rtxMotFotoBuf = null
   }
   if (rtxMotOv) { rtxMotOv.remove(); rtxMotOv = null }
