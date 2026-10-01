@@ -1714,7 +1714,7 @@ window.cargarHistorialAsistencia = async () => {
 
 // ── CONFIG IHSS ──
 // Valores por defecto de claves nuevas (RAP/FOVIIF 2026) mientras no estén en config_planilla
-const _CFG_DEFAULTS = { rap_pct_patronal: 0.04, rap_techo_mensual: 57896.16, foviif_piso_mensual: 11903.13, foviif_pct_patronal: 0.015, foviif_pct_laboral: 0.015, cxc_arrastre_desde: 20260501 }
+const _CFG_DEFAULTS = { rap_pct_patronal: 0.04, rap_techo_mensual: 57896.16, foviif_piso_mensual: 11903.13, foviif_pct_patronal: 0.015, foviif_pct_laboral: 0.015, cxc_arrastre_desde: 20260601 }
 
 window.loadConfigPlanilla = async () => {
   await loadConfig()

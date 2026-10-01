@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v53-emparejar'
+const CACHE_NAME = 'contamax-v54-arrastre-junio'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

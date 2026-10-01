@@ -1204,11 +1204,12 @@ window.emparejarPendientesCxC = async () => {
 
 // Pendiente previo por cuenta CXC (ver el bloque ARRASTRE en generarPlanilla).
 // Devuelve { desde, pendiente: { cuenta: { anticipos, trucha } }, error }.
-// ARRASTRE_DESDE: primera planilla del sistema. Se puede mover con la clave de
-// config_planilla 'cxc_arrastre_desde' (número AAAAMMDD, ej. 20260501).
+// ARRASTRE_DESDE: 2026-06-01. Las planillas de mayo se pagaron pero NO están aprobadas en el
+// sistema, así que contar desde mayo daba como 'pendiente' lo que ya se cobró. Se mueve con la clave de
+// config_planilla 'cxc_arrastre_desde' (número AAAAMMDD, ej. 20260601).
 async function _arrastreCxC(ini) {
   const cfgDesde = String(Math.trunc(window._configPlanilla?.cxc_arrastre_desde || 0))
-  const desde = /^\d{8}$/.test(cfgDesde) ? `${cfgDesde.slice(0, 4)}-${cfgDesde.slice(4, 6)}-${cfgDesde.slice(6, 8)}` : '2026-05-01'
+  const desde = /^\d{8}$/.test(cfgDesde) ? `${cfgDesde.slice(0, 4)}-${cfgDesde.slice(4, 6)}-${cfgDesde.slice(6, 8)}` : '2026-06-01'
   const out = { desde, pendiente: {}, error: null }
   if (!(desde < ini)) return out
   try {
