@@ -2511,6 +2511,7 @@ async function initPartidaNueva() {
     // líneas del ajuste de arqueo no se podían editar.
     if (Array.isArray(pf.lineas) && pf.lineas.length) { partidaLineas = pf.lineas.map(l => ({ ...l, id: ++lineaCounter })); renderLineas() }
     if (pf.descripcion) { const d = document.getElementById('pn-descripcion'); if (d) d.value = pf.descripcion }
+    if (pf.fecha) { const fe = document.getElementById('pn-fecha'); if (fe) fe.value = pf.fecha }
     calcTotales()
   }
 }

@@ -1128,6 +1128,76 @@ window.generarPlanilla = async () => {
   }
 }
 
+// ── EMPAREJAR PENDIENTES DE CXC (saldos que vienen del sistema contable anterior) ──
+// Al estrenar el arrastre salieron pendientes grandes que no son de Contamax sino del
+// sistema anterior. Esto arma una partida que los cancela: HABER a la CXC de cada
+// empleado por su pendiente, DEBE a una cuenta que elige el usuario (la línea va sin
+// cuenta). Se abre en el editor de partidas sin guardar nada: ahí se revisa, se quita
+// lo que sí haya que cobrar y se elige la cuenta.
+// La fecha es el día ANTERIOR a la quincena: así el arrastre ve el abono y no lo cobra.
+// Las glosas no dicen PLANILLA (el arrastre las ignoraría) ni PRESTAMO.
+window.emparejarPendientesCxC = async () => {
+  if (window._currentProfile?.()?.rol !== 'super_admin') { window.toast?.('Solo super_admin', 'error'); return }
+  const anio = parseInt(document.getElementById('pl-anio').value)
+  const mes = parseInt(document.getElementById('pl-mes').value)
+  const quincena = document.getElementById('pl-quincena').value
+  const iniDef = `${anio}-${String(mes).padStart(2, '0')}-${quincena === 'Q1' ? '01' : '16'}`
+  const hasta = (prompt('Emparejar lo pendiente de CxC cargado ANTES de esta fecha (AAAA-MM-DD).\n' +
+    'Por defecto, el inicio de la quincena seleccionada:', iniDef) || '').trim()
+  if (!hasta) return
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(hasta)) { window.toast?.('Fecha inválida (AAAA-MM-DD)', 'error'); return }
+
+  if (!allEmpleados.length) {
+    const { data } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
+    allEmpleados = data || []
+  }
+  window.toast?.('Calculando pendientes…', 'info')
+  const res = await _arrastreCxC(hasta)
+  if (res.error) { alert('No se pudo calcular: ' + res.error); return }
+  const cuentas = Object.entries(res.pendiente).filter(([, p]) => p.anticipos + p.trucha > 0.005)
+  if (!cuentas.length) { alert(`No hay pendientes de CxC antes del ${hasta} (desde ${res.desde}).`); return }
+
+  // Catálogo: id y nombre de cada CXC
+  let cat = (window.catalogoCuentas || []).filter(c => cuentas.some(([cc]) => cc === c.codigo))
+  if (cat.length < cuentas.length) {
+    const { data } = await getSb().from('catalogo_cuentas').select('id, codigo, nombre').in('codigo', cuentas.map(([cc]) => cc))
+    cat = data || []
+  }
+  const porCod = Object.fromEntries(cat.map(c => [c.codigo, c]))
+  const nombreEmp = (cc) => (allEmpleados.find(e => String(e.cuenta_cxc) === String(cc))?.nombre || '').toUpperCase()
+
+  const fechaP = new Date(hasta + 'T12:00:00'); fechaP.setDate(fechaP.getDate() - 1)
+  const fecha = fechaP.toLocaleDateString('en-CA')
+  let n = 0
+  const lineas = []
+  let total = 0
+  const faltanCuenta = []
+  for (const [cc, p] of cuentas.sort((a, b) => (b[1].anticipos + b[1].trucha) - (a[1].anticipos + a[1].trucha))) {
+    const c = porCod[cc]
+    if (!c) { faltanCuenta.push(cc); continue }
+    const quien = nombreEmp(cc) || c.nombre
+    const base = { cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'credito', centro_costo_id: '', aplica_fiscal: false }
+    if (p.anticipos > 0.005) lineas.push({ ...base, id: ++n, monto: p.anticipos, descripcion: `AJUSTE SALDO SISTEMA ANTERIOR · ${quien}` })
+    if (p.trucha > 0.005) lineas.push({ ...base, id: ++n, monto: p.trucha, descripcion: `AJUSTE SALDO SISTEMA ANTERIOR TRUCHA · ${quien}` })
+    total += p.anticipos + p.trucha
+  }
+  total = Math.round(total * 100) / 100
+  lineas.unshift({ id: ++n, cuenta_id: '', cuenta_codigo: '', cuenta_nombre: '', tipo: 'debito', monto: total, centro_costo_id: '',
+    descripcion: 'SALDOS CXC EMPLEADOS DEL SISTEMA ANTERIOR — ELEGÍ LA CUENTA', aplica_fiscal: false })
+
+  const ok = confirm(`Se va a armar una partida (sin guardar todavía) con fecha ${fecha}:\n\n` +
+    `• DEBE L. ${fmt(total)} a la cuenta que elijas\n` +
+    `• HABER a ${lineas.length - 1} línea(s) de CxC de ${cuentas.length - faltanCuenta.length} empleado(s)\n` +
+    (faltanCuenta.length ? `\n⚠ Sin cuenta en el catálogo (no van): ${faltanCuenta.join(', ')}\n` : '') +
+    `\nEn el editor: elegí la cuenta del DEBE, quitá las líneas que SÍ haya que cobrar ` +
+    `(y bajá el DEBE en lo mismo), guardá y aprobá. Después regenerá la planilla.\n\n¿Abrir la partida?`)
+  if (!ok) return
+  window._prefillPartida = { lineas, fecha, descripcion: `EMPAREJAR SALDOS CXC EMPLEADOS (SISTEMA ANTERIOR) AL ${fecha}` }
+  window._origenPartida = { view: 'planilla', label: 'Planilla quincenal' }
+  if (typeof window.nuevaPartida === 'function') window.nuevaPartida()
+  else window.showView?.('partida-nueva', 'Nueva partida')
+}
+
 // Pendiente previo por cuenta CXC (ver el bloque ARRASTRE en generarPlanilla).
 // Devuelve { desde, pendiente: { cuenta: { anticipos, trucha } }, error }.
 // ARRASTRE_DESDE: primera planilla del sistema. Se puede mover con la clave de
