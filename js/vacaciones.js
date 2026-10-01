@@ -73,9 +73,38 @@ function renderVacaciones() {
   const sEmp = document.getElementById('stat-vac-empleados'); if (sEmp) sEmp.textContent = conSaldo
   const sDia = document.getElementById('stat-vac-dias'); if (sDia) sDia.textContent = fmtDias(totalDias)
 
+  // Opciones de sección según los empleados cargados (conserva la elegida)
+  const selSec = document.getElementById('vac-f-seccion')
+  if (selSec) {
+    const actual = selSec.value
+    const secciones = [...new Set(vacEmpleados.map(e => e.seccion).filter(Boolean))].sort()
+    selSec.innerHTML = '<option value="">Todas las secciones</option>' + secciones.map(s => `<option value="${s}">${s}</option>`).join('')
+    selSec.value = secciones.includes(actual) ? actual : ''
+  }
+
+  // Filtros: nombre (sin importar mayúsculas ni tildes), sección y tipo de saldo
+  const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const q = norm(document.getElementById('vac-f-nombre')?.value).trim()
+  const sec = selSec?.value || ''
+  const tipoSaldo = document.getElementById('vac-f-saldo')?.value || ''
+  const lista = vacEmpleados.filter(e => {
+    const saldo = parseFloat(e.vacaciones_saldo_dias) || 0
+    if (q && !norm(e.nombre).includes(q)) return false
+    if (sec && e.seccion !== sec) return false
+    if (tipoSaldo === 'positivo' && !(saldo > 0)) return false
+    if (tipoSaldo === 'cero' && saldo !== 0) return false
+    if (tipoSaldo === 'negativo' && !(saldo < 0)) return false
+    return true
+  })
+  const info = document.getElementById('vac-f-info')
+  if (info) {
+    const dias = lista.reduce((s, e) => s + (parseFloat(e.vacaciones_saldo_dias) || 0), 0)
+    info.textContent = lista.length === vacEmpleados.length ? '' : `Mostrando ${lista.length} de ${vacEmpleados.length} · ${fmtDias(dias)} días`
+  }
+
   const tbody = document.getElementById('tbody-vacaciones')
   if (!tbody) return
-  tbody.innerHTML = vacEmpleados.map(e => {
+  tbody.innerHTML = lista.map(e => {
     const saldo = parseFloat(e.vacaciones_saldo_dias) || 0
     return `<tr class="vac-fila" onclick="verHistorialVac('${e.id}')" title="Ver el historial de movimientos">
       <td>${e.nombre}</td>
@@ -84,7 +113,12 @@ function renderVacaciones() {
       <td style="text-align:right;font-weight:600;color:${saldo > 0 ? 'var(--green)' : saldo < 0 ? 'var(--red)' : 'var(--text3)'}">${fmtDias(saldo)}</td>
       <td style="text-align:right"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="event.stopPropagation();openPagoVacaciones('${e.id}')"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg> Pagar</button></td>
     </tr>`
-  }).join('') || '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin empleados</td></tr>'
+  }).join('') || `<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">${vacEmpleados.length ? 'Ningún empleado coincide con el filtro' : 'Sin empleados'}</td></tr>`
+}
+window.renderVacacionesFiltro = () => renderVacaciones()
+window.limpiarFiltroVac = () => {
+  ;['vac-f-nombre', 'vac-f-seccion', 'vac-f-saldo'].forEach(id => { const el = document.getElementById(id); if (el) el.value = '' })
+  renderVacaciones()
 }
 
 // ══════════════════════════════════════════════

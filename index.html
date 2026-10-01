@@ -2051,6 +2051,20 @@
           <div class="stat-card"><div class="stat-num" id="stat-vac-empleados">—</div><div class="stat-label">Empleados con saldo</div></div>
           <div class="stat-card"><div class="stat-num" id="stat-vac-dias">—</div><div class="stat-label">Días acumulados</div></div>
         </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+          <input type="text" id="vac-f-nombre" placeholder="🔍 Buscar empleado…" oninput="renderVacacionesFiltro()" style="flex:1;min-width:200px;max-width:340px;padding:8px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+          <select id="vac-f-seccion" onchange="renderVacacionesFiltro()" style="padding:8px 10px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px">
+            <option value="">Todas las secciones</option>
+          </select>
+          <select id="vac-f-saldo" onchange="renderVacacionesFiltro()" style="padding:8px 10px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px">
+            <option value="">Todos los saldos</option>
+            <option value="positivo">Con saldo (&gt; 0)</option>
+            <option value="cero">Sin saldo (0)</option>
+            <option value="negativo">Saldo negativo</option>
+          </select>
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="limpiarFiltroVac()">Limpiar</button>
+          <span id="vac-f-info" style="font-size:12px;color:var(--text3)"></span>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -3839,7 +3853,7 @@
 <script defer src="js/vencimientos.js?v=20260921t"></script>
 <script defer src="js/rrhh.js?v=20260930b"></script>
 <script defer src="js/asistencia.js?v=20260930a"></script>
-<script defer src="js/vacaciones.js?v=20260921t"></script>
+<script defer src="js/vacaciones.js?v=20261001a"></script>
 <script defer src="js/feriados.js?v=20260921t"></script>
 <script defer src="js/permisos-masivo.js?v=20260921t"></script>
 <script defer src="js/cuentas-cobrar.js?v=20260921t"></script>
