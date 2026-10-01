@@ -924,6 +924,17 @@ window.generarPlanilla = async () => {
     cxcPorCuenta[cc].trucha = Math.max(0, Math.round(cxcPorCuenta[cc].trucha * 100) / 100)
   }
 
+  // ── ARRASTRE: lo que quedó sin cobrar en quincenas anteriores ──
+  // El cálculo de arriba solo mira los cargos FECHADOS en esta quincena. Lo que el piso de
+  // L.1 difirió (ej. David en 2026-09: L 1,191.61) o cargos que se colaron (trucha que no
+  // se le descontó a nadie) nunca se volvían a cobrar. Ahora, por empleado:
+  //   pendiente previo = cargos de su CXC desde ARRASTRE_DESDE hasta el día anterior a esta
+  //                      quincena − lo que ya se le dedujo (anticipos + trucha) en planillas
+  //                      APROBADAS de ese tramo (general y confidencial).
+  // Solo cuenta a favor del cobro: si se le dedujo de más, no se le devuelve aquí (eso es
+  // un ajuste a revisar). Préstamos no entran: van por cuota.
+  const arrastrePorCuenta = await _arrastreCxC(ini)
+
   // ── Validación: cuentas CXC con cargos que NINGÚN empleado tiene asignada en su ficha ──
   // Caza desajustes como el de Jonathan (cargos en 110301-040 pero la ficha apuntaba a otra
   // cuenta): esos anticipos/trucha no se descontarían a nadie. Avisa antes de continuar.
@@ -1006,6 +1017,7 @@ window.generarPlanilla = async () => {
     }
   }
 
+  const _arrastreAplicado = []   // [{ nombre, anticipos, trucha }] para el aviso al terminar
   const detalles = activos.map(e => {
     const overrides = {}
     // Complemento confidencial: empleado partido en la planilla confidencial. Paga solo la
@@ -1039,6 +1051,13 @@ window.generarPlanilla = async () => {
       const cxc = cxcPorCuenta[e.cuenta_cxc]
       overrides.anticipos = Math.round(cxc.anticipos * 100) / 100
       overrides.trucha = Math.round(cxc.trucha * 100) / 100
+    }
+    // + lo que quedó pendiente de quincenas anteriores (ver _arrastreCxC)
+    const arr = e.cuenta_cxc && arrastrePorCuenta.pendiente[e.cuenta_cxc]
+    if (arr && (arr.anticipos > 0 || arr.trucha > 0)) {
+      overrides.anticipos = Math.round(((overrides.anticipos || 0) + arr.anticipos) * 100) / 100
+      overrides.trucha = Math.round(((overrides.trucha || 0) + arr.trucha) * 100) / 100
+      _arrastreAplicado.push({ nombre: e.nombre, anticipos: arr.anticipos, trucha: arr.trucha })
     }
     // Préstamos: sumar la cuota de TODOS los préstamos activos del empleado cuya 1ª
     // deducción ya cae dentro de este período (≤ fin). Un empleado puede tener varios.
@@ -1089,6 +1108,102 @@ window.generarPlanilla = async () => {
   await actualizarTotalesPlanilla()
   renderPlanilla()
   window.toast?.(`Planilla ${periodo} generada con ${detalles.length} empleados`, 'ok')
+
+  // Aviso del arrastre: qué se está cobrando de quincenas anteriores y a quién, para
+  // revisarlo ANTES de aprobar (se puede ajustar con ✏️ en la fila del empleado).
+  if (arrastrePorCuenta.error) {
+    alert('⚠️ No se pudo calcular lo pendiente de quincenas anteriores:\n' + arrastrePorCuenta.error +
+      '\n\nLa planilla quedó SOLO con los cargos de esta quincena.')
+  } else if (_arrastreAplicado.length) {
+    const tot = _arrastreAplicado.reduce((s, a) => s + a.anticipos + a.trucha, 0)
+    const lista = _arrastreAplicado
+      .sort((a, b) => (b.anticipos + b.trucha) - (a.anticipos + a.trucha))
+      .map(a => `• ${a.nombre}: L. ${fmt(a.anticipos + a.trucha)}` +
+        (a.anticipos > 0 && a.trucha > 0 ? ` (anticipos ${fmt(a.anticipos)} · trucha ${fmt(a.trucha)})` : a.trucha > 0 ? ' (trucha)' : ''))
+      .join('\n')
+    console.info('Arrastre de quincenas anteriores:', _arrastreAplicado)
+    alert(`Se agregó lo pendiente de quincenas anteriores (desde ${arrastrePorCuenta.desde}):\n\n${lista}\n\n` +
+      `Total: L. ${fmt(tot)} en ${_arrastreAplicado.length} empleado(s).\n` +
+      'Ya va sumado en Anticipos / Trucha. Revisalo antes de aprobar; si algo no corresponde, ajustalo con ✏️.')
+  }
+}
+
+// Pendiente previo por cuenta CXC (ver el bloque ARRASTRE en generarPlanilla).
+// Devuelve { desde, pendiente: { cuenta: { anticipos, trucha } }, error }.
+// ARRASTRE_DESDE: primera planilla del sistema. Se puede mover con la clave de
+// config_planilla 'cxc_arrastre_desde' (número AAAAMMDD, ej. 20260501).
+async function _arrastreCxC(ini) {
+  const cfgDesde = String(Math.trunc(window._configPlanilla?.cxc_arrastre_desde || 0))
+  const desde = /^\d{8}$/.test(cfgDesde) ? `${cfgDesde.slice(0, 4)}-${cfgDesde.slice(4, 6)}-${cfgDesde.slice(6, 8)}` : '2026-05-01'
+  const out = { desde, pendiente: {}, error: null }
+  if (!(desde < ini)) return out
+  try {
+    const sb = getSb()
+    const r2 = v => Math.round(v * 100) / 100
+    // 1) Cargos (y abonos que no son de planilla) de las CXC 110301 en el tramo, paginado
+    const cargos = {}   // cuenta -> { anticipos, trucha }
+    for (let desdeFila = 0; ; desdeFila += 1000) {
+      const { data, error } = await sb.from('lineas_partida')
+        .select('id, monto, tipo, cuenta_codigo, descripcion, partida:partidas_contables!inner(fecha_partida, estado)')
+        .like('cuenta_codigo', '110301-%')
+        .eq('partida.estado', 'aprobada')
+        .gte('partida.fecha_partida', desde)
+        .lt('partida.fecha_partida', ini)
+        .order('id')
+        .range(desdeFila, desdeFila + 999)
+      if (error) throw error
+      for (const l of (data || [])) {
+        const desc = (l.descripcion || '').toUpperCase()
+        if (l.tipo === 'credito' && desc.includes('PLANILLA')) continue          // la recuperación se mide por el detalle
+        if (desc.includes('PRESTAMO') || desc.includes('PRÉSTAMO')) continue     // préstamos van por cuota
+        const c = cargos[l.cuenta_codigo] || (cargos[l.cuenta_codigo] = { anticipos: 0, trucha: 0 })
+        const v = (parseFloat(l.monto) || 0) * (l.tipo === 'credito' ? -1 : 1)
+        if (desc.includes('TRUCHA')) c.trucha += v; else c.anticipos += v
+      }
+      if (!data || data.length < 1000) break
+    }
+    // 2) Lo ya deducido en planillas aprobadas/pagadas del mismo tramo (general y confidencial)
+    const { data: pls, error: pErr } = await sb.from('planillas').select('id')
+      .in('estado', ['aprobada', 'pagada']).gte('fecha_inicio', desde).lt('fecha_fin', ini)
+    if (pErr) throw pErr
+    const ids = (pls || []).map(p => p.id)
+    const deducidoEmp = {}   // empleado_id -> { anticipos, trucha }
+    for (let i = 0; i < ids.length; i += 50) {
+      for (let desdeFila = 0; ; desdeFila += 1000) {
+        const { data, error } = await sb.from('detalle_planilla').select('id, empleado_id, anticipos, trucha')
+          .in('planilla_id', ids.slice(i, i + 50)).order('id').range(desdeFila, desdeFila + 999)
+        if (error) throw error
+        for (const d of (data || [])) {
+          const x = deducidoEmp[d.empleado_id] || (deducidoEmp[d.empleado_id] = { anticipos: 0, trucha: 0 })
+          x.anticipos += parseFloat(d.anticipos) || 0
+          x.trucha += parseFloat(d.trucha) || 0
+        }
+        if (!data || data.length < 1000) break
+      }
+    }
+    // 3) Por cuenta: deducido de los empleados que tienen esa CXC en su ficha
+    const deducidoCta = {}
+    for (const e of (allEmpleados || [])) {
+      if (!e.cuenta_cxc || !deducidoEmp[e.id]) continue
+      const x = deducidoCta[e.cuenta_cxc] || (deducidoCta[e.cuenta_cxc] = { anticipos: 0, trucha: 0 })
+      x.anticipos += deducidoEmp[e.id].anticipos
+      x.trucha += deducidoEmp[e.id].trucha
+    }
+    // 4) Pendiente: el total no puede ser negativo; la trucha pendiente se reconoce primero
+    //    (es lo que se reportó sin cobrar) y el resto queda como anticipo.
+    for (const [cta, c] of Object.entries(cargos)) {
+      const d = deducidoCta[cta] || { anticipos: 0, trucha: 0 }
+      const total = r2(c.anticipos + c.trucha - d.anticipos - d.trucha)
+      if (total <= 0.005) continue
+      const trucha = Math.min(total, Math.max(0, r2(c.trucha - d.trucha)))
+      out.pendiente[cta] = { trucha: r2(trucha), anticipos: r2(total - trucha) }
+    }
+  } catch (e) {
+    console.error('[arrastre CXC]', e)
+    out.error = e.message || String(e)
+    out.pendiente = {}
+  }
+  return out
 }
 
 function calcularDetalleEmpleado(emp, planillaId, overrides = {}) {
