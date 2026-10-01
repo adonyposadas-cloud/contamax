@@ -228,6 +228,112 @@ for (const C of Object.values(CUENTAS_SECCION)) {
 }
 
 // ══════════════════════════════════════════════
+// ═══  ARCHIVO MENSUAL DEL RAP  ═══
+// ══════════════════════════════════════════════
+// Lo que se sube a empresas.rap.hn, una línea por afiliado:
+//   identidad,apellidos,nombres,patronal,local,0,0,0,0,sueldo,mm/aaaa
+//
+// La identidad va sin guiones y SIN el cero inicial (0705-1991-00015 queda
+// 705199100015): así la emite el portal y así la acepta de vuelta.
+//
+// Quién entra: activos, que no sean socios, con cotiza_rap. El sueldo es el
+// sueldo_rap de la ficha si está definido, y si no el sueldo_mensual.
+//
+// El padrón sale de planilla_roster_general(), igual que la planilla: el RLS
+// oculta a los de salario partido de quien no es super_admin ni contador, y si
+// se leyera la tabla directo esas personas quedarían fuera del archivo sin que
+// nadie se entere. La función los devuelve con el sueldo visible, que es
+// justamente el que se le reporta al RAP.
+const RAP_PATRONAL = '10120121010'
+const RAP_LOCAL = '1'
+const RAP_EMPRESA = '3455304'
+const RAP_NOMBRE_EMPRESA = 'TECNIMAX'
+
+// 0705-1991-00015 → 705199100015
+const _rapIdent = (s) => String(s || '').replace(/[^0-9]/g, '').replace(/^0+/, '')
+
+window.generarArchivoRAP = async () => {
+  const anio = document.getElementById('pl-anio')?.value
+  const mes = String(document.getElementById('pl-mes')?.value || '').padStart(2, '0')
+  if (!anio || mes === '00') { window.toast?.('Elegí el mes y el año', 'error'); return }
+
+  const { data: roster, error } = await getSb().rpc('planilla_roster_general')
+  if (error) { window.toast?.('No se pudo cargar el personal: ' + error.message, 'error'); return }
+
+  const candidatos = (roster || []).filter(e => e.activo && !e.es_socio && e.cotiza_rap !== false)
+  if (!candidatos.length) { window.toast?.('Nadie quedó para reportar al RAP', 'error'); return }
+
+  // Nadie entra a medias: si le falta la identidad o el nombre partido, se avisa
+  // y no se genera. Un archivo con una línea mal armada lo rechaza el portal
+  // entero, y peor es que lo acepte con el dato equivocado.
+  const incompletos = candidatos.filter(e => !_rapIdent(e.identidad) || !e.apellidos || !e.nombres)
+  const listos = candidatos.filter(e => !incompletos.includes(e))
+  const sueldoDe = e => (e.sueldo_rap != null ? parseFloat(e.sueldo_rap) : parseFloat(e.sueldo_mensual)) || 0
+  const total = listos.reduce((a, e) => a + sueldoDe(e), 0)
+
+  const filas = listos
+    .slice().sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'))
+    .map(e => [_rapIdent(e.identidad), String(e.apellidos).toUpperCase(), String(e.nombres).toUpperCase(),
+      RAP_PATRONAL, RAP_LOCAL, 0, 0, 0, 0, sueldoDe(e).toFixed(2), mes + '/' + anio].join(','))
+
+  const archivo = `${RAP_EMPRESA}-${RAP_LOCAL}-${mes}-${anio}${RAP_NOMBRE_EMPRESA}.txt`
+  const fmt = n => n.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+
+  const aviso = incompletos.length
+    ? `<div style="background:var(--red-soft,#3a1d1d);border-left:4px solid var(--red,#b4472f);border-radius:0 8px 8px 0;padding:10px 14px;margin:10px 0;font-size:13px">
+         <b>${incompletos.length} persona(s) no se pueden incluir</b> — les falta identidad, apellidos o nombres en la ficha:
+         <div style="margin-top:6px;color:var(--text2)">${incompletos.map(e => e.nombre).join(' · ')}</div>
+       </div>`
+    : ''
+
+  const cuerpo = `
+    ${aviso}
+    <div style="font-size:13px;color:var(--text2);margin-bottom:10px">
+      Archivo <b style="font-family:var(--mono)">${archivo}</b> · <b>${listos.length}</b> afiliados · masa salarial <b>L. ${fmt(total)}</b>
+    </div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:8px">
+      <table style="width:100%;font-size:12px">
+        <thead><tr><th>Identidad</th><th>Apellidos</th><th>Nombres</th><th style="text-align:right">Sueldo</th></tr></thead>
+        <tbody>${listos.map(e => `<tr>
+          <td style="font-family:var(--mono)">${_rapIdent(e.identidad)}</td>
+          <td>${String(e.apellidos).toUpperCase()}</td>
+          <td>${String(e.nombres).toUpperCase()}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(sueldoDe(e))}${e.sueldo_rap != null ? ' <span title="sueldo propio del RAP" style="color:var(--amber)">*</span>' : ''}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`
+
+  _rapMostrarPrevia(cuerpo, filas.join('\r\n') + '\r\n', archivo, listos.length)
+}
+
+function _rapMostrarPrevia (html, contenido, archivo, n) {
+  document.getElementById('modal-rap')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'modal-rap'
+  ov.className = 'modal-backdrop open'
+  ov.innerHTML = `
+    <div class="modal" style="width:min(760px,95vw);max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>Archivo mensual del RAP</h3><button class="modal-close" onclick="document.getElementById('modal-rap').remove()">✕</button></div>
+      <div class="modal-body" style="flex:1;min-height:0;overflow:auto">${html}</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-rap').remove()">Cerrar</button>
+        <button class="btn btn-gold" id="rap-bajar" ${n ? '' : 'disabled'}>Descargar ${archivo}</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  ov.querySelector('#rap-bajar').onclick = () => {
+    const blob = new Blob([contenido], { type: 'text/plain;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = archivo
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+    window.logActividad?.('rap_archivo', 'rrhh', `Archivo RAP ${archivo} · ${n} afiliados`)
+    window.toast?.('Archivo generado · subilo a empresas.rap.hn', 'success')
+  }
+}
+
+// ══════════════════════════════════════════════
 // ═══  1. EXPEDIENTE DE EMPLEADOS  ═══
 // ══════════════════════════════════════════════
 
@@ -247,6 +353,25 @@ window.loadEmpleados = async () => {
 }
 
 // Campos de planilla confidencial en el modal de empleado (solo roles autorizados)
+// Bloque del RAP en la ficha. Dos excepciones, las dos explícitas:
+//   cotiza_rap  → si la persona entra en el archivo mensual del RAP
+//   sueldo_rap  → un sueldo distinto al de la planilla, cuando se declara otro
+// Sin esto, excluir a alguien o declararle otro monto dependía de que quien arma
+// el archivo se acordara todos los meses, y nadie podía revisar por qué.
+function _syncRapUI(e) {
+  const chk = document.getElementById('emp-cotiza-rap')
+  const sr = document.getElementById('emp-sueldo-rap')
+  const extra = document.getElementById('emp-rap-extra')
+  // Por defecto cotiza: lo normal es que todo empleado vaya al RAP.
+  const cotiza = e ? (e.cotiza_rap !== false) : true
+  if (chk) chk.checked = cotiza
+  if (sr) sr.value = (e && e.sueldo_rap != null) ? e.sueldo_rap : ''
+  const ap = document.getElementById('emp-apellidos'), no = document.getElementById('emp-nombres')
+  if (ap) ap.value = (e && e.apellidos) || ''
+  if (no) no.value = (e && e.nombres) || ''
+  if (extra) extra.style.display = cotiza ? 'block' : 'none'
+}
+
 function _syncConfUI(e) {
   const wrap = document.getElementById('emp-conf-wrap')
   if (!wrap) return
@@ -307,6 +432,7 @@ window.openModalEmpleado = () => {
   document.getElementById('emp-forma-pago').value = 'BAC'
   document.getElementById('emp-es-socio').checked = false
   _syncConfUI(null)
+  _syncRapUI(null)
   openModal('modal-empleado')
 }
 
@@ -329,6 +455,7 @@ window.editarEmpleado = (id) => {
   document.getElementById('emp-forma-pago').value = e.forma_pago || 'BAC'
   document.getElementById('emp-es-socio').checked = !!e.es_socio
   _syncConfUI(e)
+  _syncRapUI(e)
   openModal('modal-empleado')
 }
 
@@ -349,6 +476,12 @@ window.guardarEmpleado = async () => {
     cuenta_cxc: document.getElementById('emp-cxc').value.trim() || null,
     forma_pago: document.getElementById('emp-forma-pago').value,
     es_socio: document.getElementById('emp-es-socio').checked,
+    cotiza_rap: document.getElementById('emp-cotiza-rap')?.checked !== false,
+    apellidos: (document.getElementById('emp-apellidos')?.value || '').trim().toUpperCase() || null,
+    nombres: (document.getElementById('emp-nombres')?.value || '').trim().toUpperCase() || null,
+    // vacío = se reporta el sueldo mensual; solo se guarda si de verdad escribieron algo
+    sueldo_rap: (document.getElementById('emp-sueldo-rap')?.value || '').trim() === ''
+      ? null : (parseFloat(document.getElementById('emp-sueldo-rap').value) || null),
     planilla_confidencial: document.getElementById('emp-confidencial')?.checked || false,
     sueldo_confidencial: parseFloat(document.getElementById('emp-sueldo-confidencial')?.value) || 0,
     conf_centro: document.getElementById('emp-conf-centro')?.value || 'TECNIMAX',

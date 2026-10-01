@@ -1923,6 +1923,9 @@
             <div class="fld" style="display:flex;align-items:flex-end">
               <button class="btn btn-gold" onclick="generarPlanilla()" style="width:100%">Generar planilla →</button>
             </div>
+            <div class="fld" style="display:flex;align-items:flex-end">
+              <button class="btn btn-ghost" onclick="generarArchivoRAP()" style="width:100%" title="Arma el archivo del mes para subir a empresas.rap.hn"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Archivo RAP del mes</button>
+            </div>
           </div>
           <div id="pl-existing" class="hidden" style="padding:10px 14px;background:var(--bg1);border-radius:var(--radius);border:1px solid var(--gold);margin-top:8px;display:flex;justify-content:space-between;align-items:center">
             <div><span style="color:var(--gold)">⚠️</span> <span id="pl-existing-msg"></span></div>
@@ -2487,6 +2490,29 @@
               <label style="display:flex;align-items:center;gap:8px">
                 <input type="checkbox" id="emp-es-socio" style="width:auto"> Es socio (sin deducciones)
               </label>
+            </div>
+            <div class="fld col-full" style="border:1px dashed var(--border);border-radius:8px;padding:10px;margin-top:6px">
+              <label style="display:flex;align-items:center;gap:8px">
+                <input type="checkbox" id="emp-cotiza-rap" style="width:auto" checked
+                  onchange="document.getElementById('emp-rap-extra').style.display=this.checked?'block':'none'">
+                Cotiza al RAP (entra en el archivo mensual)
+              </label>
+              <div id="emp-rap-extra" style="margin-top:8px">
+                <div style="display:flex;gap:10px;flex-wrap:wrap">
+                  <div class="fld" style="flex:1;min-width:150px">
+                    <label>Apellidos (como van al RAP)</label>
+                    <input type="text" id="emp-apellidos" placeholder="PEREZ LOZANO">
+                  </div>
+                  <div class="fld" style="flex:1;min-width:150px">
+                    <label>Nombres (como van al RAP)</label>
+                    <input type="text" id="emp-nombres" placeholder="ANIBAL SADRAC">
+                  </div>
+                </div>
+                <span style="font-size:10px;color:var(--text3)">El archivo del RAP los pide separados y no se pueden deducir del nombre completo: "Alex Gustavo Estrada" son dos nombres y un apellido, pero "Dagoberto Salgado Flores" es un nombre y dos apellidos.</span>
+                <label style="margin-top:8px;display:block">Sueldo a reportar al RAP (L.)</label>
+                <input type="number" id="emp-sueldo-rap" step="0.01" placeholder="(se reporta el sueldo mensual)">
+                <span style="font-size:10px;color:var(--text3)">Dejalo vacío y se reporta el sueldo mensual, que es lo normal. Solo se llena cuando a propósito se declara un monto distinto al RAP; así queda registrado en la ficha y no depende de acordarse cada mes.</span>
+              </div>
             </div>
             <div id="emp-conf-wrap" class="fld col-full" style="border:1px dashed var(--gold);border-radius:8px;padding:10px;margin-top:6px;display:none">
               <label style="display:flex;align-items:center;gap:8px">
@@ -3811,7 +3837,7 @@
 <script defer src="js/financiamiento.js?v=20260921t"></script>
 <script defer src="js/cierre_recibos.js?v=20260924a"></script>
 <script defer src="js/vencimientos.js?v=20260921t"></script>
-<script defer src="js/rrhh.js?v=20260930a"></script>
+<script defer src="js/rrhh.js?v=20260930b"></script>
 <script defer src="js/asistencia.js?v=20260930a"></script>
 <script defer src="js/vacaciones.js?v=20260921t"></script>
 <script defer src="js/feriados.js?v=20260921t"></script>
