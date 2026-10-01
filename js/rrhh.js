@@ -1154,8 +1154,12 @@ window.emparejarPendientesCxC = async () => {
   window.toast?.('Calculando pendientes…', 'info')
   const res = await _arrastreCxC(hasta)
   if (res.error) { alert('No se pudo calcular: ' + res.error); return }
-  const cuentas = Object.entries(res.pendiente).filter(([, p]) => p.anticipos + p.trucha > 0.005)
-  if (!cuentas.length) { alert(`No hay pendientes de CxC antes del ${hasta} (desde ${res.desde}).`); return }
+  // Solo cuentas asignadas a un empleado: en el rango 110301 también hay cuentas que no
+  // son de nadie (ej. 110301-062 IMPUESTO VECINAL PAGADO Y DEDUCIDO), que no se cobran
+  // por planilla y no deben emparejarse.
+  const ctasEmpleados = new Set(allEmpleados.filter(e => e.cuenta_cxc).map(e => String(e.cuenta_cxc)))
+  const cuentas = Object.entries(res.pendiente).filter(([cc, p]) => p.anticipos + p.trucha > 0.005 && ctasEmpleados.has(String(cc)))
+  if (!cuentas.length) { alert(`No hay pendientes de CxC de empleados antes del ${hasta} (desde ${res.desde}).`); return }
 
   // Catálogo: id y nombre de cada CXC
   let cat = (window.catalogoCuentas || []).filter(c => cuentas.some(([cc]) => cc === c.codigo))
