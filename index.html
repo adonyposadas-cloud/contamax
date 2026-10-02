@@ -3846,7 +3846,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261002b"></script>
+<script type="module" src="js/app.js?v=20261002c"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3905,8 +3905,54 @@
   </div>
 </div>
 <script>
+// ── AVISO DE VERSIÓN NUEVA ──
+// Al publicar, el service worker cambia de CACHE_NAME: hace skipWaiting al
+// instalarse y clients.claim al activarse, así que toma el control de las
+// pestañas abiertas y dispara 'controllerchange'. Eso es la señal de que en el
+// servidor hay una versión más nueva que la que está corriendo acá.
+//
+// No se recarga sola a propósito: alguien puede estar a medias de una partida y
+// perdería lo escrito. Se avisa y la persona decide cuándo.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {})
+  // Si al cargar ya había un service worker al mando, el próximo cambio de
+  // control es una ACTUALIZACIÓN. Si no había, es la primera instalación y no
+  // hay nada que avisar.
+  var _habiaSW = !!navigator.serviceWorker.controller
+  var _avisoPuesto = false
+
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+    // El navegador solo revisa el sw.js al navegar, y a veces lo sirve de su
+    // propia caché. Se le pide revisar cada 2 minutos y al volver a la pestaña.
+    var revisar = function () { try { reg.update() } catch (e) {} }
+    setInterval(revisar, 120000)
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) revisar() })
+  }).catch(function () {})
+
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (!_habiaSW || _avisoPuesto) return
+    _avisoPuesto = true
+    mostrarAvisoVersion()
+  })
+}
+
+function mostrarAvisoVersion () {
+  if (document.getElementById('aviso-version')) return
+  var d = document.createElement('div')
+  d.id = 'aviso-version'
+  d.setAttribute('role', 'status')
+  d.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:100000;' +
+    'display:flex;align-items:center;gap:12px;max-width:min(520px,94vw);padding:12px 16px;cursor:pointer;' +
+    'background:var(--bg2,#161b22);border:1px solid var(--gold,#c8a24a);border-radius:12px;' +
+    'box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:13px;color:var(--text,#e6edf3)'
+  d.innerHTML =
+    '<span style="font-size:20px;line-height:1">\u21bb</span>' +
+    '<span style="flex:1;min-width:0">' +
+      '<b style="display:block">Hay una versión nueva de CONTAMAX</b>' +
+      '<span style="color:var(--text3,#8b949e);font-size:12px">Guardá lo que estés haciendo y tocá acá para actualizar</span>' +
+    '</span>' +
+    '<button type="button" style="background:var(--gold,#c8a24a);color:#111;border:0;border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer;white-space:nowrap">Actualizar</button>'
+  d.onclick = function () { location.reload() }
+  document.body.appendChild(d)
 }
 </script>
 <div class="modal-backdrop" id="modal-selecciones-cxp">

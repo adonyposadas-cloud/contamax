@@ -6860,12 +6860,18 @@ async function loadCajaExtras() {
 const _cajaComp = { total: null, usdLps: 0, cheques: 0 }
 
 function _pintarCajaComp () {
-  const fmt = (v) => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  // Dos decimales fijos. Sin el máximo salían tres: el equivalente en dólares es
+  // 7,867 × 27.0234 = 212,593.0878, la pantalla lo muestra redondeado pero la
+  // resta usaba el valor crudo y el resultado terminaba en .9122.
+  const fmt = (v) => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // Se redondea cada parte antes de restar, para que los tres recuadros sumen
+  // exactamente el total que se muestra.
+  const r2 = (v) => Math.round((v || 0) * 100) / 100
   const elTot = document.getElementById('cj-total-caja')
   const el = document.getElementById('cj-saldo')
   if (_cajaComp.total == null) { if (elTot) elTot.textContent = '—'; return }
-  const lempiras = _cajaComp.total - _cajaComp.usdLps - _cajaComp.cheques
-  if (elTot) elTot.textContent = fmt(_cajaComp.total)
+  const lempiras = r2(r2(_cajaComp.total) - r2(_cajaComp.usdLps) - r2(_cajaComp.cheques))
+  if (elTot) elTot.textContent = fmt(r2(_cajaComp.total))
   if (el) {
     el.textContent = fmt(lempiras)
     el.style.color = lempiras >= 0 ? 'var(--green)' : 'var(--red)'
