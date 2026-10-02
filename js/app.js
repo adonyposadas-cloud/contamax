@@ -3274,6 +3274,56 @@ window.eliminarAdjuntoPartida = async (path) => {
 }
 
 let _guardandoPartida = false
+// Cuando el VIN escrito termina igual en más de un vehículo, hay que preguntar de
+// cuál es. Devuelve un Map(choque → vehículo elegido, o null si se deja sin
+// atribuir), o null si el usuario canceló para volver a corregir la descripción.
+function vinElegirAmbiguos (pendientes, txtRes) {
+  return new Promise(resolve => {
+    const nom = v => `${v.marca || ''} ${v.modelo || ''} ${v.anio || ''} (${v.propietario})`.replace(/\s+/g, ' ').trim()
+    const ov = document.createElement('div')
+    ov.className = 'modal-backdrop open'
+    ov.innerHTML = `
+      <div class="modal" style="width:min(620px,95vw);max-height:88vh;display:flex;flex-direction:column">
+        <div class="modal-header"><h3>VIN repetido · ¿de qué vehículo es?</h3></div>
+        <div class="modal-body" style="flex:1;min-height:0;overflow:auto">
+          <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
+            Más de un vehículo termina con esos dígitos. Elegí cuál y la descripción se corrige sola con el VIN que no se repite.
+          </div>
+          ${pendientes.map((c, i) => `
+            <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+              <div style="font-weight:600;margin-bottom:6px">En la partida dice "VIN ${c.num}"</div>
+              ${c.cand.map((v, j) => `
+                <label style="display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer">
+                  <input type="radio" name="vinamb-${i}" value="${j}" style="width:auto">
+                  <span style="font-family:var(--mono);color:var(--gold)">VIN ${vinSufijoUnico(v.vin, vinCache)}</span>
+                  <span style="font-size:13px">${nom(v)}</span>
+                </label>`).join('')}
+              <label style="display:flex;gap:8px;align-items:center;padding:5px 0;cursor:pointer;border-top:1px solid var(--border);margin-top:6px">
+                <input type="radio" name="vinamb-${i}" value="" checked style="width:auto">
+                <span style="font-size:13px;color:var(--text3)">Dejar sin atribuir — la partida queda en borrador</span>
+              </label>
+            </div>`).join('')}
+          ${txtRes ? `<div style="font-size:12px;color:var(--text3);margin-top:4px">Estos se corrigen solos:<pre style="white-space:pre-wrap;margin:4px 0;font-family:var(--mono)">${txtRes}</pre></div>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-cancelar>Cancelar y corregir</button>
+          <button class="btn btn-gold" data-ok>Continuar</button>
+        </div>
+      </div>`
+    ov.querySelector('[data-cancelar]').onclick = () => { ov.remove(); resolve(null) }
+    ov.querySelector('[data-ok]').onclick = () => {
+      const elec = new Map()
+      pendientes.forEach((c, i) => {
+        const sel = ov.querySelector(`input[name="vinamb-${i}"]:checked`)
+        const j = (sel && sel.value !== '') ? Number(sel.value) : null
+        elec.set(c, j == null ? null : c.cand[j])
+      })
+      ov.remove(); resolve(elec)
+    }
+    document.body.appendChild(ov)
+  })
+}
+
 window.guardarPartida = async (estado) => {
   if (_guardandoPartida) return
   _guardandoPartida = true
@@ -3347,17 +3397,30 @@ window.guardarPartida = async (estado) => {
         c.cand.map(v => `     VIN ${vinSufijoUnico(v.vin, vinCache)}  ${nombre(v)}`).join('\n')
       ).join('\n')
       let aplicar = false
+      let sinAtribuir = 0
       if (!pendientes.length) {
         aplicar = confirm(`VIN repetido en la partida: otro vehículo termina con los mismos dígitos.\n\n` +
           `Se va a corregir así:\n${txtRes}\n\nAceptar = corregir y guardar\nCancelar = volver a la partida sin guardar`)
         if (!aplicar) return
       } else {
-        const ok = confirm(`VIN repetido en la partida y NO se puede saber de qué vehículo es:\n\n${txtPend}` +
-          (resueltos.length ? `\n\nEstos sí se corrigen solos:\n${txtRes}` : '') +
-          `\n\nCorregí la descripción con los dígitos de arriba (o agregá el modelo o el propietario).\n\n` +
-          `Cancelar = volver a corregir (recomendado)\nAceptar = guardar así (el gasto no se podrá atribuir a un vehículo)`)
-        if (!ok) return
+        // Antes esto era un confirm de dos opciones: volver a corregir a mano, o
+        // guardar "así". Y "así" guardaba con el estado que se había pulsado: si era
+        // Aprobar, la partida quedaba APROBADA con el gasto sin atribuir a ningún
+        // vehículo, que es justo lo que el aviso quería evitar.
+        // Ahora se elige el vehículo de la lista; lo que quede sin elegir manda la
+        // partida a borrador en vez de aprobarse incompleta.
+        const elec = await vinElegirAmbiguos(pendientes, txtRes)
+        if (!elec) return
+        for (const c of pendientes) {
+          const v = elec.get(c)
+          if (v) resueltos.push({ donde: c.donde, num: c.num, deduc: { v, por: 'elegido a mano' } })
+          else sinAtribuir++
+        }
         aplicar = resueltos.length > 0
+      }
+      if (sinAtribuir && estado === 'aprobada') {
+        estado = 'borrador'
+        toast(`La partida queda en BORRADOR: ${sinAtribuir} VIN sin atribuir a un vehículo. Corregí la descripción y aprobala.`, 'error')
       }
       if (aplicar) {
         for (const c of resueltos) {
