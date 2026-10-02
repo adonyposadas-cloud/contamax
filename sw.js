@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v60-cxcprest'
+const CACHE_NAME = 'contamax-v61-arqefectivo'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

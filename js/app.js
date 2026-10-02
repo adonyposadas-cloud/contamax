@@ -6548,6 +6548,18 @@ window.verArqueo = async () => {
     </tr>`
   }).join('')
 
+  // Subtotal del efectivo en billetes (antes de cheques y dólares)
+  const fmtA = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const valorTipo = tipo => denoms.reduce((s, d) => s + (conteos || []).filter(c => c.tipo === tipo).reduce((t, c) => t + (c[`den_${d}`] || 0), 0) * d, 0)
+  const efIng = valorTipo('ingreso'), efEgr = valorTipo('egreso'), efCaja = totValor
+  tbody.innerHTML += `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
+    <td style="padding:8px 12px;font-size:14px;font-weight:600;color:var(--green)">💵 Efectivo L.</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--green)">L. ${fmtA(efIng)}</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--red)">L. ${fmtA(efEgr)}</td>
+    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-weight:600">${totCaja}</td>
+    <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px;font-weight:700;color:${efCaja >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtA(efCaja)}</td>
+  </tr>`
+
   // Fila de cheques en el arqueo
   const cheqIng = (conteos || []).filter(c => c.tipo === 'ingreso').reduce((s, c) => s + (parseFloat(c.den_cheques) || 0), 0)
   const cheqEgr = (conteos || []).filter(c => c.tipo === 'egreso').reduce((s, c) => s + (parseFloat(c.den_cheques) || 0), 0)
