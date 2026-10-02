@@ -6565,7 +6565,7 @@ window.verArqueo = async () => {
   // Fila de dólares en el arqueo
   const usdSaldo = tcPromedio.saldo_usd || 0
   const usdTc = tcPromedio.tc_promedio || 25
-  const usdValorLps = Math.round(usdSaldo * usdTc * 100) / 100
+  const usdValorLps = _usdEnLempiras()
   totValor += usdValorLps
 
   tbody.innerHTML += `<tr>
@@ -6822,6 +6822,19 @@ let cajaUsdMoves = []
 let cajaChequesMoves = []
 let tcPromedio = { saldo_usd: 0, saldo_lps: 0, tc_promedio: 25.00 }
 
+// Cuánto valen en lempiras los dólares que hay en caja.
+//
+// NO se multiplica por el TC promedio: ese promedio está redondeado a cuatro
+// decimales y la multiplicación arrastra centavos que no existen ($7,867 ×
+// 27.0234 = 212,593.0878, nueve centavos de más). saldo_lps es lo que realmente
+// se pagó por esos dólares, que es lo que está en los libros.
+// El promedio queda solo para mostrarlo; se usa como respaldo si no hay saldo.
+function _usdEnLempiras () {
+  const lps = parseFloat(tcPromedio.saldo_lps)
+  if (!isNaN(lps) && lps !== 0) return Math.round(lps * 100) / 100
+  return Math.round((tcPromedio.saldo_usd || 0) * (tcPromedio.tc_promedio || 25) * 100) / 100
+}
+
 async function loadCajaExtras() {
   // Cargar movimientos USD
   const { data: usd } = await sb.from('caja_usd').select('*').order('created_at', { ascending: false })
@@ -6910,7 +6923,7 @@ function updateCajaExtrasUI(saldoCheques, billetes) {
 
   // USD
   const saldoUsd = tcPromedio.saldo_usd || 0
-  const equivLps = saldoUsd * (tcPromedio.tc_promedio || 25)
+  const equivLps = _usdEnLempiras()
   const elUsdSaldo = document.getElementById('cj-usd-saldo')
   const elUsdEquiv = document.getElementById('cj-usd-equiv-lps')
   const elTcProm = document.getElementById('cj-tc-promedio')
