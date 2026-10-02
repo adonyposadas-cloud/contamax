@@ -1202,6 +1202,214 @@ window.emparejarPendientesCxC = async () => {
   else window.showView?.('partida-nueva', 'Nueva partida')
 }
 
+// ── Utilidades comunes de las herramientas de CxC ──
+function _plQuincenaSel() {
+  const anio = parseInt(document.getElementById('pl-anio').value)
+  const mes = parseInt(document.getElementById('pl-mes').value)
+  const q = document.getElementById('pl-quincena').value
+  const ini = `${anio}-${String(mes).padStart(2, '0')}-${q === 'Q1' ? '01' : '16'}`
+  const d = new Date(ini + 'T12:00:00'); d.setDate(d.getDate() - 1)
+  return { ini, diaAntes: d.toLocaleDateString('en-CA') }
+}
+async function _plAsegurarEmpleados() {
+  if (!allEmpleados.length) {
+    const { data } = await getSb().from('empleados').select('*').eq('activo', true).order('seccion').order('nombre')
+    allEmpleados = data || []
+  }
+}
+async function _plCuentasCat(codigos) {
+  const { data } = await getSb().from('catalogo_cuentas').select('id, codigo, nombre').in('codigo', [...new Set(codigos)])
+  return Object.fromEntries((data || []).map(c => [c.codigo, c]))
+}
+
+// ── 1) PRÉSTAMOS SIN PARTIDA ──
+// Préstamos (tipo 'prestamo') que se registraron "sin asiento": la planilla les descuenta la
+// cuota y ABONA la CXC del empleado, pero el desembolso nunca se CARGÓ ahí, así que el
+// auxiliar queda a favor del empleado (ej. David: L 6,110.87 de junio). Esto arma la
+// partida que carga cada préstamo a su CXC; el HABER lo elige el usuario (de dónde salió
+// la plata, o el impuesto vecinal por pagar si el "préstamo" era el vecinal). Se abre en
+// el editor sin guardar. Las glosas dicen PRESTAMO: el arrastre las ignora (van por cuota).
+window.prestamosSinPartida = async () => {
+  if (window._currentProfile?.()?.rol !== 'super_admin') { window.toast?.('Solo super_admin', 'error'); return }
+  await _plAsegurarEmpleados()
+  window.toast?.('Buscando préstamos sin partida…', 'info')
+  const sb = getSb()
+  const { data: prest, error } = await sb.from('prestamos_empleados')
+    .select('id, empleado_id, descripcion, monto_original, fecha_prestamo, tipo, activo, saldo')
+    .eq('tipo', 'prestamo').order('fecha_prestamo')
+  if (error) { alert('No se pudieron leer los préstamos: ' + error.message); return }
+  const empPorId = Object.fromEntries(allEmpleados.map(e => [e.id, e]))
+  const conCta = (prest || []).filter(p => empPorId[p.empleado_id]?.cuenta_cxc)
+  const cuentas = [...new Set(conCta.map(p => empPorId[p.empleado_id].cuenta_cxc))]
+  if (!cuentas.length) { alert('No hay préstamos de empleados con cuenta CXC.'); return }
+  // Cargos de préstamo en esas CXC (aprobados y en borrador)
+  const lineas = []
+  for (let i = 0; i < cuentas.length; i += 50) {
+    for (let d = 0; ; d += 1000) {
+      const { data, error: e2 } = await sb.from('lineas_partida')
+        .select('id, cuenta_codigo, monto, tipo, descripcion, partida:partidas_contables!inner(numero_partida, fecha_partida, estado)')
+        .in('cuenta_codigo', cuentas.slice(i, i + 50)).eq('tipo', 'debito').ilike('descripcion', '%PRESTAMO%')
+        .order('id').range(d, d + 999)
+      if (e2) { alert('Error leyendo partidas: ' + e2.message); return }
+      lineas.push(...(data || []))
+      if (!data || data.length < 1000) break
+    }
+  }
+  const usada = new Set()
+  const dias = (a, b) => Math.abs((new Date(a) - new Date(b)) / 86400000)
+  const sinPartida = [], enBorrador = []
+  for (const p of conCta) {
+    const cc = empPorId[p.empleado_id].cuenta_cxc
+    const cand = lineas.filter(l => !usada.has(l.id) && l.cuenta_codigo === cc &&
+      Math.abs((+l.monto) - (+p.monto_original)) < 0.01 && dias(l.partida.fecha_partida, p.fecha_prestamo) <= 45)
+    const apr = cand.find(l => l.partida.estado === 'aprobada')
+    const bor = cand.find(l => l.partida.estado !== 'aprobada' && l.partida.estado !== 'anulada')
+    if (apr) { usada.add(apr.id); continue }
+    if (bor) { usada.add(bor.id); enBorrador.push({ p, n: bor.partida.numero_partida }); continue }
+    sinPartida.push(p)
+  }
+  const nom = p => empPorId[p.empleado_id]?.nombre || '?'
+  const aviso = enBorrador.length
+    ? `\n\nEstos SÍ tienen partida pero en BORRADOR (aprobalas, no van acá):\n` +
+      enBorrador.map(x => `• #${x.n} ${nom(x.p)} · L. ${fmt(x.p.monto_original)} · ${x.p.descripcion || ''}`).join('\n')
+    : ''
+  if (!sinPartida.length) { alert('Todos los préstamos tienen su partida.' + aviso); return }
+  const cat = await _plCuentasCat(sinPartida.map(p => empPorId[p.empleado_id].cuenta_cxc))
+  let n = 0, total = 0
+  const lin = []
+  for (const p of sinPartida) {
+    const c = cat[empPorId[p.empleado_id].cuenta_cxc]
+    if (!c) continue
+    const m = Math.round((+p.monto_original) * 100) / 100
+    total += m
+    lin.push({ id: ++n, cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, tipo: 'debito', monto: m, centro_costo_id: '',
+      descripcion: `PRESTAMO ${nom(p).toUpperCase()} - ${(p.descripcion || '').toUpperCase()} · DEL ${String(p.fecha_prestamo || '').slice(0, 10)} (REGISTRADO SIN PARTIDA)`, aplica_fiscal: false })
+  }
+  total = Math.round(total * 100) / 100
+  lin.push({ id: ++n, cuenta_id: '', cuenta_codigo: '', cuenta_nombre: '', tipo: 'credito', monto: total, centro_costo_id: '',
+    descripcion: 'CONTRAPARTIDA PRESTAMOS SIN PARTIDA — ELEGÍ LA CUENTA (de dónde salió el dinero)', aplica_fiscal: false })
+  const ok = confirm(`Préstamos sin partida: ${sinPartida.length}, total L. ${fmt(total)}\n\n` +
+    sinPartida.map(p => `• ${nom(p)} · L. ${fmt(p.monto_original)} · ${p.descripcion || ''} (${String(p.fecha_prestamo || '').slice(0, 10)})`).join('\n') +
+    aviso +
+    `\n\nSe abre la partida (sin guardar): DEBE a la CXC de cada empleado y HABER en una línea sin cuenta. ` +
+    `Elegí la cuenta de donde salió el dinero. Si algún "préstamo" es el impuesto vecinal, separá su HABER a la cuenta del vecinal por pagar.\n\n¿Abrir la partida?`)
+  if (!ok) return
+  window._prefillPartida = { lineas: lin, fecha: new Date().toLocaleDateString('en-CA'), descripcion: 'PRESTAMOS A EMPLEADOS REGISTRADOS SIN PARTIDA' }
+  window._origenPartida = { view: 'planilla', label: 'Planilla quincenal' }
+  if (typeof window.nuevaPartida === 'function') window.nuevaPartida()
+}
+
+// ── 2) PENDIENTES → PRÉSTAMO ──
+// Lo que quedó sin cobrar (arrastre) se pasa a un préstamo con cuota, para no dejar al
+// empleado en neto L.1 varias quincenas. Por cada empleado elegido:
+//   · partida APROBADA de reclasificación dentro de su misma CXC (neto cero en el saldo):
+//       DEBE  "PRESTAMO … PENDIENTES PASADOS A PRESTAMO" (el arrastre ignora PRESTAMO)
+//       HABER "AJUSTE PENDIENTES CONVERTIDOS EN CUOTAS"  (sin la palabra PRESTAMO: el arrastre lo toma como abono)
+//     con fecha el día anterior a la quincena, así el arrastre deja de cobrarlo;
+//   · préstamo sin asiento por ese monto, con la cuota elegida, desde la quincena elegida.
+// Las cuotas que descuente la planilla abonan la CXC y el auxiliar queda neto.
+window.pendientesAPrestamo = async () => {
+  if (window._currentProfile?.()?.rol !== 'super_admin') { window.toast?.('Solo super_admin', 'error'); return }
+  await _plAsegurarEmpleados()
+  const { ini, diaAntes } = _plQuincenaSel()
+  window.toast?.('Calculando pendientes…', 'info')
+  const res = await _arrastreCxC(ini)
+  if (res.error) { alert('No se pudo calcular: ' + res.error); return }
+  const filas = allEmpleados
+    .filter(e => e.cuenta_cxc && res.pendiente[e.cuenta_cxc])
+    .map(e => { const p = res.pendiente[e.cuenta_cxc], r = v => Math.round(v * 100) / 100, a = r(p.anticipos), t = r(p.trucha); return { e, anticipos: a, trucha: t, total: r(a + t) } })
+    .filter(f => f.total > 0.005)
+    .sort((a, b) => b.total - a.total)
+  if (!filas.length) { alert(`No hay pendientes de CxC antes del ${ini}.`); return }
+
+  document.getElementById('pl-pend-prest')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'pl-pend-prest'
+  ov.className = 'modal-backdrop open'
+  ov.innerHTML = `
+    <div class="modal" style="width:760px">
+      <div class="modal-title">Pasar pendientes a préstamo</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Lo cargado desde ${res.desde} hasta el ${diaAntes} que no se descontó.
+        Marcá a quién pasarlo a préstamo y la cuota. La 1ª cuota cae en la quincena que empieza el ${ini}. Los que no marques se cobran completos por arrastre.</div>
+      <div style="max-height:55vh;overflow:auto"><table style="width:100%;font-size:13px">
+        <thead><tr><th></th><th>Empleado</th><th style="text-align:right">Pendiente</th><th style="text-align:right">Cuota quincenal</th><th style="text-align:right">Cuotas</th></tr></thead>
+        <tbody>${filas.map((f, i) => `<tr>
+          <td><input type="checkbox" data-i="${i}" ${f.total >= 1000 ? 'checked' : ''}></td>
+          <td>${f.e.nombre}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(f.total)}</td>
+          <td style="text-align:right"><input type="number" data-c="${i}" value="${Math.min(f.total, 1000).toFixed(2)}" min="1" step="50" style="width:110px;text-align:right"></td>
+          <td style="text-align:right" data-n="${i}"></td></tr>`).join('')}</tbody>
+      </table></div>
+      <div class="modal-actions" style="margin-top:14px">
+        <button class="btn btn-ghost" id="pl-pp-cancel">Cancelar</button>
+        <button class="btn btn-gold" id="pl-pp-ok">Pasar a préstamo</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  const pintarN = () => filas.forEach((f, i) => {
+    const c = parseFloat(ov.querySelector(`[data-c="${i}"]`).value) || 0
+    ov.querySelector(`[data-n="${i}"]`).textContent = c > 0 ? Math.ceil(f.total / c) : '—'
+  })
+  ov.addEventListener('input', pintarN); pintarN()
+  ov.querySelector('#pl-pp-cancel').onclick = () => ov.remove()
+  ov.querySelector('#pl-pp-ok').onclick = async () => {
+    const elegidos = filas.map((f, i) => ({ ...f, cuota: Math.round((parseFloat(ov.querySelector(`[data-c="${i}"]`).value) || 0) * 100) / 100,
+      sel: ov.querySelector(`[data-i="${i}"]`).checked })).filter(f => f.sel)
+    if (!elegidos.length) { window.toast?.('No marcaste a nadie', 'info'); return }
+    if (elegidos.some(f => !(f.cuota > 0))) { window.toast?.('Cada préstamo necesita una cuota mayor que cero', 'error'); return }
+    if (!confirm(`Se va a:\n• crear ${elegidos.length} préstamo(s) por L. ${fmt(elegidos.reduce((s, f) => s + f.total, 0))}\n` +
+      `• registrar la partida de reclasificación (aprobada, fecha ${diaAntes}, no cambia el saldo de nadie)\n\n` +
+      elegidos.map(f => `• ${f.e.nombre}: L. ${fmt(f.total)} en cuotas de L. ${fmt(f.cuota)}`).join('\n') + '\n\n¿Continuar?')) return
+    const btn = ov.querySelector('#pl-pp-ok'); btn.disabled = true
+    try {
+      const sb = getSb()
+      const cat = await _plCuentasCat(elegidos.map(f => f.e.cuenta_cxc))
+      const faltan = elegidos.filter(f => !cat[f.e.cuenta_cxc])
+      if (faltan.length) throw new Error('Cuentas que no están en el catálogo: ' + faltan.map(f => f.e.cuenta_cxc).join(', '))
+      const total = Math.round(elegidos.reduce((s, f) => s + f.total, 0) * 100) / 100
+      const totalDebe = Math.round(elegidos.reduce((s, f) => s + f.total + Math.max(0, -f.anticipos) + Math.max(0, -f.trucha), 0) * 100) / 100
+      const yo = window._currentProfile?.()?.id || null
+      const numPartida = await window.siguienteNumeroPartida()
+      const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
+        centro_costo_id: null, fecha_partida: diaAntes, numero_partida: numPartida,
+        descripcion: `PENDIENTES CXC EMPLEADOS PASADOS A PRESTAMO (AL ${diaAntes})`,
+        tipo_origen: 'otro', estado: 'aprobada', total: totalDebe, generada_por: yo,
+        aprobada_at: new Date().toISOString(), aprobada_por: yo
+      }).select().single()
+      if (pErr || !partida) throw new Error(pErr?.message || 'No se creó la partida')
+      const lineas = []
+      for (const f of elegidos) {
+        const c = cat[f.e.cuenta_cxc], nomb = f.e.nombre.toUpperCase()
+        const base = { partida_id: partida.id, cuenta_id: c.id, cuenta_codigo: c.codigo, cuenta_nombre: c.nombre, centro_costo_id: null, aplica_fiscal: false }
+        lineas.push({ ...base, tipo: 'debito', monto: f.total, descripcion: `PRESTAMO ${nomb} - PENDIENTES PASADOS A PRESTAMO` })
+        // Cada bucket se cancela por separado (si uno viene negativo, va al DEBE) para que el arrastre quede en cero
+        const r2 = v => Math.round(v * 100) / 100
+        for (const [v, d] of [[r2(f.anticipos), `AJUSTE PENDIENTES CONVERTIDOS EN CUOTAS · ${nomb}`], [r2(f.trucha), `AJUSTE PENDIENTES TRUCHA CONVERTIDOS EN CUOTAS · ${nomb}`]])
+          if (Math.abs(v) > 0.005) lineas.push({ ...base, tipo: v > 0 ? 'credito' : 'debito', monto: Math.abs(v), descripcion: d })
+      }
+      const { error: lErr } = await sb.from('lineas_partida').insert(lineas)
+      if (lErr) {
+        await sb.from('partidas_contables').delete().eq('id', partida.id)   // sin líneas no sirve: no dejarla colgada
+        throw new Error(lErr.message)
+      }
+      const { error: prErr } = await sb.from('prestamos_empleados').insert(elegidos.map(f => ({
+        empleado_id: f.e.id, descripcion: `PENDIENTES CXC PASADOS A PRESTAMO (partida #${numPartida})`, tipo: 'prestamo',
+        monto_original: f.total, saldo: f.total, cuota_quincenal: f.cuota,
+        fecha_prestamo: diaAntes, fecha_primera_deduccion: ini, activo: true
+      })))
+      if (prErr) throw new Error(`La partida #${numPartida} se creó, pero los préstamos NO: ${prErr.message}. Anulá la partida #${numPartida} antes de regenerar.`)
+      window.logActividad?.('pendientes_a_prestamo', 'rrhh', `Partida #${numPartida}: ${elegidos.length} préstamo(s), L. ${fmt(total)}`)
+      ov.remove()
+      alert(`Listo: partida #${numPartida} y ${elegidos.length} préstamo(s) creados.\n\nAhora regenerá la planilla de la quincena del ${ini}: ` +
+        'a esos empleados ya no se les cobra el pendiente completo, sino la cuota.')
+    } catch (e) {
+      console.error('[pendientes a prestamo]', e)
+      alert('No se pudo completar: ' + (e.message || e))
+      btn.disabled = false
+    }
+  }
+}
+
 // Pendiente previo por cuenta CXC (ver el bloque ARRASTRE en generarPlanilla).
 // Devuelve { desde, pendiente: { cuenta: { anticipos, trucha } }, error }.
 // ARRASTRE_DESDE: 2026-06-01. Las planillas de mayo se pagaron pero NO están aprobadas en el
