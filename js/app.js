@@ -4507,7 +4507,7 @@ async function updateCajaStats() {
   if (!s) {
     el.textContent = '—'
     el.style.color = 'var(--text3)'
-    _cajaComp.total = null
+    _cajaComp.libros = null
     _pintarCajaComp()
     filtrarCajaFecha()
     return
@@ -4516,7 +4516,7 @@ async function updateCajaStats() {
 
   // El recuadro grande ya no muestra este saldo: muestra solo los lempiras, que
   // es lo que se cuenta en billetes. El saldo completo va a "Total en caja".
-  _cajaComp.total = saldo
+  _cajaComp.libros = saldo
   _pintarCajaComp()
   const vEl = document.getElementById('cj-vienen'); if (vEl) vEl.textContent = fmt(parseFloat(s.vienen) || 0)
   document.getElementById('cj-total-ingresos').textContent = fmt(parseFloat(s.ingresos_hoy) || 0)
@@ -6835,20 +6835,27 @@ async function loadCajaExtras() {
   // Paginado: acá se suman TODAS las filas de la tabla, así que era el primer
   // cálculo en romperse al cruzar las 1000 — y en silencio, dando un saldo de
   // cheques menor al real.
+  // Mismo criterio que el arqueo (ver verArqueo): solo caja general —se excluye
+  // caja chica— y solo conteos de partidas aprobadas o cambios de denominación,
+  // que no tienen partida. Si acá se contara distinto, el encabezado y el arqueo
+  // darían números distintos y no habría forma de saber a cuál creerle.
+  const _DEN = [1, 2, 5, 10, 20, 50, 100, 200, 500]
   let allConteos = []
   try {
     allConteos = await _fetchAllPag(() => sb.from('conteo_billetes')
-      .select('tipo, den_cheques').order('id'))
-  } catch (e) { console.error('[saldo cheques]', e) }
-  let chequesIng = 0, chequesEgr = 0
+      .select('tipo, den_cheques, den_1, den_2, den_5, den_10, den_20, den_50, den_100, den_200, den_500, partida_id, partida:partidas_contables(estado)')
+      .or('cuenta_codigo.is.null,cuenta_codigo.neq.' + CUENTA_CAJA_CHICA)
+      .order('id'))
+  } catch (e) { console.error('[saldo caja]', e) }
+  let saldoCheques = 0, billetes = 0
   ;(allConteos || []).forEach(c => {
-    const val = parseFloat(c.den_cheques) || 0
-    if (c.tipo === 'ingreso') chequesIng += val
-    else chequesEgr += val
+    if (!(c.partida?.estado === 'aprobada' || c.partida_id === null)) return
+    const signo = c.tipo === 'ingreso' ? 1 : -1
+    saldoCheques += signo * (parseFloat(c.den_cheques) || 0)
+    for (const d of _DEN) billetes += signo * (parseInt(c['den_' + d]) || 0) * d
   })
-  const saldoCheques = chequesIng - chequesEgr
 
-  updateCajaExtrasUI(saldoCheques)
+  updateCajaExtrasUI(saldoCheques, billetes)
 }
 
 // Composición de la caja. El saldo contable de caja general incluye TODO lo que
@@ -6857,28 +6864,47 @@ async function loadCajaExtras() {
 // decía "efectivo lempiras" cuando en realidad era el total.
 // Acá se guardan las tres partes y se pintan juntas, venga primero la que venga:
 // el saldo y los extras se cargan en consultas distintas.
-const _cajaComp = { total: null, usdLps: 0, cheques: 0 }
+const _cajaComp = { libros: null, billetes: 0, usdLps: 0, cheques: 0 }
 
 function _pintarCajaComp () {
-  // Dos decimales fijos. Sin el máximo salían tres: el equivalente en dólares es
-  // 7,867 × 27.0234 = 212,593.0878, la pantalla lo muestra redondeado pero la
-  // resta usaba el valor crudo y el resultado terminaba en .9122.
   const fmt = (v) => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  // Se redondea cada parte antes de restar, para que los tres recuadros sumen
-  // exactamente el total que se muestra.
   const r2 = (v) => Math.round((v || 0) * 100) / 100
-  const elTot = document.getElementById('cj-total-caja')
   const el = document.getElementById('cj-saldo')
-  if (_cajaComp.total == null) { if (elTot) elTot.textContent = '—'; return }
-  const lempiras = r2(r2(_cajaComp.total) - r2(_cajaComp.usdLps) - r2(_cajaComp.cheques))
-  if (elTot) elTot.textContent = fmt(r2(_cajaComp.total))
+  const elTot = document.getElementById('cj-total-caja')
+  const elDif = document.getElementById('cj-dif-libros')
+
+  // El efectivo en lempiras se CUENTA, no se resta. Antes se obtenía restándole
+  // al saldo contable los dólares y los cheques, y daba 262,541.91: imposible,
+  // porque en billetes no hay centavos. Esos centavos venían del equivalente en
+  // dólares (7,867 × 27.0234 = 212,593.0878), que sí los tiene.
+  const billetes = r2(_cajaComp.billetes)
+  const usd = r2(_cajaComp.usdLps)
+  const chq = r2(_cajaComp.cheques)
+  const total = r2(billetes + usd + chq)
+
   if (el) {
-    el.textContent = fmt(lempiras)
-    el.style.color = lempiras >= 0 ? 'var(--green)' : 'var(--red)'
+    el.textContent = fmt(billetes)
+    el.style.color = billetes >= 0 ? 'var(--green)' : 'var(--red)'
+  }
+  if (elTot) elTot.textContent = fmt(total)
+
+  // La diferencia contra los libros queda a la vista. Debería ser cero; si no lo
+  // es, es lo que el arqueo va a encontrar, y mejor saberlo antes de contar.
+  if (elDif) {
+    if (_cajaComp.libros == null) {
+      elDif.innerHTML = 'Lempiras + dólares + cheques'
+      return
+    }
+    const dif = r2(r2(_cajaComp.libros) - total)
+    elDif.innerHTML = 'Lempiras + dólares + cheques' +
+      '<br>Libros: <span style="font-family:var(--mono)">' + fmt(r2(_cajaComp.libros)) + '</span>' +
+      (Math.abs(dif) < 0.005
+        ? ' · <span style="color:var(--green)">cuadra</span>'
+        : ' · <span style="color:var(--red)">diferencia ' + fmt(dif) + '</span>')
   }
 }
 
-function updateCajaExtrasUI(saldoCheques) {
+function updateCajaExtrasUI(saldoCheques, billetes) {
   const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const fmtL2 = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -6898,6 +6924,7 @@ function updateCajaExtrasUI(saldoCheques) {
 
   _cajaComp.usdLps = equivLps
   _cajaComp.cheques = saldoCheques || 0
+  _cajaComp.billetes = billetes || 0
   _pintarCajaComp()
 }
 
