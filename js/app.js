@@ -4507,13 +4507,17 @@ async function updateCajaStats() {
   if (!s) {
     el.textContent = '—'
     el.style.color = 'var(--text3)'
+    _cajaComp.total = null
+    _pintarCajaComp()
     filtrarCajaFecha()
     return
   }
   const saldo = parseFloat(s.saldo) || 0
 
-  el.textContent = fmt(saldo)
-  el.style.color = saldo >= 0 ? 'var(--green)' : 'var(--red)'
+  // El recuadro grande ya no muestra este saldo: muestra solo los lempiras, que
+  // es lo que se cuenta en billetes. El saldo completo va a "Total en caja".
+  _cajaComp.total = saldo
+  _pintarCajaComp()
   const vEl = document.getElementById('cj-vienen'); if (vEl) vEl.textContent = fmt(parseFloat(s.vienen) || 0)
   document.getElementById('cj-total-ingresos').textContent = fmt(parseFloat(s.ingresos_hoy) || 0)
   document.getElementById('cj-total-egresos').textContent = fmt(parseFloat(s.egresos_hoy) || 0)
@@ -6847,6 +6851,27 @@ async function loadCajaExtras() {
   updateCajaExtrasUI(saldoCheques)
 }
 
+// Composición de la caja. El saldo contable de caja general incluye TODO lo que
+// está físicamente en la caja: billetes, dólares y cheques. Por eso el recuadro
+// grande no se puede sumar con los otros dos —serían parte del mismo número— y
+// decía "efectivo lempiras" cuando en realidad era el total.
+// Acá se guardan las tres partes y se pintan juntas, venga primero la que venga:
+// el saldo y los extras se cargan en consultas distintas.
+const _cajaComp = { total: null, usdLps: 0, cheques: 0 }
+
+function _pintarCajaComp () {
+  const fmt = (v) => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const elTot = document.getElementById('cj-total-caja')
+  const el = document.getElementById('cj-saldo')
+  if (_cajaComp.total == null) { if (elTot) elTot.textContent = '—'; return }
+  const lempiras = _cajaComp.total - _cajaComp.usdLps - _cajaComp.cheques
+  if (elTot) elTot.textContent = fmt(_cajaComp.total)
+  if (el) {
+    el.textContent = fmt(lempiras)
+    el.style.color = lempiras >= 0 ? 'var(--green)' : 'var(--red)'
+  }
+}
+
 function updateCajaExtrasUI(saldoCheques) {
   const fmtD = (v) => (v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const fmtL2 = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -6864,6 +6889,10 @@ function updateCajaExtrasUI(saldoCheques) {
   // Cheques
   const elChqSaldo = document.getElementById('cj-cheques-saldo')
   if (elChqSaldo) elChqSaldo.textContent = `L. ${fmtL2(saldoCheques || 0)}`
+
+  _cajaComp.usdLps = equivLps
+  _cajaComp.cheques = saldoCheques || 0
+  _pintarCajaComp()
 }
 
 // ── USD: Cambio bidireccional ──
