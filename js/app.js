@@ -1798,7 +1798,7 @@ window.abrirRevisarFactura = async (facturaId) => {
       <div style="background:var(--bg3);border-radius:var(--radius);padding:16px">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:12px;font-weight:500">Datos de la solicitud <span style="color:var(--amber);font-size:10px;text-transform:none">(editables si hay error)</span></div>
         <div style="display:grid;gap:8px">
-          <div class="fld"><label style="font-size:11px;color:var(--text3)">Proveedor</label><input type="text" id="rev-proveedor" value="${f.proveedor?.nombre || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          <div class="fld"><label style="font-size:11px;color:var(--text3)">Proveedor</label><input type="text" id="rev-proveedor" value="${escAttr(f.proveedor?.nombre || '')}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fld"><label style="font-size:11px;color:var(--text3)">N° Factura</label><input type="text" id="rev-numero" value="${f.numero_factura || ''}" style="font-family:var(--mono);font-size:13px;padding:6px 8px"></div>
             <div class="fld"><label style="font-size:11px;color:var(--text3)">Fecha factura</label><input type="date" id="rev-fecha" value="${f.fecha_factura || ''}" style="font-size:13px;padding:6px 8px"></div>
@@ -1817,10 +1817,10 @@ window.abrirRevisarFactura = async (facturaId) => {
             </div>
             <div class="fld"><label style="font-size:11px;color:var(--text3)">Quién pidió</label><input type="text" id="rev-quien-pidio" value="${f.quien_pidio || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
           </div>
-          <div class="fld"><label style="font-size:11px;color:var(--text3)">Descripción</label><input type="text" id="rev-descripcion" value="${f.descripcion_compra || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          <div class="fld"><label style="font-size:11px;color:var(--text3)">Descripción</label><input type="text" id="rev-descripcion" value="${escAttr(f.descripcion_compra || '')}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fld"><label style="font-size:11px;color:var(--text3)">Entregado a</label><input type="text" id="rev-entregado-a" value="${f.entregado_a || ''}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
-            <div class="fld"><label style="font-size:11px;color:var(--text3)">Registrado por</label><input type="text" value="${f.registrado?.nombre || '—'}" disabled style="font-size:13px;padding:6px 8px;opacity:0.5"></div>
+            <div class="fld"><label style="font-size:11px;color:var(--text3)">Registrado por</label><input type="text" value="${escAttr(f.registrado?.nombre || '—')}" disabled style="font-size:13px;padding:6px 8px;opacity:0.5"></div>
           </div>
         </div>
       </div>
@@ -3024,7 +3024,7 @@ function renderLineas() {
     const descRow = showDescInd ? `
     <tr class="linea-desc-row" data-busqueda="${_busqDesc.replace(/"/g, '')}" style="border-top:none">
       <td colspan="6" style="padding:0 8px 8px 8px">
-        <input type="text" value="${l.descripcion || ''}" placeholder="Descripción de esta línea..."
+        <input type="text" value="${escAttr(l.descripcion || '')}" placeholder="Descripción de esta línea..."
           oninput="updLinea(${l.id},'descripcion',this.value)"
           style="text-transform:uppercase;font-size:11px;padding:4px 8px;width:100%;border:1px dashed var(--border);background:var(--bg2);color:var(--text2);border-radius:4px">
       </td>
@@ -3035,7 +3035,7 @@ function renderLineas() {
     <tr class="linea-row" data-busqueda="${_busq.replace(/"/g, '')}"${cajaReadonly ? ' style="background:rgba(255,193,7,0.05)"' : ''}>
       <td>
         <div class="cuenta-wrap">
-          <input type="text" value="${l.cuenta_codigo ? l.cuenta_codigo+' '+l.cuenta_nombre : ''}" placeholder="Buscar cuenta..."
+          <input type="text" value="${escAttr(l.cuenta_codigo ? l.cuenta_codigo + ' ' + l.cuenta_nombre : '')}" placeholder="Buscar cuenta..."
             onfocus="openCuentaDD(${l.id},this)" oninput="filterCuentas(${l.id},this.value)" data-lid="${l.id}" autocomplete="off"
             ${cajaReadonly ? 'disabled style="opacity:0.6;cursor:not-allowed"' : ''}>
           <div class="cuenta-dropdown" id="dd-${l.id}"></div>
@@ -4610,6 +4610,20 @@ function renderCajaList(fechaFiltro) {
     row._t === 'c' ? cambioCardHTML(row.obj) : partidaCardHTML(row.obj)
   ).join('')
 }
+
+// Escapa texto para meterlo DENTRO de un atributo HTML (value, title, alt…).
+//
+// No es solo seguridad. Las descripciones de repuestos llevan comillas de
+// pulgadas —"HC32210JR BALINERA 9\"A1"— y sin escapar la comilla cierra el
+// atributo: el resto del texto se vuelve basura y el campo muestra la
+// descripción cortada. Como ese campo guarda al escribir, editar esa línea
+// guardaba la versión truncada. Era pérdida de datos real, no hipotética.
+function escAttr (s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+window.escAttr = escAttr
 
 function cajaEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
