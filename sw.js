@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v63-comisiones'
+const CACHE_NAME = 'contamax-v64-pagocom'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
