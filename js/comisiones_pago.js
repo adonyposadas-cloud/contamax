@@ -19,7 +19,7 @@ const LS_KEY = 'contamax_comisiones_borrador'
 const LS_NUM = 'contamax_comisiones_sig_num'
 
 let comEmps = []
-let borr = { periodo: '', fecha: '', forma: 'Efectivo', montos: {}, conceptos: {} }
+let borr = { desde: '', hasta: '', periodo: '', fecha: '', forma: 'Efectivo', montos: {}, conceptos: {} }
 
 function cuentaComision(seccion) {
   const p = (seccion || '').trim().toUpperCase().split(/\s+/)[0]
@@ -41,14 +41,32 @@ function sigNumero() {
   try { return parseInt(localStorage.getItem(LS_NUM) || '1') || 1 } catch (_) { return 1 }
 }
 
-// Período por defecto: la quincena anterior a hoy
-function periodoDefecto() {
-  const h = new Date(), mes = (d) => d.toLocaleDateString('es-HN', { month: 'long' })
-  if (h.getDate() <= 15) {
-    const ant = new Date(h.getFullYear(), h.getMonth(), 0)
-    return `16 al ${ant.getDate()} de ${mes(ant)} ${ant.getFullYear()}`
-  }
-  return `1 al 15 de ${mes(h)} ${h.getFullYear()}`
+// Período por fechas: días sueltos (liquidación), quincena o mes
+const iso = (d) => d.toLocaleDateString('en-CA')
+function rangoDefecto() {   // la quincena anterior a hoy
+  const h = new Date()
+  if (h.getDate() <= 15) return [iso(new Date(h.getFullYear(), h.getMonth() - 1, 16)), iso(new Date(h.getFullYear(), h.getMonth(), 0))]
+  return [iso(new Date(h.getFullYear(), h.getMonth(), 1)), iso(new Date(h.getFullYear(), h.getMonth(), 15))]
+}
+function textoPeriodo(desde, hasta) {
+  if (!desde || !hasta) return ''
+  const a = new Date(desde + 'T12:00'), b = new Date(hasta + 'T12:00')
+  const mes = (d) => d.toLocaleDateString('es-HN', { month: 'long' })
+  if (desde === hasta) return `${a.getDate()} de ${mes(a)} ${a.getFullYear()}`
+  if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) return `${a.getDate()} al ${b.getDate()} de ${mes(b)} ${b.getFullYear()}`
+  if (a.getFullYear() === b.getFullYear()) return `${a.getDate()} de ${mes(a)} al ${b.getDate()} de ${mes(b)} ${b.getFullYear()}`
+  return `${a.getDate()} de ${mes(a)} ${a.getFullYear()} al ${b.getDate()} de ${mes(b)} ${b.getFullYear()}`
+}
+// Atajos: toman el mes de la fecha "desde"
+window.comPagoRango = (tipo) => {
+  const base = new Date((document.getElementById('com-desde').value || iso(new Date())) + 'T12:00')
+  const y = base.getFullYear(), m = base.getMonth()
+  const r = tipo === 'q1' ? [new Date(y, m, 1), new Date(y, m, 15)]
+    : tipo === 'q2' ? [new Date(y, m, 16), new Date(y, m + 1, 0)]
+    : [new Date(y, m, 1), new Date(y, m + 1, 0)]
+  document.getElementById('com-desde').value = iso(r[0])
+  document.getElementById('com-hasta').value = iso(r[1])
+  document.getElementById('com-desde').dispatchEvent(new Event('change'))
 }
 
 window.loadComisionesPago = async () => {
@@ -57,7 +75,8 @@ window.loadComisionesPago = async () => {
   const rol = window._currentProfile?.()?.rol
   if (!['super_admin', 'contador'].includes(rol)) { root.innerHTML = '<div style="padding:24px;color:var(--red)">Sin permiso.</div>'; return }
   leerBorrador()
-  if (!borr.periodo) borr.periodo = periodoDefecto()
+  if (!borr.desde || !borr.hasta) [borr.desde, borr.hasta] = rangoDefecto()
+  borr.periodo = textoPeriodo(borr.desde, borr.hasta)
   if (!borr.fecha) borr.fecha = new Date().toLocaleDateString('en-CA')
 
   root.innerHTML = `
@@ -72,7 +91,12 @@ window.loadComisionesPago = async () => {
       </div>
     </div>
     <div class="form-card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end">
-      <div class="fld"><label>Período de las comisiones</label><input id="com-periodo" value="${esc(borr.periodo)}"></div>
+      <div class="fld"><label>Período desde</label><input type="date" id="com-desde" value="${esc(borr.desde)}"></div>
+      <div class="fld"><label>Período hasta</label><input type="date" id="com-hasta" value="${esc(borr.hasta)}"></div>
+      <div class="fld"><label>Atajos (mes de "desde")</label><div style="display:flex;gap:4px">
+        <button class="btn btn-ghost" style="padding:6px 8px;font-size:12px" onclick="comPagoRango('q1')">1ra Q</button>
+        <button class="btn btn-ghost" style="padding:6px 8px;font-size:12px" onclick="comPagoRango('q2')">2da Q</button>
+        <button class="btn btn-ghost" style="padding:6px 8px;font-size:12px" onclick="comPagoRango('mes')">Mes</button></div></div>
       <div class="fld"><label>Fecha de pago</label><input type="date" id="com-fecha" value="${esc(borr.fecha)}"></div>
       <div class="fld"><label>Forma de pago</label><select id="com-forma">
         ${['Efectivo', 'Transferencia', 'Cheque'].map(f => `<option ${borr.forma === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
@@ -80,7 +104,8 @@ window.loadComisionesPago = async () => {
       <div class="fld"><label>Buscar empleado</label><input id="com-buscar" placeholder="Nombre o sección…"></div>
       <label style="display:flex;gap:6px;align-items:center;font-size:13px;padding-bottom:8px"><input type="checkbox" id="com-solo"> Solo con monto</label>
     </div>
-    <div class="table-wrap" style="margin-top:12px">
+    <div id="com-per-txt" style="font-size:13px;color:var(--gold);margin-top:8px">Período: ${esc(borr.periodo)}</div>
+    <div class="table-wrap" style="margin-top:8px">
       <table>
         <thead><tr><th>Empleado</th><th>Sección</th><th>Cuenta</th><th style="text-align:right;width:150px">Comisión L.</th><th>Detalle (opcional)</th></tr></thead>
         <tbody id="com-tbody"><tr><td colspan="5" style="padding:20px;color:var(--text3)">Cargando empleados…</td></tr></tbody>
@@ -91,12 +116,18 @@ window.loadComisionesPago = async () => {
     </div>`
 
   const onCab = () => {
-    borr.periodo = document.getElementById('com-periodo').value
+    borr.desde = document.getElementById('com-desde').value
+    borr.hasta = document.getElementById('com-hasta').value
+    if (borr.desde && borr.hasta && borr.hasta < borr.desde) {
+      window.toast?.('La fecha "hasta" es anterior a "desde"', 'error')
+    }
+    borr.periodo = textoPeriodo(borr.desde, borr.hasta)
+    const lbl = document.getElementById('com-per-txt'); if (lbl) lbl.textContent = borr.periodo ? 'Período: ' + borr.periodo : ''
     borr.fecha = document.getElementById('com-fecha').value
     borr.forma = document.getElementById('com-forma').value
     guardarBorrador()
   }
-  ;['com-periodo', 'com-fecha', 'com-forma'].forEach(id => document.getElementById(id).addEventListener('change', onCab))
+  ;['com-desde', 'com-hasta', 'com-fecha', 'com-forma'].forEach(id => document.getElementById(id).addEventListener('change', onCab))
   document.getElementById('com-buscar').addEventListener('input', pintar)
   document.getElementById('com-solo').addEventListener('change', pintar)
 
@@ -197,7 +228,7 @@ function recibo(e, num, etiqueta) {
 window.comPagoImprimir = () => {
   const l = conMonto()
   if (!l.length) { window.toast?.('Ningún empleado tiene monto de comisión', 'info'); return }
-  if (!borr.periodo.trim()) { window.toast?.('Escribí el período de las comisiones', 'error'); return }
+  if (!borr.desde || !borr.hasta || borr.hasta < borr.desde) { window.toast?.('Revisá las fechas del período', 'error'); return }
   const ini = parseInt(document.getElementById('com-num')?.value) || 1
   const anio = (borr.fecha || '').slice(0, 4) || new Date().getFullYear()
   const numDe = i => `COM-${anio}-${String(ini + i).padStart(3, '0')}`
@@ -239,6 +270,7 @@ window.comPagoImprimir = () => {
 window.comPagoPartida = async () => {
   const l = conMonto()
   if (!l.length) { window.toast?.('Ningún empleado tiene monto de comisión', 'info'); return }
+  if (!borr.desde || !borr.hasta || borr.hasta < borr.desde) { window.toast?.('Revisá las fechas del período', 'error'); return }
   const sb = getSb()
   const codigos = [...new Set([...l.map(e => cuentaComision(e.seccion)), CAJA_GENERAL, BANCO])]
   const [{ data: cuentas, error }, { data: centros }] = await Promise.all([
