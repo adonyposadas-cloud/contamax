@@ -232,7 +232,10 @@ window.comPagoImprimir = () => {
   const ini = parseInt(document.getElementById('com-num')?.value) || 1
   const anio = (borr.fecha || '').slice(0, 4) || new Date().getFullYear()
   const numDe = i => `COM-${anio}-${String(ini + i).padStart(3, '0')}`
-  const paginas = l.map((e, i) => `<div class="pag">${recibo(e, numDe(i), 'ORIGINAL · Contabilidad')}<div class="corte"></div>${recibo(e, numDe(i), 'COPIA · Empleado')}</div>`).join('')
+  // Solo originales: dos empleados por hoja carta, con línea de corte
+  const pares = []
+  for (let i = 0; i < l.length; i += 2) pares.push([i, i + 1].filter(k => k < l.length))
+  const paginas = pares.map(p => `<div class="pag">${p.map(k => recibo(l[k], numDe(k), 'ORIGINAL')).join('<div class="corte"></div>')}</div>`).join('')
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Recibos de comisiones</title><style>
     @page { size: letter; margin: 10mm; }
     body { margin:0; font:12px/1.4 Arial, sans-serif; color:#000; }
