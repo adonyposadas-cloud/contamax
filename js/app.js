@@ -6564,12 +6564,15 @@ window.verArqueo = async () => {
 
   // Subtotal del efectivo en billetes (antes de cheques y dólares)
   const fmtA = v => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
-  const valorTipo = tipo => denoms.reduce((s, d) => s + (conteos || []).filter(c => c.tipo === tipo).reduce((t, c) => t + (c[`den_${d}`] || 0), 0) * d, 0)
-  const efIng = valorTipo('ingreso'), efEgr = valorTipo('egreso'), efCaja = totValor
+  // Las columnas de ingresos y egresos van vacías en esta fila y en la de cheques.
+  // Ahí irían los acumulados de toda la historia —nueve millones contra ocho— y al
+  // lado del saldo del día no dicen nada: solo tapan el número que sí importa.
+  // En las filas de billetes sí tienen sentido, porque son cantidades de billetes.
+  const efCaja = totValor
   tbody.innerHTML += `<tr style="border-top:2px solid var(--border);background:var(--bg3)">
     <td style="padding:8px 12px;font-size:14px;font-weight:600;color:var(--green)">💵 Efectivo L.</td>
-    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--green)">L. ${fmtA(efIng)}</td>
-    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--red)">L. ${fmtA(efEgr)}</td>
+    <td></td>
+    <td></td>
     <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-weight:600">${totCaja}</td>
     <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:14px;font-weight:700;color:${efCaja >= 0 ? 'var(--green)' : 'var(--red)'}">L. ${fmtA(efCaja)}</td>
   </tr>`
@@ -6582,8 +6585,8 @@ window.verArqueo = async () => {
 
   tbody.innerHTML += `<tr style="border-top:2px solid var(--border)">
     <td style="padding:8px 12px;font-size:14px;font-weight:500;color:var(--amber)">📄 Cheques</td>
-    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--green)">${cheqIng > 0 ? 'L. ' + cheqIng.toLocaleString('es-HN',{minimumFractionDigits:2}) : '—'}</td>
-    <td style="padding:8px 12px;text-align:center;font-family:var(--mono);color:var(--red)">${cheqEgr > 0 ? 'L. ' + cheqEgr.toLocaleString('es-HN',{minimumFractionDigits:2}) : '—'}</td>
+    <td></td>
+    <td></td>
     <td style="padding:8px 12px;text-align:center;font-family:var(--mono);font-weight:500;color:${cheqEnCaja >= 0 ? 'var(--amber)' : 'var(--red)'}">L. ${cheqEnCaja.toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
     <td style="padding:8px 12px;text-align:right;font-family:var(--mono);font-size:13px;color:var(--amber)">L. ${cheqEnCaja.toLocaleString('es-HN',{minimumFractionDigits:2})}</td>
   </tr>`
