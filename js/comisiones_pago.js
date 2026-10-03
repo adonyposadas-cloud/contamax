@@ -219,7 +219,7 @@ function recibo(e, num, etiqueta) {
       <tbody><tr><td>Comisiones del período ${esc(borr.periodo)}${det ? ' — ' + esc(det) : ''}</td><td class="n">${fmt(m)}</td></tr></tbody>
       <tfoot><tr><td><b>NETO RECIBIDO</b></td><td class="n"><b>L. ${fmt(m)}</b></td></tr></tfoot></table>
     <div class="v-rec">Recibí de <b>TECNIMAX</b> la cantidad de <b>${letras(m)}</b> (L. ${fmt(m)}) en concepto de comisiones correspondientes al
-      período <b>${esc(borr.periodo)}</b>, calculadas según la política de comisiones vigente. Este pago forma parte de mi salario.</div>
+      período <b>${esc(borr.periodo)}</b>, calculadas según la política de comisiones vigente.</div>
     <div class="v-firmas"><div>Firma del empleado<br>Identidad: ${esc(e.identidad || '')}</div><div>Entregado / autorizado por</div></div>
     <div class="v-copia">${etiqueta}</div>
   </div>`
