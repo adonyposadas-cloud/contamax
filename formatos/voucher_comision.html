@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voucher de comisiones</title>
+<style>
+  :root { --tx:#1b1b1b; --tx2:#555; --bd:#c9c9c9; --ac:#b8860b; --bg:#f4f4f2; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:14px/1.4 system-ui, Segoe UI, Arial, sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:16px; }
+  h1 { font-size:18px; margin:4px 0 12px; }
+  .card { background:#fff; border:1px solid var(--bd); border-radius:8px; padding:16px; margin-bottom:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; }
+  label { display:block; font-size:11px; color:var(--tx2); text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
+  input, select { width:100%; padding:7px 8px; border:1px solid var(--bd); border-radius:6px; font:inherit; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { border-bottom:1px solid #e3e3e3; padding:5px 4px; text-align:left; }
+  th { font-size:11px; color:var(--tx2); text-transform:uppercase; }
+  td.n, th.n { text-align:right; }
+  .det input { padding:5px 6px; }
+  .btn { padding:8px 14px; border:1px solid var(--bd); background:#fff; border-radius:6px; cursor:pointer; font:inherit; }
+  .btn.pri { background:var(--ac); color:#fff; border-color:var(--ac); font-weight:600; }
+  .tot { display:flex; justify-content:flex-end; gap:24px; margin-top:10px; font-family:ui-monospace,Consolas,monospace; flex-wrap:wrap; }
+  .tot b { font-size:16px; }
+  .nota { font-size:12px; color:var(--tx2); }
+  #impresion { display:none; }
+
+  /* ── Voucher impreso ── */
+  .v { border:1.5px solid #000; padding:14px 16px; margin-bottom:10mm; page-break-inside:avoid; font-size:12px; }
+  .v-head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1.5px solid #000; padding-bottom:6px; margin-bottom:8px; }
+  .v-emp { font-weight:800; font-size:16px; }
+  .v-tit { text-align:right; font-weight:700; }
+  .v-tit small { display:block; font-weight:400; }
+  .v-dat { display:grid; grid-template-columns:1fr 1fr; gap:2px 16px; margin-bottom:8px; }
+  .v table th, .v table td { border-bottom:1px solid #999; padding:3px 4px; font-size:11px; }
+  .v-tot { display:flex; justify-content:flex-end; margin-top:6px; }
+  .v-tot table { width:auto; }
+  .v-tot td { border:none; padding:1px 6px; }
+  .v-rec { margin:10px 0 4px; text-align:justify; }
+  .v-firmas { display:grid; grid-template-columns:1fr 1fr; gap:30px; margin-top:34px; text-align:center; }
+  .v-firmas div { border-top:1px solid #000; padding-top:3px; }
+  .v-copia { font-size:10px; text-align:right; color:#333; margin-top:6px; }
+
+  @media print {
+    @page { size: letter; margin: 10mm; }
+    body { background:#fff; }
+    .wrap { display:none; }
+    #impresion { display:block; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Voucher de pago de comisiones</h1>
+  <div class="card grid">
+    <div><label>No. voucher</label><input id="f-num" placeholder="COM-2026-001"></div>
+    <div><label>Fecha de pago</label><input id="f-fecha" type="date"></div>
+    <div><label>Empleado</label><input id="f-emp"></div>
+    <div><label>No. identidad</label><input id="f-id"></div>
+    <div><label>Sección / puesto</label>
+      <select id="f-sec"><option>Taller</option><option>Yonker</option><option>Ventas</option><option>Administración</option></select></div>
+    <div><label>Período de las comisiones</label><input id="f-per" placeholder="16 al 30 de septiembre 2026"></div>
+    <div><label>Forma de pago</label>
+      <select id="f-forma"><option>Efectivo</option><option>Transferencia</option><option>Cheque</option></select></div>
+    <div><label>Referencia (cheque / transferencia)</label><input id="f-ref"></div>
+  </div>
+
+  <div class="card">
+    <table class="det">
+      <thead><tr><th style="width:18%">Factura / orden</th><th style="width:14%">Fecha</th><th>Descripción</th><th class="n" style="width:14%">Base L.</th><th class="n" style="width:9%">%</th><th class="n" style="width:14%">Comisión L.</th><th></th></tr></thead>
+      <tbody id="det"></tbody>
+    </table>
+    <button class="btn" onclick="fila()" style="margin-top:8px">+ Línea</button>
+    <div class="grid" style="margin-top:12px">
+      <div><label>ISR retenido (si aplica)</label><input id="f-isr" type="number" step="0.01" value="0"></div>
+      <div><label>Otras deducciones</label><input id="f-otras" type="number" step="0.01" value="0"></div>
+      <div><label>Concepto de otras deducciones</label><input id="f-otras-c"></div>
+    </div>
+    <div class="tot"><span>Comisión bruta: <b id="t-bruto">0.00</b></span><span>Deducciones: <b id="t-ded">0.00</b></span><span>Neto a pagar: <b id="t-neto">0.00</b></span></div>
+    <div class="nota" id="t-letras" style="text-align:right;margin-top:4px"></div>
+  </div>
+
+  <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <label style="margin:0;text-transform:none;font-size:13px"><input type="checkbox" id="f-copia" checked style="width:auto"> Imprimir copia para el empleado</label>
+    <button class="btn pri" onclick="window.print()" style="margin-left:auto">Imprimir</button>
+    <button class="btn" onclick="limpiar()">Nuevo voucher</button>
+  </div>
+  <p class="nota">El voucher firmado va adjunto a la partida del pago en Contamax. La comisión es parte del salario: cuenta para décimo tercero, décimo cuarto, vacaciones y prestaciones.</p>
+</div>
+
+<div id="impresion"></div>
+
+<script>
+const $ = id => document.getElementById(id)
+const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+function fila(d = {}) {
+  const tr = document.createElement('tr')
+  tr.innerHTML = `<td><input class="c-doc" value="${esc(d.doc)}"></td><td><input class="c-fec" type="date" value="${esc(d.fec)}"></td>
+    <td><input class="c-des" value="${esc(d.des)}"></td><td><input class="c-base" type="number" step="0.01" style="text-align:right" value="${esc(d.base)}"></td>
+    <td><input class="c-pct" type="number" step="0.01" style="text-align:right" value="${esc(d.pct)}"></td>
+    <td><input class="c-com" type="number" step="0.01" style="text-align:right" value="${esc(d.com)}"></td>
+    <td><button class="btn" title="Quitar" onclick="this.closest('tr').remove();calc()">✕</button></td>`
+  $('det').appendChild(tr)
+}
+// Base × % llena la comisión; si se escribe la comisión a mano, se respeta
+document.addEventListener('input', e => {
+  const tr = e.target.closest('#det tr')
+  if (tr && (e.target.classList.contains('c-base') || e.target.classList.contains('c-pct'))) {
+    const b = parseFloat(tr.querySelector('.c-base').value), p = parseFloat(tr.querySelector('.c-pct').value)
+    if (!isNaN(b) && !isNaN(p)) tr.querySelector('.c-com').value = (Math.round(b * p) / 100).toFixed(2)
+  }
+  calc()
+})
+function lineas() {
+  return [...document.querySelectorAll('#det tr')].map(tr => ({
+    doc: tr.querySelector('.c-doc').value, fec: tr.querySelector('.c-fec').value, des: tr.querySelector('.c-des').value,
+    base: parseFloat(tr.querySelector('.c-base').value) || 0, pct: parseFloat(tr.querySelector('.c-pct').value) || 0,
+    com: parseFloat(tr.querySelector('.c-com').value) || 0 })).filter(l => l.doc || l.des || l.com)
+}
+function totales() {
+  const bruto = Math.round(lineas().reduce((s, l) => s + l.com, 0) * 100) / 100
+  const ded = Math.round(((parseFloat($('f-isr').value) || 0) + (parseFloat($('f-otras').value) || 0)) * 100) / 100
+  return { bruto, ded, neto: Math.round((bruto - ded) * 100) / 100 }
+}
+function calc() {
+  const t = totales()
+  $('t-bruto').textContent = fmt(t.bruto); $('t-ded').textContent = fmt(t.ded); $('t-neto').textContent = fmt(t.neto)
+  $('t-letras').textContent = t.neto > 0 ? letras(t.neto) : ''
+}
+
+// Monto en letras (lempiras)
+function letras(n) {
+  const U = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE', 'DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE',
+    'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE', 'VEINTE', 'VEINTIUN', 'VEINTIDOS', 'VEINTITRES', 'VEINTICUATRO', 'VEINTICINCO',
+    'VEINTISEIS', 'VEINTISIETE', 'VEINTIOCHO', 'VEINTINUEVE']
+  const D = ['', '', '', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA']
+  const C = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS']
+  const cien = x => {
+    if (x === 100) return 'CIEN'
+    const c = Math.floor(x / 100), r = x % 100
+    const dec = r < 30 ? U[r] : D[Math.floor(r / 10)] + (r % 10 ? ' Y ' + U[r % 10] : '')
+    return [C[c], dec].filter(Boolean).join(' ')
+  }
+  const ent = Math.floor(n), cent = Math.round((n - ent) * 100)
+  const mill = Math.floor(ent / 1e6), mil = Math.floor((ent % 1e6) / 1000), resto = ent % 1000
+  const p = []
+  if (mill) p.push(mill === 1 ? 'UN MILLON' : cien(mill) + ' MILLONES')
+  if (mil) p.push(mil === 1 ? 'MIL' : cien(mil) + ' MIL')
+  if (resto) p.push(cien(resto))
+  return (p.join(' ') || 'CERO') + ` LEMPIRAS CON ${String(cent).padStart(2, '0')}/100`
+}
+
+function voucher(etiqueta) {
+  const t = totales(), ls = lineas()
+  const fecha = $('f-fecha').value ? new Date($('f-fecha').value + 'T12:00').toLocaleDateString('es-HN', { day: '2-digit', month: 'long', year: 'numeric' }) : '________________'
+  const ded = []
+  if (+$('f-isr').value) ded.push(['ISR retenido', +$('f-isr').value])
+  if (+$('f-otras').value) ded.push([$('f-otras-c').value || 'Otras deducciones', +$('f-otras').value])
+  return `<div class="v">
+    <div class="v-head">
+      <div><div class="v-emp">TECNIMAX</div><div>RTN 08019010278503</div><div>Boulevard FF.AA., 300 mts después de Gasolinera UNO</div></div>
+      <div class="v-tit">COMPROBANTE DE PAGO DE COMISIONES<small>No. ${esc($('f-num').value || '________')}</small><small>Fecha: ${esc(fecha)}</small></div>
+    </div>
+    <div class="v-dat">
+      <div><b>Empleado:</b> ${esc($('f-emp').value)}</div><div><b>Identidad:</b> ${esc($('f-id').value)}</div>
+      <div><b>Sección:</b> ${esc($('f-sec').value)}</div><div><b>Período:</b> ${esc($('f-per').value)}</div>
+      <div><b>Forma de pago:</b> ${esc($('f-forma').value)}${$('f-ref').value ? ' · ' + esc($('f-ref').value) : ''}</div>
+    </div>
+    <table>
+      <thead><tr><th>Factura / orden</th><th>Fecha</th><th>Descripción</th><th class="n">Base L.</th><th class="n">%</th><th class="n">Comisión L.</th></tr></thead>
+      <tbody>${ls.map(l => `<tr><td>${esc(l.doc)}</td><td>${esc(l.fec)}</td><td>${esc(l.des)}</td><td class="n">${l.base ? fmt(l.base) : ''}</td><td class="n">${l.pct ? l.pct + '%' : ''}</td><td class="n">${fmt(l.com)}</td></tr>`).join('')}</tbody>
+    </table>
+    <div class="v-tot"><table>
+      <tr><td>Comisión bruta</td><td class="n">L. ${fmt(t.bruto)}</td></tr>
+      ${ded.map(([c, v]) => `<tr><td>(−) ${esc(c)}</td><td class="n">L. ${fmt(v)}</td></tr>`).join('')}
+      <tr><td><b>NETO RECIBIDO</b></td><td class="n"><b>L. ${fmt(t.neto)}</b></td></tr>
+    </table></div>
+    <div class="v-rec">Recibí de <b>TECNIMAX</b> la cantidad de <b>${letras(t.neto)}</b> (L. ${fmt(t.neto)}) en concepto de comisiones
+      correspondientes al período <b>${esc($('f-per').value || '________')}</b>, calculadas según el detalle anterior y la política de comisiones vigente.
+      Este pago forma parte de mi salario.</div>
+    <div class="v-firmas"><div>Firma del empleado<br>Identidad: ${esc($('f-id').value)}</div><div>Entregado / autorizado por</div></div>
+    <div class="v-copia">${etiqueta}</div>
+  </div>`
+}
+window.addEventListener('beforeprint', () => {
+  $('impresion').innerHTML = voucher('ORIGINAL · Contabilidad') + ($('f-copia').checked ? voucher('COPIA · Empleado') : '')
+})
+function limpiar() {
+  if (!confirm('¿Borrar todo y empezar un voucher nuevo?')) return
+  document.querySelectorAll('.wrap input').forEach(i => { if (i.type !== 'checkbox') i.value = '' })
+  $('f-isr').value = 0; $('f-otras').value = 0; $('det').innerHTML = ''
+  $('f-fecha').value = new Date().toLocaleDateString('en-CA'); fila(); fila(); fila(); calc()
+}
+$('f-fecha').value = new Date().toLocaleDateString('en-CA')
+fila(); fila(); fila(); calc()
+</script>
+</body>
+</html>
