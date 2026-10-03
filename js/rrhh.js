@@ -1911,8 +1911,9 @@ async function generarPartidaPlanilla(periodo, fechaPartida) {
     addD(C.he, zona, d.monto_he || 0)
     addD(C.vacaciones, zona, d.vacaciones || 0)
     addD(C.incapacidades, zona, d.incapacidad || 0)
-    addD(C.bonificaciones, zona, d.bonificaciones || 0)
-    addD(C.otros, zona, (d.otros_ingresos || 0) + (d.ajuste_sueldo || 0) + (d.comisiones_venta || 0))
+    // Comisiones van a "BONIFICACIONES Y/O COMISIONES" (-007 / GA -031), no a "otros gastos por planilla"
+    addD(C.bonificaciones, zona, (d.bonificaciones || 0) + (d.comisiones_venta || 0))
+    addD(C.otros, zona, (d.otros_ingresos || 0) + (d.ajuste_sueldo || 0))
     addD(C.ihss_patronal_gasto, zona, d.ihss_patronal || 0)
     addD(C.rap_gasto, zona, d.rap_patronal || 0)
     addD(C.foviif_gasto, zona, d.foviif_patronal || 0)
