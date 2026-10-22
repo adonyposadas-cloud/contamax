@@ -5190,6 +5190,11 @@ const IMPORT_CUENTAS = {
   // caja y bancos cuadren.
   cxc_yonker:        { codigo: '110201-031',  nombre: 'CUENTA PUENTE RECIBOS YONKER (CxC)' },
   puente_yonker:     { codigo: '210101-031',  nombre: 'CUENTA PUENTE RECIBOS YONKER' },
+  // Notas de crédito (hojas "Notas de crédito" y "Saldo a favor usado" del reporte)
+  saldo_favor_yonker:{ codigo: '210101-032',  nombre: 'SALDO A FAVOR CLIENTES YONKER (NOTAS DE CREDITO)' },
+  devol_yonker:      { codigo: '410201-002',  nombre: 'DEVOLUCIONES S/VENTAS YONKER' },
+  devol_tecnimax:    { codigo: '410201-001',  nombre: 'DEVOLUCIONES S/VENTAS TECNIMAX' },
+  otros_ingresos:    { codigo: '410305-009',  nombre: 'OTROS INGRESOS' },
 }
 
 let importFiles = []
@@ -5378,7 +5383,7 @@ function parseAlphaExcel(arrayBuffer) {
 
   // ── Leer hoja Crédito si existe ──
   let facturasCredito = []
-  const creditoSheetName = wb.SheetNames.find(s => s.toLowerCase().includes('créd') || s.toLowerCase().includes('cred'))
+  const creditoSheetName = wb.SheetNames.find(s => /cr[eé]d/i.test(s) && !/nota/i.test(s))
   if (creditoSheetName) {
     facturasCredito = parseSheet(wb.Sheets[creditoSheetName])
     facturasCredito.forEach(f => f.tipo_venta = 'Crédito')
@@ -5390,6 +5395,8 @@ function parseAlphaExcel(arrayBuffer) {
   // Y se clasifica por la columna `Código` (RECIBIDO/APLICADO/DEVUELTO), que es
   // estable, en vez del texto visible, que ya cambió una vez.
   const depositos = parseDepositos(wb)
+  const notas = parseNotasCredito(wb)
+  const saldoUsado = parseSaldoFavorUsado(wb)
   const netoPuente = depositos.reduce((a, d) => a + d.monto, 0)
 
   // Todas las facturas (contado + crédito) para validación de correlativos
@@ -5409,7 +5416,81 @@ function parseAlphaExcel(arrayBuffer) {
     exento: facturasCredito.reduce((s, f) => s + f.total_exento, 0),
   }
 
-  return { empresaRaw, tipo, centro, facturas: facturasContado, facturasCredito, todasFacturas, totales, totalesCredito, depositos, netoPuente }
+  return { empresaRaw, tipo, centro, facturas: facturasContado, facturasCredito, todasFacturas, totales, totalesCredito, depositos, netoPuente,
+    notas, saldoUsado, notasRes: resumenNotas(notas, saldoUsado) }
+}
+
+// ── Notas de crédito ──
+// Hoja "Notas de crédito": cada nota RESTA de las ventas. Según su destino:
+//   Saldo a favor → el dinero no sale, queda a cuenta del cliente (pasivo 210101-032)
+//   Reembolso     → sale de caja (o banco si fue transferencia); el recargo retenido es otro ingreso
+//   Rebajado del crédito → baja lo que el cliente debía (CxC)
+// Hoja "Saldo a favor usado": facturas cobradas con ese saldo. NO entró dinero: baja el pasivo
+// en vez de sumar a caja (esas facturas ya vienen en Contado con la forma de pago vacía).
+// Se lee por nombre de encabezado, como Depósitos. Si la hoja no existe, devuelve [].
+function _hojaPorEncabezado(wb, filtroNombre, encabezado) {
+  const nombre = wb.SheetNames.find(filtroNombre)
+  if (!nombre) return null
+  const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, defval: null })
+  const iHdr = rows.findIndex(r => (r || []).some(c => String(c || '').trim() === encabezado))
+  if (iHdr < 0) return null
+  const hdr = (rows[iHdr] || []).map(c => String(c || '').trim())
+  return { rows, iHdr, col: (n) => hdr.indexOf(n) }
+}
+function parseNotasCredito(wb) {
+  const h = _hojaPorEncabezado(wb, n => /nota/i.test(n) && /cr[eé]d/i.test(n), 'No. Nota')
+  if (!h) return []
+  const c = { fecha: h.col('Fecha'), nota: h.col('No. Nota'), factura: h.col('Factura'), cliente: h.col('Cliente'),
+    destino: h.col('Destino'), isv: h.col('ISV'), total: h.col('Total'), forma: h.col('Forma de reembolso'),
+    reemb: h.col('Reembolsado'), recargo: h.col('Recargo retenido') }
+  if (c.total < 0 || c.nota < 0) return []
+  const num = (r, i) => i >= 0 ? (parseFloat(r[i]) || 0) : 0
+  const out = []
+  for (let i = h.iHdr + 1; i < h.rows.length; i++) {
+    const r = h.rows[i] || []
+    const nota = String(r[c.nota] || '').trim()
+    if (String(r[0] || '').toUpperCase().includes('TOTAL')) break
+    if (!nota) continue
+    const dest = String(r[c.destino] || '').toUpperCase()
+    const destino = dest.includes('SALDO') ? 'saldo' : dest.includes('REEMB') ? 'reembolso'
+      : (dest.includes('CRÉD') || dest.includes('CRED') || dest.includes('REBAJ')) ? 'credito' : 'otro'
+    out.push({ fecha: String(r[c.fecha] || ''), nota, factura: String(r[c.factura] || ''), cliente: String(r[c.cliente] || ''),
+      destino, isv: num(r, c.isv), total: num(r, c.total), forma: String(r[c.forma] || '').toUpperCase(),
+      reembolsado: num(r, c.reemb), recargo: num(r, c.recargo) })
+  }
+  return out
+}
+function parseSaldoFavorUsado(wb) {
+  const h = _hojaPorEncabezado(wb, n => /saldo a favor/i.test(n), 'Monto usado')
+  if (!h) return []
+  const c = { factura: h.col('Factura'), cliente: h.col('Cliente'), monto: h.col('Monto usado'), nota: h.col('No. Nota') }
+  if (c.monto < 0) return []
+  const out = []
+  for (let i = h.iHdr + 1; i < h.rows.length; i++) {
+    const r = h.rows[i] || []
+    if (String(r[0] || '').toUpperCase().includes('TOTAL')) break
+    const monto = parseFloat(r[c.monto]) || 0
+    if (!monto) continue
+    out.push({ factura: String(r[c.factura] || ''), cliente: String(r[c.cliente] || ''), monto, nota: String(r[c.nota] || '') })
+  }
+  return out
+}
+function resumenNotas(notas, saldoUsado) {
+  const r2 = (v) => Math.round(v * 100) / 100
+  const sum = (arr, k) => r2(arr.reduce((a, x) => a + (x[k] || 0), 0))
+  const reemb = notas.filter(n => n.destino === 'reembolso')
+  const esTransf = (n) => /TRANSF/.test(n.forma)
+  return {
+    total: sum(notas, 'total'),                                   // lo que resta de ventas
+    isv: sum(notas, 'isv'),
+    aSaldo: sum(notas.filter(n => n.destino === 'saldo'), 'total'),
+    aCredito: sum(notas.filter(n => n.destino === 'credito'), 'total'),
+    otro: sum(notas.filter(n => n.destino === 'otro'), 'total'),
+    reembEfectivo: sum(reemb.filter(n => !esTransf(n)), 'reembolsado'),
+    reembTransf: sum(reemb.filter(esTransf), 'reembolsado'),
+    recargo: sum(reemb, 'recargo'),
+    saldoUsado: sum(saldoUsado, 'monto'),
+  }
 }
 
 // Lee la hoja "Depósitos" del reporte de Yonker. Devuelve [] si no existe,
@@ -5562,16 +5643,38 @@ window.procesarImport = async () => {
         const totalFormas = r.facturas.reduce((a, f) =>
           a + (f.monto_efectivo || 0) + (f.monto_tarjeta || 0) + (f.monto_transferencia || 0), 0)
         const falta = Math.round((totalFact - totalFormas) * 100) / 100
-        const aplicado = Math.round(apl.reduce((a, x) => a + Math.abs(x.monto), 0) * 100) / 100
+        // Lo cobrado con saldo a favor (notas de crédito) tampoco trae forma de pago
+        const usado = r.notasRes?.saldoUsado || 0
+        const aplicado = Math.round((apl.reduce((a, x) => a + Math.abs(x.monto), 0) + usado) * 100) / 100
         if (Math.abs(falta - aplicado) > 0.01) {
-          alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: a las facturas les faltan L. ${f2(falta)} de forma de pago, pero los depósitos aplicados suman L. ${f2(aplicado)}. Diferencia L. ${f2(Math.round((falta - aplicado) * 100) / 100)} — revisar el reporte antes de aprobar.` })
+          alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: a las facturas les faltan L. ${f2(falta)} de forma de pago, pero los depósitos aplicados${usado ? ' + saldo a favor usado' : ''} suman L. ${f2(aplicado)}. Diferencia L. ${f2(Math.round((falta - aplicado) * 100) / 100)} — revisar el reporte antes de aprobar.` })
         } else if (aplicado > 0) {
-          alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: los L. ${f2(aplicado)} aplicados cuadran con lo que falta en las formas de pago` })
+          alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: los L. ${f2(aplicado)} aplicados${usado ? ' (incluye saldo a favor usado)' : ''} cuadran con lo que falta en las formas de pago` })
         }
 
         const recargos = r.depositos.reduce((a, x) => a + (x.recargo || 0), 0)
         if (recargos > 0) {
           alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: hay L. ${f2(recargos)} de recargos por devolución que NO se están contabilizando. Registralos aparte como otros ingresos.` })
+        }
+      }
+    }
+
+    // ── Notas de crédito y saldo a favor usado ──
+    for (const r of [yonker_fiscal, yonker_interno, tecnimax_fiscal, tecnimax_interno]) {
+      const n = r?.notasRes
+      if (!n || (!n.total && !n.saldoUsado)) continue
+      const f2 = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
+      alertas.push({ tipo: 'info', msg: `🧾 ${r.empresaRaw}: ${r.notas.length} nota(s) de crédito por L. ${f2(n.total)} (a saldo a favor ${f2(n.aSaldo)} · reembolsado ${f2(n.reembEfectivo + n.reembTransf)}${n.reembTransf ? ' (' + f2(n.reembTransf) + ' por transferencia)' : ''} · recargo retenido ${f2(n.recargo)}${n.aCredito ? ' · rebajado del crédito ' + f2(n.aCredito) : ''}) · cobrado con saldo a favor L. ${f2(n.saldoUsado)}. Ya van en la partida.` })
+      if (n.otro) alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: L. ${f2(n.otro)} en notas con destino desconocido — la partida trae una línea sin cuenta para elegirla.` })
+      // Sin hoja de depósitos, la revisión de formas de pago se hace acá
+      if (!r.depositos?.length) {
+        const totalFact = r.facturas.reduce((a, f) => a + (f.total || 0), 0)
+        const totalFormas = r.facturas.reduce((a, f) => a + (f.monto_efectivo || 0) + (f.monto_tarjeta || 0) + (f.monto_transferencia || 0), 0)
+        const falta = Math.round((totalFact - totalFormas) * 100) / 100
+        if (Math.abs(falta - n.saldoUsado) > 0.01) {
+          alertas.push({ tipo: 'warning', msg: `⚠️ ${r.empresaRaw}: a las facturas les faltan L. ${f2(falta)} de forma de pago, pero el saldo a favor usado suma L. ${f2(n.saldoUsado)} — revisar el reporte antes de aprobar.` })
+        } else if (falta > 0) {
+          alertas.push({ tipo: 'success', msg: `✅ ${r.empresaRaw}: los L. ${f2(falta)} sin forma de pago son exactamente lo cobrado con saldo a favor` })
         }
       }
     }
@@ -5852,6 +5955,38 @@ function renderFiscalDetail() {
     </tr>`
 }
 
+// Líneas de las notas de crédito de todos los reportes del día, y cuánto baja la caja.
+// Cada nota resta de ventas (DEBE devoluciones; el ISV de Tecnicentro fiscal, al ISV por pagar).
+// Contrapartida según destino: saldo a favor (pasivo), CxC (rebajado del crédito), caja (reembolso).
+// Lo cobrado con saldo a favor tampoco entró a caja: DEBE al pasivo en vez de caja.
+// Cuadre: total notas = a saldo + a crédito + reembolsado + recargo retenido.
+function lineasNotasCredito(d) {
+  const C = IMPORT_CUENTAS
+  const r2 = (v) => Math.round(v * 100) / 100
+  const out = []
+  let bajaCaja = 0, resumen = []
+  for (const [tipo, r] of Object.entries({ yonker_fiscal: d.yonker_fiscal, yonker_interno: d.yonker_interno,
+    tecnimax_fiscal: d.tecnimax_fiscal, tecnimax_interno: d.tecnimax_interno })) {
+    const n = r?.notasRes
+    if (!n || (!n.total && !n.saldoUsado)) continue
+    const yonker = tipo.startsWith('yonker')
+    const centro = yonker ? 'Yonker' : 'Tecnicentro'
+    const fiscal = tipo.endsWith('fiscal')
+    const isvLinea = tipo === 'tecnimax_fiscal' ? n.isv : 0   // Yonker vende exento; el interno no lleva ISV real
+    const L = (cuenta, tipoL, monto, desc) => { if (r2(monto) > 0) out.push({ cuenta, centro, tipo: tipoL, monto: r2(monto), desc, fiscal }) }
+    L(yonker ? C.devol_yonker : C.devol_tecnimax, 'debito', n.total - isvLinea, `DEVOLUCIONES NOTAS DE CREDITO ${centro.toUpperCase()}`)
+    L(C.isv_ventas, 'debito', isvLinea, 'ISV DE NOTAS DE CREDITO')
+    L(yonker ? C.saldo_favor_yonker : null, 'credito', n.aSaldo, `NOTAS DE CREDITO A SALDO A FAVOR ${centro.toUpperCase()}${yonker ? '' : ' - ELEGIR CUENTA'}`)
+    L(yonker ? C.cxc_yonker : null, 'credito', n.aCredito, `NOTAS DE CREDITO REBAJADAS DEL CREDITO${yonker ? '' : ' - ELEGIR CXC'}`)
+    L(C.otros_ingresos, 'credito', n.recargo, 'RECARGO RETENIDO EN DEVOLUCIONES')
+    L(null, 'credito', n.otro, 'NOTAS DE CREDITO CON DESTINO DESCONOCIDO - ELEGIR CUENTA')
+    L(yonker ? C.saldo_favor_yonker : null, 'debito', n.saldoUsado, `FACTURAS COBRADAS CON SALDO A FAVOR${yonker ? '' : ' - ELEGIR CUENTA'}`)
+    bajaCaja += n.reembEfectivo + n.reembTransf + n.saldoUsado
+    resumen.push({ centro, ...n })
+  }
+  return { lineas: out, bajaCaja: r2(bajaCaja), resumen }
+}
+
 function renderImportPartida() {
   const d = importData
   const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
@@ -5917,7 +6052,8 @@ function renderImportPartida() {
   // dinero que se movió: si entraron depósitos, la caja subió por ellos aunque
   // todavía no haya venta; si se aplicaron a facturas de hoy, ese dinero ya
   // había entrado antes y no debe volver a sumarse.
-  const totalCaja = r2(totalHaber - totalCxC + netoPuente)
+  const notasNC = lineasNotasCredito(d)
+  const totalCaja = r2(totalHaber - totalCxC + netoPuente - notasNC.bajaCaja)
 
   const fmt = (v) => v.toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const C = IMPORT_CUENTAS
@@ -5975,11 +6111,16 @@ function renderImportPartida() {
     { codigo: C.venta_yonker_int.codigo, nombre: C.venta_yonker_int.nombre, centro: 'Yonker', debe: 0, haber: r2(yi.total + creditoYonkerIntTotal), fiscal: '—' },
   )
 
+  for (const l of notasNC.lineas) {
+    lineas.push({ codigo: l.cuenta?.codigo || '—', nombre: l.cuenta?.nombre || l.desc, centro: l.centro,
+      debe: l.tipo === 'debito' ? l.monto : 0, haber: l.tipo === 'credito' ? l.monto : 0, fiscal: l.fiscal ? '✓' : '—' })
+  }
+
   const filtered = lineas.filter(l => l.debe > 0 || l.haber > 0)
   // guardarImportPartida arma el formulario con ESTOS montos. Antes los recalculaba
   // por su cuenta y dejaba afuera la CxC consolidada de Yonker y la cuenta puente:
   // la vista previa cuadraba y la partida guardada no (caso #5486).
-  window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente }
+  window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente, notasNC }
 
   const tbody = document.getElementById('tbody-import-partida')
   tbody.innerHTML = filtered.map(l => {
@@ -6152,6 +6293,16 @@ window.guardarImportPartida = async () => {
     monto: r2(pv.totalCaja || 0), centro_costo_id:'', descripcion:'FORMAS DE PAGO - ELEGIR CUENTA', aplica_fiscal:true })
   lineaCounter++
   partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
+
+  // Notas de crédito (mismas líneas que la vista previa)
+  for (const l of (pv.notasNC?.lineas || [])) {
+    lineaCounter++
+    const cta = l.cuenta ? getCuenta(l.cuenta.codigo) : null
+    partidaLineas.push({ id: lineaCounter, cuenta_id: cta?.id || '', cuenta_codigo: l.cuenta?.codigo || '',
+      cuenta_nombre: l.cuenta?.nombre || '', tipo: l.tipo, monto: l.monto,
+      centro_costo_id: l.centro === 'Yonker' ? (ccYonker?.id || '') : (ccTecni?.id || ''),
+      descripcion: l.desc, aplica_fiscal: l.fiscal })
+  }
 
   // Agregar líneas de crédito pre-llenadas
   for (const cr of creditosRaw) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v68-compraproc'
+const CACHE_NAME = 'contamax-v69-notascredito'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
