@@ -365,6 +365,10 @@ window.toggleSidebar = () => {
 }
 
 window.showView = (id, label) => {
+  // Salir del editor olvida la compra de contado que lo abrió. Si no, la próxima partida
+  // que se guardara (Ventas Alpha, arqueo, editar otra) la marcaba "procesada" sin
+  // contabilizarla: le pasó a YONKER FITO 000-002-01-00016377 (22/10/2026).
+  if (id !== 'partida-nueva') window._facturaContadoId = null
   // Close sidebar on mobile when navigating
   document.getElementById('sidebar').classList.remove('open')
   document.getElementById('sidebar-overlay').classList.remove('active')
