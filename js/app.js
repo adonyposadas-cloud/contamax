@@ -4803,6 +4803,9 @@ async function updateCajaBadge() {
 window.aprobarCaja = async (id) => {
   // Abrir conteo de billetes antes de aprobar
   const partida = cajaPartidas.find(p => p.id === id)
+  // Varias líneas de caja: cada una tiene SU conteo. Antes se pedía un solo conteo por
+  // el neto y se borraban todos: la #6741 perdió el de L 2,000 de cargos trucha (21/10/2026).
+  if ((partida?.caja_lineas || []).length > 1) return aprobarCajaVariasLineas(partida)
   const desc = partida ? partida.descripcion : ''
   const monto = partida ? partida.caja_monto : 0
   const tipo = partida?.caja_tipo === 'ingreso' ? 'recibís' : 'entregás'
@@ -4880,6 +4883,71 @@ window.aprobarCaja = async (id) => {
     },
     existingBilletes
   )
+}
+
+// Aprobación de una partida con VARIAS líneas de caja: se conserva el conteo de cada
+// línea (emparejado por tipo + monto + cuenta, como en la tarjeta) y solo se pide contar
+// las líneas que no lo tienen, una por una y por su propio monto. Nunca se borra nada.
+async function aprobarCajaVariasLineas(partida) {
+  const id = partida.id
+  const fmtL = (v) => (parseFloat(v) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const { data: conteos, error: cErr } = await sb.from('conteo_billetes').select('*').eq('partida_id', id)
+  if (cErr) { toast('No se pudieron leer los conteos: ' + cErr.message, 'error'); return }
+  const pool = [...(conteos || [])]
+  const faltan = []
+  for (const l of partida.caja_lineas) {
+    const tipo = l.tipo === 'debito' ? 'ingreso' : 'egreso'
+    const i = pool.findIndex(c => c.tipo === tipo
+      && (!c.cuenta_codigo || c.cuenta_codigo === l.cuenta_codigo)
+      && Math.abs((parseFloat(c.total_monto) || 0) - (parseFloat(l.monto) || 0)) < 0.01)
+    if (i >= 0) pool.splice(i, 1)
+    else faltan.push({ ...l, tipoConteo: tipo })
+  }
+
+  const nuevos = []
+  for (const l of faltan) {
+    const monto = parseFloat(l.monto) || 0
+    const desc = l.descripcion || l.cuenta_nombre || partida.descripcion || ''
+    const det = await new Promise(resolve => {
+      openBilletes(
+        `💵 Conteo · ${l.tipoConteo === 'ingreso' ? 'Ingreso' : 'Egreso'} (${faltan.indexOf(l) + 1} de ${faltan.length})`,
+        `${desc} — Contá los billetes de ESTA línea (esperado: L. ${fmtL(monto)})`,
+        (montoContado, detalle) => resolve({ montoContado, detalle }),
+        null, null, l.cuenta_codigo
+      )
+      // Si se cierra el conteo sin confirmar, la aprobación se cancela
+      const obs = setInterval(() => {
+        const m = document.getElementById('modal-billetes')
+        if (m && !m.classList.contains('open')) { clearInterval(obs); resolve(null) }
+      }, 400)
+    })
+    if (!det) { toast('Aprobación cancelada: faltó contar una línea', 'info'); return }
+    if (Math.abs(det.montoContado - monto) > 0.01 &&
+        !confirm(`⚠️ El conteo (L. ${fmtL(det.montoContado)}) no coincide con la línea (L. ${fmtL(monto)}).\n\n¿Aprobar de todas formas?`)) return
+    const d = det.detalle
+    nuevos.push({
+      partida_id: id, tipo: l.tipoConteo, cuenta_codigo: l.cuenta_codigo || null,
+      den_500: d[500] || 0, den_200: d[200] || 0, den_100: d[100] || 0, den_50: d[50] || 0, den_20: d[20] || 0,
+      den_10: d[10] || 0, den_5: d[5] || 0, den_2: d[2] || 0, den_1: d[1] || 0, den_cheques: d._cheques || 0,
+      total_billetes: DENOMINACIONES.reduce((s, x) => s + (d[x] || 0), 0),
+      total_monto: det.montoContado, registrado_por: currentProfile.id,
+    })
+  }
+
+  if (!nuevos.length) {
+    const resumen = partida.caja_lineas.map(l => `• ${l.descripcion || l.cuenta_nombre || '—'}: ${l.tipo === 'debito' ? '+' : '-'} L. ${fmtL(l.monto)}`).join('\n')
+    if (!confirm(`Todas las líneas de caja ya tienen su conteo:\n\n${resumen}\n\n¿Aprobar la partida?`)) return
+  } else {
+    const { error: insErr } = await sb.from('conteo_billetes').insert(nuevos)
+    if (insErr) { toast('⚠️ Error guardando conteo de billetes: ' + insErr.message, 'error'); return }
+  }
+
+  const { error } = await sb.from('partidas_contables').update({
+    estado: 'aprobada', aprobada_at: new Date().toISOString(), aprobada_por: currentProfile.id
+  }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast('Entrega aprobada y contabilizada ✓', 'success')
+  loadCaja()
 }
 
 window.rechazarCaja = async (id) => {
