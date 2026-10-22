@@ -4839,11 +4839,15 @@ window.aprobarCaja = async (id) => {
 
       // Guardar conteo de billetes (borrar anterior si existe)
       const tipoConteo = partida?.caja_tipo === 'ingreso' ? 'ingreso' : 'egreso'
-      await sb.from('conteo_billetes').delete().eq('partida_id', id)
       // La cuenta de caja TIENE que quedar grabada. Sin ella el conteo no se puede
       // volver a emparejar con su línea al editar la partida, y se pierde.
       const _lineaCaja = (partida?.caja_lineas || [])
         .find(l => (l.tipo === 'debito' ? 'ingreso' : 'egreso') === tipoConteo)
+      // Solo se reemplaza el conteo de ESTA caja: una partida que también mueve Caja Chica
+      // (un traslado) conserva el conteo de la otra caja. Antes se borraban todos.
+      let _delQ = sb.from('conteo_billetes').delete().eq('partida_id', id).eq('tipo', tipoConteo)
+      if (_lineaCaja?.cuenta_codigo) _delQ = _delQ.or(`cuenta_codigo.eq.${_lineaCaja.cuenta_codigo},cuenta_codigo.is.null`)
+      await _delQ
       const conteoBilletes = {
         partida_id: id,
         tipo: tipoConteo,
@@ -11935,7 +11939,10 @@ window.aprobarMovCajaChica = async (partidaId) => {
 
       // Guardar conteo de billetes
       const tipoConteo = esIngreso ? 'ingreso' : 'egreso'
-      await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+      // Solo el conteo de Caja Chica: si la partida también mueve Caja General (traslado),
+      // el conteo de esa caja se conserva. Antes se borraban todos los de la partida.
+      await sb.from('conteo_billetes').delete().eq('partida_id', partidaId).eq('tipo', tipoConteo)
+        .or(`cuenta_codigo.eq.${CUENTA_CAJA_CHICA},cuenta_codigo.is.null`)
       const conteoBilletes = {
         partida_id: partidaId,
         tipo: tipoConteo,
