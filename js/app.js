@@ -4946,15 +4946,15 @@ async function loadAprobaciones() {
           const esAnulacion = p.estado === 'pendiente_anulacion'
           const modificador = p.modificador?.nombre || p.generador?.nombre || '—'
           const fechaMod = p.modificada_at ? new Date(p.modificada_at).toLocaleDateString('es-HN') + ' ' + new Date(p.modificada_at).toLocaleTimeString('es-HN', {hour:'2-digit',minute:'2-digit'}) : '—'
-          return `<tr>
-            <td class="mono" style="color:var(--gold);cursor:pointer" onclick="editarPartida('${p.id}')">${p.numero_partida || '—'}</td>
+          return `<tr style="cursor:pointer" onclick="verPartidaAprobacion('${p.id}')" title="Ver la partida">
+            <td class="mono" style="color:var(--gold)">${p.numero_partida || '—'}</td>
             <td class="mono" style="font-size:12px">${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</td>
             <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.descripcion}</td>
             <td class="mono" style="font-weight:500">L. ${fmt(p.total)}</td>
             <td style="font-size:12px;color:var(--amber)">${modificador}</td>
             <td style="font-size:11px;color:var(--text3)">${fechaMod}</td>
             <td><span class="badge ${esAnulacion ? 'badge-red' : 'badge-amber'}">${esAnulacion ? '⚠ Anulación' : 'Modificada'}</span></td>
-            <td style="display:flex;gap:6px">
+            <td style="display:flex;gap:6px" onclick="event.stopPropagation()">
               <button class="btn btn-ghost" onclick="aprobarPartidaPendiente('${p.id}')" style="padding:4px 10px;font-size:11px;color:var(--green);border-color:var(--green)">${esAnulacion ? '✓ Anular' : '✓ Aprobar'}</button>
               <button class="btn btn-ghost" onclick="rechazarPartidaPendiente('${p.id}')" style="padding:4px 10px;font-size:11px;color:var(--red);border-color:var(--red)">✕ Rechazar</button>
             </td>
@@ -4962,6 +4962,83 @@ async function loadAprobaciones() {
         }).join('')}
         </tbody>
       </table>
+    </div>`
+}
+
+// Detalle de una partida pendiente: cuentas, centros, montos y adjuntos, con las
+// mismas acciones de la lista (aprobar/anular, rechazar) más abrirla en el editor.
+window.verPartidaAprobacion = async (id) => {
+  document.getElementById('modal-ver-aprob')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'modal-ver-aprob'
+  ov.className = 'modal-backdrop open'
+  ov.innerHTML = '<div class="modal" style="width:min(1000px,96vw);max-width:96vw"><div style="text-align:center;padding:30px"><div class="spinner"></div></div></div>'
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove() })
+  document.body.appendChild(ov)
+
+  const [{ data: p, error }, { data: lineas }, { data: centros }] = await Promise.all([
+    sb.from('partidas_contables')
+      .select('*, modificador:usuarios!modificada_por(nombre), generador:usuarios!generada_por(nombre)').eq('id', id).single(),
+    sb.from('lineas_partida').select('*').eq('partida_id', id).order('id'),
+    sb.from('centros_costo').select('id, nombre')
+  ])
+  if (error || !p) { ov.remove(); toast('No se pudo cargar la partida', 'error'); return }
+  const fmt = (v) => parseFloat(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  const cc = Object.fromEntries((centros || []).map(c => [c.id, c.nombre]))
+  const ls = (lineas || []).slice().sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'debito' ? -1 : 1))
+  const totD = ls.filter(l => l.tipo === 'debito').reduce((a, l) => a + (+l.monto || 0), 0)
+  const totC = ls.filter(l => l.tipo === 'credito').reduce((a, l) => a + (+l.monto || 0), 0)
+  const cuadra = Math.abs(totD - totC) < 0.01
+  const esAnulacion = p.estado === 'pendiente_anulacion'
+
+  // Adjuntos (rutas en el bucket de facturas, separadas por coma)
+  let adjuntos = ''
+  const paths = String(p.adjunto_url || '').split(',').map(x => x.trim()).filter(Boolean)
+  if (paths.length) {
+    const links = []
+    for (let i = 0; i < paths.length; i++) {
+      const { data: su } = await sb.storage.from('facturas-compras').createSignedUrl(paths[i], 3600)
+      if (su?.signedUrl) links.push(`<a href="${su.signedUrl}" target="_blank" style="color:var(--blue);font-size:12px">📷 Adjunto ${i + 1}</a>`)
+    }
+    adjuntos = links.join(' · ')
+  }
+
+  const modif = p.modificador?.nombre || p.generador?.nombre || '—'
+  const fechaMod = p.modificada_at ? new Date(p.modificada_at).toLocaleString('es-HN') : '—'
+  ov.querySelector('.modal').innerHTML = `
+    <div class="modal-title">Partida #${p.numero_partida || '—'} · ${esAnulacion ? '<span class="badge badge-red">⚠ Pend. anulación</span>' : '<span class="badge badge-amber">Modificada</span>'}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px 16px;font-size:13px;margin-bottom:12px">
+      <div><span style="color:var(--text3)">Fecha:</span> ${new Date(p.fecha_partida + 'T12:00:00').toLocaleDateString('es-HN')}</div>
+      <div><span style="color:var(--text3)">Origen:</span> ${esc(p.tipo_origen || '—')}</div>
+      <div><span style="color:var(--text3)">Documento:</span> <span class="mono">${esc(p.numero_documento || '—')}</span></div>
+      <div><span style="color:var(--text3)">Modificada por:</span> <span style="color:var(--amber)">${esc(modif)}</span> · ${fechaMod}</div>
+    </div>
+    <div style="font-size:13px;margin-bottom:10px">${esc(p.descripcion || '')}</div>
+    ${adjuntos ? `<div style="margin-bottom:10px">${adjuntos}</div>` : ''}
+    <div class="table-wrap" style="max-height:52vh;overflow:auto">
+      <table>
+        <thead><tr><th>Cuenta</th><th>Centro</th><th>Descripción</th><th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th>Fiscal</th></tr></thead>
+        <tbody>${ls.map(l => `<tr>
+          <td><span class="mono" style="color:var(--gold)">${esc(l.cuenta_codigo || '—')}</span> <span style="font-size:12px">${esc(l.cuenta_nombre || '')}</span></td>
+          <td style="font-size:12px">${esc(cc[l.centro_costo_id] || '—')}</td>
+          <td style="font-size:12px;max-width:260px">${esc(l.descripcion || '')}</td>
+          <td class="mono" style="text-align:right">${l.tipo === 'debito' ? fmt(l.monto) : ''}</td>
+          <td class="mono" style="text-align:right">${l.tipo === 'credito' ? fmt(l.monto) : ''}</td>
+          <td style="text-align:center">${l.aplica_fiscal ? '✓' : ''}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr style="font-weight:600">
+          <td colspan="3" style="text-align:right">${cuadra ? '<span style="color:var(--green)">Cuadrada ✓</span>' : `<span style="color:var(--red)">DESCUADRADA por L. ${fmt(Math.abs(totD - totC))}</span>`} · TOTALES</td>
+          <td class="mono" style="text-align:right">${fmt(totD)}</td><td class="mono" style="text-align:right">${fmt(totC)}</td><td></td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <div class="modal-actions" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-ver-aprob').remove()">Cerrar</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('modal-ver-aprob').remove();editarPartida('${p.id}')">✎ Abrir en el editor</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" onclick="document.getElementById('modal-ver-aprob').remove();rechazarPartidaPendiente('${p.id}')">✕ Rechazar</button>
+      <button class="btn btn-gold" ${!cuadra && !esAnulacion ? 'disabled title="La partida no cuadra"' : ''} onclick="document.getElementById('modal-ver-aprob').remove();aprobarPartidaPendiente('${p.id}')">${esAnulacion ? '✓ Anular' : '✓ Aprobar'}</button>
     </div>`
 }
 
