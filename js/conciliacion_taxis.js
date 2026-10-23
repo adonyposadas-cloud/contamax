@@ -542,10 +542,23 @@
       })
       movs.forEach((m, i) => { m.idx = i })
 
-      // ── Referencias ya vistas · una consulta por cuenta ──
+      // ── Referencias ya conciliadas · una consulta por cuenta ──
+      // Se omite un depósito solo si su referencia YA SE CONCILIÓ antes, nunca
+      // por haberla visto antes. La diferencia costó plata: el 21/10 BAC mandó
+      // un depósito de Ernesto Osorto sin nombre ("TEF A : 758824341", la cuenta
+      // de destino en lugar del remitente), quedó sin cruzar esperando saber de
+      // quién era, y al día siguiente el banco lo reenvió YA CON EL NOMBRE. Como
+      // la referencia estaba "vista", la pantalla lo descartó por repetido — y
+      // los omitidos salen del cruce, así que tampoco se podía emparejar a mano:
+      // el depósito desaparecía. El caso que más necesita volver a aparecer era
+      // justo el que el filtro mataba.
+      // Lo conciliado sigue atrapando los reenvíos de verdad, y los atrapa mejor,
+      // porque tx_refs_conciliadas guarda también los emparejamientos manuales.
+      // tx_extracto_refs se sigue llenando: es el historial de lo que mandó el
+      // banco, y ahí se ve con qué descripción lo mandó cada día.
       // Las RPC trabajan por banco, así que se llaman una vez por cuenta y los
       // resultados se guardan con la cuenta en la llave. Así cada cuenta
-      // conserva su propio historial de re-envíos sin contaminar a las otras.
+      // conserva su propio historial sin contaminar a las otras.
       try {
         const seen = {}, seenSolo = {}
         const marcar = (destino, referencia, monto, info) => {
@@ -560,10 +573,6 @@
           try {
             const payload = propios.map(m => ({ ref: m.ref, monto: m.monto, desc: m.desc }))
             if (payload.length) await csb().rpc('tx_refs_guardar', { p_banco: a.destino, p_fecha: a.fechaBanco || ctxFecha, p_refs: payload })
-          } catch (e) {}
-          try {
-            const { data: prev } = await csb().rpc('tx_refs_previas', { p_banco: a.destino, p_fecha: a.fechaBanco || ctxFecha, p_dias: DIAS_DUP })
-            ;(Array.isArray(prev) ? prev : []).forEach(x => marcar(a.destino, x.referencia, x.monto, { tipo: 'reenvio', fecha: x.fecha }))
           } catch (e) {}
           try {
             const { data: conc } = await csb().rpc('tx_refs_conciliadas_previas', { p_banco: a.destino, p_fecha_entregas: ctxFecha, p_dias: DIAS_DUP })
@@ -863,9 +872,7 @@
     const dupRows = dups.map(mv => {
       const tag = mv.dupTipo === 'igual'
         ? 'repetido en el extracto'
-        : mv.dupTipo === 'conciliado'
-          ? `ya conciliado el ${mv.dupFecha || '—'}`
-          : `ya visto el ${mv.dupFecha || '—'}`
+        : `ya conciliado el ${mv.dupFecha || '—'}`
       return `<div class="ctx-row dup">
         <div class="ctx-row-l">${mv.desc || '(sin descripción)'} · ${fmt(mv.monto)} ${mv.ref ? `<span class="ctx-ref">Ref: ${mv.ref}</span>` : ''}</div>
         <div class="ctx-row-r"><span class="ctx-dup-tag">${tag}</span></div>
@@ -873,7 +880,7 @@
     }).join('')
     const cDup = dups.length
       ? `<div class="ctx-grp"><div class="ctx-grp-t dup">♻️ Referencias omitidas (${dups.length})</div>
-          <div class="ctx-hint">Depósitos repetidos dentro del mismo extracto, o que ya se conciliaron en los últimos ${DIAS_DUP} días, o que el banco re-envió de días anteriores. Se comparan por referencia <b>y monto</b>, porque BAC reusa los números de transferencia.</div>
+          <div class="ctx-hint">Depósitos repetidos dentro del mismo extracto, o que ya se conciliaron en los últimos ${DIAS_DUP} días. Se comparan por referencia <b>y monto</b>, porque BAC reusa los números de transferencia. Lo que el banco reenvió y nadie concilió vuelve al cruce, no se esconde.</div>
           ${dupRows}</div>`
       : ''
 
