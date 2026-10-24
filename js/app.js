@@ -7897,6 +7897,24 @@ window.procesarImportCompras = async () => {
       return
     }
 
+    // Archivos intercambiados: el de órdenes en el recuadro de compras (o al revés).
+    // Se avisa claro en vez de "no trae facturas reconocibles".
+    if (unicaSheet && /rden/i.test(unicaSheet)) {
+      toast('Ese archivo es el REPORTE DE ÓRDENES: va en el segundo recuadro. En el primero va el de compras (compras-detalle…).', 'error')
+      btn.disabled = false; btn.textContent = 'Procesar reporte →'
+      return
+    }
+    if (icOrdenesFile) {
+      try {
+        const wbO = XLSX.read(await icOrdenesFile.arrayBuffer(), { type: 'array' })
+        if (!wbO.SheetNames.some(s => /rden/i.test(s)) && wbO.SheetNames.some(s => /compra/i.test(s))) {
+          toast('El archivo del segundo recuadro es de COMPRAS, no de órdenes. Revisá que no estén intercambiados.', 'error')
+          btn.disabled = false; btn.textContent = 'Procesar reporte →'
+          return
+        }
+      } catch (_) { /* si no se puede leer, lo valida el importador de órdenes */ }
+    }
+
     let credito, contado
     if (unicaSheet) {
       const todas = parseComprasSheet(wb, unicaSheet)
