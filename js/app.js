@@ -7727,6 +7727,9 @@ function parseComprasSheet(wb, sheetName) {
     const cedJuridica = String(row[4] || '').trim()
     const proveedor = String(row[5] || '').trim()
     const items = parseInt(row[6]) || 1
+    // Días plazo (col 8): el formato nuevo de Alpha trae contado y crédito en UNA sola hoja
+    // "Compras" y se separan por esto (0 = contado, > 0 = crédito).
+    const diasPlazo = parseInt(row[8]) || 0
     const subtotal = parseFloat(row[11]) || 0
     const descuento = parseFloat(row[12]) || 0
     const isv = parseFloat(row[13]) || 0
@@ -7775,6 +7778,7 @@ function parseComprasSheet(wb, sheetName) {
       ced_juridica: cedJuridica,
       proveedor,
       items,
+      dias_plazo: diasPlazo,
       subtotal: Math.round(subtotal * 100) / 100,
       descuento: Math.round(descuento * 100) / 100,
       isv: Math.round(isv * 100) / 100,
@@ -7882,14 +7886,32 @@ window.procesarImportCompras = async () => {
       || sheetNames.find(s => s.toLowerCase().includes('crédito'))
     const contadoSheet = sheetNames.find(s => s.toLowerCase().includes('contado'))
 
-    if (!creditoSheet && !contadoSheet) {
-      toast('No se encontraron hojas "Compras Crédito" ni "Compras Contado" en el archivo', 'error')
+    // Formato nuevo (desde 23/10/2026): una sola hoja "Compras" con contado y crédito juntos.
+    // Se separan por Días plazo: 0 = contado, más de 0 = crédito.
+    const unicaSheet = (!creditoSheet && !contadoSheet)
+      ? (sheetNames.find(s => s.toLowerCase().includes('compra')) || sheetNames[0]) : null
+
+    if (!creditoSheet && !contadoSheet && !unicaSheet) {
+      toast('No se encontró la hoja de compras en el archivo', 'error')
       btn.disabled = false; btn.textContent = 'Procesar reporte →'
       return
     }
 
-    const credito = creditoSheet ? parseComprasSheet(wb, creditoSheet) : []
-    const contado = contadoSheet ? parseComprasSheet(wb, contadoSheet) : []
+    let credito, contado
+    if (unicaSheet) {
+      const todas = parseComprasSheet(wb, unicaSheet)
+      credito = todas.filter(f => f.dias_plazo > 0)
+      contado = todas.filter(f => !(f.dias_plazo > 0))
+      if (!todas.length) {
+        toast(`La hoja "${unicaSheet}" no trae facturas reconocibles`, 'error')
+        btn.disabled = false; btn.textContent = 'Procesar reporte →'
+        return
+      }
+      toast(`Formato nuevo: ${credito.length} a crédito y ${contado.length} de contado (separadas por Días plazo)`, 'info')
+    } else {
+      credito = creditoSheet ? parseComprasSheet(wb, creditoSheet) : []
+      contado = contadoSheet ? parseComprasSheet(wb, contadoSheet) : []
+    }
 
     // Verificar duplicados contra partidas existentes en BD (crédito)
     const allNumsCredito = credito.map(f => f.no_factura).filter(n => n && n !== 'S/F')
