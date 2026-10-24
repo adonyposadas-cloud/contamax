@@ -4565,7 +4565,55 @@ window.filtrarCajaFecha = () => {
   renderCajaList(fechaSel)
 }
 
+// ── Buscador de texto de las cajas (General y Chica) ──
+// Busca en todo lo que muestra la tarjeta: descripción, número de partida, documento,
+// quién la registró/aprobó, descripción de cada línea y montos ("920", "920.00", "920,00").
+// Varias palabras = todas tienen que aparecer. Sin acentos ni mayúsculas.
+const _normBusq = (t) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+function _textoBusqueda(obj, prof = 0, acc = []) {
+  if (obj == null || prof > 3) return acc
+  if (typeof obj === 'number') {
+    acc.push(String(obj), obj.toFixed(2), obj.toLocaleString('es-HN', { minimumFractionDigits: 2 }))
+  } else if (typeof obj === 'string') {
+    acc.push(obj)
+    if (/^-?\d+(\.\d+)?$/.test(obj.trim())) { const n = parseFloat(obj); acc.push(n.toFixed(2), n.toLocaleString('es-HN', { minimumFractionDigits: 2 })) }
+  } else if (Array.isArray(obj)) {
+    obj.forEach(x => _textoBusqueda(x, prof + 1, acc))
+  } else if (typeof obj === 'object') {
+    for (const [k, v] of Object.entries(obj)) {
+      if (/(^id$|_id$|_at$|^den_|url)/.test(k)) continue   // ids, fechas técnicas, billetes, enlaces
+      _textoBusqueda(v, prof + 1, acc)
+    }
+  }
+  return acc
+}
+function _filtrarBusqueda(lista, q) {
+  const palabras = _normBusq(q).split(/\s+/).filter(Boolean)
+  if (!palabras.length) return lista
+  return lista.filter(x => { const t = _normBusq(_textoBusqueda(x).join(' ')); return palabras.every(p => t.includes(p)) })
+}
+function _montarBuscadorCaja(listaId, pref, onBuscar) {
+  if (document.getElementById(pref + '-buscar')) return
+  const lista = document.getElementById(listaId)
+  if (!lista) return
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin:0 0 12px'
+  wrap.innerHTML = `<input type="search" id="${pref}-buscar" placeholder="🔎 Buscar: descripción, # partida, documento, monto, quién la registró…"
+      style="flex:1;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+    <span id="${pref}-buscar-n" style="font-size:12px;color:var(--text3);white-space:nowrap"></span>`
+  lista.parentNode.insertBefore(wrap, lista)
+  let t = null
+  wrap.querySelector('input').addEventListener('input', () => { clearTimeout(t); t = setTimeout(onBuscar, 200) })
+}
+function _contadorBusqueda(pref, n) {
+  const el = document.getElementById(pref + '-buscar-n')
+  const q = document.getElementById(pref + '-buscar')?.value.trim()
+  if (el) el.textContent = q ? `${n} resultado${n === 1 ? '' : 's'}` : ''
+}
+
 function renderCajaList(fechaFiltro) {
+  _montarBuscadorCaja('lista-caja', 'cj', () => renderCajaList(document.getElementById('cj-fecha')?.value || null))
+  const qCj = document.getElementById('cj-buscar')?.value || ''
   const container = document.getElementById('lista-caja')
   let filtered = cajaPartidas
   if (filtroCajaActual !== 'todos') {
@@ -4574,6 +4622,7 @@ function renderCajaList(fechaFiltro) {
   if (fechaFiltro) {
     filtered = filtered.filter(p => p.fecha_partida === fechaFiltro)
   }
+  filtered = _filtrarBusqueda(filtered, qCj)
 
   if (!filtered.length) {
     const msgs = {
@@ -4593,6 +4642,8 @@ function renderCajaList(fechaFiltro) {
     ? cajaCambios.filter(c => !String(c.cuenta_codigo || '').startsWith('110101'))
     : []
   if (fechaFiltro) cambios = cambios.filter(c => c.fecha_partida === fechaFiltro)
+  cambios = _filtrarBusqueda(cambios, qCj)
+  _contadorBusqueda('cj', filtered.length + cambios.length)
 
   if (!filtered.length && !cambios.length) {
     const msgs = {
@@ -11841,6 +11892,8 @@ window.filtroCajaChica = (btn, filtro) => {
 }
 
 function renderCajaChicaList() {
+  _montarBuscadorCaja('lista-caja-chica', 'cc', () => renderCajaChicaList())
+  const qCc = document.getElementById('cc-buscar')?.value || ''
   const container = document.getElementById('lista-caja-chica')
   let data = allCCPartidas
   if (filtroCCActual !== 'todos') {
@@ -11857,6 +11910,9 @@ function renderCajaChicaList() {
     : []
   const fechaFiltroCC = document.getElementById('cc-fecha')?.value || null
   if (fechaFiltroCC) cambios = cambios.filter(c => c.fecha_partida === fechaFiltroCC)
+  data = _filtrarBusqueda(data, qCc)
+  cambios = _filtrarBusqueda(cambios, qCc)
+  _contadorBusqueda('cc', data.length + cambios.length)
 
   if (!data.length && !cambios.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No hay movimientos</div></div>'
