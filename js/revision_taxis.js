@@ -2855,6 +2855,8 @@ window.rtxWa = (tel, msgEnc) => {
 // ════════════════════════════════════════════════════════════
 let rtxKmFecha = ''
 let rtxKmData = []              // filas del día (tx_km_listar)
+let rtxKmCorr = {}              // correcciones manuales del día: unidad (sin ceros) → { km, km_gps, motivo, corregido_nombre }
+let rtxKmCorrUnidad = null      // unidad con el editor de corrección abierto
 let rtxKmSortCampo = 'unidad'   // 'unidad' | 'km' | 'usuario'
 let rtxKmSortDir = 'asc'        // 'asc' | 'desc'
 let rtxKmFUnidad = ''           // filtro de texto por unidad
@@ -3246,6 +3248,13 @@ async function rtxKmCargar() {
     if (error) throw error
     rtxKmData = Array.isArray(data) ? data : []
     rtxKmEditUnidad = null
+    rtxKmCorrUnidad = null
+    // Correcciones manuales del día (saltos del GPS). Si la función aún no existe, se sigue sin ellas.
+    rtxKmCorr = {}
+    try {
+      const { data: cs } = await rtxSb().rpc('tx_km_correcciones', { p_fecha: rtxKmFecha })
+      ;(cs || []).forEach(c => { rtxKmCorr[String(c.unidad).replace(/^0+/, '')] = c })
+    } catch (_) {}
     rtxKmRenderShell(false)
   } catch (e) {
     root.innerHTML = `<div style="color:var(--gold,#f0a500);padding:20px">Error: ${e.message || e}</div>`
@@ -3472,6 +3481,23 @@ function rtxKmRenderTabla() {
   const cuerpo = rows.map(r => {
     const km = parseFloat(r.km) || 0
     const noMarco = km < RTX_KM_NOMARCO
+    const corr = rtxKmCorr[String(r.unidad).replace(/^0+/, '')]
+    if (String(rtxKmCorrUnidad) === String(r.unidad)) {
+      return `<tr class="rtx-km-editrow"><td colspan="5">
+        <div class="rtx-km-edit">
+          <div class="rtx-km-edit-h"><b>Corregir km · Unidad ${escTxt(r.unidad)}</b> · el GPS reportó <b>${rtxFmt(corr ? corr.km_gps : km)} km</b>${corr ? ` · hoy corregido a ${rtxFmt(corr.km)} km` : ''}</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0">
+            <label style="font-size:12px">Km correcto del día</label>
+            <input type="number" id="rtx-km-corr-km" class="rtx-inp" step="0.01" min="0" style="width:140px" value="${corr ? corr.km : ''}" placeholder="0.00">
+          </div>
+          <textarea id="rtx-km-corr-motivo" class="rtx-inp" rows="2" placeholder="Motivo (obligatorio). Ej: salto del GPS a 918 km/h; recorrido real según los viajes de Ruhavik">${escTxt(corr ? corr.motivo : '')}</textarea>
+          <div class="rtx-km-edit-btns">
+            <button class="rtx-b ok" onclick="rtxKmCorregirGuardar('${escJ(r.unidad)}')">Guardar corrección</button>
+            ${corr ? `<button class="rtx-b ghost" onclick="rtxKmCorregirQuitar('${escJ(r.unidad)}')">Quitar corrección (volver al GPS)</button>` : ''}
+            <button class="rtx-b ghost" onclick="rtxKmCorregirCerrar()">Cancelar</button>
+          </div>
+        </div></td></tr>`
+    }
     if (String(rtxKmEditUnidad) === String(r.unidad)) {
       return `<tr class="rtx-km-editrow"><td colspan="5">
         <div class="rtx-km-edit">
@@ -3490,10 +3516,10 @@ function rtxKmRenderTabla() {
     const notaTxt = r.nota ? `<span class="rtx-km-nota">${escTxt(r.nota)}</span> ` : ''
     return `<tr class="${noMarco ? 'rtx-km-low' : ''}">
       <td><b>${escTxt(r.unidad)}</b></td>
-      <td class="rtx-km-kmcell">${rtxFmt(km)}</td>
+      <td class="rtx-km-kmcell">${rtxFmt(km)}${corr ? `<div style="font-size:11px;color:var(--gold,#f0a500)" title="${escTxt(corr.motivo)} · ${escTxt(corr.corregido_nombre || '')}">✎ corregido · GPS ${rtxFmt(corr.km_gps)}</div>` : ''}</td>
       <td>${r.usuario_gps ? escTxt(r.usuario_gps) : '<span style="color:var(--text2,#8b8f98)">—</span>'}</td>
       <td>${estado}</td>
-      <td>${notaTxt}<button class="rtx-b" onclick="rtxKmValidarAbrir('${escJ(r.unidad)}')">✏️ ${(r.validado || r.nota) ? 'Editar' : 'Validar'}</button></td>
+      <td>${notaTxt}<button class="rtx-b" onclick="rtxKmValidarAbrir('${escJ(r.unidad)}')">✏️ ${(r.validado || r.nota) ? 'Editar' : 'Validar'}</button>${(rtxEsSuper() && !rtxKmEsRango) ? ` <button class="rtx-b" onclick="rtxKmCorregirAbrir('${escJ(r.unidad)}')">🔧 ${corr ? 'Corrección' : 'Corregir km'}</button>` : ''}</td>
     </tr>`
   }).join('')
   body.innerHTML = `
@@ -3535,6 +3561,43 @@ window.rtxKmOrdenar = (campo) => {
 window.rtxKmLimpiar = () => {
   rtxKmFUnidad = ''; rtxKmFUsuario = ''; rtxKmOp = ''; rtxKmUmbral = ''
   rtxKmRenderShell(false)
+}
+
+// ── Corrección manual del km (solo Administración) ──
+// Para saltos del GPS (ej. 918 km/h). Se guarda aparte con el km original, el motivo y quién;
+// un disparador en la base la mantiene aunque se vuelva a importar el Excel de ese día.
+window.rtxKmCorregirAbrir = (unidad) => {
+  if (!rtxEsSuper()) { window.toast?.('Solo Administración puede corregir el km', 'error'); return }
+  rtxKmEditUnidad = null; rtxKmCorrUnidad = unidad; rtxKmRenderTabla()
+}
+window.rtxKmCorregirCerrar = () => { rtxKmCorrUnidad = null; rtxKmRenderTabla() }
+window.rtxKmCorregirGuardar = async (unidad) => {
+  const km = parseFloat(document.getElementById('rtx-km-corr-km')?.value)
+  const motivo = (document.getElementById('rtx-km-corr-motivo')?.value || '').trim()
+  if (!(km >= 0)) { window.toast?.('Escribí el km correcto', 'error'); return }
+  if (motivo.length < 5) { window.toast?.('Escribí el motivo de la corrección', 'error'); return }
+  try {
+    const { data, error } = await rtxSb().rpc('tx_km_corregir', { p_fecha: rtxKmFecha, p_unidad: String(unidad), p_km: km, p_motivo: motivo })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo corregir', 'error'); return }
+    rtxLog('km_corregido', `Unidad ${unidad} · ${rtxKmFecha}: ${data.km_gps} → ${km} km · ${motivo}`, null)
+    window.toast?.(`Km corregido: ${rtxFmt(data.km_gps)} → ${rtxFmt(km)}`, 'success')
+    rtxKmCargar()
+  } catch (e) {
+    const m = String(e.message || e)
+    window.toast?.(/tx_km_corregir/.test(m) ? 'Falta correr sql/km_correcciones.sql en Supabase' : 'Error: ' + m, 'error')
+  }
+}
+window.rtxKmCorregirQuitar = async (unidad) => {
+  if (!confirm(`¿Quitar la corrección de la unidad ${unidad} y volver al km del GPS?`)) return
+  try {
+    const { data, error } = await rtxSb().rpc('tx_km_quitar_correccion', { p_fecha: rtxKmFecha, p_unidad: String(unidad) })
+    if (error) throw error
+    if (!data?.ok) { window.toast?.(data?.error || 'No se pudo', 'error'); return }
+    rtxLog('km_correccion_quitada', `Unidad ${unidad} · ${rtxKmFecha}: vuelve a ${data.km_gps} km del GPS`, null)
+    window.toast?.('Corrección quitada', 'success')
+    rtxKmCargar()
+  } catch (e) { window.toast?.('Error: ' + (e.message || e), 'error') }
 }
 
 // ── Validación inline (clave: fecha actual + unidad) ──
