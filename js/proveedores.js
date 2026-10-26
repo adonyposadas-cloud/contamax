@@ -210,7 +210,17 @@ function pvAbrirCai(provId, caiId) {
   document.getElementById('pv-cai-fecha').value = c?.fecha_limite || ''
   document.getElementById('pv-cai-sucursal').value = c?.sucursal || ''
   document.getElementById('pv-cai-activo').checked = c ? (c.activo !== false) : true
+  // RTN del proveedor para el validador del SAR (se copia con un clic)
+  const rtnSar = document.getElementById('pv-cai-sar-rtn')
+  if (rtnSar) rtnSar.textContent = (prov?.rtn || '').replace(/\D/g, '') || '— el proveedor no tiene RTN cargado —'
   document.getElementById('modal-proveedor-cai').classList.add('open')
+}
+
+window.pvCopiarRtnSar = async () => {
+  const t = (document.getElementById('pv-cai-sar-rtn')?.textContent || '').replace(/\D/g, '')
+  if (!t) { window.toast?.('El proveedor no tiene RTN: cargalo primero', 'error'); return }
+  try { await navigator.clipboard.writeText(t); window.toast?.('RTN copiado', 'success') }
+  catch (_) { window.toast?.('No se pudo copiar; seleccionalo a mano', 'error') }
 }
 
 window.pvGuardarCai = async () => {

@@ -2449,6 +2449,13 @@
 <div class="modal-backdrop" id="modal-proveedor-cai">
   <div class="modal" style="width:480px">
     <div class="modal-title"><span id="pv-cai-modal-title">Nuevo rango</span></div>
+    <div style="background:rgba(59,130,246,.10);border-left:3px solid var(--blue);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.5;color:var(--text2)">
+      <b style="color:var(--blue)">Verificá el rango en el SAR antes de guardar</b> — una vez guardado no se vuelve a tocar.<br>
+      1. Abrí el <a href="https://oficinavirtual.sar.gob.hn/fac/validador-doc-fiscales/" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600">Validador de documentos fiscales del SAR ↗</a><br>
+      2. RTN del emisor: <b id="pv-cai-sar-rtn" style="font-family:var(--mono)">—</b> <button type="button" class="btn btn-ghost" style="padding:1px 8px;font-size:11px" onclick="pvCopiarRtnSar()">Copiar</button><br>
+      3. Número y fecha de <b>una factura real</b> de este rango, y el código de la imagen.<br>
+      4. En "CAI coincidentes" compará el <b>CAI</b>, el <b>rango</b> y la <b>fecha límite</b> con lo que escribís aquí. Si algo no coincide, no guardes.
+    </div>
     <div class="form-grid" style="gap:12px">
       <div class="fld col-full"><label>CAI</label><input type="text" id="pv-cai-cai" placeholder="Clave de Autorización de Impresión"></div>
       <div class="fld col-full"><label>Prefijo (NNN-NNN-NN)</label><input type="text" id="pv-cai-prefijo" placeholder="000-001-01"></div>
@@ -3856,7 +3863,7 @@
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
-<script defer src="js/proveedores.js?v=20260921t"></script>
+<script defer src="js/proveedores.js?v=20261026a"></script>
 <script defer src="js/verif_compras.js?v=20260921t"></script>
 <script defer src="js/rangos_ventas.js?v=20260921t"></script>
 <script defer src="js/solicitudes.js?v=20260921t"></script>
