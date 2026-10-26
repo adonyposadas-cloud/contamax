@@ -49,13 +49,13 @@ create trigger trg_km_aplicar_correccion
 
 create or replace function public._km_es_admin() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from usuarios where id = auth.uid() and rol in ('super_admin', 'admin'));
+  select exists (select 1 from usuarios where auth_user_id = auth.uid() and rol in ('super_admin', 'admin'));
 $$;
 
 -- Corregir (o volver a corregir) el km de una unidad en un día
 create or replace function public.tx_km_corregir(p_fecha date, p_unidad text, p_km numeric, p_motivo text)
 returns jsonb language plpgsql security definer set search_path = public as $$
-declare v_u text := ltrim(trim(p_unidad), '0'); v_gps numeric; v_nombre text; n int;
+declare v_u text := ltrim(trim(p_unidad), '0'); v_gps numeric; v_nombre text; v_uid uuid; n int;
 begin
   if not _km_es_admin() then return jsonb_build_object('ok', false, 'error', 'Solo Administración puede corregir el km'); end if;
   if p_km is null or p_km < 0 then return jsonb_build_object('ok', false, 'error', 'Km inválido'); end if;
@@ -69,9 +69,9 @@ begin
   end if;
   if v_gps is null then return jsonb_build_object('ok', false, 'error', 'No hay km del GPS para esa unidad y fecha'); end if;
 
-  select nombre into v_nombre from usuarios where id = auth.uid();
+  select id, nombre into v_uid, v_nombre from usuarios where auth_user_id = auth.uid();
   insert into km_correcciones (fecha, unidad, km, km_gps, motivo, corregido_por, corregido_nombre, corregido_at)
-  values (p_fecha, v_u, p_km, v_gps, trim(p_motivo), auth.uid(), v_nombre, now())
+  values (p_fecha, v_u, p_km, v_gps, trim(p_motivo), v_uid, v_nombre, now())
   on conflict (fecha, unidad) do update set
     km = excluded.km, motivo = excluded.motivo, corregido_por = excluded.corregido_por,
     corregido_nombre = excluded.corregido_nombre, corregido_at = now();
