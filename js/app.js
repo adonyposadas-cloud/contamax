@@ -5579,7 +5579,7 @@ function parseAlphaExcel(arrayBuffer) {
   else { tipo = 'desconocido'; centro = empresaRaw || '?' }
 
   // Parsear hoja Contado (primera hoja)
-  const facturasContado = parseSheet(ws)
+  let facturasContado = parseSheet(ws)
 
   // ── Leer hoja Crédito si existe ──
   let facturasCredito = []
@@ -5587,6 +5587,14 @@ function parseAlphaExcel(arrayBuffer) {
   if (creditoSheetName) {
     facturasCredito = parseSheet(wb.Sheets[creditoSheetName])
     facturasCredito.forEach(f => f.tipo_venta = 'Crédito')
+  } else {
+    // Formato nuevo de Alpha (desde 22/10/2026): una sola hoja "Reporte de ventas" con contado
+    // y crédito juntos. Se separan por la columna "Tipo de Venta". Sin esto, la venta a crédito
+    // (ej. Inversiones Beta 000-002-01-00094596) entraba como contado: sin CxC y sumada a caja.
+    const esCredito = (f) => /cr[eé]d/i.test(String(f.tipo_venta || ''))
+    facturasCredito = facturasContado.filter(esCredito)
+    facturasCredito.forEach(f => f.tipo_venta = 'Crédito')
+    facturasContado = facturasContado.filter(f => !esCredito(f))
   }
 
   // ── Hoja Depósitos (cuenta puente) · solo la trae el reporte nuevo de Yonker ──
@@ -6187,6 +6195,25 @@ function lineasNotasCredito(d) {
   return { lineas: out, bajaCaja: r2(bajaCaja), resumen }
 }
 
+// Cuenta por cobrar (110201-*) del cliente de una venta a crédito. El nombre del reporte
+// ("INVERSIONES BETA, S DE R.L") casi nunca es igual al de la cuenta: se comparan sin
+// puntuación, acentos ni la forma societaria, y en las dos direcciones.
+function _normCliente(t) {
+  return String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,;:()\-\/]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b(S DE R ?L|S A DE C ?V|S ?A|CXC|CUENTAS? POR COBRAR|CLIENTE)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim()
+}
+function buscarCuentaCxC(clienteNombre) {
+  const cli = _normCliente(clienteNombre)
+  if (!cli) return null
+  const cands = cuentasDetalle.filter(c => String(c.codigo).startsWith('110201-'))
+  return cands.find(c => String(c.nombre).toUpperCase().includes(String(clienteNombre).toUpperCase().trim()))
+    || cands.find(c => { const n = _normCliente(c.nombre); return n && ((cli.length >= 5 && n.includes(cli)) || (n.length >= 6 && cli.includes(n))) })
+    || null
+}
+
 function renderImportPartida() {
   const d = importData
   const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
@@ -6290,7 +6317,7 @@ function renderImportPartida() {
   // DÉBITO — Cuentas por cobrar (facturas a crédito de Tecnicentro, por cliente)
   for (const fc of creditosNoYonker) {
     const clienteNombre = fc.cliente.trim().toUpperCase()
-    const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
+    const cxcCuenta = buscarCuentaCxC(clienteNombre)
     lineas.push({
       codigo: cxcCuenta ? cxcCuenta.codigo : '110201-???',
       nombre: cxcCuenta ? cxcCuenta.nombre : `CxC ${clienteNombre} (cuenta no encontrada)`,
@@ -6454,7 +6481,7 @@ window.guardarImportPartida = async () => {
   // Tecnicentro: una línea por cliente contra su subcuenta.
   for (const fc of facturasCredito.filter(f => !esYonkerCC(f.centro))) {
     const clienteNombre = fc.cliente.trim().toUpperCase()
-    const cxcCuenta = cuentasDetalle.find(c => c.codigo.startsWith('110201-') && c.nombre.toUpperCase().includes(clienteNombre))
+    const cxcCuenta = buscarCuentaCxC(clienteNombre)
     if (cxcCuenta) {
       lineaCounter++
       partidaLineas.push({
