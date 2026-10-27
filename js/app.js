@@ -1626,7 +1626,7 @@ window.guardarCompra = async () => {
 
 // ── PENDIENTES ──
 let pendientesData = []
-let pendientesPartidaMap = {}   // numero_factura(UPPER) -> [numero_partida,...]
+let pendientesPartidaMap = {}   // factura.id -> { nums:[numero_partida,...], anulada:bool }
 
 async function loadPendientes() {
   const container = document.getElementById('lista-pendientes')
@@ -1641,14 +1641,38 @@ async function loadPendientes() {
   const { data, error } = await query
   if (error) { container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`; return }
   pendientesData = data || []
-  // Cruzar factura -> partida por numero_documento (la partida guarda el N° de factura como documento)
+  // Factura -> partida. Lo correcto es el vínculo guardado (partida_id), que se
+  // escribe al crear la partida. Para las facturas viejas que no lo traen se
+  // cruza por el texto del documento, y ahí hay que medir: una sola partida es
+  // una respuesta; dos o tres se muestran pero marcadas "sin confirmar", porque
+  // a veces son el duplicado que uno anda buscando; de cuatro para arriba no se
+  // muestra nada. Hay cientos de partidas guardadas con frases genéricas
+  // ("COMPROBANTE DE EGRESO" y parecidas) en numero_documento: listar 128 no
+  // informa, estorba.
   try {
     pendientesPartidaMap = {}
-    const docs = [...new Set(pendientesData.filter(f => f.estado === 'procesada' && f.numero_factura).map(f => String(f.numero_factura).toUpperCase()))]
+    const procesadas = pendientesData.filter(f => f.estado === 'procesada')
+
+    const ids = [...new Set(procesadas.map(f => f.partida_id).filter(Boolean))]
+    const porId = {}
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data: ps } = await sb.from('partidas_contables').select('id, numero_partida, estado').in('id', ids.slice(i, i + 200))
+      ;(ps || []).forEach(p => { porId[p.id] = p })
+    }
+
+    const docs = [...new Set(procesadas.filter(f => !f.partida_id && f.numero_factura).map(f => String(f.numero_factura).trim().toUpperCase()))]
+    const porDoc = {}
     for (let i = 0; i < docs.length; i += 200) {
       const { data: parts } = await sb.from('partidas_contables').select('numero_partida, numero_documento').in('numero_documento', docs.slice(i, i + 200))
-      ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').toUpperCase(); if (k && p.numero_partida) (pendientesPartidaMap[k] = pendientesPartidaMap[k] || []).push(p.numero_partida) })
+      ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').trim().toUpperCase(); if (k && p.numero_partida) (porDoc[k] = porDoc[k] || []).push(p.numero_partida) })
     }
+
+    procesadas.forEach(f => {
+      const p = f.partida_id ? porId[f.partida_id] : null
+      if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], anulada: p.estado === 'anulada', dudoso: false }; return }
+      const hit = porDoc[String(f.numero_factura || '').trim().toUpperCase()]
+      if (hit && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit, anulada: false, dudoso: hit.length > 1 }
+    })
   } catch (e) { pendientesPartidaMap = {} }
   filtrarPendientes()
 }
@@ -1713,13 +1737,20 @@ window.filtrarPendientes = () => {
       if (m) provNombre = m[1]
     }
 
+    const pm = pendientesPartidaMap[f.id]
+    const pmColor = pm?.anulada ? 'red' : pm?.dudoso ? 'amber' : 'gold'
+    const pmNota = pm?.anulada ? ' (anulada)' : pm?.dudoso ? ' (sin confirmar · mismo documento)' : ''
+    const partidaTxt = pm
+      ? ` · <b style="color:var(--${pmColor})">Partida #${pm.nums.join(', #')}${pmNota}</b>`
+      : ''
+
     return `
     <div class="pending-item ${statusClass}" ${clickablePartida ? `onclick="${clickAction}" style="cursor:pointer"` : ''}>
       <div class="pi-left">
         <div class="pi-dot ${statusClass}"></div>
         <div>
           <div class="pi-info">${provNombre || 'Sin proveedor'} · Fact. ${f.numero_factura}${f.descripcion_compra ? ' · ' + f.descripcion_compra : ''}${f.centro_costo?.nombre ? ' · ' + f.centro_costo.nombre : ''}</div>
-          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}${(f.estado === 'procesada' && pendientesPartidaMap[String(f.numero_factura||'').toUpperCase()]) ? ' · <b style="color:var(--gold)">Partida #' + pendientesPartidaMap[String(f.numero_factura||'').toUpperCase()].join(', #') + '</b>' : ''}</div>
+          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}${partidaTxt}</div>
         </div>
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
@@ -3975,7 +4006,18 @@ window.guardarPartida = async (estado) => {
   // Si vino de una factura de contado importada, marcarla como procesada
   let volverAPendientes = false
   if (window._facturaContadoId) {
-    await sb.from('facturas_compras').update({ estado: 'procesada' }).eq('id', window._facturaContadoId)
+    // Se guarda CUÁL partida fue. Antes solo se marcaba 'procesada' y el vínculo
+    // había que adivinarlo después cruzando el texto del documento, que falla
+    // cuando el "número de factura" es una frase como "Comprobante de egreso".
+    const upd = { estado: 'procesada' }
+    if (partidaId) upd.partida_id = partidaId
+    const { error: fcErr } = await sb.from('facturas_compras').update(upd).eq('id', window._facturaContadoId)
+    // Si la columna partida_id todavía no existe en la base, al menos que la
+    // factura no se quede como pendiente para siempre.
+    if (fcErr) {
+      console.error('[factura->partida]', fcErr.message)
+      await sb.from('facturas_compras').update({ estado: 'procesada' }).eq('id', window._facturaContadoId)
+    }
     window._facturaContadoId = null
     volverAPendientes = true
   }
@@ -7948,6 +7990,15 @@ window.resetImportCompras = () => {
   document.getElementById('ic-step1')?.classList.remove('hidden')
 }
 
+// Llave única de una compra del reporte de Alpha. Es la MISMA al guardar y al
+// buscar si ya entró; si las dos no coinciden, la compra se reimporta todos
+// los días y nadie se entera. Las que vienen sin factura se identifican por su
+// consecutivo, que el reporte sí trae.
+function claveFacturaImport(f) {
+  if (f?.no_factura && f.no_factura !== 'S/F') return f.no_factura
+  return f?.no_consecutivo ? `SF-${f.no_consecutivo}` : null
+}
+
 window.procesarImportCompras = async () => {
   if (!icFile) { toast('Selecciona un archivo XLS', 'error'); return }
   const btn = document.getElementById('btn-procesar-compras')
@@ -8009,25 +8060,29 @@ window.procesarImportCompras = async () => {
       contado = contadoSheet ? parseComprasSheet(wb, contadoSheet) : []
     }
 
-    // Verificar duplicados contra partidas existentes en BD (crédito)
-    const allNumsCredito = credito.map(f => f.no_factura).filter(n => n && n !== 'S/F')
-    if (allNumsCredito.length) {
-      const { data: existentes } = await sb.from('partidas_contables')
-        .select('numero_documento')
-        .in('numero_documento', allNumsCredito)
-      const existSet = new Set((existentes || []).map(e => e.numero_documento))
-      credito.forEach(f => { if (existSet.has(f.no_factura)) f.duplicada = true })
+    // Busca en tandas: todos los números en una sola URL se pasa de largo con
+    // reportes grandes, y el error venía sin revisarse. Si la verificación no
+    // se puede hacer, esto tira — importar sin saber qué está repetido es lo
+    // que metió 50 facturas de sobra sin que nadie se enterara.
+    const yaExisten = async (tabla, columna, claves) => {
+      const set = new Set()
+      const unicas = [...new Set(claves.filter(Boolean))]
+      for (let i = 0; i < unicas.length; i += 200) {
+        const { data, error } = await sb.from(tabla).select(columna).in(columna, unicas.slice(i, i + 200))
+        if (error) throw new Error(`No se pudo verificar duplicados en ${tabla}: ${error.message}`)
+        ;(data || []).forEach(r => { if (r[columna]) set.add(String(r[columna])) })
+      }
+      return set
     }
 
-    // Verificar duplicados contra facturas_compras (contado)
-    const allNumsContado = contado.map(f => f.no_factura).filter(n => n && n !== 'S/F')
-    if (allNumsContado.length) {
-      const { data: existentes2 } = await sb.from('facturas_compras')
-        .select('numero_factura')
-        .in('numero_factura', allNumsContado)
-      const existSet2 = new Set((existentes2 || []).map(e => e.numero_factura))
-      contado.forEach(f => { if (existSet2.has(f.no_factura)) f.duplicada = true })
-    }
+    // Crédito: la compra se vuelve partida, así que el rastro queda en el
+    // documento de la partida.
+    const yaEnPartidas = await yaExisten('partidas_contables', 'numero_documento', credito.map(claveFacturaImport))
+    credito.forEach(f => { const k = claveFacturaImport(f); if (k && yaEnPartidas.has(k)) f.duplicada = true })
+
+    // Contado: la compra queda como factura pendiente, el rastro está ahí.
+    const yaEnFacturas = await yaExisten('facturas_compras', 'numero_factura', contado.map(claveFacturaImport))
+    contado.forEach(f => { const k = claveFacturaImport(f); if (k && yaEnFacturas.has(k)) f.duplicada = true })
 
     icData = { credito, contado }
     renderImportComprasResults()
@@ -8035,6 +8090,13 @@ window.procesarImportCompras = async () => {
   } catch (err) {
     toast('Error al procesar: ' + err.message, 'error')
     console.error(err)
+    // Que no quede nada de una lectura anterior listo para guardarse: si el
+    // reporte no se pudo leer o no se pudo verificar qué está repetido, no hay
+    // nada que importar.
+    icData = { credito: [], contado: [] }
+    ;['ic-step2','ic-step3','ic-step4','ic-step5','ic-step6'].forEach(id => {
+      document.getElementById(id)?.classList.add('hidden')
+    })
   }
 
   btn.disabled = false
@@ -8456,7 +8518,10 @@ window.guardarImportCompras = async () => {
       descripcion: descripcion,
       fecha_partida: fechaISO,
       numero_partida: numPartidaImp,
-      numero_documento: factura.no_factura !== 'S/F' ? factura.no_factura : null,
+      // Guardar la misma llave con la que después se busca si ya entró. Antes
+      // iba null cuando la compra venía sin factura, y una partida sin
+      // documento no la encuentra nadie: esa compra se reimportaba siempre.
+      numero_documento: claveFacturaImport(factura),
       estado: 'aprobada',
       total: Math.round(factura.total * 100) / 100,
     }).select().single()
@@ -8555,7 +8620,7 @@ window.guardarImportCompras = async () => {
     await sb.from('facturas_compras').insert({
       centro_costo_id: centroCostoId,
       registrado_por: currentProfile.id,
-      numero_factura: factura.no_factura !== 'S/F' ? factura.no_factura : `SF-${factura.no_consecutivo}`,
+      numero_factura: claveFacturaImport(factura),
       fecha_factura: fechaISO,
       tipo_gasto: 'repuestos',
       forma_pago: 'credito',
@@ -8580,7 +8645,7 @@ window.guardarImportCompras = async () => {
     const payload = {
       centro_costo_id: centroCostoId,
       registrado_por: currentProfile.id,
-      numero_factura: factura.no_factura !== 'S/F' ? factura.no_factura : `SF-${factura.no_consecutivo}`,
+      numero_factura: claveFacturaImport(factura),
       fecha_factura: fechaISO,
       tipo_gasto: 'repuestos',
       forma_pago: 'contado',
