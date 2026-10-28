@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v84-cxpmarcar'
+const CACHE_NAME = 'contamax-v93-cuadrecajeros'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

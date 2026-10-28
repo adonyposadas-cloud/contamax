@@ -982,6 +982,13 @@
           </div>
         </div>
 
+        <!-- Cuadre de cajeros: lo facturado contra lo entregado (js/cuadre_cajeros.js) -->
+        <div class="form-card hidden" id="import-step-cuadre">
+          <div class="form-card-title">🧾 Cuadre de cajeros · lo que entregó cada uno</div>
+          <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Sistema = lo facturado de contado por cada cajero ("Facturado Por"). Subí los cierres de caja en Excel o llená a mano los lotes de cada POS, las transferencias, el efectivo contado y las salidas. El faltante va a la cuenta por cobrar del cajero.</div>
+          <div id="cuadre-cajeros-body"></div>
+        </div>
+
         <!-- PASO 4: Partida generada -->
         <div class="form-card hidden" id="import-step4">
           <div class="form-card-title">Paso 3 · Partida de ventas generada</div>
@@ -3860,7 +3867,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261028b"></script>
+<script type="module" src="js/app.js?v=20261028e"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3878,6 +3885,7 @@
 <script defer src="js/asistencia.js?v=20261001e"></script>
 <script defer src="js/vacaciones.js?v=20261001a"></script>
 <script defer src="js/comisiones_pago.js?v=20261003d"></script>
+<script defer src="js/cuadre_cajeros.js?v=20261028m"></script>
 <script defer src="js/feriados.js?v=20260921t"></script>
 <script defer src="js/permisos-masivo.js?v=20261027a"></script>
 <script defer src="js/cuentas-cobrar.js?v=20260921t"></script>

@@ -5557,6 +5557,7 @@ function parseAlphaExcel(arrayBuffer) {
             else if (h.includes('monto transacción') || h.includes('monto transaccion')) colMap.monto_transferencia = cc
             else if (h.includes('tipo de venta')) colMap.tipo_venta = cc
             else if (h.includes('código cliente') || h.includes('codigo cliente')) colMap.codigo_cliente = cc
+            else if (h === 'facturado por') colMap.facturado_por = cc
           }
           break
         }
@@ -5564,7 +5565,7 @@ function parseAlphaExcel(arrayBuffer) {
       if (headerRow >= 0) break
     }
     if (headerRow < 0) headerRow = 8
-    if (!colMap.factura_interna && colMap.factura_interna !== 0) colMap = { factura_interna:0, factura_electronica:4, cliente:10, rtn:11, subtotal:18, impuestos:19, total:24, total_exento:25, total_gravado:26, fecha:17, monto_tarjeta:30, monto_efectivo:31, monto_transferencia:33, tipo_venta:13, codigo_cliente:9 }
+    if (!colMap.factura_interna && colMap.factura_interna !== 0) colMap = { factura_interna:0, factura_electronica:4, cliente:10, rtn:11, subtotal:18, impuestos:19, total:24, total_exento:25, total_gravado:26, fecha:17, monto_tarjeta:30, monto_efectivo:31, monto_transferencia:33, tipo_venta:13, codigo_cliente:9, facturado_por:7 }
     
     const facturas = []
     for (let i = headerRow + 1; i < data.length; i++) {
@@ -5590,6 +5591,7 @@ function parseAlphaExcel(arrayBuffer) {
         monto_transferencia: r2(row[colMap.monto_transferencia]),
         tipo_venta: String(row[colMap.tipo_venta] || 'Contado'),
         codigo_cliente: String(row[colMap.codigo_cliente] || ''),
+        facturado_por: colMap.facturado_por != null ? String(row[colMap.facturado_por] || '').trim() : '',
       })
     }
     return facturas
@@ -5768,7 +5770,7 @@ function parseDepositos(wb) {
   const col = (n) => hdr.indexOf(n)
   const cCod = col('Código'), cMov = col('Movimiento'), cMonto = col('Monto')
   const cDep = col('No. Depósito'), cDoc = col('Documento'), cForma = col('Forma')
-  const cRec = col('Recargo'), cFecha = col('Fecha')
+  const cRec = col('Recargo'), cFecha = col('Fecha'), cRecPor = col('Recibido Por')
   if (cMonto < 0) return []
 
   const out = []
@@ -5793,7 +5795,8 @@ function parseDepositos(wb) {
       deposito: cDep >= 0 ? String(r[cDep] || '') : '',
       documento: cDoc >= 0 ? String(r[cDoc] || '') : '',
       forma: cForma >= 0 ? String(r[cForma] || '') : '',
-      fecha: cFecha >= 0 ? String(r[cFecha] || '') : ''
+      fecha: cFecha >= 0 ? String(r[cFecha] || '') : '',
+      recibido_por: cRecPor >= 0 ? String(r[cRecPor] || '').trim() : ''
     })
   }
   return out
@@ -6401,6 +6404,9 @@ function renderImportPartida() {
   // por su cuenta y dejaba afuera la CxC consolidada de Yonker y la cuenta puente:
   // la vista previa cuadraba y la partida guardada no (caso #5486).
   window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente, notasNC }
+  // Cuadre por cajero (js/cuadre_cajeros.js): lo facturado contra lo que entregó cada uno
+  // El efectivo va a la cuenta de detalle (110102 es el grupo), la misma del arqueo de billetes.
+  window.cuadreCajerosRender?.(d, totalCaja, { codigo: '110102-001', nombre: 'CAJA GENERAL MN' })
 
   const tbody = document.getElementById('tbody-import-partida')
   tbody.innerHTML = filtered.map(l => {
@@ -6431,6 +6437,7 @@ window.resetImport = () => {
   document.getElementById('import-step2').classList.add('hidden')
   document.getElementById('import-step3').classList.add('hidden')
   document.getElementById('import-step4').classList.add('hidden')
+  window.cuadreCajerosReset?.()
 }
 
 window.guardarImportPartida = async () => {
@@ -6568,9 +6575,23 @@ window.guardarImportPartida = async () => {
   // Formas de pago: el monto de caja viene prellenado y SIN cuenta a propósito.
   // El usuario elige la cuenta (o lo reparte en varias líneas); guardarPartida no
   // deja grabar una línea con monto y sin cuenta, así que no se puede olvidar.
-  lineaCounter++
-  partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito',
-    monto: r2(pv.totalCaja || 0), centro_costo_id:'', descripcion:'FORMAS DE PAGO - ELEGIR CUENTA', aplica_fiscal:true })
+  // Con el cuadre de cajeros esa línea se reparte en bancos (lotes POS y transferencias),
+  // caja (efectivo), salidas, faltantes a la CxC del cajero y sobrantes; suman lo mismo.
+  const lineasCuadre = window.cuadreCajerosLineas?.()
+  if (lineasCuadre?.length) {
+    for (const l of lineasCuadre) {
+      lineaCounter++
+      partidaLineas.push({ id: lineaCounter, cuenta_id: getCuenta(l.cuenta_codigo)?.id || '', cuenta_codigo: l.cuenta_codigo,
+        cuenta_nombre: l.cuenta_nombre, tipo: l.tipo, monto: l.monto,
+        // centro_id: el que se eligió en la línea del cuadre (transferencias y salidas)
+        centro_costo_id: l.centro_id !== undefined ? (l.centro_id || '') : l.centro === 'Yonker' ? (ccYonker?.id || '') : l.centro ? (ccTecni?.id || '') : '',
+        descripcion: l.descripcion, aplica_fiscal: true })
+    }
+  } else {
+    lineaCounter++
+    partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito',
+      monto: r2(pv.totalCaja || 0), centro_costo_id:'', descripcion:'FORMAS DE PAGO - ELEGIR CUENTA', aplica_fiscal:true })
+  }
   lineaCounter++
   partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
 
