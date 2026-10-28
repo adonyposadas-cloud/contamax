@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v83-cxpmarcar-horalista'
+const CACHE_NAME = 'contamax-v84-cxpmarcar'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

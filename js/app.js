@@ -12619,6 +12619,10 @@ function renderCxPTabla() {
   if (!cxpFiltrados.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</td></tr>'
     document.getElementById('btn-generar-pago').style.display = 'none'
+    // Este retorno se salta updateSumaCxP, así que los botones de acción hay que
+    // esconderlos acá también: sin filas a la vista no hay nada que marcar.
+    const btnYa = document.getElementById('btn-marcar-ya-pagado')
+    if (btnYa) btnYa.style.display = 'none'
     return
   }
 
