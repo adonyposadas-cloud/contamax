@@ -2296,6 +2296,7 @@
             <button class="btn btn-ghost" onclick="cxpVerPagos()" style="font-size:12px;padding:6px 12px;color:var(--gold)"><svg class=ico aria-hidden=true><use href=#i-cash></use></svg> Pagos realizados</button>
             <button class="btn btn-ghost" onclick="document.getElementById('cxp-estado-file').click()" style="font-size:12px;padding:6px 12px;color:var(--blue)"><svg class=ico aria-hidden=true><use href=#i-file-text></use></svg> Conciliar con estado de cuenta</button>
             <input type="file" id="cxp-estado-file" accept=".csv,.txt,.pdf" style="display:none" onchange="cxpArchivoEstado(this)">
+            <button class="btn btn-ghost" id="btn-marcar-ya-pagado" onclick="cxpMarcarYaPagado()" style="display:none;font-size:12px;padding:6px 12px;color:var(--green)" title="Enlazar los cargos seleccionados a una partida de pago que YA existe. No crea ningún asiento."><svg class=ico aria-hidden=true><use href=#i-check></use></svg> Marcar como ya pagado</button>
             <button class="btn btn-gold" id="btn-generar-pago" onclick="generarPagoCxP()" style="display:none"><svg class=ico aria-hidden=true><use href=#i-moneybag></use></svg> Generar pago</button>
           </div>
         </div>
@@ -3859,7 +3860,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261026e"></script>
+<script type="module" src="js/app.js?v=20261028a"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>

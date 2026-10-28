@@ -2915,6 +2915,17 @@ async function limpiarDatosImportacion(partidaId) {
   await sb.from('entregas_taxis').update({ partida_id: null }).eq('partida_id', partidaId)
   // Conteo billetes (si aplica)
   await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
+  // Libro de compras. Esto faltaba: una partida anulada dejaba su renglón vivo
+  // en el libro, o sea ISV declarado sobre una compra que ya no existe. Se
+  // encontró con la bujía de SUPER REPUESTOS (partida 4055, anulada, L.221.50
+  // de ISV todavía en el libro) y con la gasolina de la 6609.
+  const { error: lcErr } = await sb.from('libro_compras').delete().eq('partida_id', partidaId)
+  if (lcErr) {
+    // No se traga: si el renglón se queda, la declaración sale mal y nadie se
+    // entera hasta que alguien cruza el libro contra las partidas.
+    console.error('[LIMPIEZA][libro_compras]', lcErr.message)
+    toast('Ojo: no se pudo quitar la compra del libro de compras — ' + lcErr.message, 'error')
+  }
   console.log(`[LIMPIEZA] Datos de importación limpiados para partida ${partidaId}`)
 }
 
@@ -12790,6 +12801,8 @@ window.updateSumaCxP = () => {
     : ''
   document.getElementById('cxp-suma-sel').innerHTML = `Seleccionados: L. ${fmt(suma)} (${count - noHallados}${noHallados ? ` de ${count}` : ''})${faltan}${cxpSeleccionActiva ? ` · <span style="color:var(--blue);font-size:11px">📂 ${cxpSeleccionActiva.nombre}</span>` : ''}`
   document.getElementById('btn-generar-pago').style.display = count > 0 ? 'inline-flex' : 'none'
+  const btnYaPagado = document.getElementById('btn-marcar-ya-pagado')
+  if (btnYaPagado) btnYaPagado.style.display = count > 0 ? 'inline-flex' : 'none'
   const btnLimpiar = document.getElementById('btn-limpiar-sel-cxp')
   if (btnLimpiar) btnLimpiar.style.display = count > 0 ? 'inline-flex' : 'none'
   const btnGuardar = document.getElementById('btn-guardar-sel-cxp')
@@ -13317,6 +13330,83 @@ function cxpModal(titulo, html) {
       <button onclick="this.closest('.cxp-modal-ov').remove()" style="background:none;border:0;color:var(--text2);font-size:18px;cursor:pointer">✕</button></div>
     ${html}</div>`
   document.body.appendChild(ov)
+}
+
+// ── Marcar cargos como YA pagados, sin crear asiento ──
+// Antes la única forma de sacar un cargo de la lista era "Generar pago", que
+// siempre crea una partida con su débito. Cuando alguien la usaba para
+// regularizar un cargo viejo que YA estaba dentro del monto de un pago
+// anterior, la plata se descontaba dos veces: así apareció la partida 4712,
+// de un solo movimiento, con el mismo monto y la misma fecha que un cargo que
+// la 1736 ya había pagado. Esto solo mueve las marcas; no toca la
+// contabilidad. Queda en la bitácora, porque es una corrección a mano.
+window.cxpMarcarYaPagado = () => {
+  if (!cxpSeleccionados.size) return
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const visibles = new Set(cxpMovimientos.map(m => m.id))
+  const ids = Array.from(cxpSeleccionados).filter(id => visibles.has(id))
+  const fuera = cxpSeleccionados.size - ids.length
+  if (!ids.length) { toast('Ninguno de los cargos seleccionados está a la vista', 'error'); return }
+  const lineas = cxpMovimientos.filter(l => ids.includes(l.id))
+  const yaPagados = lineas.filter(l => l.pagado).length
+  const suma = lineas.reduce((s, l) => s + (parseFloat(l.monto) || 0), 0)
+
+  cxpModal('✓ Marcar como ya pagado', `
+    <div style="font-size:12px;color:var(--text2);line-height:1.7">
+      Esto enlaza <b>${ids.length}</b> cargo(s) por <b style="font-family:var(--mono);color:var(--gold)">L. ${fmt(suma)}</b>
+      a una partida de pago <b>que ya existe</b>, y los saca de la lista de pendientes.
+      <div style="margin-top:8px;color:var(--green)">No crea ninguna partida ni ningún asiento. La contabilidad no se toca.</div>
+      ${fuera ? `<div style="margin-top:8px;color:var(--amber)">⚠️ ${fuera} seleccionado(s) no están a la vista y se omiten.</div>` : ''}
+      ${yaPagados ? `<div style="margin-top:8px;color:var(--amber)">⚠️ ${yaPagados} ya figuran como pagados; se les cambiará el enlace.</div>` : ''}
+    </div>
+    <div style="margin-top:14px">
+      <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:1px">N° de la partida de pago</label>
+      <input id="cxp-ya-num" type="text" inputmode="numeric" placeholder="ej. 1736"
+        style="width:100%;margin-top:6px;padding:9px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:var(--mono);outline:none">
+      <div id="cxp-ya-aviso" style="font-size:11px;margin-top:8px;color:var(--text3)">Tiene que ser la partida donde esa plata ya salió.</div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" onclick="this.closest('.cxp-modal-ov').remove()" style="font-size:12px;padding:7px 14px">Cancelar</button>
+      <button class="btn btn-gold" id="cxp-ya-ok" onclick="cxpConfirmarYaPagado()" style="font-size:12px;padding:7px 14px">Marcar</button>
+    </div>`)
+  setTimeout(() => document.getElementById('cxp-ya-num')?.focus(), 50)
+  window._cxpYaIds = ids
+}
+
+window.cxpConfirmarYaPagado = async () => {
+  const num = (document.getElementById('cxp-ya-num')?.value || '').trim()
+  const aviso = document.getElementById('cxp-ya-aviso')
+  const btn = document.getElementById('cxp-ya-ok')
+  const ids = window._cxpYaIds || []
+  const di = (txt, color) => { if (aviso) { aviso.textContent = txt; aviso.style.color = `var(--${color})` } }
+  if (!/^\d+$/.test(num)) { di('Escribí el número de la partida de pago.', 'red'); return }
+  if (!ids.length) { di('No hay cargos que marcar.', 'red'); return }
+
+  btn.disabled = true; btn.textContent = 'Verificando...'
+  // La partida tiene que existir y estar aprobada: enlazar a un borrador o a
+  // una anulada deja el cargo colgando de algo que no pagó nada.
+  const { data: p, error: pErr } = await sb.from('partidas_contables')
+    .select('id, numero_partida, estado, fecha_partida, descripcion')
+    .eq('numero_partida', num).maybeSingle()
+  if (pErr) { di('Error al buscar la partida: ' + pErr.message, 'red'); btn.disabled = false; btn.textContent = 'Marcar'; return }
+  if (!p) { di(`No existe la partida #${num}.`, 'red'); btn.disabled = false; btn.textContent = 'Marcar'; return }
+  if (p.estado !== 'aprobada') { di(`La partida #${num} está en "${p.estado}". Solo se puede enlazar a una aprobada.`, 'red'); btn.disabled = false; btn.textContent = 'Marcar'; return }
+
+  btn.textContent = 'Marcando...'
+  const { error } = await sb.from('lineas_partida')
+    .update({ pagado: true, pagado_at: new Date().toISOString(), pagado_partida_num: num })
+    .in('id', ids)
+  if (error) { di('Error al marcar: ' + error.message, 'red'); btn.disabled = false; btn.textContent = 'Marcar'; return }
+
+  logActividad('cxp_marcado_pagado', 'cuentas_pagar',
+    `${ids.length} cargo(s) marcados como pagados con la partida #${num} (sin asiento) · ${String(p.descripcion || '').substring(0, 80)}`, p.id)
+  document.querySelector('.cxp-modal-ov')?.remove()
+  window._cxpYaIds = null
+  cxpSeleccionados = new Set()
+  cxpMontos = {}
+  guardarCxPSeleccion()
+  toast(`${ids.length} cargo(s) enlazados a la partida #${num} ✓`, 'success')
+  consultarCxP()
 }
 
 window.generarPagoCxP = async () => {
