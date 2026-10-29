@@ -110,8 +110,8 @@ window.filtrarPrestamos = () => {
   const term = (document.getElementById('fin-buscar')?.value || '').toLowerCase().trim()
   const catFilter = document.getElementById('fin-filtro-cat')?.value || ''
   filteredPrestamos = allPrestamos.filter(p => {
-    if (catFilter === '_INACTIVOS') return p.activo === false
-    if (catFilter && p.categoria !== catFilter) return false
+    if (catFilter === '_INACTIVOS') { if (p.activo !== false) return false }
+    else if (catFilter && p.categoria !== catFilter) return false
     if (!catFilter && p.activo === false) return false // hide inactive by default
     if (term) return `${p.codigo} ${p.motorista} ${p.categoria}`.toLowerCase().includes(term)
     return true
