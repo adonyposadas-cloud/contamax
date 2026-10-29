@@ -13,6 +13,9 @@
   let fSoloAlertas = false
   let fBuscaCompra = ''   // buscador de proveedor / factura / RTN en libro de compras
   let fActCompra = ''     // filtro por actividad en libro de compras
+  let fDecl = null        // declaración presentada del mes (null = mes abierto)
+  let fDeclHist = []      // versiones anteriores (reabiertas)
+  let fPendientes = []    // compras de meses ya declarados que no entraron en ninguna declaración
 
   const getSb = () => window._sb
   const fmt = (v) => (Math.round((+v || 0) * 100) / 100).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -87,15 +90,18 @@
     const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
     return `${meses[m - 1]} ${y}`
   }
+  // Mes presentado = cerrado: nadie edita desde aquí (la base también lo rechaza)
   function puedeEditar() {
     const r = (window._currentProfile?.() || {}).rol
-    return ['super_admin', 'contador', 'contador_fiscal'].includes(r)
+    return !fDecl && ['super_admin', 'contador', 'contador_fiscal'].includes(r)
   }
   // Editar datos de la factura (n° y proveedor) — solo interno, no el contador externo
   function puedeEditarDatos() {
     const r = (window._currentProfile?.() || {}).rol
-    return ['super_admin', 'contador'].includes(r)
+    return !fDecl && ['super_admin', 'contador'].includes(r)
   }
+  const puedePresentar = () => ['super_admin', 'contador', 'contador_fiscal'].includes((window._currentProfile?.() || {}).rol)
+  const esSuperAdmin = () => { const p = window._currentProfile?.() || {}; return (p._rolReal || p.rol) === 'super_admin' }
 
   // ── Entrada del módulo ──
   window.loadDeclaracionISV = async () => {
@@ -134,13 +140,34 @@
       .eq('periodo_fiscal', fPeriodo).order('fecha')
     if (fCentro) qC = qC.eq('centro_costo_id', fCentro)
 
-    const [{ data: dv, error: ev }, { data: dc, error: ec }] = await Promise.all([qV, qC])
+    const qD = sb.from('declaraciones_isv').select('*').eq('periodo', fPeriodo).order('version', { ascending: false })
+    const [{ data: dv, error: ev }, { data: dc, error: ec }, { data: dd }] = await Promise.all([qV, qC, qD])
     if (ev || ec) {
       if (cont) cont.innerHTML = `<div style="padding:20px;color:var(--red)">No se pudo cargar la información fiscal. ${esc((ev || ec).message || '')}</div>`
       return
     }
     fVentas = dv || []
     fCompras = dc || []
+    fDecl = (dd || []).find(d => d.estado === 'presentada') || null
+    fDeclHist = (dd || []).filter(d => d.estado !== 'presentada')
+    // Compras con fecha de un mes ya declarado que quedaron fuera (registradas tarde o
+    // sin incluir): se ofrecen en el mes abierto mientras estén dentro del plazo legal.
+    fPendientes = []
+    if (!fDecl) {
+      const { data: cerr } = await sb.from('declaraciones_isv').select('periodo').eq('estado', 'presentada')
+      const cerrados = new Set((cerr || []).map(d => d.periodo))
+      if (cerrados.size) {
+        let qP = sb.from('libro_compras')
+          .select('id,fecha,numero_factura,proveedor,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id')
+          .eq('incluir_fiscal', false)
+          .gte('fecha', sumarMeses(fPeriodo, -MESES_LIMITE_CREDITO) + '-01').lt('fecha', first).order('fecha')
+        if (fCentro) qP = qP.eq('centro_costo_id', fCentro)
+        const { data: dp } = await qP
+        fPendientes = (dp || []).filter(c => cerrados.has(periodoDeFecha(c.fecha))
+          && (periodoMaximoCredito(c.fecha) || '') >= fPeriodo
+          && (!c.periodo_fiscal || c.periodo_fiscal <= fPeriodo || cerrados.has(c.periodo_fiscal)))
+      }
+    }
     render()
   }
 
@@ -219,6 +246,8 @@
     if (t.nPersonalVentas > 0) alertas.push(`🚫 ${t.nPersonalVentas} venta(s) de centros <b>personales</b> marcadas como fiscales — quedaron fuera del débito.`)
 
     box.innerHTML = `
+      ${bannerDeclaracion(t)}
+      ${alertaPendientes()}
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         ${stat('Débito fiscal · ISV ventas', t.debito, 'var(--text)')}
         ${stat('Crédito ACREDITABLE · va a la declaración', t.creditoAcreditable, 'var(--green)', 'var(--green)')}
@@ -248,6 +277,97 @@
           ${alertas.map(a => `<div style="font-size:12px;color:var(--text2)">${a}</div>`).join('')}
         </div>` : ''}
       </div>`
+  }
+
+  // ── Declaración presentada: cierra el mes (candado en la base, sql/declaraciones_isv_candado.sql) ──
+  const fFecha = (d) => d ? new Date(d).toLocaleDateString('es-HN') : ''
+  function bannerDeclaracion(t) {
+    const hist = fDeclHist.map(d => `v${d.version}: presentada ${esc(fFecha(d.fecha_presentacion + 'T12:00'))}${d.numero_acuse ? ' · acuse ' + esc(d.numero_acuse) : ''}
+      · reabierta ${esc(fFecha(d.reabierta_at))} por ${esc(d.reabierta_nombre || '')}: ${esc(d.motivo_reapertura || '')}`).join('<br>')
+    const histHTML = hist ? `<div style="font-size:11px;color:var(--text3);margin-top:8px">${hist}</div>` : ''
+    if (fDecl) {
+      const tt = fDecl.totales || {}
+      const difiere = ['debito', 'creditoAcreditable', 'neto'].some(k => tt[k] != null && Math.abs((+tt[k] || 0) - (+t[k] || 0)) > 0.005)
+      return `<div class="form-card" style="margin-bottom:12px;padding:12px 16px;border-color:var(--green)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div><b>🔒 Declaración presentada${fDecl.version > 1 ? ' · versión ' + fDecl.version + ' (rectificativa)' : ''}</b>
+            <span style="color:var(--text2);font-size:12px"> · ${esc(fFecha(fDecl.fecha_presentacion + 'T12:00'))}${fDecl.numero_acuse ? ' · acuse ' + esc(fDecl.numero_acuse) : ''} · por ${esc(fDecl.presentada_nombre || '')}</span>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px">Lo declarado (${fDecl.n_ventas ?? '—'} ventas, ${fDecl.n_compras ?? '—'} compras, ${fDecl.n_partidas ?? '—'} partidas) ya no se puede cambiar. Una compra de este mes registrada después pasa al siguiente mes abierto para incluirla allá.
+              Declarado: débito L. ${fmt(tt.debito)} · crédito L. ${fmt(tt.creditoAcreditable)} · ${(+tt.neto || 0) >= 0 ? 'a pagar' : 'saldo a favor'} L. ${fmt(Math.abs(+tt.neto || 0))}</div>
+            ${difiere && !fCentro ? '<div style="font-size:12px;color:var(--red);margin-top:4px">⚠ Lo que se ve hoy no coincide con lo declarado (puede ser la clasificación de algún centro de costo).</div>' : ''}
+          </div>
+          ${esSuperAdmin() ? '<button class="btn btn-ghost" onclick="fiscReabrir()">Reabrir declaración</button>' : ''}
+        </div>${histHTML}</div>`
+    }
+    if (!puedePresentar()) return histHTML ? `<div class="form-card" style="margin-bottom:12px;padding:12px 16px">${histHTML}</div>` : ''
+    const hoy = new Date().toLocaleDateString('en-CA')
+    return `<div class="form-card" style="margin-bottom:12px;padding:12px 16px">
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px;font-size:12px;color:var(--text2)"><b style="color:var(--text)">${fDeclHist.length ? 'Declaración reabierta' : 'Mes abierto'}</b> ·
+          al presentarla en el SAR márcala aquí: lo que entre en la declaración queda fijo y no se podrá cambiar.</div>
+        <div class="fld" style="margin:0"><label>Acuse / N° de declaración</label><input id="fisc-acuse" placeholder="Opcional" style="width:180px"></div>
+        <div class="fld" style="margin:0"><label>Fecha de presentación</label><input type="date" id="fisc-fecha-pres" value="${hoy}"></div>
+        <button class="btn btn-primary" onclick="fiscPresentar()">🔒 Marcar como presentada</button>
+      </div>${histHTML}</div>`
+  }
+
+  function alertaPendientes() {
+    if (fDecl || !fPendientes.length) return ''
+    const puede = puedeEditar()
+    const tot = round2(fPendientes.reduce((a, c) => a + (+c.isv || 0), 0))
+    return `<div class="form-card" style="margin-bottom:12px;padding:12px 16px;border-color:var(--amber)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><b>⚠ ${fPendientes.length} factura(s) de compra con fecha de un mes ya declarado no están en ninguna declaración</b>
+          <span style="color:var(--text2);font-size:12px"> · ISV L. ${fmt(tot)} · ¿las incluyes en ${etiquetaMes(fPeriodo)}?</span></div>
+        ${puede && fPendientes.length > 1 ? `<button class="btn btn-ghost" onclick="fiscIncluirPendiente()">Incluir todas en ${etiquetaMes(fPeriodo)}</button>` : ''}
+      </div>
+      <div class="table-wrap" style="margin-top:8px"><table style="font-size:12px">
+        <thead><tr><th>Fecha</th><th>Proveedor</th><th>Factura</th><th style="text-align:right">ISV</th><th>Plazo hasta</th><th></th></tr></thead>
+        <tbody>${fPendientes.map(c => `<tr>
+          <td style="white-space:nowrap">${esc(c.fecha)}</td><td>${esc(c.proveedor || '')}</td><td>${esc(c.numero_factura || '')}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(c.isv)}</td>
+          <td>${esc(etiquetaMes(periodoMaximoCredito(c.fecha)))}</td>
+          <td style="text-align:right">${puede ? `<button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="fiscIncluirPendiente('${esc(c.id)}')">Incluir en ${etiquetaMes(fPeriodo)}</button>` : ''}</td>
+        </tr>`).join('')}</tbody></table></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">Si no la incluyes, se queda fuera; vuelve a aparecer en los meses siguientes hasta que venza el plazo del crédito.</div>
+    </div>`
+  }
+
+  // Incluir una (o todas) las compras pendientes en el mes abierto
+  window.fiscIncluirPendiente = async (id) => {
+    if (!puedeEditar()) return
+    const lista = id ? fPendientes.filter(c => String(c.id) === String(id)) : fPendientes
+    if (!lista.length) return
+    if (!id && !confirm(`¿Incluir ${lista.length} compra(s) en el crédito de ${etiquetaMes(fPeriodo)}?`)) return
+    const { error } = await getSb().from('libro_compras').update({ periodo_fiscal: fPeriodo, incluir_fiscal: true }).in('id', lista.map(c => c.id))
+    if (error) { window.toast?.('No se pudo incluir: ' + (error.message || ''), 'error'); return }
+    window.logActividad?.('isv_incluir_pendiente', 'declaracion-isv', `${lista.length} compra(s) de meses declarados incluidas en ${fPeriodo}: ${lista.map(c => c.numero_factura).join(', ')}`)
+    window.toast?.(`${lista.length} compra(s) incluida(s) en ${etiquetaMes(fPeriodo)}`, 'success')
+    await window.cargarISV()
+  }
+
+  window.fiscPresentar = async () => {
+    if (fCentro) { window.toast?.('Elige "Todos los centros": la declaración es una sola por mes.', 'error'); return }
+    const acuse = document.getElementById('fisc-acuse')?.value || ''
+    const fecha = document.getElementById('fisc-fecha-pres')?.value || ''
+    if (!fecha) { window.toast?.('Pon la fecha de presentación', 'error'); return }
+    const t = totales()
+    if (!confirm(`¿Marcar ${etiquetaMes(fPeriodo)} como PRESENTADA?\n\nDébito L. ${fmt(t.debito)} · Crédito L. ${fmt(t.creditoAcreditable)} · ${t.neto >= 0 ? 'A pagar' : 'Saldo a favor'} L. ${fmt(Math.abs(t.neto))}\n\nDesde ahora las ventas, las compras incluidas y sus partidas fiscales no se podrán cambiar (solo el Super Admin puede reabrirla). Lo que se registre después con fecha de este mes se ofrecerá en el siguiente mes abierto.`)) return
+    const { data, error } = await getSb().rpc('fiscal_presentar', { p_periodo: fPeriodo, p_acuse: acuse, p_fecha: fecha, p_totales: t })
+    if (error || !data?.ok) { window.toast?.('No se pudo marcar: ' + (error?.message || data?.error || ''), 'error'); return }
+    window.logActividad?.('isv_presentada', 'declaracion-isv', `ISV ${fPeriodo} presentada v${data.version}${acuse ? ' acuse ' + acuse : ''} · ${data.ventas} ventas, ${data.compras} compras`)
+    window.toast?.(`${etiquetaMes(fPeriodo)} presentada: ${data.ventas} ventas, ${data.compras} compras y ${data.partidas} partidas quedan fijas`, 'success')
+    await window.cargarISV()
+  }
+
+  window.fiscReabrir = async () => {
+    const motivo = prompt(`Reabrir la declaración de ${etiquetaMes(fPeriodo)}.\n\nEl mes vuelve a quedar editable y, al presentarla otra vez, se guarda como una nueva versión.\nMotivo (rectificativa, error encontrado…):`)
+    if (motivo == null) return
+    const { data, error } = await getSb().rpc('fiscal_reabrir', { p_periodo: fPeriodo, p_motivo: motivo })
+    if (error || !data?.ok) { window.toast?.('No se pudo reabrir: ' + (error?.message || data?.error || ''), 'error'); return }
+    window.logActividad?.('isv_reabierta', 'declaracion-isv', `ISV ${fPeriodo} reabierta: ${motivo}`)
+    window.toast?.(`${etiquetaMes(fPeriodo)} reabierto`, 'success')
+    await window.cargarISV()
   }
 
   function trailingNum(fac) {

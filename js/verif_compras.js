@@ -51,13 +51,22 @@ function vcValidar(f) {
   return { clase: 'fuera', txt: '✗ Fuera de rango', caiId: null, credito: false }
 }
 
-// Sugiere un proveedor buscando su nombre dentro de la descripción/proveedor texto
+// Sugiere un proveedor: primero por el RTN que trae el libro de compras (seguro);
+// si no, por su nombre dentro de la descripción u observaciones ("[IMP-COMPRA] DICAR, S DE R,L. · …").
+// Los nombres se comparan sin puntuación: "DICAR, S DE R,L." = "DICAR, S DE R L".
+const vcNorm = t => String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]+/g, ' ').trim()
+const vcSoloDigitos = t => String(t || '').replace(/\D/g, '')
 function vcSugerirProveedor(f) {
-  const texto = `${f.descripcion_compra || ''} ${f.proveedor_texto || ''}`.toUpperCase()
+  const rtn = vcSoloDigitos(f._rtn)
+  if (rtn.length >= 10) {
+    const p = vcProveedores.find(x => vcSoloDigitos(x.rtn) === rtn)
+    if (p) return { ...p, porRtn: true }
+  }
+  const texto = ' ' + vcNorm(`${f.descripcion_compra || ''} ${f.proveedor_texto || ''} ${f.observaciones || ''}`) + ' '
   if (!texto.trim()) return null
   for (const p of vcProveedores) {
-    const n = (p.nombre || '').toUpperCase().trim()
-    if (n.length >= 4 && texto.includes(n)) return p
+    const n = vcNorm(p.nombre)
+    if (n.length >= 4 && texto.includes(' ' + n + ' ')) return p
   }
   return null
 }
@@ -77,7 +86,7 @@ window.vcConsultar = async () => {
 
   // Facturas sin verificar en el rango
   const { data: facs, error } = await vcSb().from('facturas_compras')
-    .select('id, numero_factura, fecha_factura, total, tiene_isv, isv, proveedor_id, descripcion_compra, proveedor_verificado, proveedor:proveedores(nombre)')
+    .select('id, numero_factura, fecha_factura, total, tiene_isv, isv, proveedor_id, descripcion_compra, observaciones, partida_id, proveedor_verificado, proveedor:proveedores(nombre)')
     .or('proveedor_verificado.eq.false,proveedor_verificado.is.null')
     .gte('fecha_factura', desde).lte('fecha_factura', hasta)
     .order('fecha_factura', { ascending: false }).limit(5000)
@@ -85,6 +94,27 @@ window.vcConsultar = async () => {
   if (error) { window.toast?.('Error: ' + error.message, 'error'); return }
 
   vcFacturas = (facs || []).map(f => ({ ...f, _val: null, _sug: null }))
+  // Las importadas (Compras Alpha) no traen proveedor ni marca de ISV, pero su fila del
+  // libro de compras sí trae RTN e ISV: se cruzan por partida o por número de factura.
+  try {
+    const porPartida = {}, porNumero = {}
+    const pids = [...new Set(vcFacturas.map(f => f.partida_id).filter(Boolean))]
+    const nums = [...new Set(vcFacturas.filter(f => !f.partida_id && f.numero_factura).map(f => f.numero_factura))]
+    for (let i = 0; i < pids.length; i += 150) {
+      const { data } = await vcSb().from('libro_compras').select('partida_id, numero_factura, rtn_proveedor, isv').in('partida_id', pids.slice(i, i + 150))
+      for (const l of data || []) (porPartida[l.partida_id] = porPartida[l.partida_id] || []).push(l)
+    }
+    for (let i = 0; i < nums.length; i += 150) {
+      const { data } = await vcSb().from('libro_compras').select('numero_factura, rtn_proveedor, isv').in('numero_factura', nums.slice(i, i + 150))
+      for (const l of data || []) porNumero[l.numero_factura] = l
+    }
+    for (const f of vcFacturas) {
+      const cands = porPartida[f.partida_id] || []
+      const l = cands.find(x => x.numero_factura === f.numero_factura) || (cands.length === 1 ? cands[0] : null) || porNumero[f.numero_factura]
+      if (l) { f._rtn = l.rtn_proveedor; f._isvLibro = +l.isv || 0 }
+    }
+  } catch (e) { /* sin libro: se sugiere solo por nombre */ }
+  for (const f of vcFacturas) f._isv = !!f.tiene_isv || (+f.isv || 0) > 0 || (f._isvLibro || 0) > 0
   for (const f of vcFacturas) {
     f._val = vcValidar(f)
     if (!f.proveedor_id) f._sug = vcSugerirProveedor(f)
@@ -100,12 +130,13 @@ function vcRender() {
   const cont = document.getElementById('vc-resultado')
   if (!cont) return
   let lista = vcFacturas
-  if (vcSoloIsv) lista = lista.filter(f => f.tiene_isv)
+  if (vcSoloIsv) lista = lista.filter(f => f._isv)
   const q = vcFiltroTexto.trim().toLowerCase()
   if (q) lista = lista.filter(f => (f.numero_factura || '').toLowerCase().includes(q) || (f.proveedor?.nombre || '').toLowerCase().includes(q) || (f.descripcion_compra || '').toLowerCase().includes(q))
 
   const nValidas = lista.filter(f => f._val?.clase === 'valido').length
-  const totalIsv = vcFacturas.filter(f => f.tiene_isv).length
+  const totalIsv = vcFacturas.filter(f => f._isv).length
+  const porRtn = lista.filter(f => !f.proveedor_id && f._sug?.porRtn)
 
   const filas = lista.map(f => {
     const v = f._val || {}
@@ -114,7 +145,7 @@ function vcRender() {
       ? (f.proveedor?.nombre || '—')
       : `<div style="display:flex;align-items:center;gap:6px">
            <span style="color:var(--amber)">— sin proveedor —</span>
-           ${f._sug ? `<button class="btn btn-ghost" onclick="vcAsignarSugerido('${f.id}','${f._sug.id}')" style="font-size:10px;padding:2px 6px;border-color:var(--gold);color:var(--gold)" title="Asignar ${f._sug.nombre}">≈ ${f._sug.nombre.substring(0,18)}</button>` : ''}
+           ${f._sug ? `<button class="btn btn-ghost" onclick="vcAsignarSugerido('${f.id}','${f._sug.id}')" style="font-size:10px;padding:2px 6px;border-color:var(--${f._sug.porRtn ? 'green' : 'gold'});color:var(--${f._sug.porRtn ? 'green' : 'gold'})" title="Asignar ${f._sug.nombre}${f._sug.porRtn ? ' (mismo RTN que el libro de compras)' : ' (por el nombre: revisá)'}">${f._sug.porRtn ? 'RTN ✓' : '≈'} ${f._sug.nombre.substring(0,18)}</button>` : ''}
            <button class="btn btn-ghost" onclick="vcAbrirAsignar('${f.id}')" style="font-size:10px;padding:2px 6px">buscar</button>
          </div>`
     const accion = v.clase === 'valido'
@@ -129,7 +160,7 @@ function vcRender() {
       <td style="font-family:var(--mono);font-size:11px">${f.numero_factura || '—'}</td>
       <td style="font-size:12px">${provCell}</td>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(f.descripcion_compra || '').replace(/"/g, '&quot;')}">${f.descripcion_compra || '—'}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${vcFmt(f.total)}${f.tiene_isv ? ' <span style="font-size:9px;color:var(--gold)">ISV</span>' : ''}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">L. ${vcFmt(f.total)}${f._isv ? ' <span style="font-size:9px;color:var(--gold)">ISV</span>' : ''}</td>
       <td style="font-size:11px;color:${tcol(color,'fg')}">${v.txt || ''}</td>
       <td style="text-align:right">${accion}</td>
     </tr>`
@@ -147,6 +178,7 @@ function vcRender() {
             <input type="checkbox" ${vcSoloIsv ? 'checked' : ''} onchange="vcToggleIsv(this.checked)" style="width:auto;accent-color:var(--gold)"> Solo con ISV
           </label>
           <input type="text" id="vc-buscar" placeholder="🔎 Buscar..." value="${vcFiltroTexto.replace(/"/g,'&quot;')}" oninput="vcFiltrar(this.value)" style="font-size:12px;padding:5px 10px">
+          ${porRtn.length ? `<button class="btn btn-ghost" onclick="vcAsignarPorRtn()" style="font-size:12px;padding:6px 12px;border-color:var(--green);color:var(--green)" title="Asigna a cada factura el proveedor con el mismo RTN de su fila del libro de compras">Asignar ${porRtn.length} proveedor(es) por RTN</button>` : ''}
           ${nValidas ? `<button class="btn btn-gold" onclick="vcVerificarTodasValidas()" style="font-size:12px;padding:6px 12px">Verificar ${nValidas} válida(s)</button>` : ''}
         </div>
       </div>
@@ -175,6 +207,25 @@ window.vcAsignarSugerido = async (facturaId, provId) => {
     f._val = vcValidar(f); f._sug = null
   }
   window.toast?.('Proveedor asignado', 'success')
+  vcRender()
+}
+
+// Asignar de un golpe los proveedores que coinciden por RTN (las importadas de Compras Alpha)
+window.vcAsignarPorRtn = async () => {
+  let lista = vcFacturas.filter(f => !f.proveedor_id && f._sug?.porRtn)
+  if (vcSoloIsv) lista = lista.filter(f => f._isv)
+  if (!lista.length) return
+  if (!confirm(`¿Asignar proveedor a ${lista.length} factura(s)? Cada una toma el proveedor que tiene el mismo RTN que su fila del libro de compras. Después validás el rango y verificás.`)) return
+  const grupos = {}
+  for (const f of lista) (grupos[f._sug.id] = grupos[f._sug.id] || []).push(f)
+  let ok = 0
+  for (const [provId, fs] of Object.entries(grupos)) {
+    const { error } = await vcSb().from('facturas_compras').update({ proveedor_id: provId }).in('id', fs.map(f => f.id))
+    if (error) { window.toast?.('Error: ' + error.message, 'error'); continue }
+    for (const f of fs) { f.proveedor_id = provId; f.proveedor = { nombre: f._sug.nombre }; f._sug = null; f._val = vcValidar(f); ok++ }
+  }
+  window.toast?.(`${ok} factura(s) con proveedor asignado por RTN`, 'success')
+  window.logActividad?.('proveedor_por_rtn', 'compras', `Verificar compras: ${ok} facturas con proveedor asignado por RTN`)
   vcRender()
 }
 
@@ -235,7 +286,7 @@ window.vcVerificarUna = async (facturaId, modo) => {
 // Verificar TODAS las válidas (verdes) de un golpe
 window.vcVerificarTodasValidas = async () => {
   let lista = vcFacturas.filter(f => f._val?.clase === 'valido')
-  if (vcSoloIsv) lista = lista.filter(f => f.tiene_isv)
+  if (vcSoloIsv) lista = lista.filter(f => f._isv)
   if (!lista.length) return
   if (!confirm(`¿Verificar ${lista.length} factura(s) válida(s) con crédito fiscal? Podés revisarlas individualmente si preferís.`)) return
   const prof = window._currentProfile?.()

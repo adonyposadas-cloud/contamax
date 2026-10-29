@@ -1641,6 +1641,15 @@ async function loadPendientes() {
   const { data, error } = await query
   if (error) { container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`; return }
   pendientesData = data || []
+  // Quién recibió el documento: se busca aparte (por id) para no depender de una relación en la consulta
+  try {
+    const rids = [...new Set(pendientesData.map(f => f.recibida_por).filter(Boolean))]
+    if (rids.length) {
+      const { data: us } = await sb.from('usuarios').select('id, nombre').in('id', rids)
+      const nom = Object.fromEntries((us || []).map(u => [u.id, u.nombre]))
+      pendientesData.forEach(f => { if (f.recibida_por) f._recibidaNombre = nom[f.recibida_por] || '' })
+    }
+  } catch (e) { /* sin nombres: la lista sale igual */ }
   // Factura -> partida. Lo correcto es el vínculo guardado (partida_id), que se
   // escribe al crear la partida. Para las facturas viejas que no lo traen se
   // cruza por el texto del documento, y ahí hay que medir: una sola partida es
@@ -1656,22 +1665,22 @@ async function loadPendientes() {
     const ids = [...new Set(procesadas.map(f => f.partida_id).filter(Boolean))]
     const porId = {}
     for (let i = 0; i < ids.length; i += 200) {
-      const { data: ps } = await sb.from('partidas_contables').select('id, numero_partida, estado').in('id', ids.slice(i, i + 200))
+      const { data: ps } = await sb.from('partidas_contables').select('id, numero_partida, estado, total').in('id', ids.slice(i, i + 200))
       ;(ps || []).forEach(p => { porId[p.id] = p })
     }
 
     const docs = [...new Set(procesadas.filter(f => !f.partida_id && f.numero_factura).map(f => String(f.numero_factura).trim().toUpperCase()))]
     const porDoc = {}
     for (let i = 0; i < docs.length; i += 200) {
-      const { data: parts } = await sb.from('partidas_contables').select('numero_partida, numero_documento').in('numero_documento', docs.slice(i, i + 200))
-      ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').trim().toUpperCase(); if (k && p.numero_partida) (porDoc[k] = porDoc[k] || []).push(p.numero_partida) })
+      const { data: parts } = await sb.from('partidas_contables').select('id, numero_partida, numero_documento, total').in('numero_documento', docs.slice(i, i + 200))
+      ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').trim().toUpperCase(); if (k && p.numero_partida) (porDoc[k] = porDoc[k] || []).push(p) })
     }
 
     procesadas.forEach(f => {
       const p = f.partida_id ? porId[f.partida_id] : null
-      if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], anulada: p.estado === 'anulada', dudoso: false }; return }
+      if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], ids: [p.id], total: p.total, anulada: p.estado === 'anulada', dudoso: false }; return }
       const hit = porDoc[String(f.numero_factura || '').trim().toUpperCase()]
-      if (hit && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit, anulada: false, dudoso: hit.length > 1 }
+      if (hit && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit.map(x => x.numero_partida), ids: hit.map(x => x.id), total: hit.length === 1 ? hit[0].total : null, anulada: false, dudoso: hit.length > 1 }
     })
   } catch (e) { pendientesPartidaMap = {} }
   filtrarPendientes()
@@ -1750,14 +1759,22 @@ window.filtrarPendientes = () => {
         <div class="pi-dot ${statusClass}"></div>
         <div>
           <div class="pi-info">${provNombre || 'Sin proveedor'} · Fact. ${f.numero_factura}${f.descripcion_compra ? ' · ' + f.descripcion_compra : ''}${f.centro_costo?.nombre ? ' · ' + f.centro_costo.nombre : ''}</div>
-          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}${partidaTxt}</div>
+          <div class="pi-meta">${new Date(f.created_at).toLocaleDateString('es-HN')} ${new Date(f.created_at).toLocaleTimeString('es-HN',{hour:'2-digit',minute:'2-digit'})} · ${f.registrado?.nombre || ''}${f.quien_pidio ? ' · Pidió: ' + f.quien_pidio : ''} · ${tipoLabel[f.tipo_gasto]||f.tipo_gasto} · ${f.forma_pago}${f.entregado_a ? ' · Entregado a: ' + f.entregado_a : ''}${partidaTxt}${f.recibida && (f._recibidaNombre || f.recibida_at) ? ` · <span style="color:var(--green)">Recibida${f._recibidaNombre ? ' por ' + escAttr(f._recibidaNombre) : ''}${f.recibida_at ? ' el ' + new Date(f.recibida_at).toLocaleDateString('es-HN') + ' ' + new Date(f.recibida_at).toLocaleTimeString('es-HN', { hour: '2-digit', minute: '2-digit' }) : ''}</span>` : ''}</div>
         </div>
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
+        ${esContable && pm && !pm.anulada && !pm.dudoso && pm.ids?.[0] ? `<button class="btn btn-ghost" onclick="event.stopPropagation();editarPartida('${pm.ids[0]}')" style="padding:5px 12px;font-size:11px" title="Corregir la partida #${pm.nums[0]} de esta factura (montos, ISV, número, cuentas). El libro de compras se actualiza al guardar.">✎ Editar</button>` : ''}
         ${pendienteDoc ? `<button class="btn btn-ghost" onclick="event.stopPropagation();marcarRecibida('${f.id}')" style="padding:5px 12px;font-size:11px;color:var(--green);border-color:var(--green)">✓ Recibida</button>` : ''}
         ${(currentProfile?.rol === 'super_admin' && f.estado === 'pendiente') ? `<button class="btn btn-ghost" onclick="event.stopPropagation();eliminarFactura('${f.id}')" style="padding:5px 10px;font-size:11px;color:var(--red);border-color:var(--red)" title="Eliminar factura (re-ingresar por compras)"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg> Eliminar</button>` : ''}
         <div>
-          <div class="pi-amount">L. ${parseFloat(f.total).toLocaleString('es-HN',{minimumFractionDigits:2})}</div>
+          ${(() => {
+            // Con partida: manda lo contabilizado (se corrige ahí al recibir el documento); lo registrado en compras queda de referencia
+            const fmtM = v => parseFloat(v).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+            const usaPartida = pm && !pm.anulada && !pm.dudoso && pm.total != null
+            const monto = usaPartida ? pm.total : f.total
+            const distinto = usaPartida && Math.abs(parseFloat(pm.total) - parseFloat(f.total)) >= 0.005
+            return `<div class="pi-amount">L. ${fmtM(monto)}</div>${distinto ? `<div style="font-size:10px;color:var(--text3)" title="Monto con que se registró la factura en compras">registrada L. ${fmtM(f.total)}</div>` : ''}`
+          })()}
           <div class="pi-status ${statusClass}">${statusLabel}</div>
         </div>
       </div>
@@ -1775,7 +1792,8 @@ window.marcarRecibida = async (facturaId) => {
   toast('Documento marcado como recibido ✓', 'success')
   // Actualizar datos locales y refiltrar
   const f = pendientesData.find(x => x.id === facturaId)
-  if (f) { f.recibida = true; f.recibida_por = currentProfile.id }
+  if (f) { f.recibida = true; f.recibida_por = currentProfile.id; f.recibida_at = new Date().toISOString(); f._recibidaNombre = currentProfile.nombre }
+  window.logActividad?.('factura_recibida', 'compras', `Documento recibido: ${f?.proveedor?.nombre || ''} · Fact. ${f?.numero_factura || ''}`, facturaId)
   filtrarPendientes()
 }
 
@@ -1805,11 +1823,36 @@ window.eliminarFactura = async (facturaId) => {
 let facturaEnRevision = null
 let fiscResultado = null
 
+// Catálogo de proveedores para el buscador del modal de revisión
+let revProvCache = []
+const revNormProv = t => String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z0-9]+/g, ' ').trim()
+// Proveedor que quedó escrito en el campo, si existe en el catálogo (nombre sin puntuación)
+function revProveedorElegido() {
+  const n = revNormProv(document.getElementById('rev-proveedor')?.value)
+  if (!n) return null
+  return revProvCache.find(p => revNormProv(p.nombre) === n) || null
+}
+window.revProvCambio = () => {
+  const el = document.getElementById('rev-prov-rtn'); if (!el) return
+  const p = revProveedorElegido()
+  const orig = facturaEnRevision?.proveedor?.nombre || ''
+  el.innerHTML = p ? `RTN ${escAttr(p.rtn || 'sin RTN en el catálogo')}${p.id !== facturaEnRevision?.proveedor_id ? ' · <span style="color:var(--gold)">proveedor cambiado</span>' : ''}`
+    : (document.getElementById('rev-proveedor')?.value || '').trim() && revNormProv(document.getElementById('rev-proveedor').value) !== revNormProv(orig)
+      ? '<span style="color:var(--amber)">No está en el catálogo: elegilo de la lista o crealo en Proveedores con su RTN y CAI</span>' : ''
+  // Al cambiar de proveedor, la verificación anterior ya no vale
+  fiscResultado = null
+  const b = document.getElementById('fisc-estado-badge'); if (b) b.innerHTML = ''
+}
+
 window.abrirRevisarFactura = async (facturaId) => {
   const f = pendientesData.find(x => x.id === facturaId)
   if (!f) return
   facturaEnRevision = f
   fiscResultado = null
+  if (!revProvCache.length) {
+    const { data } = await sb.from('proveedores').select('id, nombre, rtn').order('nombre').limit(5000)
+    revProvCache = data || []
+  }
 
   const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
 
@@ -1833,7 +1876,10 @@ window.abrirRevisarFactura = async (facturaId) => {
       <div style="background:var(--bg3);border-radius:var(--radius);padding:16px">
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-bottom:12px;font-weight:500">Datos de la solicitud <span style="color:var(--amber);font-size:10px;text-transform:none">(editables si hay error)</span></div>
         <div style="display:grid;gap:8px">
-          <div class="fld"><label style="font-size:11px;color:var(--text3)">Proveedor</label><input type="text" id="rev-proveedor" value="${escAttr(f.proveedor?.nombre || '')}" style="text-transform:uppercase;font-size:13px;padding:6px 8px"></div>
+          <div class="fld"><label style="font-size:11px;color:var(--text3)">Proveedor <span style="text-transform:none">(elegí del catálogo: cambia también el RTN)</span></label>
+            <input type="text" id="rev-proveedor" list="rev-dl-prov" value="${escAttr(f.proveedor?.nombre || '')}" oninput="revProvCambio()" onchange="revProvCambio()" style="text-transform:uppercase;font-size:13px;padding:6px 8px">
+            <datalist id="rev-dl-prov">${revProvCache.map(p => `<option value="${escAttr(p.nombre)}">RTN ${escAttr(p.rtn || '—')}</option>`).join('')}</datalist>
+            <div id="rev-prov-rtn" style="font-size:11px;color:var(--text3);margin-top:3px;font-family:var(--mono)"></div></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fld"><label style="font-size:11px;color:var(--text3)">N° Factura</label><input type="text" id="rev-numero" value="${f.numero_factura || ''}" style="font-family:var(--mono);font-size:13px;padding:6px 8px"></div>
             <div class="fld"><label style="font-size:11px;color:var(--text3)">Fecha factura</label><input type="date" id="rev-fecha" value="${f.fecha_factura || ''}" style="font-size:13px;padding:6px 8px"></div>
@@ -1910,6 +1956,7 @@ window.abrirRevisarFactura = async (facturaId) => {
 
   document.getElementById('modal-revisar-factura-title').textContent = `🧾 Revisar · ${f.proveedor?.nombre || 'Factura'} · ${f.numero_factura}`
   document.getElementById('revisar-factura-contenido').innerHTML = html
+  revProvCambio()
   const btnAnular = document.getElementById('btn-anular-factura')
   if (btnAnular) btnAnular.classList.toggle('hidden', currentProfile?.rol !== 'super_admin')
   document.getElementById('modal-revisar-factura').classList.add('open')
@@ -1932,11 +1979,12 @@ window.fiscVerificar = async () => {
   if (!nombre) { cont.innerHTML = '<span style="color:var(--red)">Falta el nombre del proveedor.</span>'; return }
   if (!numero) { cont.innerHTML = '<span style="color:var(--red)">Falta el número de factura.</span>'; return }
 
-  // Buscar proveedor (por RTN de la factura si hay, si no por nombre)
-  let prov = null
+  // Proveedor: el elegido en el campo (catálogo). El RTN que traía la factura solo se usa
+  // si no se cambió el nombre (antes mandaba el RTN viejo aunque se eligiera otro proveedor).
+  let prov = revProveedorElegido()
+  const sinCambio = revNormProv(nombre) === revNormProv(facturaEnRevision.proveedor?.nombre)
   const rtn = facturaEnRevision.rtn_proveedor
-  if (rtn) { const { data } = await sb.from('proveedores').select('id, nombre, rtn').eq('rtn', rtn).maybeSingle(); prov = data }
-  if (!prov) { const { data } = await sb.from('proveedores').select('id, nombre, rtn').eq('nombre', nombre).maybeSingle(); prov = data }
+  if (!prov && sinCambio && rtn) { const { data } = await sb.from('proveedores').select('id, nombre, rtn').eq('rtn', rtn).maybeSingle(); prov = data }
   if (!prov) {
     cont.innerHTML = `<span style="color:var(--amber)">⚠ El proveedor "${nombre}" no existe en el catálogo. Crealo en la pantalla Proveedores con su CAI y rangos, luego verificá.</span>`
     badge.innerHTML = '<span style="font-size:11px;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:2px 8px">Sin proveedor</span>'
@@ -1949,7 +1997,7 @@ window.fiscVerificar = async () => {
   if (!cais?.length) {
     cont.innerHTML = `<span style="color:var(--amber)">⚠ "${prov.nombre}" no tiene rangos CAI cargados. Agregalos en Proveedores para validar el crédito fiscal.</span>`
     badge.innerHTML = '<span style="font-size:11px;color:var(--amber);border:1px solid var(--amber);border-radius:4px;padding:2px 8px">Sin rangos</span>'
-    fiscResultado = { ok: false, motivo: 'sin_cai', provId: prov.id, caiId: null }
+    fiscResultado = { ok: false, motivo: 'sin_cai', provId: prov.id, provRtn: prov.rtn || null, caiId: null }
     return
   }
 
@@ -1973,15 +2021,15 @@ window.fiscVerificar = async () => {
     const aviso = dias != null && dias <= 30 ? ` <span style="color:${dias <= 7 ? 'var(--red)' : 'var(--amber)'}">(vence en ${dias}d)</span>` : ''
     cont.innerHTML = `<span style="color:var(--green)">✓ Factura válida.</span> Cae en el rango <span style="font-family:var(--mono)">${match.rango_desde}→${match.rango_hasta}</span>${match.sucursal ? ' · ' + match.sucursal : ''}. CAI vigente${aviso}.<div style="margin-top:10px"><button class="btn btn-gold" onclick="fiscGuardarValida()" style="font-size:12px;padding:6px 14px">Guardar verificación ✓</button></div>`
     badge.innerHTML = '<span style="font-size:11px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:2px 8px">✓ Con crédito fiscal</span>'
-    fiscResultado = { ok: true, motivo: 'valido', provId: prov.id, caiId: match.id, credito: true }
+    fiscResultado = { ok: true, motivo: 'valido', provId: prov.id, provRtn: prov.rtn || null, caiId: match.id, credito: true }
   } else if (motivoFalla === 'vencido') {
     cont.innerHTML = `<span style="color:var(--red)">✗ El número cae en el rango, pero el CAI venció el ${match.fecha_limite}.</span> Esta factura no da crédito fiscal salvo que el proveedor la reemplace. Elegí cómo marcarla:` + fiscBotonesDecision()
     badge.innerHTML = '<span style="font-size:11px;color:var(--red);border:1px solid var(--red);border-radius:4px;padding:2px 8px">⚠ CAI vencido</span>'
-    fiscResultado = { ok: false, motivo: 'vencido', provId: prov.id, caiId: match.id, credito: false }
+    fiscResultado = { ok: false, motivo: 'vencido', provId: prov.id, provRtn: prov.rtn || null, caiId: match.id, credito: false }
   } else {
     cont.innerHTML = `<span style="color:var(--red)">✗ El número ${numero} no cae en ningún rango autorizado vigente de ${prov.nombre}.</span> Verificá el número, o si el rango es nuevo cargalo en Proveedores. Elegí cómo marcarla:` + fiscBotonesDecision()
     badge.innerHTML = '<span style="font-size:11px;color:var(--red);border:1px solid var(--red);border-radius:4px;padding:2px 8px">⚠ Fuera de rango</span>'
-    fiscResultado = { ok: false, motivo: 'fuera_rango', provId: prov.id, caiId: null, credito: false }
+    fiscResultado = { ok: false, motivo: 'fuera_rango', provId: prov.id, provRtn: prov.rtn || null, caiId: null, credito: false }
   }
 }
 
@@ -2004,6 +2052,7 @@ window.fiscMarcar = async (decision) => {
     payload.credito_fiscal_valido = false
     payload.nota_verificacion = 'Verificada sin crédito fiscal (' + (fiscResultado?.motivo || '') + ')'
     if (fiscResultado?.provId) payload.proveedor_id = fiscResultado.provId
+    if (fiscResultado?.provRtn) payload.rtn_proveedor = fiscResultado.provRtn
   } else if (decision === 'pendiente') {
     payload.proveedor_verificado = false
     payload.credito_fiscal_valido = null
@@ -2026,6 +2075,7 @@ window.fiscGuardarValida = async () => {
     verificado_por: prof?.id || null, verificado_fecha: new Date().toISOString(),
     nota_verificacion: 'Verificada con crédito fiscal'
   }
+  if (fiscResultado.provRtn) payload.rtn_proveedor = fiscResultado.provRtn
   const { error } = await sb.from('facturas_compras').update(payload).eq('id', facturaEnRevision.id)
   if (error) { toast('Error: ' + error.message, 'error'); return }
   // Actualizar ultimo_usado del CAI (para la alerta de rango agotado)
@@ -2105,7 +2155,11 @@ window.procesarFacturaAux = async () => {
 
   // Actualizar proveedor si cambió
   let proveedorId = f.proveedor_id
-  if (proveedorNombre && proveedorNombre !== (f.proveedor?.nombre || '').toUpperCase()) {
+  const provCat = revProveedorElegido()
+  let provRtn = null
+  if (provCat && provCat.id !== f.proveedor_id) {
+    proveedorId = provCat.id; provRtn = provCat.rtn || null
+  } else if (!provCat && proveedorNombre && proveedorNombre !== (f.proveedor?.nombre || '').toUpperCase()) {
     const { data: provExist } = await sb.from('proveedores').select('id').eq('nombre', proveedorNombre).limit(1).single()
     if (provExist) {
       proveedorId = provExist.id
@@ -2119,6 +2173,7 @@ window.procesarFacturaAux = async () => {
   const { error } = await sb.from('facturas_compras').update({
     centro_costo_id: centroCostoId,
     proveedor_id: proveedorId,
+    ...(provRtn ? { rtn_proveedor: provRtn } : {}),
     numero_factura: numeroFactura,
     fecha_factura: fechaFactura,
     tipo_gasto: tipoGasto,
@@ -3496,8 +3551,9 @@ window.guardarPartida = async (estado) => {
     })
     .filter(x => Math.abs(x.dif) > 0.01)
 
+  // Se usa aquí y más abajo (aviso de líneas de caja sin contar): fuera del if
+  const fmtL = v => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
   if (_descuadres.length) {
-    const fmtL = v => 'L. ' + (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
     const det = _descuadres.map(x =>
       `· ${x.l.cuenta_codigo} · ${x.l.descripcion || 'sin descripción'}\n  monto ${fmtL(parseFloat(x.l.monto))} — los billetes suman ${fmtL(x.suma)}`
     ).join('\n')
@@ -3851,7 +3907,14 @@ window.guardarPartida = async (estado) => {
     console.log(`[PARTIDA] líneas: ${paraActualizar.length} conservadas · ${paraInsertar.length} nuevas · ${paraBorrar.length} eliminadas`)
   } else {
     const { error: lErr } = await sb.from('lineas_partida').insert(lineasValidas.map(filaDe))
-    if (lErr) { toast('Error en líneas: ' + lErr.message, 'error'); return }
+    if (lErr) {
+      // El encabezado ya se grabó: sin líneas quedaría una partida vacía (pasó con la #7049).
+      // Se borra para que al volver a guardar no salga duplicada, y el error queda en la bitácora.
+      const { error: dErr } = await sb.from('partidas_contables').delete().eq('id', partidaId)
+      window.logActividad?.('partida_error', 'partidas', `No se grabaron las líneas de "${descripcion}" (${lErr.message})${dErr ? ' · quedó el encabezado sin líneas: ' + dErr.message : ' · se quitó el encabezado'}`, partidaId)
+      toast('Error en líneas: ' + lErr.message + (dErr ? ' · quedó una partida vacía en borrador, bórrala' : ' · no se grabó nada, vuelve a guardar'), 'error')
+      return
+    }
   }
 
   // Guardar conteo de billetes si existe
@@ -5390,6 +5453,14 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
   // Reemplazar las filas de esta partida (borra y reinserta)
   if (partidaId) await sb.from('libro_compras').delete().eq('partida_id', partidaId)
 
+  // RTN: el que ya tenía la fila (lo pudo corregir el contador); si es nueva, el del proveedor en el catálogo
+  const provRtnMap = {}
+  const nombresProv = [...new Set(baseRows.map(b => b.proveedor).filter(Boolean))]
+  if (nombresProv.length) {
+    const { data: pr } = await sb.from('proveedores').select('nombre, rtn').in('nombre', nombresProv)
+    ;(pr || []).forEach(p => { if (p.rtn) provRtnMap[p.nombre] = p.rtn })
+  }
+
   const registros = baseRows.map(b => {
     // Match por N° de factura; si no calza y hay 1↔1 (una sola factura en la
     // partida), preservar igual por posición para no perder check/período/RTN
@@ -5402,7 +5473,7 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
       numero_factura: b.numero_factura,
       numero_documento: b.numero_factura,
       proveedor: b.proveedor,
-      rtn_proveedor: prev?.rtn_proveedor || '',
+      rtn_proveedor: prev?.rtn_proveedor || provRtnMap[b.proveedor] || '',
       cuenta_proveedor: cuentaProv,
       subtotal: b.subtotal,
       isv: b.isv,
@@ -6406,7 +6477,8 @@ function renderImportPartida() {
   window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente, notasNC }
   // Cuadre por cajero (js/cuadre_cajeros.js): lo facturado contra lo que entregó cada uno
   // El efectivo va a la cuenta de detalle (110102 es el grupo), la misma del arqueo de billetes.
-  window.cuadreCajerosRender?.(d, totalCaja, { codigo: '110102-001', nombre: 'CAJA GENERAL MN' })
+  // notasNC.resumen: reembolsos en efectivo / por transferencia de las notas de crédito, para no duplicarlos
+  window.cuadreCajerosRender?.(d, totalCaja, { codigo: '110102-001', nombre: 'CAJA GENERAL MN' }, notasNC.resumen)
 
   const tbody = document.getElementById('tbody-import-partida')
   tbody.innerHTML = filtered.map(l => {

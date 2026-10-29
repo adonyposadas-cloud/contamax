@@ -33,7 +33,8 @@
   let cuentas = []        // catálogo: bancos, CxC empleados, sobrante
   let cfg = lsGet(LS_CFG, { cta: {}, cxc: {} })
   let usar = false
-  let ctx = null          // { data, totalCaja, caja }
+  let ctx = null          // { data, totalCaja, caja, nc: resumen de notas de crédito por centro }
+  let resumenNC = { cubierto: 0, trNC: 0, otros: 0 }   // lo calcula lineasPartida, lo muestra el resumen
   let depositos = {}      // 'Centro|BANCO' → lo que depositó el banco (opcional, para validar la tasa)
   const tasa = (b) => cfg.tasa?.[b] !== undefined ? cfg.tasa[b] : TASA_POS[b]
 
@@ -351,10 +352,12 @@
     const res = document.getElementById('cuadre-cajeros-resumen')
     if (res && ctx) {
       const sumSis = r2(Object.values(cajeros).reduce((a, c) => a + totSis(c.sis), 0))
-      const otros = r2(ctx.totalCaja - sumSis)
       const lineas = lineasPartida()
+      const { cubierto, trNC, otros } = resumenNC
       res.innerHTML = `Caja del día según la partida: <b class="mono">L ${fmt(ctx.totalCaja)}</b> · cobrado por los cajeros: <b class="mono">L ${fmt(sumSis)}</b>
-        ${Math.abs(otros) >= 0.005 ? ` · otros movimientos sin cajero (notas de crédito, saldo a favor…): <b class="mono">L ${fmt(otros)}</b>` : ''}
+        ${cubierto ? ` · devoluciones en efectivo ya registradas en las notas de crédito (no se duplican): <b class="mono">L ${fmt(cubierto)}</b>` : ''}
+        ${trNC ? ` · reembolsos por transferencia (salen del banco, elegir cuenta): <b class="mono">L ${fmt(trNC)}</b>` : ''}
+        ${Math.abs(otros) >= 0.005 ? ` · otros movimientos sin cajero (saldo a favor, depósitos…): <b class="mono">L ${fmt(otros)}</b>` : ''}
         <br><span style="color:var(--text3)">${lineas.length} línea(s) para la partida · las que digan "ELEGIR CUENTA" se completan en el formulario.</span>`
     }
   }
@@ -478,6 +481,15 @@
         descripcion: desc + (codigo ? '' : ' - ELEGIR CUENTA') })
     }
     let sumSis = 0
+    // Reembolsos de las notas de crédito del reporte: ya van en las líneas de notas de crédito
+    // (devolución contra la caja). Una devolución en efectivo que el cajero también puso como
+    // salida no se vuelve a cargar; lo reembolsado por transferencia salió del banco, no de la caja.
+    const ncEf = {}, ncTr = {}
+    for (const n of ctx.nc || []) {
+      ncEf[n.centro] = r2((ncEf[n.centro] || 0) + (+n.reembEfectivo || 0))
+      ncTr[n.centro] = r2((ncTr[n.centro] || 0) + (+n.reembTransf || 0))
+    }
+    let cubierto = 0
     for (const [k, c] of Object.entries(cajeros)) {
       const s = c.sis, e = c.ent, t = totEnt(e), nom = norm(c.nombre)
       sumSis += totSis(s)
@@ -485,8 +497,15 @@
       for (const x of e.trs) L(x.cta || '', 'debito', parseFloat(x.monto) || 0, '', `TRANSFERENCIA ${nom}: ${String(x.det || '').toUpperCase()}`, x.cc ?? ccDe(c.centro))
       L(ctx.caja.codigo, 'debito', parseFloat(e.ef) || 0, '', `EFECTIVO ENTREGADO ${nom}`)
       // Salida: el dinero se fue a la cuenta elegida (débito) · entrada: el efectivo contado la incluye, se acredita su origen (ej. anticipo de clientes)
-      for (const x of e.salidas) if (x.tipo) L(x.cta ?? ctaSalida(x.det, c.centro), x.tipo === 'ent' ? 'credito' : 'debito', parseFloat(x.monto) || 0, c.centro,
-        `${x.tipo === 'ent' ? 'ENTRADA' : 'SALIDA'} DE EFECTIVO ${nom}: ${String(x.det || '').toUpperCase()}`, x.cc ?? ccDe(c.centro))
+      for (const x of e.salidas) if (x.tipo) {
+        const codigo = x.cta ?? ctaSalida(x.det, c.centro)
+        let monto = parseFloat(x.monto) || 0
+        const esDevol = x.tipo !== 'ent' && (/^410201/.test(codigo || '') || (!codigo && /DEVOLUCION/.test(norm(x.det))))
+        const ya = esDevol ? Math.min(monto, ncEf[c.centro] || 0) : 0
+        if (ya > 0) { ncEf[c.centro] = r2(ncEf[c.centro] - ya); cubierto = r2(cubierto + ya); monto = r2(monto - ya) }
+        L(codigo, x.tipo === 'ent' ? 'credito' : 'debito', monto, c.centro,
+          `${x.tipo === 'ent' ? 'ENTRADA' : 'SALIDA'} DE EFECTIVO ${nom}: ${String(x.det || '').toUpperCase()}`, x.cc ?? ccDe(c.centro))
+      }
       const d = r2(t.total - totSis(s))
       if (d < 0) L(cxcDefecto(k), 'debito', -d, '', `FALTANTE DE CAJA ${nom}`)
       if (d > 0) L(ctaDefecto('sobrante'), 'credito', d, c.centro, `SOBRANTE DE CAJA ${nom}`)
@@ -498,17 +517,21 @@
         cf === x.centro ? `COMISION POS ${x.b} ${x.centro.toUpperCase()}` : `COMISION POS ${x.b} ${x.centro.toUpperCase()} (VENTA ${cf.toUpperCase()})`)
       L('', 'debito', x.ret, x.centro, `IMPUESTO RETENIDO POS ${x.b} ${x.centro.toUpperCase()}`)
     }
-    const otros = r2(ctx.totalCaja - sumSis)
+    for (const [centro, v] of Object.entries(ncTr)) L('', 'credito', v, '', `REEMBOLSOS POR TRANSFERENCIA DE NOTAS DE CREDITO ${centro.toUpperCase()} (BANCO)`)
+    const trNC = r2(Object.values(ncTr).reduce((a, v) => a + v, 0))
+    // Lo que sobra (saldo a favor usado, depósitos aplicados, redondeo…) va a la caja
+    const otros = r2(ctx.totalCaja - sumSis + cubierto + trNC)
     if (otros > 0) L(ctx.caja.codigo, 'debito', otros, '', 'OTROS MOVIMIENTOS DE CAJA SIN CAJERO')
     if (otros < 0) L(ctx.caja.codigo, 'credito', -otros, '', 'OTROS MOVIMIENTOS DE CAJA SIN CAJERO (REEMBOLSOS / SALDO A FAVOR)')
+    resumenNC = { cubierto, trNC, otros }
     return out
   }
   // Lo usa guardarImportPartida: null = no se usa el cuadre (queda la línea única de formas de pago)
   window.cuadreCajerosLineas = () => (usar && ctx ? lineasPartida() : null)
 
   // Lo llama renderImportPartida cada vez que se procesan los reportes
-  window.cuadreCajerosRender = async (data, totalCaja, caja) => {
-    ctx = { data, totalCaja: r2(totalCaja), caja }
+  window.cuadreCajerosRender = async (data, totalCaja, caja, nc) => {
+    ctx = { data, totalCaja: r2(totalCaja), caja, nc: nc || [] }
     cajeros = {}
     for (const [k, c] of Object.entries(calcularSistema(data))) cajeros[k] = { ...c, ent: entVacio() }
     const dia = lsGet(lsKeyDia(), null)

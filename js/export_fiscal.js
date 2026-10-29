@@ -30,6 +30,9 @@
   let efCuentasCod = {}      // codigo → cuenta
   let efLibros = { ventas: [], compras: [] }
   let efAbierta = null       // id de la partida con el detalle abierto
+  let efDeclaradas = {}     // partida id → mes de la declaración de ISV presentada que la tomó (sus marcas no se cambian)
+  const cerrada = (p) => !!efDeclaradas[p.id]
+  let efTocadas = new Set()  // partidas cuya marca fiscal se cambió aquí: siguen a la vista aunque queden sin fiscal
 
   const esSuperAdmin = () => {
     const p = (window._currentProfile?.() || {})
@@ -184,6 +187,15 @@
         .in('estado', ['aprobada', 'anulada'])
         .order('fecha_partida').order('numero_partida'))
       const ids = partidas.map(p => p.id)
+      // Partidas tomadas en una declaración de ISV presentada (si la tabla aún no existe, ninguna)
+      efDeclaradas = {}
+      const { data: decl } = await sb.from('declaraciones_isv').select('id,periodo').eq('estado', 'presentada')
+      if (decl?.length) {
+        const mes = Object.fromEntries(decl.map(d => [d.id, d.periodo]))
+        const dp = await porLotes(ids, (lote) => sb.from('declaraciones_isv_partidas').select('partida_id,declaracion_id')
+          .in('declaracion_id', decl.map(d => d.id)).in('partida_id', lote))
+        for (const x of dp) efDeclaradas[x.partida_id] = mes[x.declaracion_id]
+      }
       const lineas = await porLotes(ids, (lote) => sb.from('lineas_partida')
         .select('id,partida_id,cuenta_codigo,cuenta_nombre,tipo,monto,centro_costo_id,descripcion,numero_documento,aplica_fiscal')
         .in('partida_id', lote).order('id'))
@@ -198,6 +210,7 @@
       efPartidas = partidas.map(({ estado, ...p }) => analizar({ ...p, estadoOrigen: estado }, porPartida[p.id] || []))
       efSel = new Set(efPartidas.filter(p => p.estado === 'ok').map(p => p.id))
       efAbierta = null
+      efTocadas = new Set()
       efRender()
     } catch (e) {
       console.error('[export fiscal]', e)
@@ -233,7 +246,7 @@
     return efPartidas.filter(p => {
       if (filtro === 'sel' && !efSel.has(p.id)) return false
       if (filtro !== 'todas' && filtro !== 'sel' && p.estado !== filtro) return false
-      if (filtro === 'todas' && p.estado === 'sin' && !$('ef-ver-sin').checked) return false
+      if (filtro === 'todas' && p.estado === 'sin' && !$('ef-ver-sin').checked && !efTocadas.has(p.id)) return false
       if (q && !`${p.numero_documento || ''} ${p.descripcion || ''} ${p.numero_partida}`.toLowerCase().includes(q)) return false
       return true
     })
@@ -275,7 +288,8 @@
   }
 
   function filaHTML(p) {
-    const puede = p.estado === 'ok'
+    // Lista: marcada = va. Sin fiscal: marcarla le pone la marca fiscal a sus líneas (se guarda).
+    const puede = (p.estado === 'ok' || p.estado === 'sin') && !cerrada(p)
     const dif = r2(p.deb - p.cre)
     const aj = p.ajuste && p.estado === 'ok' ? p.ajuste : null
     const nota = p.estado === 'descuadre'
@@ -288,8 +302,8 @@
     const cambio = desc !== (p.descripcion || '')
     return `
       <tr style="cursor:pointer" onclick="efToggleDetalle('${p.id}')">
-        <td onclick="event.stopPropagation()"><input type="checkbox" ${efSel.has(p.id) ? 'checked' : ''} ${puede ? '' : 'disabled'} onchange="efMarcar('${p.id}',this.checked)"></td>
-        <td>${p.numero_partida ?? ''}</td>
+        <td onclick="event.stopPropagation()"><input type="checkbox" ${efSel.has(p.id) ? 'checked' : ''} ${puede ? '' : 'disabled'} title="${cerrada(p) ? 'Tomada en la declaración de ISV de ' + (efDeclaradas[p.id] || '') + ': no se puede cambiar' : 'Se guarda: desmarcar le quita la marca fiscal a todas sus líneas'}" onchange="efMarcar('${p.id}',this.checked)"></td>
+        <td>${p.numero_partida ?? ''}${cerrada(p) ? ` <span title="Tomada en la declaración de ISV de ${esc(efDeclaradas[p.id] || '')}">🔒</span>` : ''}</td>
         <td style="white-space:nowrap">${esc(p.fecha_partida)}</td>
         <td>${esc(p.numero_documento || '')}</td>
         <td>${esc(desc)}${cambio ? ` <span title="Original: ${esc(p.descripcion)}" style="color:var(--gold)">✎</span>` : ''}${fotos}</td>
@@ -304,32 +318,70 @@
     const filas = p.lineas.map(l => {
       const motivo = motivoExclusion(l)
       const cc = efCentros[l.centro_costo_id]
-      return `<tr style="${motivo ? 'opacity:.45' : ''}">
-        <td>${esc(l.cuenta_codigo)} · ${esc(l.cuenta_nombre)}</td>
-        <td>${esc(cc ? cc.nombre : '')}</td>
-        <td style="text-align:right">${l.tipo === 'debito' ? fmt(l.monto) : ''}</td>
-        <td style="text-align:right">${l.tipo === 'credito' ? fmt(l.monto) : ''}</td>
-        <td>${motivo ? `<span class="badge badge-off">${esc(motivo)}</span>` : '<span class="badge badge-green">va</span>'}</td>
+      // Casilla por línea: solo cuando el motivo es la marca (centro personal/privado o monto 0 no se cambian aquí)
+      const editable = (!motivo || motivo === 'no fiscal') && !cerrada(p)
+      const op = motivo ? 'opacity:.45' : ''
+      return `<tr>
+        <td style="width:28px"><input type="checkbox" ${motivo ? '' : 'checked'} ${editable ? '' : 'disabled'}
+          title="${editable ? 'Se guarda: marcada = la línea va al fiscal' : cerrada(p) ? 'Tomada en la declaración de ISV de ' + (efDeclaradas[p.id] || '') + ': no se puede cambiar' : esc(motivo)}" onchange="efMarcarLinea('${p.id}','${l.id}',this.checked)"></td>
+        <td style="${op}">${esc(l.cuenta_codigo)} · ${esc(l.cuenta_nombre)}</td>
+        <td style="${op}">${esc(cc ? cc.nombre : '')}</td>
+        <td style="text-align:right;${op}">${l.tipo === 'debito' ? fmt(l.monto) : ''}</td>
+        <td style="text-align:right;${op}">${l.tipo === 'credito' ? fmt(l.monto) : ''}</td>
+        <td>${motivo && motivo !== 'no fiscal' ? `<span class="badge badge-off">${esc(motivo)}</span>`
+          : cerrada(p) ? `<span class="badge ${motivo ? 'badge-off' : 'badge-green'}">${motivo ? 'no fiscal' : 'va'}</span>`
+          : `<span class="badge ${motivo ? 'badge-off' : 'badge-green'}" style="cursor:pointer" title="Clic para ${motivo ? 'mandarla' : 'quitarla'} al fiscal (se guarda)"
+              onclick="event.stopPropagation();efMarcarLinea('${p.id}','${l.id}',${!!motivo})">${motivo ? 'no fiscal' : 'va'}</span>`}</td>
       </tr>`
     }).join('')
     const aj = p.ajuste && p.estado === 'ok' ? p.ajuste : null
-    const filaAj = aj ? `<tr style="color:var(--gold)">
+    const filaAj = aj ? `<tr style="color:var(--gold)"><td></td>
         <td>${esc(aj.cuenta_codigo)} · ${esc(aj.cuenta_nombre)}</td><td></td>
         <td style="text-align:right">${aj.tipo === 'debito' ? fmt(aj.monto) : ''}</td>
         <td style="text-align:right">${aj.tipo === 'credito' ? fmt(aj.monto) : ''}</td>
         <td><span class="badge badge-gold">ajuste</span></td></tr>` : ''
     const ayuda = p.estado !== 'descuadre' ? ''
-      : p.ajustable ? 'La partida completa cuadra: lo que falta es lo que se dejó fuera. Marca <b>Cuadrar lo excluido contra</b> y elige la cuenta (p. ej. la del socio).'
+      : p.ajustable ? 'La partida completa cuadra (si quitaste una línea, la partida fiscal queda descuadrada por ese monto): lo que falta es lo que se dejó fuera. Marca <b>Cuadrar lo excluido contra</b> y elige la cuenta (p. ej. la del socio).'
       : 'La partida no cuadra ni completa aquí: revisa sus montos en Partidas.'
     return `<tr><td></td><td colspan="7" style="background:var(--bg3)">
-      <table style="font-size:12px"><thead><tr><th>Cuenta</th><th>Centro</th><th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th>Fiscal</th></tr></thead>
-      <tbody>${filas || '<tr><td colspan="5">Sin líneas</td></tr>'}${filaAj}</tbody></table>
+      <table style="font-size:12px"><thead><tr><th></th><th>Cuenta</th><th>Centro</th><th style="text-align:right">Debe</th><th style="text-align:right">Haber</th><th>Fiscal</th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="6">Sin líneas</td></tr>'}${filaAj}</tbody></table>
       ${ayuda ? `<div style="font-size:12px;color:var(--text2);margin-top:6px">${ayuda}</div>` : ''}
     </td></tr>`
   }
 
   window.efToggleDetalle = (id) => { efAbierta = efAbierta === id ? null : id; efRender() }
-  window.efMarcar = (id, v) => { v ? efSel.add(id) : efSel.delete(id); efRender() }
+  // Las marcas se guardan en lineas_partida.aplica_fiscal: lo que se decide aquí
+  // es lo que queda en la base (y lo que ven los libros y el resto del sistema).
+  async function guardarFiscal(p, ids, valor) {
+    if (!ids.length) return true
+    if (cerrada(p)) { window.toast?.('Esta partida se tomó en la declaración de ISV de ' + efDeclaradas[p.id] + ': no se puede cambiar', 'error'); efRender(); return false }
+    const { data, error } = await getSb().from('lineas_partida').update({ aplica_fiscal: valor }).in('id', ids).select('id')
+    // Si los permisos no dejan tocar las líneas, Supabase no da error: devuelve 0 filas
+    if (error || (data || []).length !== ids.length) {
+      window.toast?.('No se pudo guardar la marca fiscal' + (error ? ': ' + error.message : ' (sin permiso sobre esas líneas)'), 'error'); efRender(); return false
+    }
+    const set = new Set(ids.map(String))
+    p.lineas.forEach(l => { if (set.has(String(l.id))) l.aplica_fiscal = valor })
+    const i = efPartidas.indexOf(p)
+    efPartidas[i] = analizar(p, p.lineas)
+    efTocadas.add(p.id)
+    if (efPartidas[i].estado === 'ok') efSel.add(p.id); else efSel.delete(p.id)
+    window.logActividad?.('fiscal_marca', 'fiscal', `Partida ${p.numero_partida}: ${ids.length} línea(s) ${valor ? 'al fiscal' : 'fuera del fiscal'}`, p.id)
+    return true
+  }
+  // Partida completa: desmarcar = ninguna línea al fiscal; marcar una "Sin fiscal" = todas sus líneas
+  window.efMarcar = async (id, v) => {
+    const p = efPartidas.find(x => String(x.id) === String(id)); if (!p) return
+    const ids = p.lineas.filter(l => !!l.aplica_fiscal !== v).map(l => l.id)
+    await guardarFiscal(p, ids, v)
+    efRender()
+  }
+  window.efMarcarLinea = async (pid, lid, v) => {
+    const p = efPartidas.find(x => String(x.id) === String(pid)); if (!p) return
+    await guardarFiscal(p, p.lineas.filter(l => String(l.id) === String(lid)).map(l => l.id), v)
+    efRender()
+  }
   window.efMarcarTodas = (v) => {
     visibles().forEach(p => { if (p.estado === 'ok') v ? efSel.add(p.id) : efSel.delete(p.id) })
     efRender()
