@@ -2,10 +2,11 @@
 // ── CUADRE DE CAJEROS (Ventas Alpha)
 // ══════════════════════════════════════════════
 // Lo que cada cajero facturó (columna "Facturado Por" de los reportes Alpha) contra lo que
-// entregó: lotes de cada POS, transferencias por banco, efectivo contado y salidas de efectivo.
+// entregó: lotes de cada POS, transferencias por banco, efectivo contado y movimientos de efectivo
+// (salidas: gastos, devoluciones… · entradas: adelantos por trabajos y otros ingresos que no son venta).
 // El cierre de Tecnimax se sube en Excel; los que no traen archivo (Yonker) se llenan a mano.
 // Con el cuadre, la línea "FORMAS DE PAGO - ELEGIR CUENTA" de la partida se reparte en:
-// bancos (lotes y transferencias), caja general (efectivo), salidas (sin cuenta, se elige),
+// bancos (lotes y transferencias), caja general (efectivo), movimientos (sin cuenta, se elige),
 // faltante a la CxC del cajero (110301-*) y sobrante a otros ingresos (410306).
 (function () {
   const BANCOS = ['BAC', 'LAFISE', 'BANRURAL']                       // POS en uso (Banpaís ya no)
@@ -36,11 +37,13 @@
   let depositos = {}      // 'Centro|BANCO' → lo que depositó el banco (opcional, para validar la tasa)
   const tasa = (b) => cfg.tasa?.[b] !== undefined ? cfg.tasa[b] : TASA_POS[b]
 
-  // trs: una línea por transferencia { det, monto, cta } · salidas: { det, monto, cta }
+  // trs: una línea por transferencia { det, monto, cta } · salidas: movimientos de efectivo { tipo, det, monto, cta }
+// tipo: 'sal' (salió de la caja) · 'ent' (entró sin ser venta, ej. adelanto) · '' (todavía no se eligió)
+// medio (solo entradas): 'ef' (vino en el efectivo contado) · 'tr' (vino en una de las transferencias)
   const entVacio = () => ({ pos: {}, posSis: {}, ret: {}, trs: [], ef: '', salidas: [], archivo: '' })
   // Guardados de antes (transferencias sumadas por banco) → una línea por banco
   const migrarEnt = (e, centro) => {
-    for (const s of e.salidas || []) if (s.cta === undefined) s.cta = ctaSalida(s.det, centro)
+    for (const s of e.salidas || []) { if (s.cta === undefined) s.cta = ctaSalida(s.det, centro); if (s.tipo === undefined) s.tipo = 'sal' }
     if (!e.trs) e.trs = Object.entries(e.tr || {}).filter(([, v]) => parseFloat(v)).map(([b, v]) => ({ det: 'TRANSFERENCIAS ' + (NOMBRE_BANCO[b] || b).toUpperCase(), monto: v, cta: ctaDefecto('tr_' + b) }))
     delete e.tr
     return e
@@ -79,11 +82,15 @@
 
   const totEnt = (e) => {
     const pos = r2(BANCOS.reduce((a, b) => a + (parseFloat(e.pos[b]) || 0), 0))
-    const tr = r2(e.trs.reduce((a, x) => a + (parseFloat(x.monto) || 0), 0))
-    const sal = r2(e.salidas.reduce((a, s) => a + (parseFloat(s.monto) || 0), 0))
-    const ef = r2((parseFloat(e.ef) || 0) + sal)
+    const suma = (f) => r2(e.salidas.filter(f).reduce((a, s) => a + (parseFloat(s.monto) || 0), 0))
+    const sal = suma(s => s.tipo === 'sal')
+    const entTr = suma(s => s.tipo === 'ent' && s.medio === 'tr'), entEf = suma(s => s.tipo === 'ent' && s.medio !== 'tr'), ent = r2(entTr + entEf)
+    // Lo entregado incluye las entradas (no son venta): se restan de donde llegaron para comparar con lo facturado
+    const tr = r2(e.trs.reduce((a, x) => a + (parseFloat(x.monto) || 0), 0) - entTr)
+    const ef = r2((parseFloat(e.ef) || 0) + sal - entEf)
     const lleno = pos || tr || ef || e.ef !== ''
-    return { pos, tr, sal, ef, total: r2(pos + tr + ef), lleno }
+    const sinTipo = e.salidas.filter(s => !s.tipo).length
+    return { pos, tr, sal, ent, entTr, entEf, ef, total: r2(pos + tr + ef), lleno, sinTipo }
   }
   const totSis = (s) => r2(s.ef + s.tj + s.tr)
 
@@ -117,7 +124,7 @@
     // SALIDAS DE EFECTIVO: Tipo | Detalle | Referencia | Monto
     i = seccion('SALIDAS DE EFECTIVO')
     if (i >= 0) for (i += 2; i < rows.length && t0(rows[i]); i++) {
-      res.salidas.push({ det: [rows[i][0], rows[i][1]].filter(Boolean).join(' · '), monto: num(rows[i][3]) })
+      res.salidas.push({ tipo: 'sal', det: [rows[i][0], rows[i][1]].filter(Boolean).join(' · '), monto: num(rows[i][3]) })
     }
     if (!res.cajero || res.ef == null) throw new Error('no parece un cierre de caja (falta Cajero o Total contado)')
     return res
@@ -149,13 +156,19 @@
 
   // Lotes de todos los cajeros agrupados por centro y banco. El banco deposita el lote menos
   // su comisión (y lo retenido): con el depósito se calcula la tasa real; sin él, se usa la del POS.
+  // POS por el que pasaron los lotes: el del centro de sus facturas, salvo que se elija otro
+  // (ej. una cajera del Tecnicentro factura una venta del Yonker y la pasa por el POS del Tecnicentro)
+  const centroPos = (c) => c.ent.posCentro || c.centro || 'Tecnicentro'
+
   function bancosPos() {
     const out = []
     for (const centro of CENTROS) for (const b of BANCOS) {
       let lote = 0, ret = 0
+      const lotePor = {}   // centro de las facturas → lo que pasó por este POS
       for (const c of Object.values(cajeros)) {
-        if ((c.centro || 'Tecnicentro') !== centro) continue
-        lote += parseFloat(c.ent.pos[b]) || 0; ret += parseFloat(c.ent.ret?.[b]) || 0
+        if (centroPos(c) !== centro) continue
+        const v = parseFloat(c.ent.pos[b]) || 0, cf = c.centro || 'Tecnicentro'
+        lote += v; ret += parseFloat(c.ent.ret?.[b]) || 0; if (v) lotePor[cf] = (lotePor[cf] || 0) + v
       }
       lote = r2(lote); ret = r2(ret)
       if (!lote) continue
@@ -167,7 +180,11 @@
         if (!isNaN(t) && Math.abs(real - t) > 0.05) alerta = ` Debería dar ${t}%: revisá el depósito o si pasaron tarjetas por otro POS.`
       } else if (!isNaN(t)) { com = r2(lote * t / 100); dep = r2(lote - ret - com) }
       else { com = 0; dep = r2(lote - ret); alerta = ' Sin tasa ni depósito: poné la tasa de este POS o lo que depositó el banco.' }
-      out.push({ k, centro, b, lote, ret, dep, com, real, t, alerta })
+      // La comisión es de quien vendió: se reparte según el centro de las facturas; el redondeo queda en el centro del POS
+      const comPor = {}
+      for (const [cf, v] of Object.entries(lotePor)) if (cf !== centro) comPor[cf] = r2(com * v / lote)
+      comPor[centro] = r2(com - Object.values(comPor).reduce((a, v) => a + v, 0))
+      out.push({ k, centro, b, lote, ret, dep, com, comPor, real, t, alerta })
     }
     return out
   }
@@ -236,15 +253,30 @@
   const dif = (v) => Math.abs(v) < 0.005 ? '<span style="color:var(--green)">✓</span>'
     : `<span style="color:${v < 0 ? 'var(--red)' : 'var(--blue)'}">${v < 0 ? '−' : '+'}${fmt(Math.abs(v))}</span>`
 
+  // Entrada o salida: al agregar el movimiento queda sin elegir (en rojo) y no suma hasta que se elija
+  // En las entradas se elige además por dónde llegó: en el efectivo contado o en una transferencia
+  const selTipo = (k, i, x) => `<div style="display:flex;gap:4px">
+      <select class="cq-tipo" data-k="${esc(k)}" data-i="${i}" data-f="tipo" style="flex:1;min-width:0;font-size:12px;${x.tipo ? '' : 'border-color:var(--red)'}">
+        <option value="" ${x.tipo ? '' : 'selected'}>¿Entrada o salida?</option>
+        <option value="ent" ${x.tipo === 'ent' ? 'selected' : ''}>Entrada</option>
+        <option value="sal" ${x.tipo === 'sal' ? 'selected' : ''}>Salida</option>
+      </select>
+      ${x.tipo === 'ent' ? `<select class="cq-tipo" data-k="${esc(k)}" data-i="${i}" data-f="medio" title="Por dónde llegó el dinero" style="flex:1;min-width:0;font-size:12px">
+        <option value="ef" ${x.medio !== 'tr' ? 'selected' : ''}>en efectivo</option>
+        <option value="tr" ${x.medio === 'tr' ? 'selected' : ''}>por transf.</option>
+      </select>` : ''}
+    </div>`
+
   function tarjetaCajero(k, c) {
     const e = c.ent, s = c.sis, t = totEnt(e)
     const filaPos = (b) => `<tr><td style="padding-left:18px">POS ${NOMBRE_BANCO[b]}</td>
       <td class="mono" style="text-align:right;color:var(--text3)">${e.posSis[b] != null ? fmt(e.posSis[b]) : ''}</td>
       <td style="text-align:right">${inp(k, 'pos.' + b, e.pos[b])}</td><td></td></tr>`
     // Transferencias y salidas: una línea cada una, con su cuenta, tal cual pasan a la partida
-    const filaLinea = (lista, i, x, ph, quitar, titulo) => `<tr><td colspan="2" style="padding-left:18px">
-        <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) minmax(0,.6fr);gap:6px">
-          <input class="cq-in" data-k="${esc(k)}" data-f="${lista}.${i}.det" value="${esc(x.det)}" placeholder="${ph}" style="width:100%;font-size:12px">
+    // pre: casilla antes del detalle (en los movimientos de efectivo, si es entrada o salida)
+    const filaLinea = (lista, i, x, ph, quitar, titulo, pre = '') => `<tr><td colspan="2" style="padding-left:18px">
+        <div style="display:grid;grid-template-columns:${pre ? (x.tipo === 'ent' ? '190px ' : '92px ') : ''}minmax(0,1fr) minmax(0,1.2fr) minmax(0,.6fr);gap:6px">
+          ${pre}<input class="cq-in" data-k="${esc(k)}" data-f="${lista}.${i}.det" value="${esc(x.det)}" placeholder="${ph}" style="width:100%;font-size:12px">
           ${inCta(k, `${lista}.${i}.cta`, x.cta)}
           ${esGasto(x.cta) ? selCC(k, `${lista}.${i}.cc`, x.cc ?? ccDe(c.centro)) : '<span style="color:var(--text3);font-size:11px;align-self:center">sin centro de costo</span>'}
         </div></td>
@@ -262,14 +294,16 @@
         <thead><tr><th>Concepto</th><th style="text-align:right">Sistema</th><th style="text-align:right">Entregó</th><th style="text-align:right">Diferencia</th></tr></thead>
         <tbody>
           ${BANCOS.map(filaPos).join('')}
-          ${total('Tarjeta (lotes)', s.tj, t.pos, 'tj')}
+          ${total(`Tarjeta (lotes) <select class="cq-poscentro" data-k="${esc(k)}" title="POS por el que pasaron estos lotes" style="font-size:11px;margin-left:6px;padding:1px 4px">
+            ${CENTROS.map(x => `<option value="${x}" ${centroPos(c) === x ? 'selected' : ''}>POS de ${x}</option>`).join('')}</select>`, s.tj, t.pos, 'tj')}
           ${e.trs.map((x, i) => filaLinea('trs', i, x, 'Transferencia (cliente, referencia)', 'cuadreQuitarTransf', 'Quitar transferencia')).join('')}
           <tr><td style="padding-left:18px"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="cuadreAgregarTransf('${esc(k)}')">+ Transferencia</button></td><td></td><td></td><td></td></tr>
-          ${total('Transferencias', s.tr, t.tr, 'tr')}
+          ${total(t.entTr ? 'Transferencias (− entradas por transferencia)' : 'Transferencias', s.tr, t.tr, 'tr')}
           <tr><td style="padding-left:18px">Efectivo contado</td><td></td><td style="text-align:right">${inp(k, 'ef', e.ef)}</td><td></td></tr>
-          ${e.salidas.map((x, i) => filaLinea('sal', i, x, 'Salida de efectivo (detalle)', 'cuadreQuitarSalida', 'Quitar: si el dinero no salió de verdad (ej. se cobró de más con tarjeta y se dio el vuelto en efectivo, ya está en el lote)')).join('')}
-          <tr><td style="padding-left:18px"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="cuadreAgregarSalida('${esc(k)}')">+ Salida de efectivo</button></td><td></td><td></td><td></td></tr>
-          ${total('Efectivo (contado + salidas)', s.ef, t.ef, 'ef')}
+          ${e.salidas.map((x, i) => filaLinea('sal', i, x, x.tipo === 'ent' ? 'Entrada (ej. adelanto de trabajo, cliente)' : 'Movimiento de efectivo (detalle)', 'cuadreQuitarSalida',
+            'Quitar: si el dinero no salió ni entró de verdad (ej. se cobró de más con tarjeta y se dio el vuelto en efectivo, ya está en el lote)', selTipo(k, i, x))).join('')}
+          <tr><td style="padding-left:18px"><button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="cuadreAgregarSalida('${esc(k)}')">+ Movimiento de efectivo</button></td><td></td><td></td><td></td></tr>
+          ${total(t.entEf ? 'Efectivo (contado + salidas − entradas)' : 'Efectivo (contado + salidas)', s.ef, t.ef, 'ef')}
           <tr style="background:var(--bg3);border-top:1px solid var(--gold)"><td><b>TOTAL</b></td>
             <td class="mono" style="text-align:right"><b>${fmt(totSis(s))}</b></td><td class="mono" style="text-align:right" data-calc="tot-ent"><b>${fmt(t.total)}</b></td>
             <td class="mono" style="text-align:right" data-calc="tot-dif"></td></tr>
@@ -291,7 +325,8 @@
       set('tj-dif', t.lleno ? dif(t.pos - s.tj) : ''); set('tr-dif', t.lleno ? dif(t.tr - s.tr) : ''); set('ef-dif', t.lleno ? dif(t.ef - s.ef) : '')
       const d = r2(t.total - totSis(s))
       set('tot-dif', t.lleno ? `<b>${dif(d)}</b>` : '')
-      set('estado', !t.lleno ? '<span style="color:var(--text3)">Sin datos de lo entregado</span>'
+      set('estado', t.sinTipo ? `<span style="color:var(--red)">Falta elegir entrada o salida (${t.sinTipo})</span>`
+        : !t.lleno ? '<span style="color:var(--text3)">Sin datos de lo entregado</span>'
         : Math.abs(d) < 0.005 ? '<span style="color:var(--green)">✓ Cuadra</span>'
         : d < 0 ? `<span style="color:var(--red)">Faltan L ${fmt(-d)}</span>` : `<span style="color:var(--blue)">Sobran L ${fmt(d)}</span>`)
     }
@@ -308,7 +343,7 @@
           <td class="mono" style="text-align:right">${fmt(x.lote)}</td>
           <td class="mono" style="text-align:right">${x.ret ? fmt(x.ret) : ''}</td>
           <td style="text-align:right"><input type="number" step="0.01" data-dep="${esc(x.k)}" value="${esc(depositos[x.k] ?? '')}" placeholder="${fmt(x.dep)}" title="Vacío = se calcula con la tasa del POS" style="width:110px;text-align:right"></td>
-          <td class="mono" style="text-align:right">${fmt(x.com)}</td>
+          <td class="mono" style="text-align:right" title="${esc(Object.entries(x.comPor).map(([cf, v]) => cf + ': ' + fmt(v)).join(' · '))}">${fmt(x.com)}${Object.keys(x.comPor).length > 1 ? `<div style="font-size:11px;color:var(--text3)">${Object.entries(x.comPor).filter(([cf]) => cf !== x.centro).map(([cf, v]) => esc(cf) + ' ' + fmt(v)).join(' · ')}</div>` : ''}</td>
           <td class="mono" style="text-align:right;color:${x.alerta ? 'var(--red)' : 'var(--green)'}">${x.real != null ? x.real.toFixed(2) + '%' : (isNaN(x.t) ? '—' : x.t + '% (tasa)')}${x.alerta ? ' ⚠' : x.real != null ? ' ✓' : ''}</td>
         </tr>${x.alerta ? `<tr><td colspan="7" style="color:var(--red);font-size:12px">⚠ ${esc(x.centro)} · ${esc(NOMBRE_BANCO[x.b])}: tasa ${x.real != null ? x.real.toFixed(2) + '%' : '—'}.${esc(x.alerta)}</td></tr>` : ''}`).join('')}</tbody></table></div>`
       if (foco) { const el = bp.querySelector(`[data-dep="${CSS.escape(foco)}"]`); if (el) { el.focus(); const v = el.value; el.value = ''; el.value = v } }
@@ -389,6 +424,15 @@
       // Al pasar a una cuenta de gasto (o dejar de serlo) aparece o se quita el centro de costo
       guardarDia(); render(); return
     }
+    if (el.classList?.contains('cq-poscentro')) {
+      const c = cajeros[el.dataset.k]; if (!c) return
+      c.ent.posCentro = el.value === (c.centro || 'Tecnicentro') ? '' : el.value
+      guardarDia(); pintarCalculos(); return
+    }
+    if (el.classList?.contains('cq-tipo')) {
+      const x = cajeros[el.dataset.k]?.ent.salidas[+el.dataset.i]; if (!x) return
+      x[el.dataset.f] = el.value; guardarDia(); render(); return
+    }
     if (el.classList?.contains('cq-cc')) {
       const c = cajeros[el.dataset.k]; if (!c) return
       const [a, i] = el.dataset.f.split('.')
@@ -413,7 +457,7 @@
   document.addEventListener('wheel', (ev) => {
     if (ev.target.type === 'number' && ev.target === document.activeElement && ev.target.closest?.('#cuadre-cajeros-body')) ev.target.blur()
   }, { passive: true })
-  window.cuadreAgregarSalida = (k) => { cajeros[k]?.ent.salidas.push({ det: '', monto: '', cta: '' }); guardarDia(); render() }
+  window.cuadreAgregarSalida = (k) => { cajeros[k]?.ent.salidas.push({ tipo: '', det: '', monto: '', cta: '' }); guardarDia(); render() }
   window.cuadreAgregarTransf = (k) => { cajeros[k]?.ent.trs.push({ det: '', monto: '', cta: '' }); guardarDia(); render() }
   window.cuadreQuitarTransf = (k, i) => { cajeros[k]?.ent.trs.splice(i, 1); guardarDia(); render() }
   window.cuadreQuitarSalida = (k, i) => { cajeros[k]?.ent.salidas.splice(i, 1); guardarDia(); render() }
@@ -440,7 +484,9 @@
       if (!t.lleno) { L('', 'debito', totSis(s), c.centro, `FORMAS DE PAGO ${nom}`); continue }
       for (const x of e.trs) L(x.cta || '', 'debito', parseFloat(x.monto) || 0, '', `TRANSFERENCIA ${nom}: ${String(x.det || '').toUpperCase()}`, x.cc ?? ccDe(c.centro))
       L(ctx.caja.codigo, 'debito', parseFloat(e.ef) || 0, '', `EFECTIVO ENTREGADO ${nom}`)
-      for (const x of e.salidas) L(x.cta ?? ctaSalida(x.det, c.centro), 'debito', parseFloat(x.monto) || 0, c.centro, `SALIDA DE EFECTIVO ${nom}: ${String(x.det || '').toUpperCase()}`, x.cc ?? ccDe(c.centro))
+      // Salida: el dinero se fue a la cuenta elegida (débito) · entrada: el efectivo contado la incluye, se acredita su origen (ej. anticipo de clientes)
+      for (const x of e.salidas) if (x.tipo) L(x.cta ?? ctaSalida(x.det, c.centro), x.tipo === 'ent' ? 'credito' : 'debito', parseFloat(x.monto) || 0, c.centro,
+        `${x.tipo === 'ent' ? 'ENTRADA' : 'SALIDA'} DE EFECTIVO ${nom}: ${String(x.det || '').toUpperCase()}`, x.cc ?? ccDe(c.centro))
       const d = r2(t.total - totSis(s))
       if (d < 0) L(cxcDefecto(k), 'debito', -d, '', `FALTANTE DE CAJA ${nom}`)
       if (d > 0) L(ctaDefecto('sobrante'), 'credito', d, c.centro, `SOBRANTE DE CAJA ${nom}`)
@@ -448,7 +494,8 @@
     // Lotes POS por centro y banco (como el arqueo consolidado): depósito + comisión + retenido
     for (const x of bancosPos()) {
       L(ctaDefecto('pos_' + x.b), 'debito', x.dep, x.centro, `VENTA DE POS ${x.b} ${x.centro.toUpperCase()}`)
-      L(ctaDefecto('comision_pos'), 'debito', x.com, x.centro, `COMISION POS ${x.b} ${x.centro.toUpperCase()}`)
+      for (const [cf, v] of Object.entries(x.comPor)) L(ctaDefecto('comision_pos'), 'debito', v, cf,
+        cf === x.centro ? `COMISION POS ${x.b} ${x.centro.toUpperCase()}` : `COMISION POS ${x.b} ${x.centro.toUpperCase()} (VENTA ${cf.toUpperCase()})`)
       L('', 'debito', x.ret, x.centro, `IMPUESTO RETENIDO POS ${x.b} ${x.centro.toUpperCase()}`)
     }
     const otros = r2(ctx.totalCaja - sumSis)
