@@ -1014,6 +1014,8 @@
       </div>
       ${e.reversosNetados > 0 ? `<div style="margin-top:10px;padding:8px 12px;background:var(--bg3);border-radius:8px;font-size:12px;color:var(--text3)">🔄 Se netearon automáticamente <strong>${e.reversosNetados}</strong> reverso(s) del banco (depósitos duplicados que el banco revirtió). No afectan el neto.</div>` : ''}`
 
+    // Pendientes en orden de fecha (los que vienen de meses anteriores llegan al final de la lista)
+    const porFecha = (arr) => [...arr].sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')) || (a._i - b._i))
     const filaMov = (m, lado, idx) => `
       <tr class="cb-fila-${lado}" data-fecha="${m.fecha}">
         <td><input type="checkbox" class="cb-sel-${lado}" value="${idx}" onchange="window._cbSumaSel()"></td>
@@ -1153,12 +1155,12 @@
           <div id="cb-objetivo"></div>
           ${controlesDiaBanco}
           <table style="width:100%"><thead><tr><th style="width:28px"></th><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th>Acción</th></tr></thead>
-          <tbody>${e.soloBanco.map((m) => filaMov(m, 'banco', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
+          <tbody>${porFecha(e.soloBanco).map((m) => filaMov(m, 'banco', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
         </div>
         <div class="table-wrap">
           <div style="padding:10px 14px;font-weight:600;color:var(--red);background:var(--bg3)">⚠️ Solo en el libro (${e.soloLibro.length}) — no aparece en el banco</div>
           <table style="width:100%"><thead><tr><th style="width:28px"></th><th>Fecha</th><th>Descripción</th><th style="text-align:right">Monto</th><th></th></tr></thead>
-          <tbody>${e.soloLibro.map((m) => filaMov(m, 'libro', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
+          <tbody>${porFecha(e.soloLibro).map((m) => filaMov(m, 'libro', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
         </div>
       </div>
       <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;align-items:center">

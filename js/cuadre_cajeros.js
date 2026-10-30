@@ -517,7 +517,10 @@
         cf === x.centro ? `COMISION POS ${x.b} ${x.centro.toUpperCase()}` : `COMISION POS ${x.b} ${x.centro.toUpperCase()} (VENTA ${cf.toUpperCase()})`)
       L('', 'debito', x.ret, x.centro, `IMPUESTO RETENIDO POS ${x.b} ${x.centro.toUpperCase()}`)
     }
-    for (const [centro, v] of Object.entries(ncTr)) L('', 'credito', v, '', `REEMBOLSOS POR TRANSFERENCIA DE NOTAS DE CREDITO ${centro.toUpperCase()} (BANCO)`)
+    // Una línea por nota; el reporte no dice de qué banco salió, se elige la cuenta en la partida
+    for (const n of ctx.nc || []) for (const t of n.transfDet || []) {
+      L('', 'credito', t.monto, '', `REEMBOLSO POR TRANSFERENCIA NC ${t.nota} ${norm(t.cliente)} FACT ${t.factura} (BANCO)`)
+    }
     const trNC = r2(Object.values(ncTr).reduce((a, v) => a + v, 0))
     // Lo que sobra (saldo a favor usado, depósitos aplicados, redondeo…) va a la caja
     const otros = r2(ctx.totalCaja - sumSis + cubierto + trNC)

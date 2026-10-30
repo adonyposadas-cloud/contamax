@@ -5824,6 +5824,7 @@ function resumenNotas(notas, saldoUsado) {
     reembTransf: sum(reemb.filter(esTransf), 'reembolsado'),
     recargo: sum(reemb, 'recargo'),
     saldoUsado: sum(saldoUsado, 'monto'),
+    transfDet: reemb.filter(esTransf).map(n => ({ nota: n.nota, cliente: n.cliente, factura: n.factura, monto: n.reembolsado })),
   }
 }
 
@@ -6307,15 +6308,22 @@ function lineasNotasCredito(d) {
     const yonker = tipo.startsWith('yonker')
     const centro = yonker ? 'Yonker' : 'Tecnicentro'
     const fiscal = tipo.endsWith('fiscal')
-    const isvLinea = tipo === 'tecnimax_fiscal' ? n.isv : 0   // Yonker vende exento; el interno no lleva ISV real
     const L = (cuenta, tipoL, monto, desc) => { if (r2(monto) > 0) out.push({ cuenta, centro, tipo: tipoL, monto: r2(monto), desc, fiscal }) }
-    L(yonker ? C.devol_yonker : C.devol_tecnimax, 'debito', n.total - isvLinea, `DEVOLUCIONES NOTAS DE CREDITO ${centro.toUpperCase()}`)
-    L(C.isv_ventas, 'debito', isvLinea, 'ISV DE NOTAS DE CREDITO')
-    L(yonker ? C.saldo_favor_yonker : null, 'credito', n.aSaldo, `NOTAS DE CREDITO A SALDO A FAVOR ${centro.toUpperCase()}${yonker ? '' : ' - ELEGIR CUENTA'}`)
-    L(yonker ? C.cxc_yonker : null, 'credito', n.aCredito, `NOTAS DE CREDITO REBAJADAS DEL CREDITO${yonker ? '' : ' - ELEGIR CXC'}`)
-    L(C.otros_ingresos, 'credito', n.recargo, 'RECARGO RETENIDO EN DEVOLUCIONES')
-    L(null, 'credito', n.otro, 'NOTAS DE CREDITO CON DESTINO DESCONOCIDO - ELEGIR CUENTA')
-    L(yonker ? C.saldo_favor_yonker : null, 'debito', n.saldoUsado, `FACTURAS COBRADAS CON SALDO A FAVOR${yonker ? '' : ' - ELEGIR CUENTA'}`)
+    // Una línea por nota: el auxiliar muestra cada nota con su cliente y factura
+    for (const x of r.notas || []) {
+      const ref = `${x.nota} ${String(x.cliente || '').toUpperCase()} FACT ${x.factura}`
+      const isvNota = tipo === 'tecnimax_fiscal' ? x.isv : 0   // Yonker vende exento; el interno no lleva ISV real
+      L(yonker ? C.devol_yonker : C.devol_tecnimax, 'debito', x.total - isvNota, `DEVOLUCION NC ${ref}`)
+      L(C.isv_ventas, 'debito', isvNota, `ISV NC ${ref}`)
+      if (x.destino === 'saldo') L(yonker ? C.saldo_favor_yonker : null, 'credito', x.total, `NC ${ref} A SALDO A FAVOR${yonker ? '' : ' - ELEGIR CUENTA'}`)
+      else if (x.destino === 'credito') L(yonker ? C.cxc_yonker : null, 'credito', x.total, `NC ${ref} REBAJADA DEL CREDITO${yonker ? '' : ' - ELEGIR CXC'}`)
+      else if (x.destino === 'reembolso') L(C.otros_ingresos, 'credito', x.recargo, `RECARGO RETENIDO NC ${ref}`)
+      else L(null, 'credito', x.total, `NC ${ref} CON DESTINO DESCONOCIDO - ELEGIR CUENTA`)
+    }
+    for (const u of r.saldoUsado || []) {
+      L(yonker ? C.saldo_favor_yonker : null, 'debito', u.monto,
+        `FACTURA ${u.factura} ${String(u.cliente || '').toUpperCase()} COBRADA CON SALDO A FAVOR NC ${u.nota}${yonker ? '' : ' - ELEGIR CUENTA'}`)
+    }
     bajaCaja += n.reembEfectivo + n.reembTransf + n.saldoUsado
     resumen.push({ centro, ...n })
   }
@@ -6391,6 +6399,12 @@ function renderImportPartida() {
   const depsTodos = [d.yonker_fiscal, d.yonker_interno, d.tecnimax_fiscal, d.tecnimax_interno]
     .flatMap(r => r?.depositos || [])
   const netoPuente = r2(depsTodos.reduce((a, x) => a + x.monto, 0))
+  // Una línea por movimiento (recibido al haber, aplicado o devuelto al debe); juntas dan el neto
+  const accionRecibo = { recibido: 'RECIBIDO', aplicado: 'APLICADO A', devuelto: 'DEVUELTO' }
+  const lineasPuente = depsTodos.filter(x => r2(x.monto) !== 0).map(x => ({
+    tipo: x.monto < 0 ? 'debito' : 'credito', monto: r2(Math.abs(x.monto)),
+    desc: `RECIBO ${x.deposito} ${accionRecibo[x.mov] || ''} ${x.documento}${x.mov === 'recibido' && x.forma ? ' (' + x.forma + ')' : ''}`.replace(/\s+/g, ' ').trim(),
+  }))
 
   // Calcular total haber primero para que caja cuadre por diferencia
   const totalHaber = r2(
@@ -6427,17 +6441,13 @@ function renderImportPartida() {
   }
 
   // HABER/DÉBITO — Cuenta puente de recibos Yonker (neto del día)
-  if (netoPuente !== 0) {
-    const nRec = depsTodos.filter(x => x.mov === 'recibido').length
-    const nApl = depsTodos.filter(x => x.mov === 'aplicado').length
-    const nDev = depsTodos.filter(x => x.mov === 'devuelto').length
+  for (const l of lineasPuente) {
     lineas.push({
-      codigo: C.puente_yonker.codigo, nombre: C.puente_yonker.nombre,
+      codigo: C.puente_yonker.codigo, nombre: `${C.puente_yonker.nombre} · ${l.desc}`,
       centro: 'Yonker',
-      debe: netoPuente < 0 ? r2(-netoPuente) : 0,
-      haber: netoPuente > 0 ? netoPuente : 0,
+      debe: l.tipo === 'debito' ? l.monto : 0,
+      haber: l.tipo === 'credito' ? l.monto : 0,
       fiscal: '—',
-      _nota: `${nRec} recibido(s) · ${nApl} aplicado(s) · ${nDev} devuelto(s)`
     })
   }
 
@@ -6466,7 +6476,7 @@ function renderImportPartida() {
   )
 
   for (const l of notasNC.lineas) {
-    lineas.push({ codigo: l.cuenta?.codigo || '—', nombre: l.cuenta?.nombre || l.desc, centro: l.centro,
+    lineas.push({ codigo: l.cuenta?.codigo || '—', nombre: l.cuenta?.nombre ? `${l.cuenta.nombre} · ${l.desc}` : l.desc, centro: l.centro,
       debe: l.tipo === 'debito' ? l.monto : 0, haber: l.tipo === 'credito' ? l.monto : 0, fiscal: l.fiscal ? '✓' : '—' })
   }
 
@@ -6474,7 +6484,7 @@ function renderImportPartida() {
   // guardarImportPartida arma el formulario con ESTOS montos. Antes los recalculaba
   // por su cuenta y dejaba afuera la CxC consolidada de Yonker y la cuenta puente:
   // la vista previa cuadraba y la partida guardada no (caso #5486).
-  window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente, notasNC }
+  window._importPreview = { totalCaja, creditoYonkerTotal, netoPuente, lineasPuente, notasNC }
   // Cuadre por cajero (js/cuadre_cajeros.js): lo facturado contra lo que entregó cada uno
   // El efectivo va a la cuenta de detalle (110102 es el grupo), la misma del arqueo de billetes.
   // notasNC.resumen: reembolsos en efectivo / por transferencia de las notas de crédito, para no duplicarlos
@@ -6601,13 +6611,13 @@ window.guardarImportPartida = async () => {
       descripcion: 'CXC YONKER CREDITOS DEL DIA', aplica_fiscal: true })
   }
 
-  // Cuenta puente: neto del día (negativo = baja el pasivo = débito).
-  if (pv.netoPuente) {
+  // Cuenta puente: una línea por recibo (recibido al haber; aplicado o devuelto al debe).
+  for (const l of pv.lineasPuente || []) {
     lineaCounter++
     partidaLineas.push({ id: lineaCounter, cuenta_id: getCuenta(C.puente_yonker.codigo)?.id || '',
       cuenta_codigo: C.puente_yonker.codigo, cuenta_nombre: C.puente_yonker.nombre,
-      tipo: pv.netoPuente < 0 ? 'debito' : 'credito', monto: r2(Math.abs(pv.netoPuente)),
-      centro_costo_id: ccYonker?.id || '', descripcion: 'NETO RECIBOS YONKER DEL DIA', aplica_fiscal: false })
+      tipo: l.tipo, monto: l.monto,
+      centro_costo_id: ccYonker?.id || '', descripcion: l.desc, aplica_fiscal: false })
   }
 
   // Tecnicentro: una línea por cliente contra su subcuenta.
