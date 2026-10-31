@@ -1805,8 +1805,7 @@ window.guardarDetallePlanilla = async () => {
   const d = currentDetalle[idx]
 
   // Get employee data
-  const emp = allEmpleados.find(e => e.id === d.empleado_id) || {
-    sueldo_mensual: d.sueldo_mensual,
+  const fichaEmp = allEmpleados.find(e => e.id === d.empleado_id) || {
     es_socio: false,
     id: d.empleado_id,
     nombre: d.nombre,
@@ -1818,6 +1817,10 @@ window.guardarDetallePlanilla = async () => {
     forma_pago: d.forma_pago,
     cuenta_cxc: d.cuenta_cxc
   }
+  // La base es la de esta fila, no la de la ficha: en salario partido la ficha trae el sueldo
+  // visible y en la confidencial se paga el complemento. Lo mismo la casilla: en la general
+  // el partido sí lleva IHSS y RAP.
+  const emp = { ...fichaEmp, sueldo_mensual: d.sueldo_mensual, planilla_confidencial: !!currentPlanilla.es_confidencial }
 
   const overrides = {
     dias_trabajados: parseFloat(document.getElementById('dpl-dias').value) || 0,
