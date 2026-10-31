@@ -473,30 +473,97 @@
   }
 
   // ── 2) CONCILIACIÓN con productos vendidos ──
+  //
+  // El reporte llega en dos formatos distintos y hay que leer los dos:
+  //
+  //   · ALPHA (hasta octubre 2026): "Servicios y productos vendidos", una sola
+  //     hoja plana de 20 columnas, una fila por línea, con la fecha en la A.
+  //   · APP NUEVA: "ventas-productos", una fila por FACTURA y debajo un bloque
+  //     PRODUCTOS con sus líneas; hojas Contado y Crédito; fecha ISO con hora.
+  //
+  // Los dos terminan en el mismo registro de productos_vendidos.
+
+  // Alpha escribía 10/07/2026; la app nueva, 2026-10-31 09:52:00.
+  const fechaDeReporte = (v) => {
+    const iso = String(v).trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+    return iso ? iso[0] : fechaISO(v)
+  }
+
+  const esEncabezadoNuevo = (f) => String(f[0]).trim().toLowerCase() === 'no. factura interna'
+
+  // Marca de estado físico / repotenciación: misma regla para los dos formatos.
+  function marcarEF (rec) {
+    const codp = rec.cod_producto.toUpperCase(); const prod = rec.producto.toUpperCase()
+    const esEF = codp.includes('ESTADO F') || prod.includes('ESTADO F') || codp.includes('REPOTENCIA') || prod.includes('REPOTENCIA')
+    const placas = esEF ? findPlates(prod) : []
+    return Object.assign(rec, { es_estado_fisico: esEF, placa_norm: placas[0] || null, origen: 'excel_prod_vendidos' })
+  }
+
+  function filasFormatoAlpha (filas) {
+    const out = []
+    filas.forEach(row => {
+      const fecha = fechaDeReporte(row[0]); if (!fecha) return   // saltea encabezado/títulos
+      out.push(marcarEF({
+        fecha, no_factura: String(row[1] || '').trim(), no_consecutivo: String(row[2] || '').trim(),
+        cajero: String(row[3] || '').trim(), ced_cliente: String(row[4] || '').trim(), cliente: String(row[5] || '').trim(),
+        cod_producto: String(row[6] || '').trim(), cod_cabys: String(row[7] || '').trim(), producto: String(row[8] || '').trim(),
+        moneda: String(row[9] || '').trim(), costo: num(row[10]), cantidad: num(row[11]), precio_sin_iva: num(row[12]),
+        iva_pct: String(row[13] || '').trim(), precio_con_iva: num(row[14]), total: num(row[15]),
+        marca: String(row[16] || '').trim(), categoria: String(row[17] || '').trim(), sub_categoria: String(row[18] || '').trim(),
+        proveedor: String(row[19] || '').trim()
+      }))
+    })
+    return out
+  }
+
+  // Columnas de la factura: 0 interna · 4 electrónica · 7 facturado por ·
+  // 10 cliente · 11 RTN · 14 moneda · 17 fecha.
+  // Columnas del bloque: 1 código · 2 CABYS · 3 descripción · 5 cantidad ·
+  // 8 costo · 9 precio unitario · 10 total.
+  function filasFormatoNuevo (filas) {
+    const inicio = filas.findIndex(esEncabezadoNuevo)
+    if (inicio < 0) return []
+    const out = []
+    let fac = null; let enBloque = false; let saltarCabecera = false
+    for (let i = inicio + 1; i < filas.length; i++) {
+      const row = filas[i]
+      const a = String(row[0] == null ? '' : row[0]).trim()
+      if (/^RESUMEN DE TOTALES/i.test(a)) break
+      if (a.toUpperCase() === 'PRODUCTOS') { enBloque = true; saltarCabecera = true; continue }
+      if (a) { fac = row; enBloque = false; continue }      // arranca otra factura
+      if (!enBloque) continue
+      if (saltarCabecera) { saltarCabecera = false; continue }   // la fila "Código | CABYS | …"
+      const codigo = String(row[1] == null ? '' : row[1]).trim()
+      const desc = String(row[3] == null ? '' : row[3]).trim()
+      if (!codigo && !desc) { enBloque = false; continue }   // la línea en blanco cierra el bloque
+      if (!fac) continue
+      out.push(marcarEF({
+        fecha: fechaDeReporte(fac[17]),
+        no_factura: String(fac[0] == null ? '' : fac[0]).trim(),
+        no_consecutivo: String(fac[4] == null ? '' : fac[4]).trim(),
+        cajero: String(fac[7] == null ? '' : fac[7]).trim(),
+        ced_cliente: String(fac[11] == null ? '' : fac[11]).trim(),
+        cliente: String(fac[10] == null ? '' : fac[10]).trim(),
+        cod_producto: codigo, cod_cabys: String(row[2] == null ? '' : row[2]).trim(), producto: desc,
+        moneda: String(fac[14] == null ? '' : fac[14]).trim(),
+        costo: num(row[8]), cantidad: num(row[5]), precio_sin_iva: num(row[9]),
+        // El bloque no trae el IVA ni el precio con IVA: la conciliación usa
+        // el total, que sí viene.
+        iva_pct: '', precio_con_iva: 0, total: num(row[10]),
+        marca: '', categoria: '', sub_categoria: '', proveedor: ''
+      }))
+    }
+    return out.filter(r => r.fecha)
+  }
+
   function conciliarVentas () {
     const file = $('ef-file-ve').files[0]; if (!file) return
     $('ef-conciliar').disabled = true; $('ef-info-ve').textContent = 'Leyendo…'
     leerXlsx(file, async (wb) => {
-      // parsear TODAS las líneas del reporte (para guardarlas) + las de estado físico (para conciliar)
-      const pvRows = []; const lineas = []
-      const data = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })
-      data.forEach(row => {
-        const fecha = fechaISO(row[0]); if (!fecha) return   // saltea encabezado/títulos
-        const codp = String(row[6] || '').toUpperCase(); const prod = String(row[8] || '').toUpperCase()
-        const esEF = codp.includes('ESTADO F') || prod.includes('ESTADO F') || codp.includes('REPOTENCIA') || prod.includes('REPOTENCIA')
-        const placas = esEF ? findPlates(prod) : []
-        const rec = {
-          fecha, no_factura: String(row[1] || '').trim(), no_consecutivo: String(row[2] || '').trim(),
-          cajero: String(row[3] || '').trim(), ced_cliente: String(row[4] || '').trim(), cliente: String(row[5] || '').trim(),
-          cod_producto: String(row[6] || '').trim(), cod_cabys: String(row[7] || '').trim(), producto: String(row[8] || '').trim(),
-          moneda: String(row[9] || '').trim(), costo: num(row[10]), cantidad: num(row[11]), precio_sin_iva: num(row[12]),
-          iva_pct: String(row[13] || '').trim(), precio_con_iva: num(row[14]), total: num(row[15]),
-          marca: String(row[16] || '').trim(), categoria: String(row[17] || '').trim(), sub_categoria: String(row[18] || '').trim(),
-          proveedor: String(row[19] || '').trim(), es_estado_fisico: esEF, placa_norm: placas[0] || null, origen: 'excel_prod_vendidos'
-        }
-        pvRows.push(rec)
-        if (esEF) lineas.push({ fecha, factura: rec.no_factura, producto: rec.producto, placas, monto: rec.total || rec.precio_con_iva })
-      })
+      // Todas las hojas: el formato nuevo reparte las facturas entre Contado y Crédito.
+      const hojas = wb.SheetNames.map(h => window.XLSX.utils.sheet_to_json(wb.Sheets[h], { header: 1, defval: '' }))
+      const nuevo = hojas.some(f => f.some(esEncabezadoNuevo))
+      const pvRows = hojas.reduce((acc, filas) => acc.concat(nuevo ? filasFormatoNuevo(filas) : filasFormatoAlpha(filas)), [])
       if (!pvRows.length) { $('ef-info-ve').textContent = 'No se encontraron líneas en el reporte.'; $('ef-conciliar').disabled = false; return }
 
       try {
@@ -509,7 +576,9 @@
           guardados += (d ? d.length : 0)
         }
         const ef = pvRows.filter(r => r.es_estado_fisico).length
-        $('ef-info-ve').textContent = `✓ ${guardados} líneas nuevas guardadas (${pvRows.length - guardados} ya existían) · ${ef} de estado físico. Ahora dale a "Conciliar pendientes con datos guardados".`
+        // Se dice qué formato se leyó: si alguien sube el archivo equivocado,
+        // el número de líneas solo no alcanza para darse cuenta.
+        $('ef-info-ve').textContent = `✓ ${pvRows.length} líneas leídas (${nuevo ? 'app nueva' : 'Alpha'}) · ${guardados} nuevas guardadas (${pvRows.length - guardados} ya existían) · ${ef} de estado físico. Ahora dale a "Conciliar pendientes con datos guardados".`
         toast(`${guardados} líneas guardadas`, 'success')
       } catch (e) { console.error('[EF subir ventas]', e); $('ef-info-ve').textContent = 'Error: ' + (e.message || e); toast('Error al subir', 'error') }
       $('ef-conciliar').disabled = false
