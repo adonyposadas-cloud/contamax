@@ -496,6 +496,8 @@ function _incapacidadEnPeriodo(empleadoId, nombre, incapacidades, inicio, fin) {
   return { dias, empresa: Math.round(empresa * 1000) / 1000 }
 }
 
+window._incapacidadEnPeriodo = _incapacidadEnPeriodo   // planilla: empleados sin marcas en el reloj
+
 // Calcula faltas injustificadas (agrupadas por semana) y días pagados.
 // Regla: día Lun-Sáb sin entrada y sin permiso = falta injustificada (−1 día).
 // Cada semana con ≥1 falta pierde además su domingo (−1 día por semana, no por falta).

@@ -933,7 +933,7 @@ window.generarPlanilla = async () => {
   //                      APROBADAS de ese tramo (general y confidencial).
   // Solo cuenta a favor del cobro: si se le dedujo de más, no se le devuelve aquí (eso es
   // un ajuste a revisar). Préstamos no entran: van por cuota.
-  const arrastrePorCuenta = await _arrastreCxC(ini)
+  const arrastrePorCuenta = ARRASTRE_OMITIR.has(periodo) ? { desde: '', pendiente: {}, error: null } : await _arrastreCxC(ini)
 
   // ── Validación: cuentas CXC con cargos que NINGÚN empleado tiene asignada en su ficha ──
   // Caza desajustes como el de Jonathan (cargos en 110301-040 pero la ficha apuntaba a otra
@@ -971,6 +971,10 @@ window.generarPlanilla = async () => {
   const overridesSalariales = (e, ast, base) => {
     const ov = {}
     if (!ast) { ov.dias_trabajados = 15; return ov }
+    // La quincena son 15 días (sueldo / 30): en una incapacidad de quincena completa de un
+    // mes de 31 días, el día 16 no se paga aparte (reparte el pago de la empresa entre 15).
+    const incapCal = ast.diasIncapacidad || 0
+    const factorIncap = incapCal > 15 ? 15 / incapCal : 1
     ov.horas_extra = Math.round((ast.heNeto || 0) / 60 * 100) / 100
     const rate = (base || 0) / 30
     const diasPagados = ast.diasPagados ?? ast.diasTrabajados ?? 15
@@ -978,8 +982,8 @@ window.generarPlanilla = async () => {
     const vacTotal = ast.diasPermisoVac || 0
     const sinGoce = ast.diasPermisoSinGoce || 0
     const noTrabajados = (ast.minNoTrabajados || 0) / 60 / 8
-    const incapDias = ast.diasIncapacidad || 0
-    const incapEmpresa = ast.diasIncapEmpresa || 0
+    const incapDias = Math.min(incapCal, 15)
+    const incapEmpresa = (ast.diasIncapEmpresa || 0) * factorIncap
     // Día con entrada pero SIN salida y SIN permiso que lo justifique → penalidad fija de ½ día.
     const PENAL_SIN_SALIDA_DIAS = 0.5
     const penalSinSalida = (ast.diasSinSalidaPenal || 0) * PENAL_SIN_SALIDA_DIAS
@@ -992,6 +996,21 @@ window.generarPlanilla = async () => {
     if (diasCubiertos > 0) ov.vacaciones = Math.round(diasCubiertos * rate * 100) / 100
     if (incapEmpresa > 0) ov.incapacidad = Math.round(incapEmpresa * rate * 100) / 100
     return ov
+  }
+
+  // Asistencia del empleado. Sin marcas en el reloj cae a 15 días, salvo que esté incapacitado:
+  // las incapacidades vienen de los permisos, no del reloj (el incapacitado justamente no marca).
+  let incapacidadesPeriodo = []
+  try {
+    const { data, error } = await getSb().from('permisos_empleados').select('*').eq('eliminado', false).eq('tipo', 'incapacidad')
+    if (error) throw error
+    incapacidadesPeriodo = data || []
+  } catch (err) { window.toast?.('Aviso: no se pudieron leer las incapacidades → ' + err.message + '. Revisá a quien no tenga marcas.', 'error') }
+  const asistenciaDe = (e) => {
+    const a = asistencia.find(x => x.empleado_id === e.id)
+    if (a) return a
+    const inc = window._incapacidadEnPeriodo?.(e.id, e.nombre, incapacidadesPeriodo, ini, fin)
+    return inc?.dias ? { diasPagados: 15, diasIncapacidad: inc.dias, diasIncapEmpresa: inc.empresa } : null
   }
 
   // Salario partido: el faltante de ANTICIPOS que la general no alcanzó a cobrar (por el piso
@@ -1025,7 +1044,7 @@ window.generarPlanilla = async () => {
     // vacaciones, incapacidad y HE) pero a la tasa del complemento. Sin IHSS, vecinal ni
     // deducciones (todo eso va en la general sobre el sueldo visible).
     if (planillaModoConf && _esSplit(e)) {
-      const astC = asistencia.find(a => a.empleado_id === e.id)
+      const astC = asistenciaDe(e)
       const empComp = { ...e, sueldo_mensual: _complemento(e), planilla_confidencial: true }
       // Faltante de anticipos no cobrado en la general = adelanto original (del auxiliar CXC)
       // − lo que la general efectivamente recuperó. Se carga aquí como anticipo y se cobra
@@ -1038,7 +1057,7 @@ window.generarPlanilla = async () => {
       return calcularDetalleEmpleado(empComp, planilla.id, { ...ovComp, ...(manualOverrides[e.id] || {}) })
     }
     // Asistencia (general): salario sobre el sueldo visible + deducción por tardanza.
-    const ast = asistencia.find(a => a.empleado_id === e.id)
+    const ast = asistenciaDe(e)
     if (ast) {
       Object.assign(overrides, overridesSalariales(e, ast, e.sueldo_mensual))
       if (ast.tardeDeducir > 0) {
@@ -1409,6 +1428,10 @@ window.pendientesAPrestamo = async () => {
     }
   }
 }
+
+// Quincenas en que no se cobra el arrastre: lo pendiente no se pierde, sale en la siguiente
+// porque se recalcula desde ARRASTRE_DESDE contra lo deducido en planillas aprobadas.
+const ARRASTRE_OMITIR = new Set(['2026-10-Q2'])
 
 // Pendiente previo por cuenta CXC (ver el bloque ARRASTRE en generarPlanilla).
 // Devuelve { desde, pendiente: { cuenta: { anticipos, trucha } }, error }.
