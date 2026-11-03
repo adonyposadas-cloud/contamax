@@ -8846,6 +8846,48 @@ function parseEuroNumber(val) {
   return parseFloat(s) || 0
 }
 
+// Reporte de la app nueva: hojas "Por producto" y "Por factura", titulos arriba y fila TOTAL.
+// Los montos ya vienen como numero y el resumen sale de esa fila TOTAL.
+function parseUtilidadNuevo(wb, tipo, label, fileName) {
+  const ws = wb.Sheets['Por factura']
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true })
+  const hdr = data.findIndex(r => r && r[0] === 'Fecha' && r[1] === 'Factura')
+  if (hdr < 0) throw new Error(`${fileName}: no se encontró el encabezado de "Por factura"`)
+  const col = (nombre) => {
+    const i = data[hdr].indexOf(nombre)
+    if (i < 0) throw new Error(`${fileName}: falta la columna "${nombre}"`)
+    return i
+  }
+  const cCosto = col('Costo sin ISV'), cImpuesto = col('Impuesto'), cVenta = col('Venta con ISV')
+  const cUtilidad = col('Utilidad'), cCliente = col('Cliente')
+
+  const filas = data.slice(hdr + 1)
+  const total = filas.find(r => r && r[1] === 'TOTAL')
+  if (!total) throw new Error(`${fileName}: falta la fila TOTAL de "Por factura"`)
+
+  const facturas = filas.filter(r => r && r[0] && r[1] && r[1] !== 'TOTAL').map(r => ({
+    numero: String(r[1]),
+    fecha: String(r[0]),
+    cliente: String(r[cCliente] || '').trim(),
+    productos: [],
+    costo_total: parseEuroNumber(r[cCosto]),
+    venta_total: parseEuroNumber(r[cVenta]),
+  }))
+
+  return {
+    tipo,
+    label,
+    fileName,
+    facturas,
+    totales: {
+      ventas: parseEuroNumber(total[cVenta]) - parseEuroNumber(total[cImpuesto]),
+      costo: parseEuroNumber(total[cCosto]),
+      margen: parseEuroNumber(total[cUtilidad]),
+      numFacturas: facturas.length,
+    }
+  }
+}
+
 function parseUtilidadExcel(arrayBuffer, fileName) {
   const wb = XLSX.read(arrayBuffer, { type: 'array', raw: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -8858,6 +8900,11 @@ function parseUtilidadExcel(arrayBuffer, fileName) {
   const fnLower = fileName.toLowerCase()
   if (fnLower.includes('xplantel') || fnLower.includes('taxis')) {
     tipo = 'xplantel_taxis'; label = 'XPlantel Taxis'
+  }
+
+  if (wb.SheetNames.includes('Por factura')) return parseUtilidadNuevo(wb, tipo, label, fileName)
+  if (String(data[0]?.[0] || '').startsWith('Reporte de utilidad ·')) {
+    throw new Error(`${fileName}: este archivo no trae la hoja "Por factura". Baja el reporte completo`)
   }
 
   // Also try detecting by case of data rows (MAYUSCULAS = interno concept from ventas)

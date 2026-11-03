@@ -25,7 +25,8 @@ const _SOCIO_CUENTA = {
   'AUTOLOTE': { codigo: '110202-007' },
   'TRANSPORTES ADONIS': { codigo: '110202-005' },
   'JAVIER CARBAJAL': { codigo: '110202-011' },
-  'ADONIS FRANCISCO': { codigo: '110202-010' }
+  'ADONIS FRANCISCO': { codigo: '110202-010' },
+  'FREDY SANCHEZ': { codigo: '110202-009' }
 }
 const _CUENTA_RENTA = '410101-003'
 const _CUENTA_ADMIN = '410301-003'
