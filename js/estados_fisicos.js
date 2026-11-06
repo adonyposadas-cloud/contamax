@@ -34,6 +34,7 @@
   // facturas se aplica DESPUÉS de filtrar y no se pierden las del rango pedido.
   let CONC_D = ''     // desde (YYYY-MM-DD)
   let CONC_H = ''     // hasta (YYYY-MM-DD)
+  let CONC_T = ''     // texto del buscador (placa/N°/factura)
 
   function viewHTML () {
     return `
@@ -491,10 +492,44 @@
 
   const esEncabezadoNuevo = (f) => String(f[0]).trim().toLowerCase() === 'no. factura interna'
 
+  // "Productos vendidos" de la app nueva: una fila por línea, con fecha y las dos
+  // facturas. A diferencia del reporte de ventas, trae también los estados físicos
+  // cobrados como servicio (código ALPHA-2296), que allá no tienen bloque PRODUCTOS.
+  // Columnas: 0 fecha · 1 interna · 2 electrónica · 3 cliente · 4 código · 5 producto ·
+  // 6 descripción · 7 costo · 8 cantidad · 9 precio sin IVA · 10 IVA % · 11 con IVA · 12 total.
+  const esEncabezadoProductos = (f) => String(f[0]).trim() === 'Fecha' && String(f[1]).trim() === 'No. Factura' && String(f[6]).trim() === 'Descripción'
+
+  function filasFormatoProductos (filas) {
+    const inicio = filas.findIndex(esEncabezadoProductos)
+    if (inicio < 0) return []
+    const out = []
+    filas.slice(inicio + 1).forEach(row => {
+      const fecha = fechaDeReporte(row[0]); if (!fecha) return
+      const nombre = String(row[5] == null ? '' : row[5]).trim()
+      const rec = marcarEF({
+        fecha, no_factura: String(row[1] == null ? '' : row[1]).trim(), no_consecutivo: String(row[2] == null ? '' : row[2]).trim(),
+        cajero: '', ced_cliente: '', cliente: String(row[3] == null ? '' : row[3]).trim(),
+        cod_producto: String(row[4] == null ? '' : row[4]).trim(), cod_cabys: '', producto: String(row[6] == null ? '' : row[6]).trim() || nombre,
+        moneda: '', costo: num(row[7]), cantidad: num(row[8]), precio_sin_iva: num(row[9]),
+        iva_pct: String(row[10] == null ? '' : row[10]).trim(), precio_con_iva: num(row[11]), total: num(row[12]),
+        marca: '', categoria: '', sub_categoria: '', proveedor: ''
+      })
+      // El producto se llama "ESTADO FISICO 2" aunque la descripción venga con otra palabra
+      if (!rec.es_estado_fisico && nombre.toUpperCase().includes('ESTADO F')) {
+        rec.es_estado_fisico = true; rec.placa_norm = findPlates(rec.producto.toUpperCase())[0] || null
+      }
+      out.push(rec)
+    })
+    return out
+  }
+
   // Marca de estado físico / repotenciación: misma regla para los dos formatos.
   function marcarEF (rec) {
     const codp = rec.cod_producto.toUpperCase(); const prod = rec.producto.toUpperCase()
-    const esEF = codp.includes('ESTADO F') || prod.includes('ESTADO F') || codp.includes('REPOTENCIA') || prod.includes('REPOTENCIA')
+    // Línea sin código cuya descripción es solo placa(s), ej. "TCA0802": la cajera no
+    // escribió "estado físico" pero es eso lo que se cobró.
+    const soloPlacas = !codp.trim() && /^([A-Z]{3}[\s-]?[0-9]{4}[\s,;/-]*)+$/.test(prod.trim())
+    const esEF = soloPlacas || codp.includes('ESTADO F') || prod.includes('ESTADO F') || codp.includes('REPOTENCIA') || prod.includes('REPOTENCIA')
     const placas = esEF ? findPlates(prod) : []
     return Object.assign(rec, { es_estado_fisico: esEF, placa_norm: placas[0] || null, origen: 'excel_prod_vendidos' })
   }
@@ -537,6 +572,10 @@
       const desc = String(row[3] == null ? '' : row[3]).trim()
       if (!codigo && !desc) { enBloque = false; continue }   // la línea en blanco cierra el bloque
       if (!fac) continue
+      // Las líneas vienen SIN ISV; el de Alpha traía el total con ISV y la conciliación
+      // prorratea ese. Se lleva cada línea con el ISV de su factura (Subtotal + Impuestos).
+      const subFac = num(fac[18])
+      const conIsv = subFac > 0 ? (subFac + num(fac[19])) / subFac : 1
       out.push(marcarEF({
         fecha: fechaDeReporte(fac[17]),
         no_factura: String(fac[0] == null ? '' : fac[0]).trim(),
@@ -547,9 +586,7 @@
         cod_producto: codigo, cod_cabys: String(row[2] == null ? '' : row[2]).trim(), producto: desc,
         moneda: String(fac[14] == null ? '' : fac[14]).trim(),
         costo: num(row[8]), cantidad: num(row[5]), precio_sin_iva: num(row[9]),
-        // El bloque no trae el IVA ni el precio con IVA: la conciliación usa
-        // el total, que sí viene.
-        iva_pct: '', precio_con_iva: 0, total: num(row[10]),
+        iva_pct: '', precio_con_iva: Math.round(num(row[9]) * conIsv * 100) / 100, total: Math.round(num(row[10]) * conIsv * 100) / 100,
         marca: '', categoria: '', sub_categoria: '', proveedor: ''
       }))
     }
@@ -563,26 +600,66 @@
       // Todas las hojas: el formato nuevo reparte las facturas entre Contado y Crédito.
       const hojas = wb.SheetNames.map(h => window.XLSX.utils.sheet_to_json(wb.Sheets[h], { header: 1, defval: '' }))
       const nuevo = hojas.some(f => f.some(esEncabezadoNuevo))
-      const pvRows = hojas.reduce((acc, filas) => acc.concat(nuevo ? filasFormatoNuevo(filas) : filasFormatoAlpha(filas)), [])
+      const prodVend = hojas.some(f => f.some(esEncabezadoProductos))
+      const lector = prodVend ? filasFormatoProductos : (nuevo ? filasFormatoNuevo : filasFormatoAlpha)
+      const pvRows = hojas.reduce((acc, filas) => acc.concat(lector(filas)), [])
       if (!pvRows.length) { $('ef-info-ve').textContent = 'No se encontraron líneas en el reporte.'; $('ef-conciliar').disabled = false; return }
 
       try {
         // Guardar TODAS las líneas en el histórico (dedup por linea_hash).
         // NO se concilia acá: para eso está "Conciliar pendientes con datos guardados".
+        // linea_hash no alcanza entre formatos (Alpha y app nueva dan otro hash para la
+        // misma venta): se omite la línea si su factura ya tiene ese mismo producto.
+        const nums = [...new Set(pvRows.map(r => r.no_factura).filter(Boolean))]
+        const ya = new Set()
+        for (let i = 0; i < nums.length; i += 150) {
+          const { data: ex, error } = await sb().from('productos_vendidos').select('no_factura,producto').in('no_factura', nums.slice(i, i + 150))
+          if (error) throw error
+          ;(ex || []).forEach(r => ya.add(clavePV(r)))
+        }
+        const nuevas = pvRows.filter(r => !ya.has(clavePV(r)))
         let guardados = 0
-        for (let i = 0; i < pvRows.length; i += 500) {
-          const { data: d, error } = await sb().from('productos_vendidos').upsert(pvRows.slice(i, i + 500), { onConflict: 'linea_hash', ignoreDuplicates: true }).select('id')
+        for (let i = 0; i < nuevas.length; i += 500) {
+          const { data: d, error } = await sb().from('productos_vendidos').upsert(nuevas.slice(i, i + 500), { onConflict: 'linea_hash', ignoreDuplicates: true }).select('id')
           if (error) throw error
           guardados += (d ? d.length : 0)
         }
         const ef = pvRows.filter(r => r.es_estado_fisico).length
         // Se dice qué formato se leyó: si alguien sube el archivo equivocado,
         // el número de líneas solo no alcanza para darse cuenta.
-        $('ef-info-ve').textContent = `✓ ${pvRows.length} líneas leídas (${nuevo ? 'app nueva' : 'Alpha'}) · ${guardados} nuevas guardadas (${pvRows.length - guardados} ya existían) · ${ef} de estado físico. Ahora dale a "Conciliar pendientes con datos guardados".`
+        $('ef-info-ve').textContent = `✓ ${pvRows.length} líneas leídas (${prodVend ? 'productos vendidos, app nueva' : (nuevo ? 'app nueva' : 'Alpha')}) · ${guardados} nuevas guardadas (${pvRows.length - guardados} ya existían) · ${ef} de estado físico. Ahora dale a "Conciliar pendientes con datos guardados".`
         toast(`${guardados} líneas guardadas`, 'success')
       } catch (e) { console.error('[EF subir ventas]', e); $('ef-info-ve').textContent = 'Error: ' + (e.message || e); toast('Error al subir', 'error') }
       $('ef-conciliar').disabled = false
     })
+  }
+
+  // Una venta = factura + descripción. Sirve para no guardar ni contar dos veces la
+  // misma línea cuando se subió el mismo día con el reporte de Alpha y el de la app nueva.
+  function clavePV (r) {
+    // Los espacios no cuentan: Alpha escribía "ESTADO FISICO  JDN…" (doble) y la app nueva uno solo
+    return `${String(r.no_factura || '').trim()}|${String(r.producto || '').trim().toUpperCase().replace(/s+/g, ' ')}`
+  }
+
+  // Quita las líneas repetidas; se queda con la de Alpha. La app nueva guarda la
+  // factura electrónica completa (000-002-01-…) en no_consecutivo; Alpha solo el número.
+  function sinRepetidas (rows) {
+    const m = new Map()
+    rows.forEach(r => {
+      const k = clavePV(r); const prev = m.get(k)
+      const deAlpha = x => !String(x.no_consecutivo || '').includes('-')
+      if (!prev || (!deAlpha(prev) && deAlpha(r))) m.set(k, r)
+    })
+    return [...m.values()]
+  }
+
+  const claveLinea = (factura, montoLinea) => `${String(factura)}|${(Number(montoLinea) || 0).toFixed(2)}`
+
+  // Cuántos estados físicos cubre una factura. Una placa de la descripción que no casó
+  // (mal escrita) es justo la que se concilia a mano: la conciliada a mano ocupa ese
+  // hueco en vez de sumarse aparte. Solo suma las que pasen de los huecos.
+  function totalPlacasLinea (descPlacas, casadas, manuales) {
+    return Math.max(descPlacas, casadas + manuales)
   }
 
   // Núcleo de conciliación: por cada línea con placa marca UN estado físico Y
@@ -594,10 +671,12 @@
     Object.values(byActivo).forEach(a => a.sort((x, y) => (x.numero || 0) - (y.numero || 0)))
     Object.values(byCerrado).forEach(a => a.sort((x, y) => (x.numero || 0) - (y.numero || 0)))
     // E.Físico conciliados a mano por factura (placas mal escritas que no están en la descripción): suman al total
+    // Por factura Y línea: una factura puede traer varias líneas de estado físico, cada
+    // una con su total (monto_linea), y la conciliada a mano cuenta solo en la suya.
     const manualCount = {}
     ALL.filter(e => e.conciliado_manual && e.categoria === 'estado_fisico' && e.factura_ref)
-      .forEach(e => { manualCount[e.factura_ref] = (manualCount[e.factura_ref] || 0) + 1 })
-    const usados = new Set(); const updates = []; const conciliados = []; const sinMatch = []; const sinPlaca = []
+      .forEach(e => { const k = claveLinea(e.factura_ref, e.monto_linea); manualCount[k] = (manualCount[k] || 0) + 1 })
+    const usados = new Set(); const updates = []; const conciliados = []; const sinMatch = []; const sinPlaca = []; const manualFix = []
     const fCorte = getFechaCorte()
     const preCorte = (l) => fCorte && l.fecha && l.fecha < fCorte
     lineas.forEach(l => {
@@ -606,9 +685,8 @@
         if (/CANCELAC|ABONO|PAGO PENDIENTE|CUENTA PENDIENTE/.test(String(l.producto).toUpperCase())) return
         sinPlaca.push(l); return
       }
-      const N = l.placas.length + (manualCount[l.factura] || 0)   // placas de la descripción + conciliadas a mano
-      const prorat = N ? Math.round((l.monto / N) * 100) / 100 : l.monto
-      let algo = false
+      // Primero se eligen los registros de cada placa; el prorrateo necesita saber cuántas casaron
+      const picks = []
       l.placas.forEach(pl => {
         let reabrir = false
         let cands = (byActivo[pl] || []).filter(e => !usados.has(e.id) && !e.conciliado_manual)
@@ -617,27 +695,60 @@
         ;['estado_fisico', 'repotenciacion'].forEach(cat => {
           const cc = cands.filter(e => e.categoria === cat && !usados.has(e.id))
           if (!cc.length) return
-          const pick = cc.find(e => daysDiff(l.fecha, e.fecha_subida) <= 3) || cc[0]
-          usados.add(pick.id); algo = true
-          const upd = { id: pick.id, facturado: true, fecha_factura: l.fecha, factura_ref: l.factura, monto: prorat, factura_compartida: N > 1, placas_linea: N, monto_linea: l.monto }
-          if (reabrir) upd.cerrado = false
-          updates.push(upd)
-          conciliados.push({ numero: pick.numero, placa: pl, categoria: pick.categoria, propietario: pick.propietario, fecha: l.fecha, factura: l.factura, monto: prorat, compartida: N > 1, placas_linea: N, monto_linea: l.monto })
+          // Si la placa tiene varios, primero el que ya estaba en esta factura (el más cercano
+          // en fecha si hay dos), luego uno libre; uno de otra factura queda de último.
+          const rango = e => String(e.factura_ref) === String(l.factura) ? 0 : (!e.facturado ? 1 : 2)
+          const pick = cc.slice().sort((a, b) => rango(a) - rango(b) ||
+            (rango(a) === 0 ? daysDiff(l.fecha, a.fecha_subida) - daysDiff(l.fecha, b.fecha_subida) : 0) ||
+            ((daysDiff(l.fecha, a.fecha_subida) <= 3 ? 0 : 1) - (daysDiff(l.fecha, b.fecha_subida) <= 3 ? 0 : 1)) ||
+            (a.numero || 0) - (b.numero || 0))[0]
+          usados.add(pick.id)
+          picks.push({ pick, pl, reabrir })
         })
       })
-      if (!algo) sinMatch.push(l)
+      const N = totalPlacasLinea(l.placas.length, new Set(picks.map(p => p.pl)).size, manualCount[claveLinea(l.factura, l.monto)] || 0)
+      const prorat = N ? Math.round((l.monto / N) * 100) / 100 : l.monto
+      picks.forEach(({ pick, pl, reabrir }) => {
+        const upd = { id: pick.id, facturado: true, fecha_factura: l.fecha, factura_ref: l.factura, monto: prorat, factura_compartida: N > 1, placas_linea: N, monto_linea: l.monto }
+        if (reabrir) upd.cerrado = false
+        updates.push(upd)
+        conciliados.push({ numero: pick.numero, placa: pl, categoria: pick.categoria, propietario: pick.propietario, fecha: l.fecha, factura: l.factura, consecutivo: l.consecutivo || '', linea: l.pv_id, monto: prorat, compartida: N > 1, placas_linea: N, monto_linea: l.monto })
+      })
+      if (!picks.length) sinMatch.push(l)
+      // Las conciliadas a mano de esta factura quedan con el mismo prorrateo
+      if (manualCount[claveLinea(l.factura, l.monto)]) manualFix.push({ factura: l.factura, monto: prorat, placas_linea: N, monto_linea: l.monto, factura_compartida: N > 1 })
     })
     for (let i = 0; i < updates.length; i += 500) {
       const { error } = await sb().from('estados_fisicos').upsert(updates.slice(i, i + 500))
       if (error) throw error
     }
+    // Un registro que quedó marcado con una factura de esta corrida pero ya no le toca
+    // (ej. la placa tiene dos estados físicos y la factura cobró uno) vuelve a pendiente.
+    // Los conciliados a mano no se tocan, ni las repotenciaciones: no llevan monto propio.
+    const facturasVistas = new Set(lineas.map(l => String(l.factura)))
+    const elegidos = new Set(updates.map(u => u.id))
+    const liberar = ALL.filter(e => e.categoria === 'estado_fisico' && e.facturado && !e.conciliado_manual && e.factura_ref &&
+      facturasVistas.has(String(e.factura_ref)) && !elegidos.has(e.id)).map(e => e.id)
+    for (let i = 0; i < liberar.length; i += 150) {
+      const { error } = await sb().from('estados_fisicos').update({ facturado: false, factura_ref: null, fecha_factura: null, monto: 0, factura_compartida: false, placas_linea: 1, monto_linea: 0 }).in('id', liberar.slice(i, i + 150))
+      if (error) throw error
+    }
+    for (const m of manualFix) {
+      const { factura, ...campos } = m
+      const { error } = await sb().from('estados_fisicos').update(campos).eq('factura_ref', factura).eq('conciliado_manual', true).eq('monto_linea', campos.monto_linea)
+      if (error) throw error
+    }
     // incluir los conciliados a mano (facturados que no matchean ninguna línea, ej. placa mal escrita)
     const yaEnLista = new Set(conciliados.map(c => c.numero + '|' + c.placa))
+    const fixPorFactura = new Map(manualFix.map(m => [claveLinea(m.factura, m.monto_linea), m]))
+    const consecPorFactura = new Map(lineas.map(l => [String(l.factura), l.consecutivo || '']))
     ALL.filter(e => e.facturado && e.conciliado_manual && !e.descartado).forEach(e => {
       const k = e.numero + '|' + e.placa_norm
-      if (!yaEnLista.has(k)) { yaEnLista.add(k); conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: e.fecha_factura, factura: e.factura_ref, monto: e.monto, compartida: (e.placas_linea || 1) > 1, placas_linea: e.placas_linea || 1, monto_linea: e.monto_linea || e.monto }) }
+      const fx = fixPorFactura.get(claveLinea(e.factura_ref, e.monto_linea))   // ALL se cargó antes de recalcular
+      const monto = fx ? fx.monto : e.monto; const placas = fx ? fx.placas_linea : (e.placas_linea || 1)
+      if (!yaEnLista.has(k)) { yaEnLista.add(k); conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: e.fecha_factura, factura: e.factura_ref, consecutivo: consecPorFactura.get(String(e.factura_ref)) || '', monto, compartida: placas > 1, placas_linea: placas, monto_linea: fx ? fx.monto_linea : (e.monto_linea || e.monto) }) }
     })
-    ULTIMA = { conciliados, sinMatch, sinPlaca }
+    ULTIMA = { conciliados, sinMatch, sinPlaca, liberados: liberar.length }
     await cargarEstado(); renderResultado()
     return ULTIMA
   }
@@ -646,10 +757,10 @@
   async function conciliarGuardado () {
     const btn = $('ef-conc-guardado'); if (btn) { btn.disabled = true; btn.textContent = 'Conciliando…' }
     try {
-      const pv = await fetchAll(sb().from('productos_vendidos').select('id,fecha,no_factura,producto,total,precio_con_iva').eq('es_estado_fisico', true).eq('ef_ignorado', false).order('fecha', { ascending: true }))
-      const lineas = pv.map(r => ({ pv_id: r.id, fecha: r.fecha, factura: r.no_factura, producto: r.producto, placas: findPlates(String(r.producto).toUpperCase()), monto: r.total || r.precio_con_iva }))
+      const pv = await fetchAll(sb().from('productos_vendidos').select('id,fecha,no_factura,no_consecutivo,producto,total,precio_con_iva').eq('es_estado_fisico', true).eq('ef_ignorado', false).order('fecha', { ascending: true }))
+      const lineas = sinRepetidas(pv).map(r => ({ pv_id: r.id, fecha: r.fecha, factura: r.no_factura, consecutivo: r.no_consecutivo || '', producto: r.producto, placas: findPlates(String(r.producto).toUpperCase()), monto: r.total || r.precio_con_iva }))
       const R = await conciliarLineas(lineas)
-      toast(`${R.conciliados.length} conciliados`, 'success')
+      toast(`${R.conciliados.length} conciliados${R.liberados ? ` · ${R.liberados} vuelven a pendientes (estaban de más en su factura)` : ''}`, 'success')
     } catch (e) { console.error('[EF conc guardado]', e); toast('Error: ' + (e.message || e), 'error') }
     if (btn) { btn.disabled = false; btn.textContent = '🔄 Conciliar pendientes con datos guardados' }
   }
@@ -757,47 +868,74 @@
     } catch (e) { console.error('[EF anular]', e); toast('Error: ' + (e.message || e), 'error') }
   }
 
-  async function facturaResumen (factura, incluirNuevo) {
-    const { data } = await sb().from('productos_vendidos').select('producto,fecha,total,precio_con_iva').eq('no_factura', factura).eq('es_estado_fisico', true)
-    if (!data || !data.length) return null
-    let descPlacas = 0; let montoTotal = 0; let fecha = null
-    data.forEach(r => { descPlacas += (findPlates(String(r.producto).toUpperCase()).length || 1); montoTotal += (Number(r.total) || Number(r.precio_con_iva) || 0); if (!fecha) fecha = r.fecha })
-    const manualYa = ALL.filter(e => e.conciliado_manual && e.categoria === 'estado_fisico' && String(e.factura_ref) === String(factura)).length
-    const totPlacas = descPlacas + manualYa + (incluirNuevo ? 1 : 0)
-    const prorat = totPlacas ? Math.round(montoTotal / totPlacas * 100) / 100 : montoTotal
-    return { descPlacas, manualYa, totPlacas, montoTotal, fecha, prorat }
+  // El N° puede venir como factura interna (85986) o electrónica (93516 o
+  // 000-002-01-00093516), igual que en el buscador. Devuelve la interna.
+  async function resolverFactura (txt) {
+    const t = String(txt || '').trim()
+    if (!t) return ''
+    const { data: interna } = await sb().from('productos_vendidos').select('no_factura').eq('no_factura', t).eq('es_estado_fisico', true).limit(1)
+    if (interna && interna.length) return t
+    const nucleo = (t.split('-').pop() || '').replace(/^0+/, '')
+    if (!/^d+$/.test(nucleo)) return t
+    const { data } = await sb().from('productos_vendidos').select('no_factura,no_consecutivo').eq('es_estado_fisico', true).like('no_consecutivo', '%' + nucleo)
+    const hit = (data || []).find(r => (String(r.no_consecutivo).split('-').pop() || '').replace(/^0+/, '') === nucleo)
+    return hit ? String(hit.no_factura) : t
   }
 
+  // A mano se concilia contra UNA línea de la factura: la que tiene una placa sin
+  // estado físico (la mal escrita). Si la factura tiene una sola línea, es esa.
+  async function facturaResumen (factura, incluirNuevo) {
+    const { data } = await sb().from('productos_vendidos').select('no_factura,no_consecutivo,producto,fecha,total,precio_con_iva').eq('no_factura', factura).eq('es_estado_fisico', true)
+    if (!data || !data.length) return null
+    const deFactura = ALL.filter(e => e.facturado && e.categoria === 'estado_fisico' && String(e.factura_ref) === String(factura))
+    const lineas = sinRepetidas(data).map(r => {
+      const total = Number(r.total) || Number(r.precio_con_iva) || 0
+      const enLinea = deFactura.filter(e => claveLinea(factura, e.monto_linea) === claveLinea(factura, total))
+      const manual = enLinea.filter(e => e.conciliado_manual).length
+      const placas = findPlates(String(r.producto).toUpperCase()).length || 1
+      return { total, fecha: r.fecha, placas, casadas: enLinea.length - manual, manual, hueco: placas - enLinea.length }
+    })
+    const ln = lineas.find(x => x.hueco > 0) || lineas[0]
+    const totPlacas = totalPlacasLinea(ln.placas, ln.casadas, ln.manual + (incluirNuevo ? 1 : 0))
+    const prorat = totPlacas ? Math.round(ln.total / totPlacas * 100) / 100 : ln.total
+    return { descPlacas: ln.placas, manualYa: ln.manual, totPlacas, montoTotal: ln.total, fecha: ln.fecha, prorat, nLineas: lineas.length }
+  }
+
+  let _hintSeq = 0
   async function hintConciliarPlaca () {
-    const factura = $('ef-pmodal-fact').value.trim()
+    // Una consulta vieja (de lo que había escrito antes) no pisa el aviso de la última
+    const seq = ++_hintSeq
+    const escrito = $('ef-pmodal-fact').value.trim()
     const h = $('ef-pmodal-hint')
-    if (!factura) { h.textContent = ''; return }
+    if (!escrito) { h.textContent = ''; return }
     try {
+      const factura = await resolverFactura(escrito)
       const r = await facturaResumen(factura, true)
+      if (seq !== _hintSeq) return
       if (!r) { h.style.color = 'var(--red,#f85149)'; h.textContent = 'No se encontró esa factura con estados físicos.'; return }
       h.style.color = 'var(--green,#16a34a)'
-      h.textContent = `Factura ${factura}: quedará en ${r.totPlacas} estados físicos · total L. ${fmt(r.montoTotal)} · ${r.fecha} → L. ${fmt(r.prorat)} c/u`
+      h.textContent = `Factura ${factura}${factura !== escrito ? ' (' + escrito + ')' : ''}: quedará en ${r.totPlacas} estados físicos · total L. ${fmt(r.montoTotal)}${r.nLineas > 1 ? ` (una de sus ${r.nLineas} líneas)` : ''} · ${r.fecha} → L. ${fmt(r.prorat)} c/u`
     } catch (e) { h.textContent = '' }
   }
 
   async function aplicarConciliarPlaca () {
-    const factura = $('ef-pmodal-fact').value.trim()
-    if (!factura) { toast('Ingresá el N° de factura', 'error'); return }
+    if (!$('ef-pmodal-fact').value.trim()) { toast('Ingresá el N° de factura', 'error'); return }
     try {
+      const factura = await resolverFactura($('ef-pmodal-fact').value)
       const r = await facturaResumen(factura, true)
       if (!r) { toast('No se encontró esa factura con estados físicos', 'error'); return }
       const items = PEND.filter(e => e.placa_norm === _pconcPlaca)
       if (!items.length) { toast('Esta placa ya no está pendiente', 'error'); return }
       const ids = items.map(e => e.id)
       // 1) marcar los pendientes de esta placa como facturados a mano
-      let resp = await sb().from('estados_fisicos').update({ facturado: true, fecha_factura: r.fecha, factura_ref: factura, conciliado_manual: true }).in('id', ids)
+      let resp = await sb().from('estados_fisicos').update({ facturado: true, fecha_factura: r.fecha, factura_ref: factura, conciliado_manual: true, monto_linea: r.montoTotal }).in('id', ids)
       if (resp.error) throw resp.error
-      // 2) re-prorratear TODA la factura con el nuevo total de placas → todos a L. prorat
-      resp = await sb().from('estados_fisicos').update({ monto: r.prorat, placas_linea: r.totPlacas, monto_linea: r.montoTotal, factura_compartida: r.totPlacas > 1 }).eq('factura_ref', factura)
+      // 2) re-prorratear esa LÍNEA de la factura con el nuevo total de placas → todos a L. prorat
+      resp = await sb().from('estados_fisicos').update({ monto: r.prorat, placas_linea: r.totPlacas, monto_linea: r.montoTotal, factura_compartida: r.totPlacas > 1 }).eq('factura_ref', factura).eq('monto_linea', r.montoTotal)
       if (resp.error) throw resp.error
       // 3) reflejarlo en la vista de Conciliados sin re-conciliar
       if (ULTIMA && Array.isArray(ULTIMA.conciliados)) {
-        ULTIMA.conciliados.forEach(c => { if (String(c.factura) === String(factura)) { c.monto = r.prorat; c.placas_linea = r.totPlacas; c.monto_linea = r.montoTotal; c.compartida = r.totPlacas > 1 } })
+        ULTIMA.conciliados.forEach(c => { if (claveLinea(c.factura, c.monto_linea) === claveLinea(factura, r.montoTotal)) { c.monto = r.prorat; c.placas_linea = r.totPlacas; c.monto_linea = r.montoTotal; c.compartida = r.totPlacas > 1 } })
         items.forEach(e => ULTIMA.conciliados.push({ numero: e.numero, placa: e.placa_norm, categoria: e.categoria, propietario: e.propietario, fecha: r.fecha, factura, monto: r.prorat, compartida: r.totPlacas > 1, placas_linea: r.totPlacas, monto_linea: r.montoTotal }))
       }
       // sacar esa factura de "con placa que NO está entre los pendientes" y de
@@ -838,7 +976,7 @@
     if (ULTIMA) {
       add('Sin placa', ULTIMA.sinPlaca.map(l => ({ Producto: l.producto, Factura: l.factura, Fecha: l.fecha, Monto: l.monto })))
       add('Revisar (no pendiente)', ULTIMA.sinMatch.map(l => ({ Producto: l.producto, Placa: (l.placas || []).join(','), Factura: l.factura, Fecha: l.fecha, Monto: l.monto, Revisar: (fC && l.fecha && l.fecha >= fC) ? 'SI' : '' })))
-      add('Conciliados', ULTIMA.conciliados.map(c => ({ Numero: c.numero, Placa: c.placa, Tipo: c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Fisico', Propietario: c.propietario, Factura: c.factura, Fecha: c.fecha, Monto: c.monto, Total_linea: c.monto_linea, Compartida: c.compartida ? 'SI' : '' })))
+      add('Conciliados', ULTIMA.conciliados.map(c => ({ Numero: c.numero, Placa: c.placa, Tipo: c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Fisico', Propietario: c.propietario, Factura: c.factura, Fecha: c.fecha, Monto: c.categoria === 'repotenciacion' ? 0 : c.monto, Total_linea: c.monto_linea, Compartida: c.compartida ? 'SI' : '' })))
     }
     add('Huerfanas', HUERFANAS.map(r => ({ Numero: r.numero, Placa: r.placa_norm, Propietario: r.propietario })))
     window.XLSX.writeFile(wb, `estados_fisicos_${hoy()}.xlsx`)
@@ -859,6 +997,14 @@
     return d.toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
   }
 
+  // El buscador filtra los datos, no las filas pintadas: la lista solo pinta 400
+  // facturas y lo que quedaba fuera de esas no se encontraba.
+  function concBuscar (vis) {
+    if (!CONC_T) return vis
+    return vis.filter(items => items.some(c =>
+      `${c.numero || ''} ${c.placa || ''} ${c.propietario || ''} ${c.factura || ''} ${c.consecutivo || ''}`.toUpperCase().includes(CONC_T)))
+  }
+
   function concFiltrar (grpArr) {
     if (!CONC_D && !CONC_H) return grpArr
     return grpArr.filter(items => {
@@ -872,8 +1018,9 @@
 
   function concBloqueHTML (grpArr) {
     const vis = concFiltrar(grpArr)
-    const nEF = vis.reduce((a, items) => a + items.length, 0)
-    const totL = vis.reduce((a, items) => a + (Number(items[0].monto_linea) || 0), 0)
+    // La repotenciación va en la misma factura que su estado físico: no se cuenta aparte
+    const nEF = vis.reduce((a, items) => a + items.filter(c => c.categoria !== 'repotenciacion').length, 0)
+    const totL = vis.reduce((a, items) => a + totalFactura(items), 0)
     const rango = !!(CONC_D || CONC_H)
 
     const btn = (txt, d, h, activo) =>
@@ -899,11 +1046,28 @@
     return `<div class="ef-grp">
       <div class="ef-grp-t" style="color:var(--green,#16a34a)">
         ✓ Conciliados (${nEF}) · ${vis.length} facturas${rango ? ` <span style="color:var(--amber,#f59e0b);font-size:11.5px">· filtrado por fecha (de ${grpArr.length})</span>` : ''}
-        <input class="ef-filter ef-in" data-target="ef-list-conc" placeholder="🔍 placa/N°/factura…" style="width:200px;text-transform:uppercase">
+        <input class="ef-filter ef-in" data-target="ef-list-conc" value="${esc(CONC_T)}" placeholder="🔍 placa/N°/factura…" style="width:200px;text-transform:uppercase">
       </div>
       ${controles}
-      <div id="ef-list-conc" style="max-height:360px;overflow:auto;margin-top:8px">${concListaHTML(vis)}</div>
+      <div id="ef-list-conc" style="max-height:360px;overflow:auto;margin-top:8px">${concListaHTML(concBuscar(vis))}</div>
     </div>`
+  }
+
+  // Una factura puede traer varias líneas de estado físico (ej. 87522: una por placa y
+  // otra compartida). La tarjeta es por factura y adentro va cada línea con su monto.
+  // Las conciliadas a mano no traen la línea: van con la que tiene su mismo total.
+  function lineasFactura (items) {
+    const m = new Map()
+    items.filter(c => c.linea).forEach(c => { const k = c.linea; if (!m.has(k)) m.set(k, []); m.get(k).push(c) })
+    items.filter(c => !c.linea).forEach(c => {
+      const k = [...m.keys()].find(x => Number(m.get(x)[0].monto_linea) === Number(c.monto_linea)) || 'm|' + c.monto_linea
+      if (!m.has(k)) m.set(k, []); m.get(k).push(c)
+    })
+    return [...m.values()]
+  }
+
+  function totalFactura (items) {
+    return lineasFactura(items).reduce((a, ln) => a + (Number(ln[0].monto_linea) || 0), 0)
   }
 
   function concListaHTML (vis) {
@@ -912,11 +1076,17 @@
     }
     return vis.slice(0, 400).map(items => {
       const c0 = items[0]
-      const efCount = c0.placas_linea || items.filter(x => x.categoria !== 'repotenciacion').length
-      const head = c0.compartida ? `<div style="font-size:11px;color:var(--amber,#f59e0b);margin-bottom:3px">🔗 Línea compartida · ${efCount} estados físicos · total L. ${fmt(c0.monto_linea)} (prorrateado)</div>` : ''
-      return `<div style="border:1px solid var(--border,#2a3340);border-radius:8px;padding:8px 10px;margin-bottom:8px">${head}
-        ${items.map(c => `<div class="ef-row" style="border:none;padding:3px 0"><span>#${c.numero || '—'} · <span class="ef-plate">${esc(c.placa)}</span> · ${c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico'} · <span style="color:var(--text3,#8b949e)">${esc(c.propietario || '')}</span></span><span style="color:var(--text3,#8b949e)">L. ${fmt(c.monto)}</span></div>`).join('')}
-        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border,#2a3340);margin-top:4px;padding-top:4px;font-size:12px"><span style="color:var(--text3,#8b949e)">Factura ${esc(c0.factura)} · ${esc(c0.fecha)}</span><b style="color:var(--gold,#c8a24a)">Total L. ${fmt(c0.monto_linea)}</b></div>
+      const fila = c => `<div class="ef-row" style="border:none;padding:3px 0"><span>#${c.numero || '—'} · <span class="ef-plate">${esc(c.placa)}</span> · ${c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico'} · <span style="color:var(--text3,#8b949e)">${esc(c.propietario || '')}</span></span><span style="color:var(--text3,#8b949e)">${c.categoria === 'repotenciacion' ? 'incluida' : 'L. ' + fmt(c.monto)}</span></div>`
+      const lns = lineasFactura(items)
+      const cuerpo = lns.map((ln, i) => {
+        const l0 = ln[0]
+        const efCount = l0.placas_linea || ln.filter(x => x.categoria !== 'repotenciacion').length
+        const head = l0.compartida ? `<div style="font-size:11px;color:var(--amber,#f59e0b);margin-bottom:3px">🔗 Línea compartida · ${efCount} estados físicos · total L. ${fmt(l0.monto_linea)} (prorrateado)</div>` : ''
+        const sep = i ? 'border-top:1px dashed var(--border,#2a3340);margin-top:4px;padding-top:4px' : ''
+        return `<div style="${sep}">${head}${ln.map(fila).join('')}</div>`
+      }).join('')
+      return `<div style="border:1px solid var(--border,#2a3340);border-radius:8px;padding:8px 10px;margin-bottom:8px">${cuerpo}
+        <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border,#2a3340);margin-top:4px;padding-top:4px;font-size:12px"><span style="color:var(--text3,#8b949e)">Factura ${esc(c0.factura)}${c0.consecutivo ? ' (' + esc(c0.consecutivo) + ')' : ''} · ${esc(c0.fecha)}${lns.length > 1 ? ` · ${lns.length} líneas` : ''}</span><b style="color:var(--gold,#c8a24a)">Total L. ${fmt(totalFactura(items))}</b></div>
       </div>`
     }).join('') + (vis.length > 400
       ? `<div style="font-size:12px;color:var(--text3,#8b949e)">… y ${vis.length - 400} facturas más. Achicá el rango de fechas para verlas.</div>`
@@ -928,7 +1098,7 @@
   function repintarConc () {
     const R = ULTIMA; if (!R) return
     const grupos = {}
-    R.conciliados.forEach(c => { const k = `${c.factura}|${c.monto_linea}`; (grupos[k] = grupos[k] || []).push(c) })
+    R.conciliados.forEach(c => { const k = String(c.factura); (grupos[k] = grupos[k] || []).push(c) })
     const grpArr = Object.values(grupos)
     const cont = document.getElementById('ef-list-conc')
     const grp = cont && cont.closest('.ef-grp')
@@ -951,6 +1121,13 @@
       inp.oninput = () => {
         const t = inp.value.trim().toUpperCase()
         const list = document.getElementById(inp.dataset.target); if (!list) return
+        if (inp.dataset.target === 'ef-list-conc' && ULTIMA) {
+          CONC_T = t
+          const grupos = {}
+          ULTIMA.conciliados.forEach(c => { const k = String(c.factura); (grupos[k] = grupos[k] || []).push(c) })
+          list.innerHTML = concListaHTML(concBuscar(concFiltrar(Object.values(grupos))))
+          return
+        }
         Array.from(list.children).forEach(row => { row.style.display = (!t || row.textContent.toUpperCase().includes(t)) ? '' : 'none' })
       }
     })
@@ -971,7 +1148,7 @@
       }).join('')}</div>
     </div>` : ''
     const grupos = {}
-    R.conciliados.forEach(c => { const k = `${c.factura}|${c.monto_linea}`; (grupos[k] = grupos[k] || []).push(c) })
+    R.conciliados.forEach(c => { const k = String(c.factura); (grupos[k] = grupos[k] || []).push(c) })
     const grpArr = Object.values(grupos)
     const gConc = concBloqueHTML(grpArr)
     const gNo = R.sinMatch.length ? `<div class="ef-grp"><div class="ef-grp-t" style="color:var(--text3,#8b949e)">Facturados con placa que NO está entre los pendientes (${R.sinMatch.length}) — <span style="color:var(--red,#f85149)">rojo = posterior al corte, revisar (placa mal escrita)</span> ${filtro('ef-list-nomatch')}</div>

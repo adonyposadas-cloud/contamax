@@ -51,9 +51,17 @@ async function rvAnalizarRango(r) {
   const total = hasta - desde + 1
 
   // Traer facturas del libro de ese centro que empiecen con el prefijo
-  let q = rvSb().from('libro_ventas').select('factura_electronica, cliente').limit(50000)
-  if (r.centro_costo_id) q = q.eq('centro_costo_id', r.centro_costo_id)
-  const { data: libro } = await q
+  // Por páginas: Supabase corta en 1000 filas aunque se pida .limit(50000), y el
+  // resto del rango salía como "faltante".
+  const libro = []
+  for (let desde = 0; ; desde += 1000) {
+    let q = rvSb().from('libro_ventas').select('factura_electronica, cliente').order('id').range(desde, desde + 999)
+    if (r.centro_costo_id) q = q.eq('centro_costo_id', r.centro_costo_id)
+    const { data, error } = await q
+    if (error) { console.error('[rangos] libro_ventas', error.message); break }
+    libro.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
   // Filtrar por prefijo y quedarnos con el correlativo
   const usadosSet = new Set()
   let ultimo = desde - 1

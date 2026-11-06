@@ -4059,6 +4059,27 @@ window.guardarPartida = async (estado) => {
     if (vd.yonker_fiscal?.facturas?.length) for (const f of vd.yonker_fiscal.facturas) registros.push(regVenta(f, vd.ccYonkerId, false))
     if (vd.yonker_fiscal?.facturasCredito?.length) for (const f of vd.yonker_fiscal.facturasCredito) registros.push(regVenta(f, vd.ccYonkerId, true))
 
+    // Notas de crédito de los reportes fiscales: van al libro en negativo, igual que en la
+    // partida (Yonker vende exento; la de Tecnicentro fiscal baja también el ISV).
+    const r2n = (v) => Math.round((+v || 0) * 100) / 100
+    const regNota = (x, ccId, yonker) => {
+      const isvN = yonker ? 0 : r2n(x.isv)
+      const neto = r2n((+x.total || 0) - isvN)
+      return {
+        centro_costo_id: ccId, fecha: vd.fecha,
+        factura_interna: '', factura_electronica: x.nota || '',
+        cliente: x.cliente || '', rtn_cliente: '',
+        subtotal: -neto, total_gravado: yonker ? 0 : -neto, total_exento: yonker ? -neto : 0,
+        isv: -isvN, total: -r2n(x.total),
+        monto_efectivo: 0, monto_tarjeta: 0, monto_transferencia: 0,
+        incluir_fiscal: true, numero_documento: documento || null,
+        origen: 'import_alpha', partida_id: partidaId,
+        observaciones: `Nota de crédito de la factura ${x.factura || '—'}`,
+      }
+    }
+    for (const x of vd.yonker_fiscal?.notas || []) if (+x.total) registros.push(regNota(x, vd.ccYonkerId, true))
+    for (const x of vd.tecnimax_fiscal?.notas || []) if (+x.total) registros.push(regNota(x, vd.ccTecniId, false))
+
     if (registros.length) {
       // Dedupe por factura_electronica: no reinsertar las que ya estén en el libro
       const facts = registros.map(r => r.factura_electronica).filter(Boolean)
@@ -5409,9 +5430,24 @@ async function syncLibroCompras(partidaId, fecha, numDocumento, lineasValidas, d
     // Base REAL de la partida = débitos que no son ISV (costo/inventario/gasto).
     // Si hay una sola factura, la usamos tal cual para que los centavos del libro
     // cuadren exactos con el asiento (no reconstruir la base dividiendo el ISV).
-    const baseRealTot = r2(lineasValidas
-      .filter(l => l.tipo === 'debito' && !l.cuenta_codigo?.startsWith('110402'))
+    // No son base: débitos a caja/bancos (1101*, ej. el vuelto que regresa a caja
+    // chica para cuadrar) ni el diferencial cambiario por monedas de vuelto.
+    const noEsBase = (l) => {
+      const cod = l.cuenta_codigo || ''
+      return cod.startsWith('110402') || cod.startsWith('1101') || cod.startsWith('620101-006')
+        || /DIFERENCIAL\s+CAMBIARIO/i.test(l.cuenta_nombre || '')
+    }
+    // Pero un débito a 1101 que no es vuelto (ej. 110101-004 valores por liquidar: artículos
+    // de un socio que vinieron en la MISMA factura) sí es base: el ISV de la factura los
+    // cubre. Se nota porque sin ellos el ISV pasaría del 15% de la base.
+    const debBase = (excluirCaja) => r2(lineasValidas
+      .filter(l => l.tipo === 'debito' && (excluirCaja ? !noEsBase(l)
+        : !(l.cuenta_codigo || '').startsWith('110402') && !(l.cuenta_codigo || '').startsWith('620101-006')
+          && !/DIFERENCIALs+CAMBIARIO/i.test(l.cuenta_nombre || '')))
       .reduce((s, l) => s + (+l.monto || 0), 0))
+    const isvTot = r2(isvLines.reduce((s, l) => s + (+l.monto || 0), 0))
+    const baseSinCaja = debBase(true)
+    const baseRealTot = isvTot > r2(baseSinCaja * 0.15) + 0.05 ? debBase(false) : baseSinCaja
     for (const li of isvLines) {
       const isv = r2(li.monto)
       const { numfac, prov } = parseLinea(li.descripcion)
@@ -8725,6 +8761,8 @@ window.guardarImportCompras = async () => {
         forma_pago: 'credito',
         productos: productosDesc.substring(0, 250),
         incluir_fiscal: true,
+        // La partida debita inventario (110501): es compra de mercaderia, no gasto
+        tipo_compra: 'costo',
         origen: 'import_alpha',
         partida_id: partida.id,
       })

@@ -117,6 +117,18 @@
     await window.cargarISV()
   }
 
+  // Supabase entrega como máximo 1000 filas por consulta: octubre traía 1000 ventas
+  // exactas y cortaba el 27-28, con el débito fiscal incompleto. Se piden por páginas.
+  async function todasLasFilas (armar) {
+    const filas = []
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await armar().range(desde, desde + 999)
+      if (error) return { data: null, error }
+      filas.push(...(data || []))
+      if (!data || data.length < 1000) return { data: filas, error: null }
+    }
+  }
+
   // ── Consulta y render ──
   window.cargarISV = async () => {
     const sb = getSb()
@@ -129,19 +141,23 @@
     const { first, next } = rangoMes(fPeriodo)
 
     // VENTAS: por mes de la fecha (no ruedan)
-    let qV = sb.from('libro_ventas')
-      .select('id,fecha,factura_interna,factura_electronica,cliente,rtn_cliente,total_gravado,total_exento,isv,total,incluir_fiscal,centro_costo_id')
-      .gte('fecha', first).lt('fecha', next).order('fecha')
-    if (fCentro) qV = qV.eq('centro_costo_id', fCentro)
+    const qV = () => {
+      let q = sb.from('libro_ventas')
+        .select('id,fecha,factura_interna,factura_electronica,cliente,rtn_cliente,total_gravado,total_exento,isv,total,incluir_fiscal,centro_costo_id')
+        .gte('fecha', first).lt('fecha', next).order('fecha').order('id')
+      return fCentro ? q.eq('centro_costo_id', fCentro) : q
+    }
 
     // COMPRAS: por periodo_fiscal asignado
-    let qC = sb.from('libro_compras')
-      .select('id,fecha,numero_factura,proveedor,rtn_proveedor,subtotal,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id,tipo_compra,partida_id,origen')
-      .eq('periodo_fiscal', fPeriodo).order('fecha')
-    if (fCentro) qC = qC.eq('centro_costo_id', fCentro)
+    const qC = () => {
+      let q = sb.from('libro_compras')
+        .select('id,fecha,numero_factura,proveedor,rtn_proveedor,subtotal,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id,tipo_compra,partida_id,origen')
+        .eq('periodo_fiscal', fPeriodo).order('fecha').order('id')
+      return fCentro ? q.eq('centro_costo_id', fCentro) : q
+    }
 
     const qD = sb.from('declaraciones_isv').select('*').eq('periodo', fPeriodo).order('version', { ascending: false })
-    const [{ data: dv, error: ev }, { data: dc, error: ec }, { data: dd }] = await Promise.all([qV, qC, qD])
+    const [{ data: dv, error: ev }, { data: dc, error: ec }, { data: dd }] = await Promise.all([todasLasFilas(qV), todasLasFilas(qC), qD])
     if (ev || ec) {
       if (cont) cont.innerHTML = `<div style="padding:20px;color:var(--red)">No se pudo cargar la información fiscal. ${esc((ev || ec).message || '')}</div>`
       return
@@ -157,12 +173,14 @@
       const { data: cerr } = await sb.from('declaraciones_isv').select('periodo').eq('estado', 'presentada')
       const cerrados = new Set((cerr || []).map(d => d.periodo))
       if (cerrados.size) {
-        let qP = sb.from('libro_compras')
-          .select('id,fecha,numero_factura,proveedor,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id')
-          .eq('incluir_fiscal', false)
-          .gte('fecha', sumarMeses(fPeriodo, -MESES_LIMITE_CREDITO) + '-01').lt('fecha', first).order('fecha')
-        if (fCentro) qP = qP.eq('centro_costo_id', fCentro)
-        const { data: dp } = await qP
+        const qP = () => {
+          let q = sb.from('libro_compras')
+            .select('id,fecha,numero_factura,proveedor,isv,total,incluir_fiscal,periodo_fiscal,centro_costo_id')
+            .eq('incluir_fiscal', false)
+            .gte('fecha', sumarMeses(fPeriodo, -MESES_LIMITE_CREDITO) + '-01').lt('fecha', first).order('fecha').order('id')
+          return fCentro ? q.eq('centro_costo_id', fCentro) : q
+        }
+        const { data: dp } = await todasLasFilas(qP)
         fPendientes = (dp || []).filter(c => cerrados.has(periodoDeFecha(c.fecha))
           && (periodoMaximoCredito(c.fecha) || '') >= fPeriodo
           && (!c.periodo_fiscal || c.periodo_fiscal <= fPeriodo || cerrados.has(c.periodo_fiscal)))
@@ -382,6 +400,10 @@
     return v.factura_electronica || v.numero_documento || v.factura_interna || ''
   }
   // Banderas de alerta de una venta
+  // Nota de crédito emitida: va en el libro de ventas en negativo (resta del débito y
+  // de la base para la prorrata). Su serie es otra (001-001-06-…): no entra al correlativo.
+  const esNotaCredito = (v) => (+v.total || 0) < 0 || /^d{3}-d{3}-06-/.test(v.factura_electronica || '')
+
   function analizarVenta(v) {
     const grav = +v.total_gravado || 0
     const isv = +v.isv || 0
@@ -403,7 +425,7 @@
 
     // ── LIBRO DE VENTAS · una ventana por centro de costo (correlativos distintos) ──
     const grupos = {}
-    fVentas.forEach(v => { (grupos[v.centro_costo_id] = grupos[v.centro_costo_id] || []).push(v) })
+    fVentas.filter(v => !esNotaCredito(v)).forEach(v => { (grupos[v.centro_costo_id] = grupos[v.centro_costo_id] || []).push(v) })
     let totalAlertas = 0, totalAnuladas = 0, totalIsvMal = 0
     const anuladasList = []
 
@@ -494,6 +516,48 @@
           </div>
         </div>`
     }).join('')
+
+    // ── Notas de crédito del período (todas las empresas) ──
+    const notasCr = fVentas.filter(esNotaCredito).slice().sort((x, y) => String(x.fecha).localeCompare(String(y.fecha)) || String(x.factura_electronica).localeCompare(String(y.factura_electronica)))
+    let ventanaNC = ''
+    if (notasCr.length) {
+      let g = 0, e = 0, i = 0
+      const filasNC = notasCr.map(v => {
+        const incl = !!v.incluir_fiscal
+        if (incl) { g += +v.total_gravado || 0; e += +v.total_exento || 0; i += +v.isv || 0 }
+        return `<tr style="${incl ? '' : 'opacity:.45'}">
+          <td style="font-family:var(--mono)">${esc(v.fecha)}</td>
+          <td style="font-family:var(--mono)">${esc(v.factura_electronica)}</td>
+          <td>${esc(v.cliente)}</td>
+          <td>${esc(nombreCentro(v.centro_costo_id))}</td>
+          <td style="font-size:11px;color:var(--text3)">${esc(v.observaciones || '')}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(v.total_gravado)}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(v.total_exento)}</td>
+          <td style="text-align:right;font-family:var(--mono)">${fmt(v.isv)}</td>
+        </tr>`
+      }).join('')
+      ventanaNC = `
+        <div class="form-card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div class="form-card-title" style="margin:0">↩ Notas de crédito emitidas <span style="font-weight:400;color:var(--text3);font-size:12px">(${notasCr.length} · restan de las ventas)</span></div>
+          </div>
+          <div class="table-wrap" style="max-height:260px;overflow:auto">
+            <table>
+              <thead><tr>
+                <th>Fecha</th><th>Nota</th><th>Cliente</th><th>Centro</th><th>Detalle</th>
+                <th style="text-align:right">Gravado 15%</th><th style="text-align:right">Exento</th><th style="text-align:right">ISV</th>
+              </tr></thead>
+              <tbody>${filasNC}</tbody>
+              <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+                <td colspan="5" style="text-align:right">Totales (incluidas):</td>
+                <td style="text-align:right;font-family:var(--mono)">${fmt(g)}</td>
+                <td style="text-align:right;font-family:var(--mono)">${fmt(e)}</td>
+                <td style="text-align:right;font-family:var(--mono)">${fmt(i)}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+        </div>`
+    }
 
     // ── LIBRO DE COMPRAS · separado en COSTOS y GASTOS ──
     const qBuscaC = fBuscaCompra.trim().toLowerCase()
@@ -592,6 +656,7 @@
         <div style="font-size:11px;color:var(--text3);margin-top:8px">Pasá el mouse sobre cada una para ver el centro y el motivo. Los "hueco de correlativo" son números que no quedaron registrados (verificá que correspondan a facturas anuladas).</div>
       </div>` : ''}
       ${ventanasV || '<div class="form-card" style="margin-bottom:18px;text-align:center;color:var(--text3);padding:18px">Sin ventas en el período</div>'}
+      ${ventanaNC}
 
       <div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div class="form-card-title" style="margin:0">🧾 Libro de Compras · ${etiquetaMes(fPeriodo)} <span style="font-weight:400;color:var(--text3);font-size:12px">(separado en costos y gastos)</span></div>
