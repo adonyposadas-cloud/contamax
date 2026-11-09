@@ -2770,6 +2770,11 @@
             <option value="true">Financiados</option>
             <option value="false">Sin financiamiento</option>
           </select>
+          <select id="ut-filtro-estado" onchange="filtrarUnidades()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:150px">
+            <option value="activas">Activas</option>
+            <option value="inactivas">De baja</option>
+            <option value="todas">Todas</option>
+          </select>
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
           <div class="stat-card"><div class="stat-num" id="ut-stat-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total unidades</div></div>
@@ -3867,7 +3872,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261106a"></script>
+<script type="module" src="js/app.js?v=20261109a"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3889,7 +3894,7 @@
 <script defer src="js/feriados.js?v=20260921t"></script>
 <script defer src="js/permisos-masivo.js?v=20261027a"></script>
 <script defer src="js/cuentas-cobrar.js?v=20260921t"></script>
-<script defer src="js/conciliacion.js?v=20261029a"></script>
+<script defer src="js/conciliacion.js?v=20261109a"></script>
 <script defer src="js/fiscal.js?v=20261106b"></script>
 <script defer src="js/export_fiscal.js?v=20261029b"></script>
 <script defer src="js/revision_taxis.js?v=20261026b"></script>

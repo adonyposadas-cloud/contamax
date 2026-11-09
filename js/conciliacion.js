@@ -1040,6 +1040,19 @@
         </label>
       </div>` : ''
 
+    // La misma barra va ARRIBA y ABAJO de las dos listas: con 144 y 79 filas,
+    // obligar a bajar hasta el final para ver la suma y apretar el botón es un
+    // viaje largo. Los id pasaron a class porque ahora hay dos de cada uno.
+    const barraAcciones = () => `
+      <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-gold" onclick="window._cbCrearPartidaSeleccionados()">+ Crear 1 partida de seleccionados (banco)</button>
+        <button class="btn btn-ghost" onclick="window._cbEmparejar()"><svg class=ico aria-hidden=true><use href=#i-link></use></svg> Emparejar seleccionados (manual)</button>
+        <button class="btn btn-ghost" onclick="window._cbAgrupar()"><svg class=ico aria-hidden=true><use href=#i-puzzle></use></svg> Agrupar N banco → 1 libro</button>
+        <span style="font-size:12px;color:var(--text3)">tol. suma <input type="number" class="cb-tol-suma" value="0" min="0" step="0.01" style="width:74px;padding:3px 6px" oninput="window._cbTolCambio(this)"></span>
+        <button class="btn btn-ghost" onclick="window._cbToggleConciliados()">Ver conciliados (${e.pares.length})</button>
+      </div>
+      <div class="cb-suma-sel" style="font-size:13px;color:var(--text3);margin:-4px 0 12px;min-height:18px"></div>`
+
     document.getElementById('cb-resultado').innerHTML = `
       ${(e.gruposIncompletos || []).length ? (() => {
         const gi = e.gruposIncompletos
@@ -1149,6 +1162,7 @@
           <br><strong>Desconciliar solo quita la marca</strong> — no toca la partida ni la contabilidad.
         </div>
       </div>` })() : ''}
+      ${barraAcciones()}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="table-wrap">
           <div style="padding:10px 14px;font-weight:600;color:var(--amber);background:var(--bg3)">⚠️ Solo en el banco (${e.soloBanco.length}) — falta registrar en el sistema</div>
@@ -1163,14 +1177,7 @@
           <tbody>${porFecha(e.soloLibro).map((m) => filaMov(m, 'libro', m._i)).join('') || '<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--text3)">Todo conciliado ✓</td></tr>'}</tbody></table>
         </div>
       </div>
-      <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-gold" onclick="window._cbCrearPartidaSeleccionados()">+ Crear 1 partida de seleccionados (banco)</button>
-        <button class="btn btn-ghost" onclick="window._cbEmparejar()"><svg class=ico aria-hidden=true><use href=#i-link></use></svg> Emparejar seleccionados (manual)</button>
-        <button class="btn btn-ghost" onclick="window._cbAgrupar()"><svg class=ico aria-hidden=true><use href=#i-puzzle></use></svg> Agrupar N banco → 1 libro</button>
-        <span style="font-size:12px;color:var(--text3)">tol. suma <input type="number" id="cb-tol-suma" value="0" min="0" step="0.01" style="width:74px;padding:3px 6px" oninput="window._cbSumaSel()"></span>
-        <button class="btn btn-ghost" onclick="window._cbToggleConciliados()">Ver conciliados (${e.pares.length})</button>
-      </div>
-      <div id="cb-suma-sel" style="font-size:13px;color:var(--text3);margin:-4px 0 12px;min-height:18px"></div>
+      ${barraAcciones()}
       <div id="cb-conciliados" class="table-wrap" style="display:none">
         <div style="padding:10px 14px;font-weight:600;color:var(--green);background:var(--bg3)">✅ Conciliados (${e.pares.length})</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px">
@@ -1233,9 +1240,19 @@
     window._cbFiltrarConcil()
   }
 
+  // Las dos cajas de tolerancia son la misma cosa: lo que se escribe en una
+  // se copia en la otra, para que no queden diciendo números distintos.
+  window._cbTolCambio = (origen) => {
+    for (const x of document.querySelectorAll('.cb-tol-suma')) if (x !== origen) x.value = origen.value
+    window._cbSumaSel()
+  }
+
   window._cbToggleConciliados = () => {
     const el = document.getElementById('cb-conciliados')
-    el.style.display = el.style.display === 'none' ? '' : 'none'
+    const abrir = el.style.display === 'none'
+    el.style.display = abrir ? '' : 'none'
+    // El botón de arriba queda lejos del panel; si lo abre, que lo lleve.
+    if (abrir) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   // Filtrar el panel "Solo en el banco" por día.
@@ -1291,8 +1308,11 @@
 
   // Suma en vivo de lo seleccionado (banco) vs la línea del libro elegida
   window._cbSumaSel = () => {
-    const el = document.getElementById('cb-suma-sel')
-    if (!el || !estadoConc) return
+    // Hay dos lecturas de la suma, una arriba y otra abajo de las listas: se
+    // pintan las dos con lo mismo.
+    const els = [...document.querySelectorAll('.cb-suma-sel')]
+    const pintarSuma = (v) => { for (const x of els) x.innerHTML = v }
+    if (!els.length || !estadoConc) return
     const selB = [...document.querySelectorAll('.cb-sel-banco:checked')].map(c => parseInt(c.value, 10))
     const selL = [...document.querySelectorAll('.cb-sel-libro:checked')].map(c => parseInt(c.value, 10))
     // Si se está armando un grupo roto, el objetivo se actualiza con cada clic
@@ -1300,7 +1320,7 @@
       const movsObj = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
       pintarObjetivo(r2(movsObj.reduce((s2, m) => s2 + Number(m.monto || 0), 0)))
     }
-    if (!selB.length && !selL.length) { el.innerHTML = ''; return }
+    if (!selB.length && !selL.length) { pintarSuma(''); return }
     const movsB = selB.map(i => estadoConc.banco.find(x => x._i === i)).filter(Boolean)
     // Neto: ingreso suma, egreso resta → un crédito y un débito iguales se cancelan
     const cbSigned = (m) => (m.tipo === 'ingreso' ? m.monto : -m.monto)
@@ -1312,7 +1332,7 @@
     if (selL.length === 1) {
       const l = estadoConc.libro.find(x => x._i === selL[0])
       if (l) {
-        const tol = Math.max(0, parseFloat(document.getElementById('cb-tol-suma')?.value) || 0)
+        const tol = Math.max(0, parseFloat(document.querySelector('.cb-tol-suma')?.value) || 0)
         const lSigned = cbSigned(l)
         const dif = r2(sumaB - lSigned)
         const cuadra = Math.abs(dif) <= tol + 0.001
@@ -1321,7 +1341,7 @@
     } else if (selL.length > 1) {
       html += ` &nbsp;·&nbsp; <span style="color:var(--amber)">seleccioná solo 1 del libro para comparar</span>`
     }
-    el.innerHTML = html
+    pintarSuma(html)
   }
 
   // Agrupado manual: N del banco (que suman) : 1 del libro
@@ -1338,7 +1358,7 @@
       window.toast?.('Los movimientos del banco y la línea del libro deben ser del mismo tipo (ingreso/egreso).', 'error'); return
     }
     const suma = r2(movsB.reduce((s, b) => s + b.monto, 0))
-    const tol = Math.max(0, parseFloat(document.getElementById('cb-tol-suma')?.value) || 0)
+    const tol = Math.max(0, parseFloat(document.querySelector('.cb-tol-suma')?.value) || 0)
     const dif = r2(Math.abs(suma - l.monto))
     if (dif > tol + 0.001) {
       window.toast?.(`La suma del banco (${fmtL(suma)}) no coincide con el libro (${fmtL(l.monto)}). Diferencia ${fmtL(dif)} > tolerancia ${fmtL(tol)}.`, 'error'); return

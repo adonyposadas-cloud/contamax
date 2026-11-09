@@ -11045,13 +11045,19 @@ window.asignarVinMovimiento = async (i) => {
 
 let allUnidades = []
 let filteredUnidades = []
+let ocultasPorEstado = 0
 let editingUnidadId = null
 
 async function loadUnidadesTaxis() {
   const tbody = document.getElementById('tbody-unidades-taxis')
   if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
 
-  const { data, error } = await sb.from('unidades_taxis').select('*').eq('activo', true).order('registro')
+  // Se bajan TAMBIÉN las dadas de baja. Sin esto quedan invisibles y su número
+  // no se puede volver a dar de alta: el alta choca con el único de registro y
+  // el mensaje "ya existe" no se entiende porque la unidad no aparece en ningún
+  // lado. El filtro de estado arranca en "Activas", así que la pantalla se ve
+  // igual que siempre mientras nadie lo cambie.
+  const { data, error } = await sb.from('unidades_taxis').select('*').order('registro')
   if (error) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`
     return
@@ -11065,13 +11071,15 @@ async function loadUnidadesTaxis() {
     propSelect.innerHTML = '<option value="">Todos los propietarios</option>' + props.map(p => `<option value="${p}">${p}</option>`).join('')
   }
 
-  // Stats
-  const taxis = allUnidades.filter(u => u.modalidad === 'TAXI').length
-  const vips = allUnidades.filter(u => u.modalidad === 'VIP').length
-  const fins = allUnidades.filter(u => u.financiado).length
-  const socios = allUnidades.filter(u => u.propietario !== 'TAXIS').length
+  // Stats: solo las ACTIVAS. Las tarjetas son el inventario en operación, no el
+  // histórico, y los números tienen que seguir dando lo mismo que antes.
+  const activas = allUnidades.filter(u => u.activo)
+  const taxis = activas.filter(u => u.modalidad === 'TAXI').length
+  const vips = activas.filter(u => u.modalidad === 'VIP').length
+  const fins = activas.filter(u => u.financiado).length
+  const socios = activas.filter(u => u.propietario !== 'TAXIS').length
   const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v }
-  el('ut-stat-total', allUnidades.length)
+  el('ut-stat-total', activas.length)
   el('ut-stat-taxi', taxis)
   el('ut-stat-vip', vips)
   el('ut-stat-fin', fins)
@@ -11086,8 +11094,9 @@ window.filtrarUnidades = () => {
   const propFilter = document.getElementById('ut-filtro-prop')?.value || ''
   const modFilter = document.getElementById('ut-filtro-mod')?.value || ''
   const finFilter = document.getElementById('ut-filtro-fin')?.value || ''
+  const estFilter = document.getElementById('ut-filtro-estado')?.value || 'activas'
 
-  filteredUnidades = allUnidades.filter(u => {
+  const coincide = (u) => {
     if (propFilter && u.propietario !== propFilter) return false
     if (modFilter && u.modalidad !== modFilter) return false
     if (finFilter === 'true' && !u.financiado) return false
@@ -11097,7 +11106,14 @@ window.filtrarUnidades = () => {
       return searchable.includes(term)
     }
     return true
-  })
+  }
+  const esDelEstado = (u) => estFilter === 'todas' || (estFilter === 'inactivas' ? !u.activo : u.activo)
+
+  const coinciden = allUnidades.filter(coincide)
+  filteredUnidades = coinciden.filter(esDelEstado)
+  // Las que cuadran con la búsqueda pero esconde el filtro de estado. La tabla
+  // vacía lo avisa: ese es justo el caso que hace creer que la unidad no existe.
+  ocultasPorEstado = coinciden.length - filteredUnidades.length
   renderUnidadesTable()
 }
 
@@ -11105,15 +11121,19 @@ function renderUnidadesTable() {
   const tbody = document.getElementById('tbody-unidades-taxis')
   if (!tbody) return
   if (!filteredUnidades.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron unidades</td></tr>'
+    const n = ocultasPorEstado
+    const aviso = n
+      ? `<div style="margin-top:10px;font-size:12px;color:var(--gold,#d9a441)">Hay ${n} que ${n === 1 ? 'coincide pero está dada' : 'coinciden pero están dadas'} de baja. Poné el filtro de estado en «De baja» o «Todas» para ${n === 1 ? 'verla' : 'verlas'}.</div>`
+      : ''
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No se encontraron unidades${aviso}</td></tr>`
     return
   }
   const fmtD = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const esSA = currentProfile?.rol === 'super_admin'
 
   tbody.innerHTML = filteredUnidades.map(u => `
-    <tr style="cursor:pointer" onclick="verDetalleUnidad(${u.registro})">
-      <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px">${u.registro}</td>
+    <tr style="cursor:pointer${u.activo ? '' : ';opacity:.55'}" onclick="verDetalleUnidad(${u.registro})">
+      <td style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px">${u.registro}${u.activo ? '' : ' <span class="badge badge-red" style="font-size:9px;letter-spacing:0;vertical-align:middle">DE BAJA</span>'}</td>
       <td><span class="badge ${u.modalidad === 'VIP' ? 'badge-blue' : u.modalidad === 'BUS' ? 'badge-green' : u.modalidad === 'PARTICULAR' ? 'badge-red' : 'badge-amber'}">${u.modalidad}</span></td>
       <td>${u.propietario !== 'TAXIS' ? `<span class="badge badge-green">${u.propietario}</span>` : '<span style="color:var(--text3)">TAXIS</span>'}</td>
       <td style="font-size:13px">${u.motorista || '<span style="color:var(--text3)">—</span>'}</td>
@@ -11123,7 +11143,9 @@ function renderUnidadesTable() {
       <td style="text-align:center" onclick="event.stopPropagation()">
         ${esSA ? `
           <button onclick="editarUnidad('${u.id}')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Editar"><svg class=ico aria-hidden=true><use href=#i-edit></use></svg></button>
-          <button onclick="desactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Desactivar"><svg class=ico aria-hidden=true><use href=#i-ban></use></svg></button>
+          ${u.activo
+            ? `<button onclick="desactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Dar de baja"><svg class=ico aria-hidden=true><use href=#i-ban></use></svg></button>`
+            : `<button onclick="reactivarUnidad('${u.id}',${u.registro})" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px" title="Reactivar"><svg class=ico aria-hidden=true><use href=#i-arrow-back-up></use></svg></button>`}
         ` : '—'}
       </td>
     </tr>`).join('')
@@ -11235,10 +11257,18 @@ window.guardarUnidad = async () => {
 }
 
 window.desactivarUnidad = async (id, registro) => {
-  if (!confirm(`¿Desactivar la unidad #${registro}?\n\nSe marcará como inactiva.`)) return
+  if (!confirm(`¿Dar de baja la unidad #${registro}?\n\nSale del inventario en operación pero NO se borra: el número ${registro} sigue ocupado y no vas a poder darlo de alta otra vez.\n\nSi después entra otro vehículo con ese número, buscalo con el filtro «De baja», reactivalo y cambiale los datos.`)) return
   const { error } = await sb.from('unidades_taxis').update({ activo: false }).eq('id', id)
   if (error) { toast('Error: ' + error.message, 'error'); return }
-  toast(`Unidad #${registro} desactivada ✓`, 'success')
+  toast(`Unidad #${registro} dada de baja ✓`, 'success')
+  loadUnidadesTaxis()
+}
+
+window.reactivarUnidad = async (id, registro) => {
+  if (!confirm(`¿Reactivar la unidad #${registro}?\n\nVuelve al inventario en operación con los datos que tenía cuando se dio de baja. Revisalos y corregilos antes de usarla.`)) return
+  const { error } = await sb.from('unidades_taxis').update({ activo: true }).eq('id', id)
+  if (error) { toast('Error: ' + error.message, 'error'); return }
+  toast(`Unidad #${registro} reactivada ✓ — revisá sus datos`, 'success')
   loadUnidadesTaxis()
 }
 

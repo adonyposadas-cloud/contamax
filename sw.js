@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v130-isvnotas'
+const CACHE_NAME = 'contamax-v131-unidades-baja-barra-concilia'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
