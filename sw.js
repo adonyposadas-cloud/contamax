@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v131-unidades-baja-barra-concilia'
+const CACHE_NAME = 'contamax-v138-planilla-botones'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

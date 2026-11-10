@@ -177,9 +177,9 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-declaracion-isv'],
-    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-declaracion-isv'],
+    aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
     contador_fiscal: ['nav-declaracion-isv'],
     // El mecánico ve SOLO su checklist. Nada de contabilidad, nada de precios,
@@ -284,7 +284,7 @@ function setupUI() {
   document.getElementById('section-contab').classList.toggle('hidden', !tieneContab)
 
   // Ocultar sección Importaciones si no tiene ningún módulo
-  const importItems = ['nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-yonker']
+  const importItems = ['nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-yonker']
   const tieneImport = importItems.some(id => visibles.includes(id))
   const sectionImport = document.getElementById('section-importar')
   if (sectionImport) sectionImport.classList.toggle('hidden', !tieneImport)
@@ -384,6 +384,7 @@ window.showView = (id, label) => {
   if (id === 'partida-nueva') { const np = document.getElementById('nav-partidas'); if(np) np.classList.add('active') }
   if (id === 'importar-compras') { const ni = document.getElementById('nav-importar-compras'); if(ni) ni.classList.add('active') }
   if (id === 'importar-costos') { const ni = document.getElementById('nav-importar-costos'); if(ni) ni.classList.add('active') }
+  if (id === 'importar-trucha') { const ni = document.getElementById('nav-importar-trucha'); if(ni) ni.classList.add('active') }
   document.getElementById('topbar-module').textContent = label
   if (id === 'usuarios') { loadUsuarios(); loadCentrosCosto() }
   if (id === 'pendientes') loadPendientes()
@@ -399,6 +400,7 @@ window.showView = (id, label) => {
   if (id === 'yonker' && window.initYonker) window.initYonker()
   if (id === 'importar-compras') initImportCompras()
   if (id === 'importar-costos') initImportCostos()
+  if (id === 'importar-trucha') initImportTrucha()
   if (id === 'importar-taxis') resetImportTaxis()
   if (id === 'partidas-taxis') initPartidasTaxis()
   if (id === 'aprobaciones') loadAprobaciones()
@@ -697,7 +699,7 @@ const MODULOS_CATALOGO = [
     ['nav-proveedores', 'Proveedores'], ['nav-verif-compras', 'Verificar compras']
   ]},
   { grupo: 'Importaciones', items: [
-    ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'],
+    ['nav-importar', 'Ventas Alpha'], ['nav-importar-compras', 'Compras Alpha'], ['nav-importar-costos', 'Costos Alpha'], ['nav-importar-trucha', 'Créditos Trucha'],
     ['nav-importar-fact-taxis', 'Facturas Taxis'], ['nav-partidas-taxis', 'Partidas Taxis']
   ]},
   { grupo: 'RRHH', items: [
@@ -9052,6 +9054,208 @@ function parseUtilidadExcel(arrayBuffer, fileName) {
       numFacturas: facturas.length,
     }
   }
+}
+
+// ══════════════════════════════════════════════
+// ── IMPORTAR CRÉDITOS TRUCHA
+// Reporte "creditos-todos" de la cafetería: hoja Resumen con lo que cada empleado
+// consumió al crédito. Se carga como partida CARGOS TRUCHA: DEBE la cuenta por cobrar
+// de cada uno (110301-* empleados, 110202-* socios) y HABER Venta Cafetería en
+// Tecnicentro. La planilla descuenta lo que diga TRUCHA en las 110301.
+// Un nombre que no se reconoce queda sin cuenta, "pendiente de asignar".
+// ══════════════════════════════════════════════
+
+const TRUCHA_HABER = '410305-008'   // Venta Cafeteria
+const TRUCHA_MAPA = 'trucha_cuentas' // nombre del reporte → cuenta que eligió el usuario
+let truchaData = null
+
+const truchaNorm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim()
+const truchaCandidatas = () => cuentasDetalle.filter(c => /^110(301|202)-/.test(c.codigo))
+const truchaLeerMapa = () => { try { return JSON.parse(localStorage.getItem(TRUCHA_MAPA) || '{}') } catch (e) { return {} } }
+// Lo recordado: { c: código, cc: centro } (antes era solo el código)
+const truchaRecordada = (nombre) => { const v = truchaLeerMapa()[truchaNorm(nombre)]; return typeof v === 'string' ? { c: v, cc: '' } : (v || null) }
+// Las cuentas de resultados (4, 5, 6) llevan centro de costo; las de balance no
+const truchaLlevaCentro = (codigo) => /^[456]/.test(String(codigo || ''))
+const truchaCentroDefault = () => (empresas.find(e => e.nombre.toLowerCase() === 'tecnicentro')
+  || empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker')))?.id || ''
+
+// Por nombre: igual completo, o la cuenta con más palabras en común (al menos 2, o la
+// única palabra si el reporte trae solo un nombre, ej. "Frank"). Si dos cuentas
+// empatan no se adivina: queda pendiente.
+function truchaBuscarCuenta(nombre, cands) {
+  const n = truchaNorm(nombre)
+  const elegida = truchaRecordada(nombre)?.c
+  if (elegida && cuentasDetalle.some(c => c.codigo === elegida)) return elegida
+  const iguales = cands.filter(c => truchaNorm(c.nombre) === n)
+  if (iguales.length === 1) return iguales[0].codigo
+  const palabras = new Set(n.split(' ').filter(t => t.length > 1))
+  let mejor = 0, quienes = []
+  for (const c of cands) {
+    const p = truchaNorm(c.nombre).split(' ').filter(t => palabras.has(t)).length
+    if (p > mejor) { mejor = p; quienes = [c] } else if (p === mejor && p > 0) quienes.push(c)
+  }
+  return mejor >= (palabras.size === 1 ? 1 : 2) && quienes.length === 1 ? quienes[0].codigo : ''
+}
+
+window.initImportTrucha = async () => {
+  truchaData = null
+  document.getElementById('itr-step1').classList.remove('hidden')
+  document.getElementById('itr-step2').classList.add('hidden')
+  document.getElementById('itr-file').value = ''
+  document.getElementById('itr-file-text').textContent = 'Selecciona el reporte creditos-todos (.xlsx)'
+  if (!document.getElementById('itr-fecha').value) document.getElementById('itr-fecha').value = localDateStr(new Date())
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+}
+
+window.procesarImportTrucha = async (input) => {
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+    const hoja = wb.SheetNames.find(n => /resumen/i.test(n)) || wb.SheetNames[0]
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[hoja], { header: 1, defval: null })
+    const iHdr = rows.findIndex(r => (r || []).some(c => String(c || '').trim() === 'Empleado'))
+    if (iHdr < 0) { toast('No se encontró la hoja Resumen con la columna "Empleado"', 'error'); return }
+    const hdr = rows[iHdr].map(c => String(c || '').trim())
+    const cNom = hdr.indexOf('Empleado')
+    const cMonto = hdr.findIndex(c => /consumido/i.test(c))
+    if (cMonto < 0) { toast('Falta la columna "Consumido al crédito"', 'error'); return }
+    // El nombre del archivo trae el rango: creditos-todos-2026-11-09-a-2026-11-09 → fecha final
+    const mf = file.name.match(/(\d{4}-\d{2}-\d{2})(?:\D+(\d{4}-\d{2}-\d{2}))?/)
+    if (mf) document.getElementById('itr-fecha').value = mf[2] || mf[1]
+    if (!cuentasDetalle.length) await window.initImportTrucha()
+    const cands = truchaCandidatas()
+    const filas = []
+    for (const r of rows.slice(iHdr + 1)) {
+      const nombre = String(r?.[cNom] || '').trim()
+      if (!nombre) continue
+      if (/^total$/i.test(nombre)) break
+      const monto = Math.round((parseFloat(r[cMonto]) || 0) * 100) / 100
+      if (monto <= 0) continue
+      const cuenta = truchaBuscarCuenta(nombre, cands)
+      const centro = truchaLlevaCentro(cuenta) ? (truchaRecordada(nombre)?.cc || truchaCentroDefault()) : ''
+      filas.push({ nombre, monto, cuenta, centro })
+    }
+    if (!filas.length) { toast('El reporte no trae consumos al crédito', 'info'); return }
+    truchaData = { filas, archivo: file.name, filtro: '' }
+    document.getElementById('itr-file-text').textContent = file.name
+    renderImportTrucha()
+  } catch (e) { console.error('[trucha]', e); toast('No se pudo leer el archivo: ' + e.message, 'error') }
+}
+
+const truchaEsc = (t) => String(t ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]))
+const truchaEtiqueta = (codigo) => { const c = cuentasDetalle.find(x => x.codigo === codigo); return c ? `${c.codigo} · ${c.nombre}` : '' }
+
+// La cuenta se escribe y se filtra (código o nombre) contra todo el catálogo de
+// detalle: además de las CxC de empleados y socios, sirve p. ej. para cargar a
+// GA - Alimentación y transporte (610103-015) a quien no se le cobra.
+function renderImportTrucha() {
+  const fmt = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2 })
+  const f = truchaData.filas
+  const total = f.reduce((a, x) => a + x.monto, 0)
+  const pend = f.filter(x => !x.cuenta).length
+  const centros = (sel) => empresas.map(e => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${truchaEsc(e.nombre)}</option>`).join('')
+  document.getElementById('itr-tabla').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="font-size:13px">${f.length} empleado(s) · total <b>L. ${fmt(total)}</b>${pend ? ` · <span style="color:var(--amber)">${pend} sin cuenta: quedan pendientes de asignar en la partida</span>` : ''}</div>
+      <input id="itr-filtro" placeholder="🔍 Filtrar empleado o cuenta…" value="${truchaEsc(truchaData.filtro)}" oninput="truchaFiltrar(this.value)" style="width:240px">
+    </div>
+    <datalist id="itr-ctas">${cuentasDetalle.map(c => `<option value="${truchaEsc(c.codigo + ' · ' + c.nombre)}"></option>`).join('')}</datalist>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Empleado (reporte)</th><th style="text-align:right">Consumido</th><th>Cuenta</th><th>Centro</th></tr></thead>
+      <tbody id="itr-filas">${f.map((x, i) => `<tr data-buscar="${truchaEsc(truchaNorm(x.nombre + ' ' + truchaEtiqueta(x.cuenta)))}">
+        <td>${truchaEsc(x.nombre)}</td>
+        <td style="text-align:right;font-family:var(--mono)">${fmt(x.monto)}</td>
+        <td><input list="itr-ctas" value="${truchaEsc(truchaEtiqueta(x.cuenta))}" placeholder="⚠ Pendiente · escribí código o nombre"
+          onfocus="this.select()" onchange="truchaElegirCuenta(${i}, this.value)" style="width:100%;${x.cuenta ? '' : 'border-color:var(--amber)'}"></td>
+        <td>${truchaLlevaCentro(x.cuenta) ? `<select onchange="truchaElegirCentro(${i}, this.value)">${centros(x.centro)}</select>` : '<span style="color:var(--text3)">—</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div style="font-size:12px;color:var(--text3);margin-top:8px">HABER: ${TRUCHA_HABER} Venta Cafetería · Tecnicentro. En Cuenta escribí parte del código o del nombre y elegí de la lista (todo el catálogo); borrala para dejarla pendiente. Lo que elijas para un nombre se recuerda en esta computadora.</div>`
+  window.truchaFiltrar(truchaData.filtro)
+  document.getElementById('itr-step1').classList.add('hidden')
+  document.getElementById('itr-step2').classList.remove('hidden')
+}
+
+window.truchaFiltrar = (q) => {
+  if (truchaData) truchaData.filtro = q
+  const t = truchaNorm(q)
+  document.querySelectorAll('#itr-filas tr').forEach(tr => { tr.style.display = !t || tr.dataset.buscar.includes(t) ? '' : 'none' })
+}
+
+function truchaRecordar(x) {
+  try {
+    const mapa = truchaLeerMapa()
+    if (x.cuenta) mapa[truchaNorm(x.nombre)] = { c: x.cuenta, cc: x.centro || '' }; else delete mapa[truchaNorm(x.nombre)]
+    localStorage.setItem(TRUCHA_MAPA, JSON.stringify(mapa))
+  } catch (e) { /* sin almacenamiento: vale solo para esta carga */ }
+}
+
+window.truchaElegirCuenta = (i, valor) => {
+  const x = truchaData?.filas[i]
+  if (!x) return
+  const txt = String(valor || '').trim()
+  const codigo = txt.split('·')[0].trim()
+  const cta = codigo && cuentasDetalle.find(c => c.codigo === codigo)
+  if (txt && !cta) { toast('Elegí una cuenta de la lista (código · nombre)', 'error'); renderImportTrucha(); return }
+  x.cuenta = cta ? cta.codigo : ''
+  x.centro = truchaLlevaCentro(x.cuenta) ? (x.centro || truchaCentroDefault()) : ''
+  truchaRecordar(x)
+  renderImportTrucha()
+}
+
+window.truchaElegirCentro = (i, cc) => {
+  const x = truchaData?.filas[i]
+  if (!x) return
+  x.centro = cc
+  truchaRecordar(x)
+}
+
+window.cargarTruchaPartida = async () => {
+  if (!truchaData?.filas?.length) { toast('Primero subí el reporte', 'error'); return }
+  const fecha = document.getElementById('itr-fecha').value
+  if (!fecha) { toast('Indicá la fecha', 'error'); return }
+  const r2 = (v) => Math.round(v * 100) / 100
+  const total = r2(truchaData.filas.reduce((a, x) => a + x.monto, 0))
+  // Avisar si ese día ya se cargó una partida igual (mismo total)
+  const { data: previas } = await sb.from('partidas_contables').select('numero_partida,total')
+    .eq('fecha_partida', fecha).ilike('descripcion', 'CARGOS TRUCHA%').neq('estado', 'anulada')
+  const igual = (previas || []).find(p => Math.abs((+p.total || 0) - total) < 0.01)
+  if (igual && !confirm(`Ya existe la partida #${igual.numero_partida} CARGOS TRUCHA del ${fecha} por L. ${total.toFixed(2)}.\n\n¿Cargarla de nuevo?`)) return
+
+  const ccTecni = empresas.find(e => e.nombre.toLowerCase() === 'tecnicentro')
+    || empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker'))
+  const haber = cuentasDetalle.find(c => c.codigo === TRUCHA_HABER)
+
+  editingPartidaId = null
+  showView('partida-nueva', 'Nueva partida · Créditos Trucha')
+  await new Promise(r => setTimeout(r, 300))
+  document.getElementById('pn-fecha').value = fecha
+  document.getElementById('pn-descripcion').value = 'CARGOS TRUCHA'
+  document.getElementById('pn-origen').value = 'ingreso'
+  document.getElementById('pn-documento').value = ''
+
+  partidaLineas = []
+  lineaCounter = 0
+  for (const x of truchaData.filas) {
+    const cta = x.cuenta ? cuentasDetalle.find(c => c.codigo === x.cuenta) : null
+    lineaCounter++
+    partidaLineas.push({ id: lineaCounter, cuenta_id: cta?.id || '', cuenta_codigo: cta?.codigo || '', cuenta_nombre: cta?.nombre || '',
+      tipo: 'debito', monto: x.monto, centro_costo_id: cta && truchaLlevaCentro(cta.codigo) ? (x.centro || '') : '',
+      descripcion: cta ? 'CARGOS TRUCHA' : `CARGOS TRUCHA · ${x.nombre.toUpperCase()} · PENDIENTE DE ASIGNAR CUENTA`,
+      aplica_fiscal: false })
+  }
+  lineaCounter++
+  partidaLineas.push({ id: lineaCounter, cuenta_id: haber?.id || '', cuenta_codigo: TRUCHA_HABER, cuenta_nombre: haber?.nombre || 'Venta Cafeteria',
+    tipo: 'credito', monto: total, centro_costo_id: ccTecni?.id || '', descripcion: 'CARGOS TRUCHA', aplica_fiscal: false })
+  renderLineas()
+  calcTotales()
+  const pend = truchaData.filas.filter(x => !x.cuenta).length
+  toast(pend ? `Partida cargada · ${pend} línea(s) pendientes de asignar cuenta` : 'Partida CARGOS TRUCHA cargada · revisá y guardá', pend ? 'info' : 'success')
 }
 
 function initImportCostos() {

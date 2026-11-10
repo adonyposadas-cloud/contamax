@@ -306,6 +306,269 @@ window.generarArchivoRAP = async () => {
   _rapMostrarPrevia(cuerpo, filas.join('\r\n') + '\r\n', archivo, listos.length)
 }
 
+// ═══  APORTES RAP POR EMPLEADO  ═══
+// Lo que la empresa calculó en planilla para cada empleado: RAP Reserva Laboral (4%),
+// FOVIIF patronal y FOVIIF laboral, por quincena y acumulado. Sale de detalle_planilla;
+// lo acreditado de verdad lo muestra el estado de cuenta del RAP.
+let _rapAportes = null   // { filas, desde, hasta, borradores, filtro, abiertos:Set }
+
+window.consultarAportesRAP = async () => {
+  const hoy = new Date().toISOString().slice(0, 7)
+  _rapAportes = { filas: [], desde: '2026-09', hasta: hoy, borradores: false, filtro: '', abiertos: new Set() }
+  document.getElementById('modal-rap-aportes')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'modal-rap-aportes'
+  ov.className = 'modal-backdrop open'
+  ov.innerHTML = `
+    <div class="modal" style="width:min(900px,96vw);max-height:90vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>Aportes RAP por empleado</h3><button class="modal-close" onclick="document.getElementById('modal-rap-aportes').remove()">✕</button></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;padding:0 4px 10px">
+        <div class="fld" style="margin:0"><label>Desde</label><input type="month" id="rapa-desde" value="${_rapAportes.desde}"></div>
+        <div class="fld" style="margin:0"><label>Hasta</label><input type="month" id="rapa-hasta" value="${_rapAportes.hasta}"></div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:8px"><input type="checkbox" id="rapa-borr" style="width:auto"> Incluir planillas en borrador</label>
+        <button class="btn btn-gold" onclick="_rapAportesCargar()">Consultar</button>
+        <input id="rapa-filtro" placeholder="🔍 Filtrar empleado…" oninput="_rapAportesFiltrar(this.value)" style="margin-left:auto;width:220px">
+      </div>
+      <div class="modal-body" id="rapa-cuerpo" style="flex:1;min-height:0;overflow:auto"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-rap-aportes').remove()">Cerrar</button>
+        <button class="btn btn-ghost" onclick="notaRapEstadoCuenta()">✉ Pedir estado de cuenta</button>
+        <button class="btn btn-ghost" onclick="_rapAportesExcel()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Excel</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  await window._rapAportesCargar()
+}
+
+window._rapAportesCargar = async () => {
+  const st = _rapAportes
+  st.desde = document.getElementById('rapa-desde').value || st.desde
+  st.hasta = document.getElementById('rapa-hasta').value || st.hasta
+  st.borradores = document.getElementById('rapa-borr').checked
+  const cuerpo = document.getElementById('rapa-cuerpo')
+  cuerpo.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3)">Cargando…</div>'
+  const [ay, am] = st.hasta.split('-').map(Number)
+  const finMes = new Date(ay, am, 0).getDate()
+  const filas = []
+  for (let desde = 0; ; desde += 1000) {
+    let q = getSb().from('detalle_planilla')
+      .select('empleado_id, rap_patronal, foviif_patronal, foviif_laboral, planilla:planillas!inner(periodo, fecha_inicio, estado, es_confidencial)')
+      .gte('planilla.fecha_inicio', st.desde + '-01').lte('planilla.fecha_inicio', `${st.hasta}-${String(finMes).padStart(2, '0')}`)
+      .order('id').range(desde, desde + 999)
+    if (!st.borradores) q = q.eq('planilla.estado', 'aprobada')
+    if (!_puedeVerConfidencial()) q = q.eq('planilla.es_confidencial', false)
+    const { data, error } = await q
+    if (error) { cuerpo.innerHTML = `<div style="padding:20px;color:var(--red)">${error.message}</div>`; return }
+    filas.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
+  const { data: emps } = await getSb().from('empleados').select('id, nombre, identidad, activo')
+  const nom = Object.fromEntries((emps || []).map(e => [e.id, e]))
+  const por = {}
+  for (const d of filas) {
+    const rap = +d.rap_patronal || 0, fp = +d.foviif_patronal || 0, fl = +d.foviif_laboral || 0
+    if (!rap && !fp && !fl) continue
+    const e = nom[d.empleado_id] || { nombre: '(empleado borrado)', identidad: '' }
+    const p = por[d.empleado_id] || (por[d.empleado_id] = { id: d.empleado_id, nombre: e.nombre, identidad: e.identidad || '', activo: e.activo !== false, rap: 0, fp: 0, fl: 0, quincenas: [] })
+    p.rap += rap; p.fp += fp; p.fl += fl
+    p.quincenas.push({ periodo: d.planilla.periodo + (d.planilla.es_confidencial ? ' (conf.)' : ''), estado: d.planilla.estado, rap, fp, fl })
+  }
+  // Lo que el RAP tiene registrado: planillas mensuales presentadas (rap_planillas,
+  // cargadas por SQL). Si la tabla no existe o el rol no la ve, simplemente no hay.
+  const { data: pres } = await getSb().from('rap_planilla_detalle')
+    .select('empleado_id, identidad, nombre, rl, feo, fio, planilla:rap_planillas!inner(periodo, estado)')
+    .gte('planilla.periodo', st.desde).lte('planilla.periodo', st.hasta)
+  for (const d of (pres || [])) {
+    const k = d.empleado_id || 'rap:' + d.identidad
+    const e = nom[d.empleado_id] || { nombre: d.nombre, identidad: d.identidad }
+    const p = por[k] || (por[k] = { id: k, nombre: e.nombre, identidad: e.identidad || d.identidad, activo: e.activo !== false, rap: 0, fp: 0, fl: 0, quincenas: [] })
+    p.presentado = (p.presentado || 0) + (+d.rl || 0) + (+d.feo || 0) + (+d.fio || 0)
+    ;(p.meses = p.meses || []).push({ periodo: d.planilla.periodo, rl: +d.rl || 0, feo: +d.feo || 0, fio: +d.fio || 0 })
+  }
+  st.filas = Object.values(por).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)))
+  st.filas.forEach(p => { p.quincenas.sort((a, b) => a.periodo.localeCompare(b.periodo)); (p.meses || []).sort((a, b) => a.periodo.localeCompare(b.periodo)) })
+  _rapAportesRender()
+}
+
+// El módulo va dentro de una función: el oninput no ve _rapAportes, solo lo que cuelga de window
+window._rapAportesFiltrar = (q) => {
+  _rapAportes.filtro = q
+  window._rapAportesRender()
+}
+
+window._rapAportesToggle = (id) => {
+  const ab = _rapAportes.abiertos
+  ab.has(id) ? ab.delete(id) : ab.add(id)
+  _rapAportesRender()
+}
+
+function _rapAportesVisibles () {
+  const t = String(_rapAportes.filtro || '').trim().toUpperCase()
+  return _rapAportes.filas.filter(p => !t || `${p.nombre} ${p.identidad}`.toUpperCase().includes(t))
+}
+
+window._rapAportesRender = () => {
+  const st = _rapAportes
+  const vis = _rapAportesVisibles()
+  const tot = vis.reduce((a, p) => ({ rap: a.rap + p.rap, fp: a.fp + p.fp, fl: a.fl + p.fl, pres: a.pres + (p.presentado || 0) }), { rap: 0, fp: 0, fl: 0, pres: 0 })
+  const num = (v) => `<td style="text-align:right;font-family:var(--mono)">${fmt(v)}</td>`
+  const filas = vis.map(p => {
+    const abierto = st.abiertos.has(p.id)
+    const det = abierto ? p.quincenas.map(q => `<tr style="font-size:12px;color:var(--text2)">
+        <td style="padding-left:26px">${q.periodo}${q.estado !== 'aprobada' ? ' <span style="color:var(--amber)">· ' + q.estado + '</span>' : ''}</td><td></td>
+        ${num(q.rap)}${num(q.fp)}${num(q.fl)}${num(q.rap + q.fp + q.fl)}<td></td><td></td></tr>`).join('') +
+      (p.meses || []).map(m => `<tr style="font-size:12px;color:var(--blue)">
+        <td style="padding-left:26px">RAP ${m.periodo} · presentada</td><td></td>
+        ${num(m.rl)}${num(m.feo)}${num(m.fio)}<td></td>${num(m.rl + m.feo + m.fio)}<td></td></tr>`).join('') : ''
+    return `<tr style="cursor:pointer" onclick="_rapAportesToggle('${p.id}')">
+        <td>${abierto ? '▾' : '▸'} ${p.nombre}${p.activo ? '' : ' <span style="color:var(--text3);font-size:11px">(inactivo)</span>'}</td>
+        <td style="text-align:center">${p.quincenas.length}</td>
+        ${num(p.rap)}${num(p.fp)}${num(p.fl)}<td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(p.rap + p.fp + p.fl)}</td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--blue)">${p.presentado ? fmt(p.presentado) : '—'}</td>
+        <td><button class="btn btn-ghost" style="padding:2px 8px;font-size:11px" title="Pedir su estado de cuenta al RAP" onclick="event.stopPropagation();notaRapEstadoCuenta('${p.id}')">✉</button></td></tr>${det}`
+  }).join('')
+  document.getElementById('rapa-cuerpo').innerHTML = !st.filas.length
+    ? `<div style="padding:24px;text-align:center;color:var(--text3)">No hay aportes en ese rango${st.borradores ? '' : ' (solo planillas aprobadas)'}. El RAP se calcula en planilla desde ${RAP_VIGENTE_DESDE}.</div>`
+    : `<table>
+        <thead><tr><th>Empleado</th><th style="text-align:center">Quincenas</th><th style="text-align:right">RAP 4%</th><th style="text-align:right">FOVIIF patronal</th><th style="text-align:right">FOVIIF laboral</th><th style="text-align:right">Total</th><th style="text-align:right" title="Total de las planillas mensuales presentadas y aprobadas en empresas.rap.hn (RL + FOVIIF empresarial + individual)">Presentado al RAP</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td>${vis.length} empleado(s)</td><td></td>${num(tot.rap)}${num(tot.fp)}${num(tot.fl)}${num(tot.rap + tot.fp + tot.fl)}${num(tot.pres)}<td></td></tr></tfoot>
+      </table>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Calculado: planillas de Contamax (${st.borradores ? 'aprobadas y en borrador' : 'solo aprobadas'}), que calculan el RAP desde ${RAP_VIGENTE_DESDE}. Presentado al RAP: las planillas mensuales aprobadas en empresas.rap.hn (en azul al abrir un nombre: RL, FOVIIF empresarial e individual). El FOVIIF laboral se le descuenta al empleado.</div>`
+}
+
+window._rapAportesExcel = () => {
+  const vis = _rapAportesVisibles()
+  if (!vis.length) { window.toast?.('No hay datos para exportar', 'info'); return }
+  const r2 = (v) => Math.round(v * 100) / 100
+  const resumen = vis.map(p => ({ Empleado: p.nombre, Identidad: p.identidad, Quincenas: p.quincenas.length, 'RAP 4%': r2(p.rap), 'FOVIIF patronal': r2(p.fp), 'FOVIIF laboral': r2(p.fl), Total: r2(p.rap + p.fp + p.fl), 'Presentado al RAP': r2(p.presentado || 0) }))
+  const detalle = vis.flatMap(p => p.quincenas.map(q => ({ Empleado: p.nombre, Identidad: p.identidad, Quincena: q.periodo, Estado: q.estado, 'RAP 4%': r2(q.rap), 'FOVIIF patronal': r2(q.fp), 'FOVIIF laboral': r2(q.fl), Total: r2(q.rap + q.fp + q.fl) })))
+  const rap = vis.flatMap(p => (p.meses || []).map(m => ({ Empleado: p.nombre, Identidad: p.identidad, Mes: m.periodo, RL: r2(m.rl), 'FOVIIF empresarial': r2(m.feo), 'FOVIIF individual': r2(m.fio), Total: r2(m.rl + m.feo + m.fio) })))
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(resumen), 'Por empleado')
+  window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(detalle), 'Por quincena')
+  if (rap.length) window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(rap), 'Presentado al RAP')
+  window.XLSX.writeFile(wb, `Aportes_RAP_${_rapAportes.desde}_a_${_rapAportes.hasta}.xlsx`)
+}
+
+// ═══  NOTA AL RAP: ESTADO DE CUENTA DE UN AFILIADO  ═══
+// El RAP entrega el estado de cuenta de un empleado si la empresa lo pide por nota a
+// rapempresas@rap.hn con su nombre e identidad. Se arma acá, editable; el correo lo
+// manda el usuario desde su programa de correo (o copia el texto).
+const RAP_CORREO_EMPRESAS = 'rapempresas@rap.hn'
+// Número patronal tal como sale en el perfil de empresas.rap.hn (12 dígitos)
+const RAP_PATRONAL_PERFIL = '101201210101'
+const RAP_FIRMA = { nombre: 'Adony Fabricio Posadas Aguilar', telefono: '9609-9805', correo: 'adonyposadas@yahoo.es' }
+let _rapNotaEmps = []
+
+function _rapNotaTexto (nombre, identidad) {
+  const f = new Date()
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `Tegucigalpa, M.D.C., ${f.getDate()} de ${meses[f.getMonth()]} de ${f.getFullYear()}
+
+Señores
+Régimen de Aportaciones Privadas (RAP)
+Servicio a Empresas
+Presente
+
+Asunto: Solicitud de estado de cuenta de afiliado
+
+Estimados señores:
+
+Por medio de la presente, TECNIMAX S. DE R.L., número patronal ${RAP_PATRONAL_PERFIL} (empresa ${RAP_EMPRESA}, sucursal ${RAP_LOCAL}), solicita respetuosamente el estado de cuenta de aportaciones del siguiente afiliado, quien labora en nuestra empresa:
+
+    Nombre:     ${String(nombre || '').toUpperCase()}
+    Identidad:  ${identidad || ''}
+
+Agradeceremos nos remitan a este correo el detalle de los aportes acreditados a su nombre (Reserva Laboral y Previsión / FOVIIF).
+
+Sin otro particular, nos suscribimos.
+
+Atentamente,
+
+
+${RAP_FIRMA.nombre}
+TECNIMAX S. DE R.L.
+Tel. ${RAP_FIRMA.telefono} · ${RAP_FIRMA.correo}`
+}
+
+window.notaRapEstadoCuenta = async (empleadoId) => {
+  if (!_rapNotaEmps.length) {
+    const { data } = await getSb().from('empleados').select('id, nombre, identidad, activo, planilla_confidencial').order('nombre')
+    _rapNotaEmps = (data || []).filter(e => _puedeVerConfidencial() || !e.planilla_confidencial)
+  }
+  const sel = _rapNotaEmps.find(e => e.id === empleadoId) || null
+  document.getElementById('modal-rap-nota')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'modal-rap-nota'
+  ov.className = 'modal-backdrop open'
+  ov.style.zIndex = 1100
+  const opc = _rapNotaEmps.map(e => `<option value="${e.id}" ${sel && e.id === sel.id ? 'selected' : ''}>${String(e.nombre).replace(/</g, '&lt;')}${e.activo === false ? ' (inactivo)' : ''}</option>`).join('')
+  ov.innerHTML = `
+    <div class="modal" style="width:min(720px,96vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>Nota al RAP · estado de cuenta</h3><button class="modal-close" onclick="document.getElementById('modal-rap-nota').remove()">✕</button></div>
+      <div class="modal-body" style="flex:1;min-height:0;overflow:auto">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
+          <div class="fld" style="margin:0;flex:1;min-width:240px"><label>Empleado</label>
+            <select id="rapn-emp" onchange="_rapNotaCargar()"><option value="">— Elegí el empleado —</option>${opc}</select></div>
+          <div class="fld" style="margin:0"><label>Identidad</label><input id="rapn-id" style="width:170px" oninput="_rapNotaCargar(true)"></div>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Para: <b>${RAP_CORREO_EMPRESAS}</b> · podés editar el texto antes de enviarlo</div>
+        <textarea id="rapn-texto" style="width:100%;min-height:380px;font-family:var(--mono);font-size:12px;line-height:1.45"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-rap-nota').remove()">Cerrar</button>
+        <button class="btn btn-ghost" onclick="_rapNotaCopiar()">Copiar texto</button>
+        <button class="btn btn-ghost" onclick="_rapNotaImprimir()"><svg class=ico aria-hidden=true><use href=#i-printer></use></svg> Imprimir / PDF</button>
+        <button class="btn btn-gold" onclick="_rapNotaCorreo()">✉ Abrir en el correo</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  _rapNotaCargar()
+}
+
+// Al cambiar el empleado trae su identidad; si se corrige la identidad a mano, se respeta
+window._rapNotaCargar = (soloTexto) => {
+  const e = _rapNotaEmps.find(x => x.id === document.getElementById('rapn-emp').value)
+  const idIn = document.getElementById('rapn-id')
+  if (!soloTexto) idIn.value = e?.identidad || ''
+  document.getElementById('rapn-texto').value = e ? _rapNotaTexto(e.nombre, idIn.value.trim()) : ''
+  if (e && !idIn.value.trim()) window.toast?.('Este empleado no tiene identidad en su ficha: escribila antes de enviar', 'error')
+}
+
+function _rapNotaDatos () {
+  const e = _rapNotaEmps.find(x => x.id === document.getElementById('rapn-emp').value)
+  const texto = document.getElementById('rapn-texto').value.trim()
+  if (!e || !texto) { window.toast?.('Elegí el empleado', 'error'); return null }
+  if (!document.getElementById('rapn-id').value.trim()) { window.toast?.('Falta la identidad del empleado', 'error'); return null }
+  return { e, texto, asunto: `Solicitud de estado de cuenta - ${String(e.nombre).toUpperCase()} - TECNIMAX S. DE R.L.` }
+}
+
+window._rapNotaCopiar = async () => {
+  const d = _rapNotaDatos(); if (!d) return
+  try { await navigator.clipboard.writeText(d.texto); window.toast?.('Texto copiado', 'success') }
+  catch (err) { document.getElementById('rapn-texto').select(); window.toast?.('Seleccioné el texto: copialo con Ctrl+C', 'info') }
+}
+
+window._rapNotaCorreo = () => {
+  const d = _rapNotaDatos(); if (!d) return
+  window.location.href = `mailto:${RAP_CORREO_EMPRESAS}?subject=${encodeURIComponent(d.asunto)}&body=${encodeURIComponent(d.texto)}`
+  window.logActividad?.('rap_nota_estado_cuenta', 'rrhh', `Nota al RAP: estado de cuenta de ${d.e.nombre}`, d.e.id)
+}
+
+window._rapNotaImprimir = () => {
+  const d = _rapNotaDatos(); if (!d) return
+  const w = window.open('', '_blank')
+  if (!w) { window.toast?.('El navegador bloqueó la ventana: permití ventanas emergentes', 'error'); return }
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.asunto)}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;margin:2.5cm;white-space:pre-wrap}</style></head>
+    <body>${esc(d.texto)}</body></html>`)
+  w.document.close()
+  w.focus()
+  w.print()
+}
+
 function _rapMostrarPrevia (html, contenido, archivo, n) {
   document.getElementById('modal-rap')?.remove()
   const ov = document.createElement('div')

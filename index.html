@@ -237,6 +237,9 @@
           <div class="nav-item" id="nav-importar-costos" onclick="showView('importar-costos','Importar costos Alpha')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-file-spreadsheet></use></svg>Costos Alpha
           </div>
+          <div class="nav-item" id="nav-importar-trucha" onclick="showView('importar-trucha','Importar créditos Trucha')">
+            <svg class="ico nav-svg" aria-hidden=true><use href=#i-file-spreadsheet></use></svg>Créditos Trucha
+          </div>
           <div class="nav-item hidden" id="nav-importar-fact-taxis" onclick="showView('importar-fact-taxis','Importar facturas Taxis')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-file-upload></use></svg>Facturas Taxis
           </div>
@@ -1174,6 +1177,44 @@
         </div>
       </div>
 
+      <!-- IMPORTAR CRÉDITOS TRUCHA -->
+      <div class="view" id="view-importar-trucha">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🐟 Importar créditos · Trucha</div>
+            <div class="page-sub">Reporte de créditos de la cafetería: lo consumido al crédito por cada empleado se carga como partida CARGOS TRUCHA contra Venta Cafetería (Tecnicentro)</div>
+          </div>
+        </div>
+        <div class="form-card" id="itr-step1">
+          <div class="form-card-title">Paso 1 · Subir el reporte</div>
+          <div class="form-grid">
+            <div class="fld">
+              <label>Fecha de la partida</label>
+              <input type="date" id="itr-fecha">
+            </div>
+          </div>
+          <div style="margin-top:18px">
+            <div class="upload-zone" onclick="document.getElementById('itr-file').click()" style="padding:20px">
+              <div class="upload-icon">🐟</div>
+              <div class="upload-text" id="itr-file-text">Selecciona el reporte creditos-todos (.xlsx)</div>
+              <div class="upload-sub">Se usa la hoja Resumen · columna "Consumido al crédito"</div>
+            </div>
+            <input type="file" id="itr-file" accept=".xlsx,.xls" class="hidden" onchange="procesarImportTrucha(this)">
+          </div>
+        </div>
+        <div class="form-card hidden" id="itr-step2">
+          <div class="form-card-title" style="justify-content:space-between">
+            <span>Paso 2 · Revisar cuentas</span>
+            <button class="btn btn-ghost" onclick="initImportTrucha()" style="padding:5px 12px;font-size:12px">← Volver</button>
+          </div>
+          <div id="itr-tabla"></div>
+          <div class="form-actions" style="margin-top:18px;gap:12px">
+            <button class="btn btn-ghost" onclick="initImportTrucha()">Cancelar</button>
+            <button class="btn btn-gold" onclick="cargarTruchaPartida()">Cargar en partida →</button>
+          </div>
+        </div>
+      </div>
+
       <!-- IMPORTAR COSTOS ALPHA -->
       <div class="view" id="view-importar-costos">
         <div class="page-header">
@@ -1941,11 +1982,24 @@
             <div class="fld" style="display:flex;align-items:flex-end">
               <button class="btn btn-gold" onclick="generarPlanilla()" style="width:100%">Generar planilla →</button>
             </div>
-            <div class="fld" style="display:flex;align-items:flex-end">
-              <button class="btn btn-ghost" onclick="generarArchivoRAP()" style="width:100%" title="Arma el archivo del mes para subir a empresas.rap.hn"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Archivo RAP del mes</button>
-              <button class="btn btn-ghost" onclick="emparejarPendientesCxC()" style="width:100%;margin-top:6px" title="Arma una partida que cancela los pendientes de CxC de empleados (saldos del sistema anterior) contra la cuenta que elijas"><svg class=ico aria-hidden=true><use href=#i-scale></use></svg> Emparejar pendientes CxC</button>
-              <button class="btn btn-ghost" onclick="prestamosSinPartida()" style="width:100%;margin-top:6px" title="Préstamos registrados sin asiento: arma la partida que los carga a la CXC del empleado"><svg class=ico aria-hidden=true><use href=#i-file-search></use></svg> Préstamos sin partida</button>
-              <button class="btn btn-ghost" onclick="pendientesAPrestamo()" style="width:100%;margin-top:6px" title="Pasa lo que quedó sin cobrar a un préstamo con cuota"><svg class=ico aria-hidden=true><use href=#i-coins></use></svg> Pendientes → préstamo</button>
+          </div>
+          <!-- Herramientas: RAP y cuentas por cobrar de empleados, en dos grupos -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;padding-top:12px;border-top:1px solid var(--border)">
+            <div>
+              <div style="font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500;margin-bottom:6px">RAP</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <button class="btn btn-ghost" onclick="generarArchivoRAP()" style="flex:1 1 200px" title="Arma el archivo del mes para subir a empresas.rap.hn"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Archivo RAP del mes</button>
+                <button class="btn btn-ghost" onclick="consultarAportesRAP()" style="flex:1 1 200px" title="Cuánto se ha aportado al RAP y FOVIIF por empleado, según las planillas"><svg class=ico aria-hidden=true><use href=#i-search></use></svg> Aportes RAP por empleado</button>
+                <button class="btn btn-ghost" onclick="notaRapEstadoCuenta()" style="flex:1 1 200px" title="Nota formal a rapempresas@rap.hn pidiendo el estado de cuenta de un empleado">✉ Pedir estado de cuenta al RAP</button>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;font-weight:500;margin-bottom:6px">Cuentas por cobrar y préstamos de empleados</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <button class="btn btn-ghost" onclick="emparejarPendientesCxC()" style="flex:1 1 200px" title="Arma una partida que cancela los pendientes de CxC de empleados (saldos del sistema anterior) contra la cuenta que elijas"><svg class=ico aria-hidden=true><use href=#i-scale></use></svg> Emparejar pendientes CxC</button>
+                <button class="btn btn-ghost" onclick="prestamosSinPartida()" style="flex:1 1 200px" title="Préstamos registrados sin asiento: arma la partida que los carga a la CXC del empleado"><svg class=ico aria-hidden=true><use href=#i-file-search></use></svg> Préstamos sin partida</button>
+                <button class="btn btn-ghost" onclick="pendientesAPrestamo()" style="flex:1 1 200px" title="Pasa lo que quedó sin cobrar a un préstamo con cuota"><svg class=ico aria-hidden=true><use href=#i-coins></use></svg> Pendientes → préstamo</button>
+              </div>
             </div>
           </div>
           <div id="pl-existing" class="hidden" style="padding:10px 14px;background:var(--bg1);border-radius:var(--radius);border:1px solid var(--gold);margin-top:8px;display:flex;justify-content:space-between;align-items:center">
@@ -3872,7 +3926,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261109a"></script>
+<script type="module" src="js/app.js?v=20261109b"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3886,7 +3940,7 @@
 <script defer src="js/financiamiento.js?v=20261029a"></script>
 <script defer src="js/cierre_recibos.js?v=20261102a"></script>
 <script defer src="js/vencimientos.js?v=20260921t"></script>
-<script defer src="js/rrhh.js?v=20261031b"></script>
+<script defer src="js/rrhh.js?v=20261110d"></script>
 <script defer src="js/asistencia.js?v=20261031a"></script>
 <script defer src="js/vacaciones.js?v=20261001a"></script>
 <script defer src="js/comisiones_pago.js?v=20261003d"></script>
