@@ -407,23 +407,36 @@ function _rapAportesVisibles () {
   return _rapAportes.filas.filter(p => !t || `${p.nombre} ${p.identidad}`.toUpperCase().includes(t))
 }
 
+// Acumulado por empleado: el mes que ya tiene planilla presentada al RAP cuenta con lo
+// presentado; los demás meses, con lo calculado en las quincenas de Contamax. Así se
+// suman septiembre (presentado, sin cálculo) y octubre (calculado) sin contar dos veces.
+function _rapAcumulado (p) {
+  const presentados = new Set((p.meses || []).map(m => m.periodo))
+  const a = { rap: 0, fp: 0, fl: 0 }
+  for (const q of p.quincenas) if (!presentados.has(q.periodo.slice(0, 7))) { a.rap += q.rap; a.fp += q.fp; a.fl += q.fl }
+  for (const m of (p.meses || [])) { a.rap += m.rl; a.fp += m.feo; a.fl += m.fio }
+  return a
+}
+
 window._rapAportesRender = () => {
   const st = _rapAportes
   const vis = _rapAportesVisibles()
-  const tot = vis.reduce((a, p) => ({ rap: a.rap + p.rap, fp: a.fp + p.fp, fl: a.fl + p.fl, pres: a.pres + (p.presentado || 0) }), { rap: 0, fp: 0, fl: 0, pres: 0 })
+  const tot = vis.reduce((a, p) => { const x = _rapAcumulado(p); return { rap: a.rap + x.rap, fp: a.fp + x.fp, fl: a.fl + x.fl, pres: a.pres + (p.presentado || 0) } }, { rap: 0, fp: 0, fl: 0, pres: 0 })
   const num = (v) => `<td style="text-align:right;font-family:var(--mono)">${fmt(v)}</td>`
   const filas = vis.map(p => {
     const abierto = st.abiertos.has(p.id)
-    const det = abierto ? p.quincenas.map(q => `<tr style="font-size:12px;color:var(--text2)">
-        <td style="padding-left:26px">${q.periodo}${q.estado !== 'aprobada' ? ' <span style="color:var(--amber)">· ' + q.estado + '</span>' : ''}</td><td></td>
+    const ac = _rapAcumulado(p)
+    const presentados = new Set((p.meses || []).map(m => m.periodo))
+    const det = abierto ? p.quincenas.map(q => `<tr style="font-size:12px;color:var(--text2)${presentados.has(q.periodo.slice(0, 7)) ? ';opacity:.5' : ''}">
+        <td style="padding-left:26px">${q.periodo}${q.estado !== 'aprobada' ? ' <span style="color:var(--amber)">· ' + q.estado + '</span>' : ''}${presentados.has(q.periodo.slice(0, 7)) ? ' · <span title="Ese mes cuenta con lo presentado al RAP">no suma</span>' : ''}</td><td></td>
         ${num(q.rap)}${num(q.fp)}${num(q.fl)}${num(q.rap + q.fp + q.fl)}<td></td><td></td></tr>`).join('') +
       (p.meses || []).map(m => `<tr style="font-size:12px;color:var(--blue)">
         <td style="padding-left:26px">RAP ${m.periodo} · presentada</td><td></td>
-        ${num(m.rl)}${num(m.feo)}${num(m.fio)}<td></td>${num(m.rl + m.feo + m.fio)}<td></td></tr>`).join('') : ''
+        ${num(m.rl)}${num(m.feo)}${num(m.fio)}${num(m.rl + m.feo + m.fio)}${num(m.rl + m.feo + m.fio)}<td></td></tr>`).join('') : ''
     return `<tr style="cursor:pointer" onclick="_rapAportesToggle('${p.id}')">
         <td>${abierto ? '▾' : '▸'} ${p.nombre}${p.activo ? '' : ' <span style="color:var(--text3);font-size:11px">(inactivo)</span>'}</td>
         <td style="text-align:center">${p.quincenas.length}</td>
-        ${num(p.rap)}${num(p.fp)}${num(p.fl)}<td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(p.rap + p.fp + p.fl)}</td>
+        ${num(ac.rap)}${num(ac.fp)}${num(ac.fl)}<td style="text-align:right;font-family:var(--mono);font-weight:600">${fmt(ac.rap + ac.fp + ac.fl)}</td>
         <td style="text-align:right;font-family:var(--mono);color:var(--blue)">${p.presentado ? fmt(p.presentado) : '—'}</td>
         <td><button class="btn btn-ghost" style="padding:2px 8px;font-size:11px" title="Pedir su estado de cuenta al RAP" onclick="event.stopPropagation();notaRapEstadoCuenta('${p.id}')">✉</button></td></tr>${det}`
   }).join('')
@@ -434,14 +447,14 @@ window._rapAportesRender = () => {
         <tbody>${filas}</tbody>
         <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td>${vis.length} empleado(s)</td><td></td>${num(tot.rap)}${num(tot.fp)}${num(tot.fl)}${num(tot.rap + tot.fp + tot.fl)}${num(tot.pres)}<td></td></tr></tfoot>
       </table>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px">Calculado: planillas de Contamax (${st.borradores ? 'aprobadas y en borrador' : 'solo aprobadas'}), que calculan el RAP desde ${RAP_VIGENTE_DESDE}. Presentado al RAP: las planillas mensuales aprobadas en empresas.rap.hn (en azul al abrir un nombre: RL, FOVIIF empresarial e individual). El FOVIIF laboral se le descuenta al empleado.</div>`
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Los totales suman cada mes una sola vez: si el mes tiene planilla presentada al RAP cuenta lo presentado; si no, lo calculado en las quincenas de Contamax (${st.borradores ? 'aprobadas y en borrador' : 'solo aprobadas'}), que calculan el RAP desde ${RAP_VIGENTE_DESDE}. Presentado al RAP: las planillas mensuales aprobadas en empresas.rap.hn (en azul al abrir un nombre: RL, FOVIIF empresarial e individual). El FOVIIF laboral se le descuenta al empleado.</div>`
 }
 
 window._rapAportesExcel = () => {
   const vis = _rapAportesVisibles()
   if (!vis.length) { window.toast?.('No hay datos para exportar', 'info'); return }
   const r2 = (v) => Math.round(v * 100) / 100
-  const resumen = vis.map(p => ({ Empleado: p.nombre, Identidad: p.identidad, Quincenas: p.quincenas.length, 'RAP 4%': r2(p.rap), 'FOVIIF patronal': r2(p.fp), 'FOVIIF laboral': r2(p.fl), Total: r2(p.rap + p.fp + p.fl), 'Presentado al RAP': r2(p.presentado || 0) }))
+  const resumen = vis.map(p => { const a = _rapAcumulado(p); return { Empleado: p.nombre, Identidad: p.identidad, Quincenas: p.quincenas.length, 'RAP 4%': r2(a.rap), 'FOVIIF patronal': r2(a.fp), 'FOVIIF laboral': r2(a.fl), Total: r2(a.rap + a.fp + a.fl), 'Presentado al RAP': r2(p.presentado || 0) } })
   const detalle = vis.flatMap(p => p.quincenas.map(q => ({ Empleado: p.nombre, Identidad: p.identidad, Quincena: q.periodo, Estado: q.estado, 'RAP 4%': r2(q.rap), 'FOVIIF patronal': r2(q.fp), 'FOVIIF laboral': r2(q.fl), Total: r2(q.rap + q.fp + q.fl) })))
   const rap = vis.flatMap(p => (p.meses || []).map(m => ({ Empleado: p.nombre, Identidad: p.identidad, Mes: m.periodo, RL: r2(m.rl), 'FOVIIF empresarial': r2(m.feo), 'FOVIIF individual': r2(m.fio), Total: r2(m.rl + m.feo + m.fio) })))
   const wb = window.XLSX.utils.book_new()
