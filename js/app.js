@@ -9080,22 +9080,38 @@ const truchaLlevaCentro = (codigo) => /^[456]/.test(String(codigo || ''))
 const truchaCentroDefault = () => (empresas.find(e => e.nombre.toLowerCase() === 'tecnicentro')
   || empresas.find(e => e.nombre.toLowerCase().includes('tecni') && !e.nombre.toLowerCase().includes('yonker')))?.id || ''
 
-// Por nombre: igual completo, o la cuenta con más palabras en común (al menos 2, o la
-// única palabra si el reporte trae solo un nombre, ej. "Frank"). Si dos cuentas
-// empatan no se adivina: queda pendiente.
+// Por nombre: igual completo, o la cuenta con más palabras en común. Hacen falta tantas
+// palabras como la más corta de las dos, hasta 3: "Omar alexander" (2) casa con "Omar
+// Alexander Martinez Acosta", pero "Adonis fabricio posadas aguilar" no casa con "Adonis
+// Francisco Posadas Trochez" (solo 2 de 3). Una letra de diferencia en una palabra larga
+// cuenta igual (Kenneth / Keneth). Si dos cuentas empatan no se adivina: queda pendiente.
+function truchaPalabraIgual(a, b) {
+  if (a === b) return true
+  if (a.length < 5 || b.length < 5 || Math.abs(a.length - b.length) > 1) return false
+  let i = 0, j = 0, dif = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue }
+    if (++dif > 1) return false
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++ }
+  }
+  return dif + (a.length - i) + (b.length - j) <= 1
+}
+
 function truchaBuscarCuenta(nombre, cands) {
   const n = truchaNorm(nombre)
   const elegida = truchaRecordada(nombre)?.c
   if (elegida && cuentasDetalle.some(c => c.codigo === elegida)) return elegida
   const iguales = cands.filter(c => truchaNorm(c.nombre) === n)
   if (iguales.length === 1) return iguales[0].codigo
-  const palabras = new Set(n.split(' ').filter(t => t.length > 1))
+  const palabras = [...new Set(n.split(' ').filter(t => t.length > 1))]
   let mejor = 0, quienes = []
   for (const c of cands) {
-    const p = truchaNorm(c.nombre).split(' ').filter(t => palabras.has(t)).length
-    if (p > mejor) { mejor = p; quienes = [c] } else if (p === mejor && p > 0) quienes.push(c)
+    const suyas = [...new Set(truchaNorm(c.nombre).split(' ').filter(t => t.length > 1))]
+    const p = palabras.filter(t => suyas.some(s => truchaPalabraIgual(t, s))).length
+    if (p < Math.min(3, palabras.length, suyas.length)) continue
+    if (p > mejor) { mejor = p; quienes = [c] } else if (p === mejor) quienes.push(c)
   }
-  return mejor >= (palabras.size === 1 ? 1 : 2) && quienes.length === 1 ? quienes[0].codigo : ''
+  return mejor > 0 && quienes.length === 1 ? quienes[0].codigo : ''
 }
 
 window.initImportTrucha = async () => {
@@ -9111,37 +9127,105 @@ window.initImportTrucha = async () => {
   }
 }
 
+// Dos reportes de la cafetería sirven:
+//  · "créditos" (creditos-todos-…): hoja Resumen, Empleado + "Consumido al crédito".
+//  · "ventas" (ventas-…): una fila por venta; se suman por "Cliente / empleado" las de
+//    forma de pago Crédito. Efectivo y transferencia ya entraron a caja, y el "Consumo
+//    de personal" no se le cobra al empleado: esos no van.
+// Devuelve [{ nombre, monto }] o un texto de error.
+function truchaLeerReporte(wb) {
+  const hojas = wb.SheetNames.map(n => ({ n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null }) }))
+  const encabezado = (rows, pred) => rows.findIndex(r => (r || []).some(c => pred(String(c || '').trim())))
+  // Reporte de créditos
+  for (const h of hojas.filter(h => /resumen/i.test(h.n)).concat(hojas)) {
+    const i = encabezado(h.rows, c => c === 'Empleado')
+    if (i < 0) continue
+    const hdr = h.rows[i].map(c => String(c || '').trim())
+    const cNom = hdr.indexOf('Empleado'), cMonto = hdr.findIndex(c => /consumido/i.test(c))
+    if (cMonto < 0) continue
+    const out = []
+    for (const r of h.rows.slice(i + 1)) {
+      const nombre = String(r?.[cNom] || '').trim()
+      if (!nombre) continue
+      if (/^total$/i.test(nombre)) break
+      out.push({ nombre, monto: parseFloat(r[cMonto]) || 0 })
+    }
+    return { filas: out, tipo: 'créditos' }
+  }
+  // Reporte de ventas
+  for (const h of hojas) {
+    const i = encabezado(h.rows, c => /^cliente\s*\/\s*empleado$/i.test(c))
+    if (i < 0) continue
+    const hdr = h.rows[i].map(c => String(c || '').trim())
+    const cNom = hdr.findIndex(c => /^cliente\s*\/\s*empleado$/i.test(c))
+    const cPago = hdr.findIndex(c => /forma de pago/i.test(c))
+    const cTotal = hdr.findIndex(c => /^total$/i.test(c))
+    const cEstado = hdr.findIndex(c => /^estado$/i.test(c))
+    const cFecha = hdr.findIndex(c => /^fecha$/i.test(c))
+    const cAtendio = hdr.findIndex(c => /^atendi/i.test(c))
+    const cLugar = hdr.findIndex(c => /^lugar$/i.test(c))
+    const cVenta = hdr.findIndex(c => /^venta$/i.test(c))
+    const cHora = hdr.findIndex(c => /^hora$/i.test(c))
+    if (cPago < 0 || cTotal < 0) return 'El reporte de ventas no trae las columnas "Forma de pago" y "Total"'
+    const por = new Map(); let fecha = ''; let sinNombre = 0; let personal = 0
+    // Lo cobrado de contado: el efectivo que entrega cada quien atendió, y cada transferencia
+    const efectivo = new Map(); const transferencias = []
+    const celda = (r, c) => c >= 0 ? String(r[c] ?? '').trim() : ''
+    for (const r of h.rows.slice(i + 1)) {
+      if (!r || !String(r[cPago] || '').trim()) continue
+      if (cEstado >= 0 && /anul/i.test(String(r[cEstado] || ''))) continue
+      const pago = String(r[cPago]).trim()
+      if (/consumo de personal/i.test(pago)) { personal += parseFloat(r[cTotal]) || 0; continue }
+      if (/efectivo/i.test(pago)) {
+        const k = celda(r, cAtendio) + '|' + celda(r, cLugar)
+        const x = efectivo.get(k) || { atendio: celda(r, cAtendio) || '—', lugar: celda(r, cLugar), monto: 0 }
+        x.monto += parseFloat(r[cTotal]) || 0; efectivo.set(k, x)
+        continue
+      }
+      if (/transfer/i.test(pago)) {
+        transferencias.push({ venta: celda(r, cVenta), hora: celda(r, cHora), atendio: celda(r, cAtendio), lugar: celda(r, cLugar),
+          cliente: celda(r, cNom), monto: parseFloat(r[cTotal]) || 0 })
+        continue
+      }
+      if (!/cr[eé]dito/i.test(pago)) continue
+      const nombre = String(r[cNom] || '').trim()
+      const monto = parseFloat(r[cTotal]) || 0
+      if (!nombre) { sinNombre += monto; continue }
+      const k = truchaNorm(nombre)
+      const x = por.get(k) || { nombre, monto: 0 }
+      x.monto += monto; por.set(k, x)
+      if (cFecha >= 0 && String(r[cFecha] || '') > fecha) fecha = String(r[cFecha]).slice(0, 10)
+    }
+    return { filas: [...por.values()], tipo: 'ventas', fecha, sinNombre, personal,
+      cobros: { efectivo: [...efectivo.values()].filter(x => x.monto > 0), transferencias: transferencias.filter(t => t.monto > 0) } }
+  }
+  return 'No se reconoce el reporte: debe ser el de créditos (hoja Resumen) o el de ventas (columna "Cliente / empleado")'
+}
+
 window.procesarImportTrucha = async (input) => {
   const file = input.files?.[0]
   if (!file) return
   try {
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
-    const hoja = wb.SheetNames.find(n => /resumen/i.test(n)) || wb.SheetNames[0]
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[hoja], { header: 1, defval: null })
-    const iHdr = rows.findIndex(r => (r || []).some(c => String(c || '').trim() === 'Empleado'))
-    if (iHdr < 0) { toast('No se encontró la hoja Resumen con la columna "Empleado"', 'error'); return }
-    const hdr = rows[iHdr].map(c => String(c || '').trim())
-    const cNom = hdr.indexOf('Empleado')
-    const cMonto = hdr.findIndex(c => /consumido/i.test(c))
-    if (cMonto < 0) { toast('Falta la columna "Consumido al crédito"', 'error'); return }
+    const rep = truchaLeerReporte(wb)
+    if (typeof rep === 'string') { toast(rep, 'error'); return }
     // El nombre del archivo trae el rango: creditos-todos-2026-11-09-a-2026-11-09 → fecha final
     const mf = file.name.match(/(\d{4}-\d{2}-\d{2})(?:\D+(\d{4}-\d{2}-\d{2}))?/)
     if (mf) document.getElementById('itr-fecha').value = mf[2] || mf[1]
+    else if (rep.fecha) document.getElementById('itr-fecha').value = rep.fecha
     if (!cuentasDetalle.length) await window.initImportTrucha()
     const cands = truchaCandidatas()
     const filas = []
-    for (const r of rows.slice(iHdr + 1)) {
-      const nombre = String(r?.[cNom] || '').trim()
-      if (!nombre) continue
-      if (/^total$/i.test(nombre)) break
-      const monto = Math.round((parseFloat(r[cMonto]) || 0) * 100) / 100
+    for (const r of rep.filas) {
+      const monto = Math.round(r.monto * 100) / 100
       if (monto <= 0) continue
-      const cuenta = truchaBuscarCuenta(nombre, cands)
-      const centro = truchaLlevaCentro(cuenta) ? (truchaRecordada(nombre)?.cc || truchaCentroDefault()) : ''
-      filas.push({ nombre, monto, cuenta, centro })
+      const cuenta = truchaBuscarCuenta(r.nombre, cands)
+      const centro = truchaLlevaCentro(cuenta) ? (truchaRecordada(r.nombre)?.cc || truchaCentroDefault()) : ''
+      filas.push({ nombre: r.nombre, monto, cuenta, centro })
     }
+    if (rep.sinNombre > 0) toast(`Hay L. ${rep.sinNombre.toFixed(2)} vendidos al crédito sin nombre de empleado: no se cargan`, 'error')
     if (!filas.length) { toast('El reporte no trae consumos al crédito', 'info'); return }
-    truchaData = { filas, archivo: file.name, filtro: '' }
+    truchaData = { filas, archivo: file.name, filtro: '', tipo: rep.tipo, personal: rep.personal || 0, cobros: rep.cobros || null }
     document.getElementById('itr-file-text').textContent = file.name
     renderImportTrucha()
   } catch (e) { console.error('[trucha]', e); toast('No se pudo leer el archivo: ' + e.message, 'error') }
@@ -9175,6 +9259,8 @@ function renderImportTrucha() {
         <td>${truchaLlevaCentro(x.cuenta) ? `<select onchange="truchaElegirCentro(${i}, this.value)">${centros(x.centro)}</select>` : '<span style="color:var(--text3)">—</span>'}</td>
       </tr>`).join('')}</tbody>
     </table></div>
+    ${truchaCobrosHTML(fmt)}
+    ${truchaData.personal ? `<div style="font-size:12px;color:var(--text3);margin-top:8px">No se incluye el consumo de personal (L. ${fmt(truchaData.personal)}): no se le cobra al empleado.</div>` : ''}
     <div style="font-size:12px;color:var(--text3);margin-top:8px">HABER: ${TRUCHA_HABER} Venta Cafetería · Tecnicentro. En Cuenta escribí parte del código o del nombre y elegí de la lista (todo el catálogo); borrala para dejarla pendiente. Lo que elijas para un nombre se recuerda en esta computadora.</div>`
   window.truchaFiltrar(truchaData.filtro)
   document.getElementById('itr-step1').classList.add('hidden')
@@ -9215,12 +9301,32 @@ window.truchaElegirCentro = (i, cc) => {
   truchaRecordar(x)
 }
 
+// Contado del reporte de ventas: va en la misma partida (DEBE Caja General por lo que
+// entrega cada quien atendió; DEBE banco por cada transferencia, cuenta a elegir).
+const TRUCHA_CAJA = '110102-001'
+function truchaCobrosHTML(fmt) {
+  const c = truchaData?.cobros
+  if (!c || (!c.efectivo.length && !c.transferencias.length)) return ''
+  const totE = c.efectivo.reduce((a, x) => a + x.monto, 0), totT = c.transferencias.reduce((a, x) => a + x.monto, 0)
+  return `<div style="margin-top:14px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">Contado del día · también va en la partida</div>
+      <table style="font-size:12.5px"><thead><tr><th>Entrega</th><th>Lugar</th><th style="text-align:right">Efectivo</th></tr></thead><tbody>
+        ${c.efectivo.map(x => `<tr><td>${truchaEsc(x.atendio)}</td><td>${truchaEsc(x.lugar)}</td><td style="text-align:right;font-family:var(--mono)">${fmt(x.monto)}</td></tr>`).join('')}
+        <tr style="font-weight:600"><td colspan="2">Total efectivo → Caja General (${TRUCHA_CAJA})</td><td style="text-align:right;font-family:var(--mono)">${fmt(totE)}</td></tr>
+      </tbody></table>
+      ${c.transferencias.length ? `<div style="font-size:12.5px;margin-top:8px"><b>Transferencias (${fmt(totT)})</b> · en la partida quedan sin cuenta para elegir el banco:
+        ${c.transferencias.map(t => `<div style="font-family:var(--mono);font-size:12px">venta #${truchaEsc(t.venta)} · ${truchaEsc(t.hora)} · ${truchaEsc(t.atendio)}${t.cliente ? ' · ' + truchaEsc(t.cliente) : ''} · L. ${fmt(t.monto)}</div>`).join('')}</div>` : ''}
+    </div>`
+}
+
 window.cargarTruchaPartida = async () => {
   if (!truchaData?.filas?.length) { toast('Primero subí el reporte', 'error'); return }
   const fecha = document.getElementById('itr-fecha').value
   if (!fecha) { toast('Indicá la fecha', 'error'); return }
   const r2 = (v) => Math.round(v * 100) / 100
-  const total = r2(truchaData.filas.reduce((a, x) => a + x.monto, 0))
+  const cob = truchaData.cobros || { efectivo: [], transferencias: [] }
+  const total = r2(truchaData.filas.reduce((a, x) => a + x.monto, 0)
+    + cob.efectivo.reduce((a, x) => a + x.monto, 0) + cob.transferencias.reduce((a, x) => a + x.monto, 0))
   // Avisar si ese día ya se cargó una partida igual (mismo total)
   const { data: previas } = await sb.from('partidas_contables').select('numero_partida,total')
     .eq('fecha_partida', fecha).ilike('descripcion', 'CARGOS TRUCHA%').neq('estado', 'anulada')
@@ -9249,12 +9355,24 @@ window.cargarTruchaPartida = async () => {
       descripcion: cta ? 'CARGOS TRUCHA' : `CARGOS TRUCHA · ${x.nombre.toUpperCase()} · PENDIENTE DE ASIGNAR CUENTA`,
       aplica_fiscal: false })
   }
+  const caja = cuentasDetalle.find(c => c.codigo === TRUCHA_CAJA)
+  for (const x of cob.efectivo) {
+    lineaCounter++
+    partidaLineas.push({ id: lineaCounter, cuenta_id: caja?.id || '', cuenta_codigo: TRUCHA_CAJA, cuenta_nombre: caja?.nombre || 'CAJA GENERAL MN',
+      tipo: 'debito', monto: r2(x.monto), centro_costo_id: '',
+      descripcion: `VENTAS CONTADO TRUCHA · EFECTIVO ${String(x.atendio).toUpperCase()}${x.lugar ? ' (' + x.lugar.toUpperCase() + ')' : ''}`, aplica_fiscal: false })
+  }
+  for (const t of cob.transferencias) {
+    lineaCounter++
+    partidaLineas.push({ id: lineaCounter, cuenta_id: '', cuenta_codigo: '', cuenta_nombre: '', tipo: 'debito', monto: r2(t.monto), centro_costo_id: '',
+      descripcion: `VENTAS TRUCHA · TRANSFERENCIA VENTA #${t.venta} ${t.hora} · ${String(t.atendio).toUpperCase()} · ELEGIR BANCO`, aplica_fiscal: false })
+  }
   lineaCounter++
   partidaLineas.push({ id: lineaCounter, cuenta_id: haber?.id || '', cuenta_codigo: TRUCHA_HABER, cuenta_nombre: haber?.nombre || 'Venta Cafeteria',
     tipo: 'credito', monto: total, centro_costo_id: ccTecni?.id || '', descripcion: 'CARGOS TRUCHA', aplica_fiscal: false })
   renderLineas()
   calcTotales()
-  const pend = truchaData.filas.filter(x => !x.cuenta).length
+  const pend = truchaData.filas.filter(x => !x.cuenta).length + cob.transferencias.length
   toast(pend ? `Partida cargada · ${pend} línea(s) pendientes de asignar cuenta` : 'Partida CARGOS TRUCHA cargada · revisá y guardá', pend ? 'info' : 'success')
 }
 
