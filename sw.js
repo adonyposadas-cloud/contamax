@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v141-trucha-contado'
+const CACHE_NAME = 'contamax-v149-pend-documento'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

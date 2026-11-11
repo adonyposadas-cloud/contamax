@@ -177,8 +177,8 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-declaracion-isv'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
     contador_fiscal: ['nav-declaracion-isv'],
@@ -290,7 +290,7 @@ function setupUI() {
   if (sectionImport) sectionImport.classList.toggle('hidden', !tieneImport)
 
   // Ocultar sección Reportes si no tiene ningún módulo de reportes
-  const reporteItems = ['nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-actividad']
+  const reporteItems = ['nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-gastos-huerfanos', 'nav-actividad']
   const tieneReportes = reporteItems.some(id => visibles.includes(id))
   const sectionReportes = document.getElementById('section-reportes')
   if (sectionReportes) sectionReportes.classList.toggle('hidden', !tieneReportes)
@@ -369,6 +369,9 @@ window.showView = (id, label) => {
   // que se guardara (Ventas Alpha, arqueo, editar otra) la marcaba "procesada" sin
   // contabilizarla: le pasó a YONKER FITO 000-002-01-00016377 (22/10/2026).
   if (id !== 'partida-nueva') window._facturaContadoId = null
+  // Ir a otra pantalla por el menú olvida de dónde se abrió el editor de partidas: si no,
+  // el "Volver" de una partida abierta después regresaba a una pantalla vieja.
+  if (id !== 'partida-nueva') window._origenPartida = null
   // Close sidebar on mobile when navigating
   document.getElementById('sidebar').classList.remove('open')
   document.getElementById('sidebar-overlay').classList.remove('active')
@@ -409,6 +412,7 @@ window.showView = (id, label) => {
   if (id === 'financiamiento') loadFinanciamiento()
   if (id === 'cierre-recibos') initCierreMensual()
   if (id === 'vencimientos' && window.initVencimientos) window.initVencimientos()
+  if (id === 'boletas-compra') window.initBoletasCompra?.()
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
   if (id === 'concilia-taxis' && window.initConciliaTaxis) window.initConciliaTaxis()
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
@@ -419,6 +423,7 @@ window.showView = (id, label) => {
   if (id === 'auxiliar' && window.initAuxiliar) window.initAuxiliar()
   if (id === 'balance-comp' && window.initBalance) window.initBalance()
   if (id === 'estado-resultados' && window.initEstadoResultados) window.initEstadoResultados()
+  if (id === 'cierre-diario') window.initCierreDiario?.()
   if (id === 'rentabilidad-taxis' && window.initRentabilidadTaxis) window.initRentabilidadTaxis()
   if (id === 'empleados' && window.loadEmpleados) window.loadEmpleados()
   if (id === 'actividad') loadActividad()
@@ -708,7 +713,7 @@ const MODULOS_CATALOGO = [
   ]},
   { grupo: 'Reportes', items: [
     ['nav-auxiliar', 'Auxiliar de cuentas'], ['nav-balance-comp', 'Balance comprobación'], ['nav-saldos-cuentas', 'Saldos de cuentas'], ['nav-balance-general', 'Balance general'],
-    ['nav-estado-resultados', 'Estado de resultados'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-gastos-huerfanos', 'Gastos huérfanos'], ['nav-actividad', 'Actividad']
+    ['nav-estado-resultados', 'Estado de resultados'], ['nav-cierre-diario', 'Cierre diario'], ['nav-rentabilidad-taxis', 'Rentabilidad Taxis'], ['nav-gastos-huerfanos', 'Gastos huérfanos'], ['nav-actividad', 'Actividad']
   ]},
   { grupo: 'Fiscal', items: [
     ['nav-declaracion-isv', 'Declaración ISV'], ['nav-rangos-ventas', 'Rango de ventas']
@@ -748,6 +753,7 @@ const MODULOS_CATALOGO = [
   { grupo: 'Otros', items: [
     ['nav-flujo-efectivo', 'Flujo de efectivo'],
     ['nav-vencimientos', 'Vencimiento de documentos'],
+    ['nav-boletas-compra', 'Boletas de compra'],
     ['nav-solicitudes', 'Solicitudes de mejora'],
     ['nav-importar-taxis', 'Importar entregas Taxis']
   ]}
@@ -1688,6 +1694,11 @@ async function loadPendientes() {
   filtrarPendientes()
 }
 
+// Pendiente de documento: solo las compras a crédito que entraron por la importación del
+// libro de compras ([IMP-COMPRA]): se contabilizaron sin tener el papel en mano. Las que
+// registra Compras en la pantalla ya traen el documento, aunque la columna recibida quede en false.
+const esPendDocumento = f => f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]')
+
 window.filtrarPendientes = () => {
   const buscar = (document.getElementById('pend-buscar')?.value || '').toLowerCase().trim()
   const estadoFiltro = document.getElementById('pend-estado')?.value || 'todos'
@@ -1695,7 +1706,7 @@ window.filtrarPendientes = () => {
 
   let filtered = pendientesData
   if (estadoFiltro === 'pend_documento') {
-    filtered = filtered.filter(f => f.estado === 'procesada' && f.recibida === false && f.forma_pago === 'credito')
+    filtered = filtered.filter(esPendDocumento)
   } else if (estadoFiltro !== 'todos') {
     filtered = filtered.filter(f => f.estado === estadoFiltro)
   }
@@ -1709,7 +1720,7 @@ window.filtrarPendientes = () => {
   }
 
   const pendPartida = pendientesData.filter(f => f.estado === 'pendiente').length
-  const pendDocumento = pendientesData.filter(f => f.estado === 'procesada' && f.recibida === false && f.forma_pago === 'credito').length
+  const pendDocumento = pendientesData.filter(esPendDocumento).length
   const totalPend = pendPartida + pendDocumento
   const badge = document.getElementById('badge-pendientes')
   if (totalPend > 0) { badge.classList.remove('hidden'); badge.textContent = totalPend }
@@ -1730,7 +1741,7 @@ window.filtrarPendientes = () => {
       : esImportada && f.estado === 'pendiente'
         ? `crearPartidaDesdeFactura('${f.id}')`
         : `abrirRevisarFactura('${f.id}')`
-    const pendienteDoc = f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]')
+    const pendienteDoc = esPendDocumento(f)
 
     // Determinar estado visual
     let statusLabel, statusClass
@@ -2617,6 +2628,15 @@ window.nuevaPartida = () => {
 
 // Retorno genérico desde el editor de partidas. Si otra pantalla fijó
 // window._origenPartida = {view, label, init}, se regresa ahí (y se limpia).
+// Si nadie fijó el origen, se toma la pantalla desde la que se abrió la partida (ej.
+// Facturas pendientes → ✎ Editar): "Volver" regresa ahí y no al listado de partidas.
+function _recordarOrigenPartida() {
+  if (window._origenPartida) return
+  const v = document.querySelector('.view.active')?.id?.replace(/^view-/, '')
+  if (!v || v === 'partidas' || v === 'partida-nueva') return
+  window._origenPartida = { view: v, label: document.getElementById('topbar-module')?.textContent || '' }
+}
+
 function _retornoPartida(fallback) {
   const o = window._origenPartida
   if (o && o.view) {
@@ -2640,6 +2660,7 @@ window.volverDesdePartida = () => {
 
 // ── EDITAR PARTIDA EXISTENTE ──
 window.verPartida = async (id) => {
+  _recordarOrigenPartida()
   const sb = getSb()
   const { data: p } = await sb.from('partidas_contables').select('*').eq('id', id).single()
   if (!p) { toast('Partida no encontrada', 'error'); return }
@@ -2711,6 +2732,7 @@ window.verPartida = async (id) => {
 let _editPartidaEnCurso = false
 window.editarPartida = async (id) => {
   if (_editPartidaEnCurso) return // evita doble clic que duplica las líneas
+  _recordarOrigenPartida()
   _editPartidaEnCurso = true
   setTimeout(() => { _editPartidaEnCurso = false }, 8000) // seguro: liberar aunque algo falle
   // Cargar cuentas si no están
@@ -4049,6 +4071,7 @@ window.guardarPartida = async (estado) => {
       monto_efectivo: isCredito ? 0 : Math.round((f.monto_efectivo || 0) * 100) / 100,
       monto_tarjeta: isCredito ? 0 : Math.round((f.monto_tarjeta || 0) * 100) / 100,
       monto_transferencia: isCredito ? 0 : Math.round((f.monto_transferencia || 0) * 100) / 100,
+      descuento: Math.round((f.descuento || 0) * 100) / 100,
       incluir_fiscal: true,
       numero_documento: documento || null,
       origen: 'import_alpha',
@@ -4092,8 +4115,10 @@ window.guardarPartida = async (estado) => {
       }
       const nuevos = registros.filter(r => !r.factura_electronica || !existentes.has(r.factura_electronica))
       if (nuevos.length) {
-        const { error: lvErr } = await sb.from('libro_ventas').insert(nuevos)
-        if (lvErr) console.error('Error libro_ventas:', lvErr.message)
+        let { error: lvErr } = await sb.from('libro_ventas').insert(nuevos)
+        // Sin la columna descuento (sql/libro_ventas_descuento.sql sin correr) se graba igual, sin él
+        if (lvErr && /descuento/i.test(lvErr.message)) ({ error: lvErr } = await sb.from('libro_ventas').insert(nuevos.map(({ descuento, ...r }) => r)))
+        if (lvErr) { console.error('Error libro_ventas:', lvErr.message); toast('Ojo: no se grabó el libro de ventas — ' + lvErr.message, 'error') }
         else console.log(`📗 ${nuevos.length} insertados en libro_ventas (${registros.length - nuevos.length} ya existían)`)
       }
     }
@@ -5667,6 +5692,7 @@ function parseAlphaExcel(arrayBuffer) {
             else if (h.includes('tipo de venta')) colMap.tipo_venta = cc
             else if (h.includes('código cliente') || h.includes('codigo cliente')) colMap.codigo_cliente = cc
             else if (h === 'facturado por') colMap.facturado_por = cc
+            else if (h === 'descuento') colMap.descuento = cc
           }
           break
         }
@@ -5698,6 +5724,7 @@ function parseAlphaExcel(arrayBuffer) {
         monto_tarjeta: r2(row[colMap.monto_tarjeta]),
         monto_efectivo: r2(row[colMap.monto_efectivo]),
         monto_transferencia: r2(row[colMap.monto_transferencia]),
+        descuento: colMap.descuento != null ? r2(row[colMap.descuento]) : 0,
         tipo_venta: String(row[colMap.tipo_venta] || 'Contado'),
         codigo_cliente: String(row[colMap.codigo_cliente] || ''),
         facturado_por: colMap.facturado_por != null ? String(row[colMap.facturado_por] || '').trim() : '',

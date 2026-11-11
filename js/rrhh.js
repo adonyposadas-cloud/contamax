@@ -331,6 +331,8 @@ window.consultarAportesRAP = async () => {
       </div>
       <div class="modal-body" id="rapa-cuerpo" style="flex:1;min-height:0;overflow:auto"></div>
       <div class="modal-actions">
+        <div style="margin-right:auto;font-size:12px;color:var(--text3)">Estados de cuenta del RAP: <a href="mailto:${RAP_CORREO_EMPRESAS}" style="color:var(--blue);font-weight:600">${RAP_CORREO_EMPRESAS}</a>
+          <button class="btn btn-ghost" style="padding:1px 7px;font-size:11px;margin-left:4px" title="Copiar el correo" onclick="navigator.clipboard?.writeText('${RAP_CORREO_EMPRESAS}').then(() => window.toast?.('Correo copiado', 'success'))">Copiar</button></div>
         <button class="btn btn-ghost" onclick="document.getElementById('modal-rap-aportes').remove()">Cerrar</button>
         <button class="btn btn-ghost" onclick="notaRapEstadoCuenta()">✉ Pedir estado de cuenta</button>
         <button class="btn btn-ghost" onclick="_rapAportesExcel()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Excel</button>

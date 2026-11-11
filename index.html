@@ -209,6 +209,9 @@
           <div class="nav-item" id="nav-vencimientos" onclick="showView('vencimientos','Vencimiento de documentos')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-calendar-due></use></svg>Vencimientos
           </div>
+          <div class="nav-item" id="nav-boletas-compra" onclick="showView('boletas-compra','Boletas de compra')">
+            <svg class="ico nav-svg" aria-hidden=true><use href=#i-receipt></use></svg>Boletas de compra
+          </div>
           <div class="nav-item" id="nav-partidas" onclick="showView('partidas','Partidas contables')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-notebook></use></svg>Partidas
           </div>
@@ -302,6 +305,9 @@
           </div>
           <div class="nav-item" id="nav-estado-resultados" onclick="showView('estado-resultados','Estado de resultados')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-chart-bar></use></svg>Estado de resultados
+          </div>
+          <div class="nav-item" id="nav-cierre-diario" onclick="showView('cierre-diario','Cierre diario')">
+            <svg class="ico nav-svg" aria-hidden=true><use href=#i-cash-register></use></svg>Cierre diario
           </div>
           <div class="nav-item" id="nav-flujo-efectivo" onclick="showView('flujo-efectivo','Flujo de efectivo')">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-chart-line></use></svg>Flujo de efectivo
@@ -527,6 +533,8 @@
             <div class="fld">
               <label>N° de factura *</label>
               <input type="text" id="fc-numero" placeholder="S/F o número" onblur="completarNumeroFactura();fcValidarRango()">
+              <button type="button" class="btn btn-ghost" style="margin-top:6px;padding:3px 10px;font-size:11.5px" title="El proveedor es persona natural sin factura: emití una boleta de compra con el correlativo autorizado"
+                onclick="nuevaBoletaCompra({ proveedor: document.getElementById('fc-proveedor-nombre').value, rtn: document.getElementById('fc-rtn').value, descripcion: document.getElementById('fc-descripcion').value, monto: document.getElementById('fc-monto').value, fecha: document.getElementById('fc-fecha').value })">🧾 Emitir boleta de compra</button>
             </div>
             <div class="fld">
               <label>Monto (L.) *</label>
@@ -1718,6 +1726,36 @@
           <div id="bc-resumen" style="margin-bottom:16px"></div>
           <div id="bc-tabla" class="table-wrap" style="max-height:600px;overflow-y:auto"></div>
         </div>
+      </div>
+
+      <!-- BOLETAS DE COMPRA -->
+      <div class="view" id="view-boletas-compra">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🧾 Boletas de compra</div>
+            <div class="page-sub">Emisión como autoimpresor (SAR) para compras a personas naturales hondureñas que no emiten factura</div>
+          </div>
+        </div>
+        <div id="bc-contenido"></div>
+      </div>
+
+      <!-- CIERRE DIARIO -->
+      <div class="view" id="view-cierre-diario">
+        <div class="page-header">
+          <div>
+            <div class="page-title">🧾 Cierre diario</div>
+            <div class="page-sub">Ventas del día (parte fiscal): brutas sin ISV, descuentos, devoluciones e ISV, y cómo se cobraron</div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:16px">
+          <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+            <div class="fld" style="margin:0"><label>Fecha</label><input type="date" id="cd-fecha"></div>
+            <button class="btn btn-gold" onclick="cargarCierreDiario()">Consultar →</button>
+            <button class="btn btn-ghost" onclick="exportarCierreDiario()"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Excel</button>
+            <button class="btn btn-ghost" onclick="imprimirCierreDiario()"><svg class=ico aria-hidden=true><use href=#i-printer></use></svg> Imprimir</button>
+          </div>
+        </div>
+        <div id="cd-resultado"></div>
       </div>
 
       <!-- ESTADO DE RESULTADOS -->
@@ -3926,7 +3964,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261110b"></script>
+<script type="module" src="js/app.js?v=20261111d"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3939,8 +3977,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script defer src="js/financiamiento.js?v=20261029a"></script>
 <script defer src="js/cierre_recibos.js?v=20261102a"></script>
+<script defer src="js/boletas_compra.js?v=20261111a"></script>
+<script defer src="js/cierre_diario.js?v=20261111d"></script>
 <script defer src="js/vencimientos.js?v=20260921t"></script>
-<script defer src="js/rrhh.js?v=20261110e"></script>
+<script defer src="js/rrhh.js?v=20261111a"></script>
 <script defer src="js/asistencia.js?v=20261031a"></script>
 <script defer src="js/vacaciones.js?v=20261001a"></script>
 <script defer src="js/comisiones_pago.js?v=20261003d"></script>
