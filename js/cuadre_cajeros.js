@@ -105,6 +105,7 @@
     for (const r of rows) {
       if (t0(r) === 'CAJERO') res.cajero = String(r[1] || '').trim()
       if (t0(r) === 'CAJA' && r[1]) res.caja = String(r[1]).trim()
+      if (t0(r) === 'APERTURA') res.apertura = String(r[1] || '').trim()
       if (t0(r) === 'TOTAL CONTADO') res.ef = num(r[1])
     }
     // TARJETA POR POS: POS | Sistema | Lote | Retenido | Diferencia
@@ -112,7 +113,13 @@
     if (i >= 0) for (i += 2; i < rows.length && t0(rows[i]); i++) {
       // "(sin POS)" sin lote: cobros anteriores al selector de POS; el lote se digita a mano
       if (banco(rows[i][0]) === 'OTRO' && !num(rows[i][2])) continue
-      const b = banco(rows[i][0]); res.pos[b] =r2((res.pos[b] || 0) + num(rows[i][2])); res.posSis[b] = r2((res.posSis[b] || 0) + num(rows[i][1])); res.ret[b] = r2((res.ret[b] || 0) + num(rows[i][3]))
+      const b = banco(rows[i][0])
+      // Lote en blanco y el monto en "Retenido": el cajero lo digitó en la columna equivocada
+      // (lo retenido es una fracción pequeña de la venta, nunca casi todo el lote)
+      if (!num(rows[i][2]) && num(rows[i][3]) && num(rows[i][3]) >= num(rows[i][1]) * 0.5) {
+        rows[i][2] = rows[i][3]; rows[i][3] = 0; res.corregidos = (res.corregidos || []).concat(NOMBRE_BANCO[b] || b)
+      }
+      res.pos[b] =r2((res.pos[b] || 0) + num(rows[i][2])); res.posSis[b] = r2((res.posSis[b] || 0) + num(rows[i][1])); res.ret[b] = r2((res.ret[b] || 0) + num(rows[i][3]))
     }
     // TRANSFERENCIAS: Hora | Factura | Cliente | Banco | Quién | Monto (termina en la fila "Total")
     i = seccion('TRANSFERENCIAS')
@@ -147,12 +154,44 @@
         let k = buscarCajero(c.cajero)
         if (!k) { k = norm(c.cajero); cajeros[k] = { nombre: c.cajero, centro: '', sis: { ef: 0, tj: 0, tr: 0, n: 0 }, ent: entVacio() } }
         for (const x of c.salidas) x.cta = ctaSalida(x.det, cajeros[k].centro)
-        cajeros[k].ent = { pos: c.pos, posSis: c.posSis, ret: c.ret, trs: c.trs, ef: c.ef, salidas: c.salidas, archivo: `${f.name}${c.caja ? ' · caja ' + c.caja : ''}` }
+        // Un cajero puede cerrar varias cajas el mismo día (ej. una por lo interno y otra por lo
+        // fiscal): cada cierre se guarda aparte por su hora de apertura y lo entregado es la suma.
+        // El mismo cierre subido dos veces (misma apertura) reemplaza al anterior, no se duplica.
+        // Solo cierres del día de la partida: un cierre de otro día no se mezcla
+        const fechaDia = document.getElementById('imp-fecha')?.value || ''   // yyyy-mm-dd
+        const diaDe = (ap) => { const m = String(ap || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '' }
+        if (fechaDia && diaDe(c.apertura) && diaDe(c.apertura) !== fechaDia) {
+          window.toast?.(`${f.name}: la caja abrió el ${c.apertura.slice(0, 10)} y la partida es del ${fechaDia.split('-').reverse().join('/')}. No se cargó.`, 'error')
+          continue
+        }
+        const ant = cajeros[k].ent
+        const partes = Object.fromEntries(Object.entries(ant.partes || {}).filter(([ap]) => !fechaDia || !diaDe(ap) || diaDe(ap) === fechaDia))
+        const clave = c.apertura || f.name
+        const repetido = !!partes[clave]
+        partes[clave] = { pos: c.pos, posSis: c.posSis, ret: c.ret, trs: c.trs, ef: c.ef, salidas: c.salidas, archivo: `${f.name}${c.caja ? ' · caja ' + c.caja : ''}` }
+        cajeros[k].ent = sumarPartes(partes)
         usar = true   // con un cierre cargado, la partida se arma con el cuadre (se puede desmarcar)
-        window.toast?.(`Cierre de ${c.cajero} cargado`, 'success')
+        const n = Object.keys(partes).length
+        window.toast?.(repetido ? `${c.cajero}: ese cierre ya estaba cargado (misma apertura), se reemplazó`
+          : n > 1 ? `Cierre de ${c.cajero} sumado (${n} cierres)` : `Cierre de ${c.cajero} cargado`, repetido ? 'info' : 'success')
+        if (c.corregidos) window.toast?.(`${c.cajero}: el lote de ${c.corregidos.join(', ')} venía en la columna Retenido; se tomó como lote.`, 'info')
       } catch (e) { window.toast?.(`${f.name}: ${e.message}`, 'error') }
     }
     guardarDia(); render()
+  }
+
+  // Lo entregado por un cajero con varios cierres en el día: POS, retenido y efectivo se suman;
+  // transferencias y movimientos de efectivo se juntan línea por línea.
+  function sumarPartes(partes) {
+    const e = { pos: {}, posSis: {}, ret: {}, trs: [], ef: 0, salidas: [], archivo: '', partes }
+    const suma = (dst, src) => { for (const [b, v] of Object.entries(src || {})) dst[b] = r2((dst[b] || 0) + (parseFloat(v) || 0)) }
+    for (const p of Object.values(partes)) {
+      suma(e.pos, p.pos); suma(e.posSis, p.posSis); suma(e.ret, p.ret)
+      e.trs.push(...p.trs.map(x => ({ ...x }))); e.salidas.push(...p.salidas.map(x => ({ ...x })))
+      e.ef = r2(e.ef + (parseFloat(p.ef) || 0))
+    }
+    e.archivo = Object.values(partes).map(p => p.archivo).join(' + ')
+    return e
   }
 
   // Lotes de todos los cajeros agrupados por centro y banco. El banco deposita el lote menos

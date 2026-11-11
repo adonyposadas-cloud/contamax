@@ -6739,9 +6739,6 @@ window.guardarImportPartida = async () => {
     partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito',
       monto: r2(pv.totalCaja || 0), centro_costo_id:'', descripcion:'FORMAS DE PAGO - ELEGIR CUENTA', aplica_fiscal:true })
   }
-  lineaCounter++
-  partidaLineas.push({ id: lineaCounter, cuenta_id:'', cuenta_codigo:'', cuenta_nombre:'', tipo:'debito', monto:0, centro_costo_id:'', descripcion:'', aplica_fiscal:true })
-
   // Notas de crédito (mismas líneas que la vista previa)
   for (const l of (pv.notasNC?.lineas || [])) {
     lineaCounter++
