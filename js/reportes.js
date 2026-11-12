@@ -514,15 +514,37 @@ window.generarAuxiliarBusqueda = async (termino, fechaIni, fechaFin, centroId, l
 
 function renderAuxiliarBusqueda(rows, termino, fechaIni, fechaFin) {
   document.getElementById('aux-resultado').classList.remove('hidden')
-  const totDebe = rows.reduce((s, r) => s + r.debe, 0)
-  const totHaber = rows.reduce((s, r) => s + r.haber, 0)
-
   document.getElementById('aux-resumen').innerHTML = `
     <div style="padding:16px;border-radius:var(--radius);background:var(--bg3);border-left:3px solid var(--gold)">
       <div style="font-size:15px;font-weight:600;margin-bottom:4px">🔎 Resultados de "${auxEsc(termino)}"</div>
       <div style="font-size:12px;color:var(--text3)">${rows.length} coincidencia(s) en descripción de líneas y partidas · ${fechaIni} a ${fechaFin}</div>
+      ${rows.length ? `<div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+        <input type="text" id="aux-busq-filtro" placeholder="Filtrar estos resultados: palabra, cuenta, partida, centro o monto…" oninput="auxFiltrarBusqueda()"
+          style="flex:1;min-width:220px">
+        <span id="aux-busq-cuenta" style="font-size:12px;color:var(--text3)"></span>
+      </div>` : ''}
     </div>`
+  auxPintarBusqueda(rows, termino)
+}
 
+// Segundo filtro sobre los resultados ya traídos (no vuelve a consultar): todas las palabras
+// deben aparecer en alguna columna de la fila. Los totales se recalculan con lo filtrado.
+window.auxFiltrarBusqueda = () => {
+  if (!auxData?.busqueda) return
+  const tk = (document.getElementById('aux-busq-filtro')?.value || '').toLowerCase().split(/\s+/).filter(Boolean)
+  const rows = !tk.length ? auxData.rows : auxData.rows.filter(r => {
+    const hay = [r.fecha, r.partida, r.cuentaCod, r.cuentaNom, r.descripcion, r.centro,
+      r.debe ? fmtL(r.debe) : '', r.haber ? fmtL(r.haber) : '', r.debe || '', r.haber || ''].join(' ').toLowerCase()
+    return tk.every(t => hay.includes(t))
+  })
+  const c = document.getElementById('aux-busq-cuenta')
+  if (c) c.textContent = tk.length ? `${rows.length} de ${auxData.rows.length}` : ''
+  auxPintarBusqueda(rows, auxData.termino)
+}
+
+function auxPintarBusqueda(rows, termino) {
+  const totDebe = rows.reduce((s, r) => s + r.debe, 0)
+  const totHaber = rows.reduce((s, r) => s + r.haber, 0)
   document.getElementById('aux-tabla').innerHTML = `
     <table>
       <thead><tr>

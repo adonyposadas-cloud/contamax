@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v154-catalogo-excel'
+const CACHE_NAME = 'contamax-v155-aux-filtro'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
