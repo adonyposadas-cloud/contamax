@@ -625,7 +625,10 @@
             <div class="page-title">Catálogo de cuentas</div>
             <div class="page-sub">Plan de cuentas contable · Tecnimax</div>
           </div>
-          <button class="btn btn-gold" onclick="openModalCuenta()">+ Nueva cuenta</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" onclick="exportarCatalogo()" title="Descarga las cuentas que se ven con el filtro y la búsqueda actuales">⬇ Excel</button>
+            <button class="btn btn-gold" onclick="openModalCuenta()">+ Nueva cuenta</button>
+          </div>
         </div>
         <div class="cat-stats" id="cat-stats">
           <div class="cat-stat"><div class="cat-stat-num" id="cs-total">—</div><div class="cat-stat-label">Total cuentas</div></div>
@@ -3964,7 +3967,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261111e"></script>
+<script type="module" src="js/app.js?v=20261112a"></script>
 <script type="module" src="js/reportes.js?v=20260921t"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3978,7 +3981,7 @@
 <script defer src="js/financiamiento.js?v=20261029a"></script>
 <script defer src="js/cierre_recibos.js?v=20261102a"></script>
 <script defer src="js/boletas_compra.js?v=20261111a"></script>
-<script defer src="js/cierre_diario.js?v=20261111d"></script>
+<script defer src="js/cierre_diario.js?v=20261111e"></script>
 <script defer src="js/vencimientos.js?v=20260921t"></script>
 <script defer src="js/rrhh.js?v=20261111a"></script>
 <script defer src="js/asistencia.js?v=20261031a"></script>

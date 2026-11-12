@@ -4239,6 +4239,37 @@ window.toggleGroup = (id) => {
 
 window.filtrarCatalogo = () => renderTree()
 
+// Catálogo a Excel: las cuentas que pasan el filtro de tipo y la búsqueda (sin filtro: todo el catálogo)
+window.exportarCatalogo = () => {
+  if (!window.XLSX) { toast('No cargó la librería de Excel; recargá la página', 'error'); return }
+  const buscar = (document.getElementById('cat-buscar')?.value || '').toLowerCase()
+  let lista = allCuentas
+  if (filtroTipo !== 'todos') lista = lista.filter(c => c.tipo === filtroTipo)
+  if (buscar) lista = lista.filter(c => c.codigo.toLowerCase().includes(buscar) || c.nombre.toLowerCase().includes(buscar))
+  if (!lista.length) { toast('No hay cuentas para exportar', 'error'); return }
+  const porId = Object.fromEntries(allCuentas.map(c => [c.id, c]))
+  const nivelLabels = { 1: 'Grupo', 2: 'Subgrupo', 3: 'Cuenta', 4: 'Subcuenta' }
+  const rows = lista.map(c => ({
+    'Código': c.codigo,
+    'Nombre': c.nombre,
+    'Tipo': c.tipo || '',
+    'Naturaleza': c.naturaleza || '',
+    'Nivel': nivelLabels[c.nivel] || c.nivel || '',
+    'Clase': c.es_detalle ? 'Detalle' : 'Grupo',
+    'Cuenta padre': porId[c.cuenta_padre]?.codigo || '',
+    'Nombre cuenta padre': porId[c.cuenta_padre]?.nombre || '',
+    'Uso de la cuenta': c.descripcion_uso || ''
+  }))
+  const ws = window.XLSX.utils.json_to_sheet(rows)
+  ws['!cols'] = [{ wch: 14 }, { wch: 50 }, { wch: 10 }, { wch: 11 }, { wch: 11 }, { wch: 9 }, { wch: 13 }, { wch: 40 }, { wch: 60 }]
+  ws['!autofilter'] = { ref: ws['!ref'] }
+  const wb = window.XLSX.utils.book_new()
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Catálogo')
+  const fecha = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
+  window.XLSX.writeFile(wb, `Catalogo_cuentas_${fecha}.xlsx`)
+  toast(`Catálogo descargado (${rows.length} cuentas)`, 'success')
+}
+
 window.filtrarTipo = (btn, tipo) => {
   filtroTipo = tipo
   document.querySelectorAll('.cat-filter').forEach(b => b.classList.remove('active'))

@@ -78,11 +78,16 @@
     // ── Ventas por centro ──
     const fiscales = (ventas || []).filter(v => v.incluir_fiscal !== false)
     const porCentro = {}
+    // Redondeo de Alpha: facturas cuyo total no es gravado + exento + ISV (ej. 211.80 contra 184.18 + 27.63).
+    // La partida de ventas se arma con gravado + exento + ISV, así que lo cobrado trae esa diferencia.
+    let redondeo = 0; const redFacts = []
     const fila = (k) => porCentro[k] || (porCentro[k] = { centro: k, n: 0, bruto: 0, desc: 0, neto: 0, grav: 0, ex: 0, isv: 0, total: 0, nNC: 0, devol: 0, devolIsv: 0 })
     for (const v of fiscales) {
       const f = fila(nomCC[v.centro_costo_id] || 'Sin centro')
       const total = +v.total || 0, isv = +v.isv || 0, desc = +v.descuento || 0
       if (esNota(v)) { f.nNC++; f.devol += -(total - isv); f.devolIsv += -isv; continue }
+      const red = r2((+v.total_gravado || 0) + (+v.total_exento || 0) + isv - total)
+      if (red) { redondeo += red; redFacts.push(`${v.factura_electronica}: ${red > 0 ? '+' : ''}${red.toFixed(2)}`) }
       f.n++; f.bruto += total - isv + desc; f.desc += desc; f.neto += total - isv
       f.grav += +v.total_gravado || 0; f.ex += +v.total_exento || 0; f.isv += isv; f.total += total
     }
@@ -107,8 +112,9 @@
     const orden = ['bancos', 'comision', 'credito', 'saldo', 'otros', 'efectivo'].filter(k => cob[k])
     const totalCobrado = orden.reduce((a, k) => a + cob[k].total, 0)
     const esperado = T.total - (T.devol + T.devolIsv)
-    const dif = r2(esperado - totalCobrado)
-    ultimo = { fecha, centros, T, cob, orden, totalCobrado, esperado, dif, partidas: partidas || [] }
+    redondeo = r2(redondeo)
+    const dif = r2(esperado + redondeo - totalCobrado)
+    ultimo = { fecha, centros, T, cob, orden, totalCobrado, esperado, dif, redondeo, partidas: partidas || [] }
 
     // ── Pintar ──
     const n = (v, neg) => `<td style="text-align:right;font-family:var(--mono)${neg && v ? ';color:var(--red)' : ''}">${neg && v ? '−' : ''}${fmt(Math.abs(v))}</td>`
@@ -147,6 +153,7 @@
               : `<tr class="cd-grupo" style="font-weight:600;cursor:pointer" onclick="cdToggle('${k}')" title="Clic para ver el detalle"><td><span class="cd-flecha" id="cd-fl-${k}">${abiertos.has(k) ? '▾' : '▸'}</span> ${ETIQ[k]}</td>${sg(cob[k].total)}</tr>` +
               Object.entries(cob[k].det).map(([d, v]) => `<tr class="cd-det cd-det-${k}" style="font-size:12px;color:var(--text2)${abiertos.has(k) ? '' : ';display:none'}"><td style="padding-left:26px">${esc(d)}</td>${sg(v)}</tr>`).join('')).join('')}
             <tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total cobrado</td>${sg(totalCobrado)}</tr>
+            ${redondeo ? `<tr style="font-size:12px;color:var(--text3)"><td>Redondeo de Alpha (total de factura ≠ gravado + exento + ISV): ${esc(redFacts.join(' · '))}</td>${sg(-redondeo)}</tr>` : ''}
             <tr style="font-weight:700;color:${Math.abs(dif) < 0.01 ? 'var(--green)' : 'var(--red)'}"><td>${Math.abs(dif) < 0.01 ? '✓ Cuadra con lo facturado neto' : 'Diferencia contra lo facturado neto'}</td>${sg(dif)}</tr>
           </tbody>
         </table></div>
@@ -194,7 +201,9 @@
     }))
     const cobros = u.orden.flatMap(k => [{ Concepto: ETIQ[k], Detalle: '', Monto: r2(u.cob[k].total) },
       ...(SIN_DETALLE.has(k) ? [] : Object.entries(u.cob[k].det)).map(([d, v]) => ({ Concepto: '', Detalle: d, Monto: r2(v) }))])
-    cobros.push({ Concepto: 'Total cobrado', Detalle: '', Monto: r2(u.totalCobrado) }, { Concepto: 'Diferencia', Detalle: '', Monto: u.dif })
+    cobros.push({ Concepto: 'Total cobrado', Detalle: '', Monto: r2(u.totalCobrado) })
+    if (u.redondeo) cobros.push({ Concepto: 'Redondeo de Alpha en facturas', Detalle: '', Monto: -u.redondeo })
+    cobros.push({ Concepto: 'Diferencia', Detalle: '', Monto: u.dif })
     const wb = window.XLSX.utils.book_new()
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(ventas), 'Ventas')
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(cobros), 'Cobros')

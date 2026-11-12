@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v152-partida-ventas'
+const CACHE_NAME = 'contamax-v154-catalogo-excel'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
