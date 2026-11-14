@@ -501,11 +501,7 @@ async function loadEmpresas() {
       sel.appendChild(opt)
     })
   })
-  // Si usuario tiene empresa asignada, preseleccionar
-  if (currentProfile?.centro_costo_id) {
-    const sel = document.getElementById('fc-empresa')
-    if (sel) sel.value = currentProfile.centro_costo_id
-  }
+  // El centro de costo de Registrar compra NO se preselecciona: quien registra lo elige cada vez
 }
 
 // ── TIPOS DE ORIGEN ──
@@ -1425,6 +1421,7 @@ window.resetForm = () => {
   ;['fc-numero','fc-proveedor-nombre','fc-rtn','fc-quien-pidio','fc-descripcion','fc-monto','fc-tipo-gasto','fc-entregado-a','fc-obs'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = ''
   })
+  const ce = document.getElementById('fc-empresa'); if (ce) ce.value = ''
   document.getElementById('fc-file').value = ''
   document.getElementById('upload-preview').classList.add('hidden')
   document.getElementById('upload-zone').classList.remove('has-file')
@@ -1536,12 +1533,14 @@ window.guardarCompra = async () => {
   const entregadoA = (document.getElementById('fc-entregado-a').value || '').toUpperCase().trim()
   const formaPago = document.getElementById('fc-pago').value
   const rtn = (document.getElementById('fc-rtn')?.value || '').trim()
+  const centroId = document.getElementById('fc-empresa')?.value || ''
 
   const btn = document.getElementById('btn-guardar-compra')
   if (!fecha) { toast('Ingresa la fecha de la factura', 'error'); return }
   if (!numero) { toast('Ingresa el número de factura', 'error'); return }
   if (!proveedorNombre) { toast('Ingresa el nombre del proveedor', 'error'); return }
   if (!quienPidio) { toast('Ingresa quién pidió la compra', 'error'); return }
+  if (!centroId) { toast('Elegí el centro de costo para el cual es el gasto', 'error'); document.getElementById('fc-empresa')?.focus(); return }
   if (!descripcion) { toast('Ingresa la descripción de la compra', 'error'); return }
   if (monto <= 0) { toast('El monto debe ser mayor a 0', 'error'); return }
   if (!tipoGasto) { toast('Ingresa el tipo de gasto', 'error'); return }
@@ -1600,6 +1599,7 @@ window.guardarCompra = async () => {
     entregado_a: entregadoA,
     rtn_proveedor: rtn || null,
     sucursal: sucursalElegida,
+    centro_costo_id: centroId,
     proveedor_verificado: false,
     estado: 'pendiente'
   }
@@ -1776,6 +1776,7 @@ window.filtrarPendientes = () => {
         </div>
       </div>
       <div class="pi-right" style="display:flex;align-items:center;gap:12px">
+        <button class="btn btn-ghost" onclick="event.stopPropagation();verFormularioFactura('${f.id}')" style="padding:5px 10px;font-size:11px" title="Ver el formulario tal como se llenó al registrar la compra, con la imagen">👁 Ver</button>
         ${esContable && pm && !pm.anulada && !pm.dudoso && pm.ids?.[0] ? `<button class="btn btn-ghost" onclick="event.stopPropagation();editarPartida('${pm.ids[0]}')" style="padding:5px 12px;font-size:11px" title="Corregir la partida #${pm.nums[0]} de esta factura (montos, ISV, número, cuentas). El libro de compras se actualiza al guardar.">✎ Editar</button>` : ''}
         ${pendienteDoc ? `<button class="btn btn-ghost" onclick="event.stopPropagation();marcarRecibida('${f.id}')" style="padding:5px 12px;font-size:11px;color:var(--green);border-color:var(--green)">✓ Recibida</button>` : ''}
         ${(currentProfile?.rol === 'super_admin' && f.estado === 'pendiente') ? `<button class="btn btn-ghost" onclick="event.stopPropagation();eliminarFactura('${f.id}')" style="padding:5px 10px;font-size:11px;color:var(--red);border-color:var(--red)" title="Eliminar factura (re-ingresar por compras)"><svg class=ico aria-hidden=true><use href=#i-trash></use></svg> Eliminar</button>` : ''}
@@ -1793,6 +1794,73 @@ window.filtrarPendientes = () => {
       </div>
     </div>`
   }).join('') + '</div>'
+}
+
+// Formulario de "Registrar compra" tal como se llenó (solo lectura), con la imagen adjunta
+window.verFormularioFactura = async (facturaId) => {
+  const f = pendientesData.find(x => x.id === facturaId)
+  if (!f) return
+  const e = (v) => escAttr(v == null || v === '' ? '—' : String(v))
+  const fmtM = (v) => (parseFloat(v) || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const fh = (v) => v ? new Date(v).toLocaleString('es-HN', { dateStyle: 'short', timeStyle: 'short' }) : '—'
+  const tipoLabel = { repuestos: 'Repuestos/Mat.', servicios: 'Servicios', combustible: 'Combustible', mantenimiento: 'Mant. Vehículo', admin: 'Administrativo', otro: 'Otro' }
+  const pagoLabel = { contado: 'Contado (efectivo)', credito: 'Crédito', tarjeta: 'Tarjeta' }
+  let prov = f.proveedor?.nombre || ''
+  if (!prov) { const m = (f.observaciones || '').match(/\[IMP-COMPRA\]\s*(.+?)\s*·/); if (m) prov = m[1] }
+  const pm = pendientesPartidaMap[f.id]
+  const campo = (lbl, val, ancho) => `<div style="${ancho ? 'grid-column:1/-1;' : ''}"><div style="font-size:10.5px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">${lbl}</div><div style="font-size:13.5px;padding:3px 0 2px;border-bottom:1px solid var(--border);white-space:pre-wrap">${val}</div></div>`
+  const ov = document.createElement('div')
+  ov.className = 'modal-overlay open'
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+  ov.onclick = (ev) => { if (ev.target === ov) ov.remove() }
+  ov.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);max-width:760px;width:100%;max-height:92vh;overflow:auto;padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:700">🧾 Formulario de la compra</div>
+      <button class="btn btn-ghost" style="padding:4px 10px" onclick="this.closest('.modal-overlay').remove()">✕</button>
+    </div>
+    <div style="font-weight:600;font-size:12px;color:var(--gold);margin-bottom:6px">DATOS DEL ENTREGADOR</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:16px">
+      ${campo('Proveedor / razón social', e(prov))}
+      ${campo('RTN del proveedor', e(f.rtn_proveedor))}
+      ${campo('¿Quién pidió la compra?', e(f.quien_pidio))}
+      ${campo('Sucursal / centro', e(f.centro_costo?.nombre || f.sucursal))}
+      ${campo('Descripción de la compra', e(f.descripcion_compra), true)}
+    </div>
+    <div style="font-weight:600;font-size:12px;color:var(--gold);margin-bottom:6px">FACTURA</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:16px">
+      ${campo('Fecha factura', e(f.fecha_factura))}
+      ${campo('N° de factura', e(f.numero_factura))}
+      ${campo('Monto (L.)', 'L. ' + fmtM(f.total) + (parseFloat(f.isv) ? ` <span style="color:var(--text3);font-size:12px">(subtotal ${fmtM(f.subtotal)} · ISV ${fmtM(f.isv)})</span>` : ''))}
+      ${campo('Tipo de gasto', e(tipoLabel[f.tipo_gasto] || f.tipo_gasto))}
+      ${campo('Forma de pago', e(pagoLabel[f.forma_pago] || f.forma_pago))}
+      ${campo('¿A quién se le entregó?', e(f.entregado_a))}
+      ${campo('Observaciones', e(f.observaciones), true)}
+    </div>
+    <div style="font-weight:600;font-size:12px;color:var(--gold);margin-bottom:6px">REGISTRO</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:16px">
+      ${campo('Registrado por', e(f.registrado?.nombre))}
+      ${campo('Fecha de registro', fh(f.created_at))}
+      ${campo('Estado', e(f.estado) + (f.recibida ? ' · documento recibido' + (f._recibidaNombre ? ' por ' + escAttr(f._recibidaNombre) : '') : ''))}
+      ${campo('Partida', pm ? '#' + pm.nums.join(', #') + (pm.anulada ? ' (anulada)' : '') : '—')}
+    </div>
+    <div style="font-weight:600;font-size:12px;color:var(--gold);margin-bottom:6px">IMAGEN DE FACTURA</div>
+    <div id="vf-img" style="text-align:center;padding:16px;color:var(--text3);background:var(--bg3);border-radius:var(--radius)">${f.foto_url ? 'Cargando imagen…' : 'Sin imagen adjunta'}</div>
+  </div>`
+  document.body.appendChild(ov)
+  if (f.foto_url) {
+    const box = ov.querySelector('#vf-img')
+    const paths = String(f.foto_url).split(',').map(p => p.trim()).filter(Boolean)
+    const htmls = []
+    for (const p of paths) {
+      const { data } = await sb.storage.from('facturas-compras').createSignedUrl(p, 3600)
+      const u = data?.signedUrl
+      if (!u) continue
+      htmls.push(/\.pdf(\?|$)/i.test(p)
+        ? `<a href="${u}" target="_blank" class="btn btn-ghost">📄 Abrir PDF</a>`
+        : `<img src="${u}" style="max-width:100%;max-height:520px;border-radius:var(--radius);cursor:pointer" onclick="window.open('${u}','_blank')" title="Clic para abrir en otra pestaña">`)
+    }
+    box.innerHTML = htmls.length ? htmls.join('<br>') : 'No se pudo abrir la imagen'
+  }
 }
 
 window.marcarRecibida = async (facturaId) => {
@@ -12287,6 +12355,35 @@ window.parsearFacturasTaxis = async () => {
     : `📄 "${file.name}" → las ventas van a 410301-004 · centro Tecnicentro (filas "FACTURAS DE YONKER" → Yonker). Mano de obra → Taxis.`
   alertsEl.prepend(regla)
 
+  // Cuentas a elegir: vacío = automático (lo de siempre). Sirve para cargar el Excel a cualquier cuenta.
+  if (!cuentasDetalle.length) {
+    const { data } = await sb.from('catalogo_cuentas').select('id,codigo,nombre,tipo').eq('es_detalle', true).order('codigo')
+    cuentasDetalle = data || []
+  }
+  const optCC = (sel) => empresas.map(e => `<option value="${e.id}"${sel(e) ? ' selected' : ''}>${escAttr(e.nombre)}</option>`).join('')
+  const elegir = document.createElement('div')
+  elegir.style.cssText = 'background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;font-size:13px'
+  elegir.innerHTML = `
+    <div style="font-weight:600;margin-bottom:8px">Cuentas de la partida <span style="font-weight:400;color:var(--text3);font-size:12px">· en blanco = automático</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label style="font-size:11px;color:var(--text3)">LÍNEAS DEL DETALLE (DÉBITO)</label>
+        <input type="text" id="ift-cta-deb" list="ift-dl-ctas" placeholder="Automática: VIN → 110501-001 · Taxi/VIP → 510101-001" style="width:100%">
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">El centro de costo de cada línea se mantiene (propietario del VIN o Taxis).</div>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3)">CONTRAPARTIDA (CRÉDITO)</label>
+        <input type="text" id="ift-cta-cre" list="ift-dl-ctas" placeholder="Automática: resumen del Excel (mano de obra / facturas)" style="width:100%"
+          oninput="document.getElementById('ift-cc-cre-wrap').style.display=this.value.trim()?'':'none'">
+        <div id="ift-cc-cre-wrap" style="display:none;margin-top:6px">
+          <select id="ift-cc-cre" style="width:100%">${optCC(e => esArchivoYonker ? /yonker/i.test(e.nombre) : /taxi/i.test(e.nombre))}</select>
+          <div style="font-size:11px;color:var(--text3);margin-top:3px">Una sola línea por día por el total del detalle: la partida queda cuadrada y no se usa el resumen del Excel.</div>
+        </div>
+      </div>
+    </div>
+    <datalist id="ift-dl-ctas">${cuentasDetalle.map(c => `<option value="${escAttr(c.codigo + ' · ' + c.nombre)}"></option>`).join('')}</datalist>`
+  regla.after(elegir)
+
   // Preview table
   const fmtL = (v) => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const tbody = document.getElementById('tbody-ift-preview')
@@ -12344,6 +12441,20 @@ window.importarFacturasTaxis = async () => {
 
   if (!ctaCosto) { toast('Cuenta 510101-001 no encontrada en el catálogo', 'error'); btn.disabled = false; btn.textContent = 'Importar y generar partidas →'; return }
 
+  // Cuentas elegidas en la pantalla (vacío = automático). Se acepta "código · nombre" o solo el código.
+  const leerCta = (id) => {
+    const t = (document.getElementById(id)?.value || '').trim()
+    if (!t) return { vacio: true }
+    const cod = t.split('·')[0].trim()
+    const c = cuentasDetalle.find(x => x.codigo === cod) || cuentasDetalle.find(x => (x.codigo + ' · ' + x.nombre) === t)
+    return c ? { cta: c } : { error: t }
+  }
+  const elegDeb = leerCta('ift-cta-deb'), elegCre = leerCta('ift-cta-cre')
+  const malas = [elegDeb.error && 'débito: ' + elegDeb.error, elegCre.error && 'contrapartida: ' + elegCre.error].filter(Boolean)
+  if (malas.length) { toast('Cuenta no encontrada (' + malas.join(' · ') + '). Elegila de la lista.', 'error'); btn.disabled = false; btn.textContent = 'Importar y generar partidas →'; return }
+  const ctaDebElegida = elegDeb.cta || null, ctaCreElegida = elegCre.cta || null
+  const ccCreElegido = ctaCreElegida ? (empresas.find(e => e.id === document.getElementById('ift-cc-cre')?.value) || null) : null
+
   // Centros: mano de obra → Taxis; ventas → Tecnicentro, o Yonker si el archivo/fila es de Yonker
   const centroTaxis = empresas.find(e => e.nombre.toUpperCase().includes('TAXI'))
   const ccTecni = empresas.find(e => /tecni/i.test(e.nombre) && !/yonker|taxi/i.test(e.nombre))
@@ -12357,7 +12468,7 @@ window.importarFacturasTaxis = async () => {
   }
 
   // Días descuadrados (detalle ≠ resumen del Excel): se importan solo si confirmás
-  const descuadrados = dias.filter(d => d.lineas.length && !d.duplicadas && d.descuadre)
+  const descuadrados = ctaCreElegida ? [] : dias.filter(d => d.lineas.length && !d.duplicadas && d.descuadre)
   if (descuadrados.length && !confirm('Estos días no cuadran (detalle vs. resumen del Excel):\n\n' +
       descuadrados.map(d => `${d.fecha}: diferencia L. ${d.descuadre.toFixed(2)}`).join('\n') +
       '\n\nSe crearán como borrador descuadrado. ¿Continuar?')) {
@@ -12408,9 +12519,9 @@ window.importarFacturasTaxis = async () => {
       return {
         partida_id: partida.id,
         tipo: 'debito',
-        cuenta_id: esVIN ? (ctaInventario?.id || null) : (ctaCosto?.id || null),
-        cuenta_codigo: esVIN ? FACT_TAXIS_CUENTAS.inventario.codigo : FACT_TAXIS_CUENTAS.costo_mercaderia.codigo,
-        cuenta_nombre: esVIN ? FACT_TAXIS_CUENTAS.inventario.nombre : FACT_TAXIS_CUENTAS.costo_mercaderia.nombre,
+        cuenta_id: ctaDebElegida ? ctaDebElegida.id : esVIN ? (ctaInventario?.id || null) : (ctaCosto?.id || null),
+        cuenta_codigo: ctaDebElegida ? ctaDebElegida.codigo : esVIN ? FACT_TAXIS_CUENTAS.inventario.codigo : FACT_TAXIS_CUENTAS.costo_mercaderia.codigo,
+        cuenta_nombre: ctaDebElegida ? ctaDebElegida.nombre : esVIN ? FACT_TAXIS_CUENTAS.inventario.nombre : FACT_TAXIS_CUENTAS.costo_mercaderia.nombre,
         monto: l.monto,
         descripcion: l.descripcion,
         centro_costo_id: ccId,
@@ -12423,7 +12534,11 @@ window.importarFacturasTaxis = async () => {
     //   archivo "yonker" o fila "FACTURAS DE YONKER" → 410301-002 · Yonker
     //   resto de "FACTURAS DE …" → 410301-004 · Tecnicentro
     const creditos = new Map()
-    for (const r of dia.resumen) {
+    if (ctaCreElegida) {
+      // Contrapartida elegida: una línea por el total del detalle (el resumen del Excel no se usa)
+      creditos.set('elegida', { cta: ctaCreElegida, cc: ccCreElegido || { id: null }, desc: `Facturas taxis ${dia.fecha} · ${ctaCreElegida.nombre}`, monto: totalDebitos })
+    }
+    for (const r of (ctaCreElegida ? [] : dia.resumen)) {
       let cta, cc, desc
       if (r.concepto === 'MANO DE OBRA') { cta = FACT_TAXIS_CUENTAS.mano_obra; cc = centroTaxis; desc = `Mano de obra taxis ${dia.fecha}` }
       else if (esArchivoYonker || /YONKER/i.test(r.concepto)) { cta = FACT_TAXIS_CUENTAS.factura_yonker; cc = ccYonker; desc = `Facturas de yonker ${dia.fecha}` }
@@ -12436,7 +12551,7 @@ window.importarFacturasTaxis = async () => {
       lineasPartida.push({
         partida_id: partida.id,
         tipo: 'credito',
-        cuenta_id: getCuenta(c.cta.codigo)?.id || null,
+        cuenta_id: c.cta.id || getCuenta(c.cta.codigo)?.id || null,
         cuenta_codigo: c.cta.codigo,
         cuenta_nombre: c.cta.nombre,
         monto: Math.round(c.monto * 100) / 100,
