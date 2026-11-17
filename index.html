@@ -173,6 +173,9 @@
           <div class="nav-item hidden" id="nav-revision-taxis" onclick="showView('revision-taxis','Revisión de entregas de Taxis');initRevisionTaxis()">
             <svg class="ico nav-svg" aria-hidden=true><use href=#i-clipboard-check></use></svg>Revisión Taxis
           </div>
+          <div class="nav-item hidden" id="nav-timers-taxis" onclick="showView('timers-taxis','Timers Taxis')">
+            <svg class="ico nav-svg" aria-hidden=true><use href=#i-calendar-due></use></svg>Timers Taxis
+          </div>
         </div>
       </div>
 
@@ -1733,6 +1736,17 @@
           <div id="bc-resumen" style="margin-bottom:16px"></div>
           <div id="bc-tabla" class="table-wrap" style="max-height:600px;overflow-y:auto"></div>
         </div>
+      </div>
+
+      <!-- TIMERS TAXIS -->
+      <div class="view" id="view-timers-taxis">
+        <div class="page-header">
+          <div>
+            <div class="page-title">⏱ Timers Taxis</div>
+            <div class="page-sub">Cortes programados en eWeLink, timers desactivados, cortes movidos y hace cuánto el bot no programa cada unidad</div>
+          </div>
+        </div>
+        <div id="tt-contenido"></div>
       </div>
 
       <!-- BOLETAS DE COMPRA -->
@@ -3971,7 +3985,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261117a"></script>
+<script type="module" src="js/app.js?v=20261117b"></script>
 <script type="module" src="js/reportes.js?v=20261112a"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
@@ -3985,6 +3999,7 @@
 <script defer src="js/financiamiento.js?v=20261029a"></script>
 <script defer src="js/cierre_recibos.js?v=20261102a"></script>
 <script defer src="js/boletas_compra.js?v=20261111a"></script>
+<script defer src="js/timers_taxis.js?v=20261117n"></script>
 <script defer src="js/cierre_diario.js?v=20261111e"></script>
 <script defer src="js/vencimientos.js?v=20260921t"></script>
 <script defer src="js/rrhh.js?v=20261117a"></script>

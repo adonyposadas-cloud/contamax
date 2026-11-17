@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v160-partida-anulada'
+const CACHE_NAME = 'contamax-v174-timers-repetidos'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

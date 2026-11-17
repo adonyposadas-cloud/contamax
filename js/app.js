@@ -177,8 +177,8 @@ function setupUI() {
   // ── PERMISOS POR ROL ──
   // Definir qué nav-items ve cada rol
   const permisos = {
-    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
-    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-declaracion-isv'],
+    super_admin: ['nav-usuarios', 'nav-compras', 'nav-pendientes', 'nav-caja', 'nav-caja-chica', 'nav-cxp', 'nav-cuentas-cobrar', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-tipos-origen', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-timers-taxis', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-config-planilla', 'nav-actividad', 'nav-declaracion-isv', 'nav-export-fiscal', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-yonker', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-jefe-pista', 'nav-cotizador', 'nav-estados-fisicos', 'nav-mecanico', 'nav-precios', 'nav-checklist-config', 'nav-comisiones-dash', 'nav-cafeteria', 'nav-prospectos'],
+    contador:    ['nav-compras', 'nav-pendientes', 'nav-aprobaciones', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-importar-fact-taxis', 'nav-importar-taxis', 'nav-partidas-taxis', 'nav-unidades-taxis', 'nav-caja-chica', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-timers-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist', 'nav-concilia-taxis', 'nav-conciliacion', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-estado-resultados', 'nav-cierre-diario', 'nav-rentabilidad-taxis', 'nav-empleados', 'nav-planilla', 'nav-prestamos-emp', 'nav-asistencia', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-gastos-huerfanos', 'nav-rangos-ventas', 'nav-vacaciones', 'nav-comisiones-pago', 'nav-declaracion-isv'],
     aux_contable:['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-catalogo', 'nav-partidas', 'nav-importar', 'nav-importar-compras', 'nav-importar-costos', 'nav-importar-trucha', 'nav-caja-chica', 'nav-cxp', 'nav-auxiliar', 'nav-balance-comp', 'nav-saldos-cuentas', 'nav-balance-general', 'nav-conciliacion-puente', 'nav-proveedores', 'nav-verif-compras', 'nav-revision-taxis', 'rtx-tab-dash', 'rtx-tab-mot', 'rtx-tab-km', 'rtx-tab-hist'],
     compras:     ['nav-compras', 'nav-pendientes', 'nav-vehiculos', 'nav-jefe-pista'],
     contador_fiscal: ['nav-declaracion-isv'],
@@ -304,7 +304,7 @@ function setupUI() {
   if (sectionCotizador) sectionCotizador.classList.toggle('hidden', !visibles.includes('nav-cotizador') && !visibles.includes('nav-jefe-pista') && !visibles.includes('nav-mecanico'))
 
   // Sección Gestión de flota
-  const flotaItems = ['nav-vehiculos', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis']
+  const flotaItems = ['nav-vehiculos', 'nav-unidades-taxis', 'nav-financiamiento', 'nav-cierre-recibos', 'nav-revision-taxis', 'nav-timers-taxis']
   const sectionFlota = document.getElementById('section-flota')
   if (sectionFlota) sectionFlota.classList.toggle('hidden', !flotaItems.some(id => visibles.includes(id)))
 
@@ -413,6 +413,7 @@ window.showView = (id, label) => {
   if (id === 'cierre-recibos') initCierreMensual()
   if (id === 'vencimientos' && window.initVencimientos) window.initVencimientos()
   if (id === 'boletas-compra') window.initBoletasCompra?.()
+  if (id === 'timers-taxis') window.initTimersTaxis?.()
   if (id === 'conciliacion' && window.initConciliacion) window.initConciliacion()
   if (id === 'concilia-taxis' && window.initConciliaTaxis) window.initConciliaTaxis()
   if (id === 'conciliacion-puente' && window.initConciliaPuente) window.initConciliaPuente()
@@ -716,6 +717,7 @@ const MODULOS_CATALOGO = [
   ]},
   { grupo: 'Taxis', items: [
     ['nav-revision-taxis', 'Revisión Taxis (Solicitudes)'],
+    ['nav-timers-taxis', 'Timers Taxis (eWeLink)'],
     ['rtx-tab-dash', '— Taxis: Dashboard'],
     ['rtx-tab-mot', '— Taxis: Motoristas'],
     ['rtx-tab-km', '— Taxis: KM recorridos'],
