@@ -216,6 +216,7 @@ td{padding:12px 18px;font-size:13px;color:var(--text2)}
 .pi-status{font-size:11px;margin-top:2px}
 .pi-status.pendiente{color:var(--amber)}
 .pi-status.procesada{color:var(--green)}
+.pi-status.rechazada{color:var(--red)}
 
 /* MODAL */
 .modal-backdrop{display:none;position:fixed;inset:0;background:var(--backdrop);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(2px)}

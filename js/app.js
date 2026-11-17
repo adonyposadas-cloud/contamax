@@ -1680,15 +1680,19 @@ async function loadPendientes() {
     const docs = [...new Set(procesadas.filter(f => !f.partida_id && f.numero_factura).map(f => String(f.numero_factura).trim().toUpperCase()))]
     const porDoc = {}
     for (let i = 0; i < docs.length; i += 200) {
-      const { data: parts } = await sb.from('partidas_contables').select('id, numero_partida, numero_documento, total').in('numero_documento', docs.slice(i, i + 200))
+      const { data: parts } = await sb.from('partidas_contables').select('id, numero_partida, numero_documento, total, estado').in('numero_documento', docs.slice(i, i + 200))
       ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').trim().toUpperCase(); if (k && p.numero_partida) (porDoc[k] = porDoc[k] || []).push(p) })
     }
 
     procesadas.forEach(f => {
       const p = f.partida_id ? porId[f.partida_id] : null
       if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], ids: [p.id], total: p.total, anulada: p.estado === 'anulada', dudoso: false }; return }
-      const hit = porDoc[String(f.numero_factura || '').trim().toUpperCase()]
-      if (hit && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit.map(x => x.numero_partida), ids: hit.map(x => x.id), total: hit.length === 1 ? hit[0].total : null, anulada: false, dudoso: hit.length > 1 }
+      const hitTodas = porDoc[String(f.numero_factura || '').trim().toUpperCase()] || []
+      // Las anuladas no cuentan como la partida de la factura; si solo hay anuladas, se muestra así
+      const vivas = hitTodas.filter(x => x.estado !== 'anulada')
+      const hit = vivas.length ? vivas : hitTodas
+      const soloAnuladas = !vivas.length && hitTodas.length > 0
+      if (hit.length && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit.map(x => x.numero_partida), ids: hit.map(x => x.id), total: hit.length === 1 ? hit[0].total : null, anulada: soloAnuladas, dudoso: hit.length > 1 && !soloAnuladas }
     })
   } catch (e) { pendientesPartidaMap = {} }
   filtrarPendientes()
@@ -1697,7 +1701,8 @@ async function loadPendientes() {
 // Pendiente de documento: solo las compras a crédito que entraron por la importación del
 // libro de compras ([IMP-COMPRA]): se contabilizaron sin tener el papel en mano. Las que
 // registra Compras en la pantalla ya traen el documento, aunque la columna recibida quede en false.
-const esPendDocumento = f => f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]')
+// Con la partida anulada ya no espera documento: la compra quedó sin contabilizar.
+const esPendDocumento = f => f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]') && !pendientesPartidaMap[f.id]?.anulada
 
 window.filtrarPendientes = () => {
   const buscar = (document.getElementById('pend-buscar')?.value || '').toLowerCase().trim()
@@ -1746,6 +1751,7 @@ window.filtrarPendientes = () => {
     // Determinar estado visual
     let statusLabel, statusClass
     if (f.estado === 'pendiente') { statusLabel = 'Pendiente partida'; statusClass = 'pendiente' }
+    else if (f.estado === 'procesada' && pendientesPartidaMap[f.id]?.anulada) { statusLabel = 'Partida anulada'; statusClass = 'rechazada' }
     else if (pendienteDoc) { statusLabel = 'Pend. documento'; statusClass = 'pendiente' }
     else if (f.estado === 'procesada' && f.recibida) { statusLabel = 'Recibida ✓'; statusClass = 'procesada' }
     else if (f.estado === 'procesada') { statusLabel = 'Procesada'; statusClass = 'procesada' }
