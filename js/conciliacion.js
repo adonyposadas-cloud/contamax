@@ -1050,6 +1050,7 @@
         <button class="btn btn-ghost" onclick="window._cbAgrupar()"><svg class=ico aria-hidden=true><use href=#i-puzzle></use></svg> Agrupar N banco → 1 libro</button>
         <span style="font-size:12px;color:var(--text3)">tol. suma <input type="number" class="cb-tol-suma" value="0" min="0" step="0.01" style="width:74px;padding:3px 6px" oninput="window._cbTolCambio(this)"></span>
         <button class="btn btn-ghost" onclick="window._cbToggleConciliados()">Ver conciliados (${e.pares.length})</button>
+        <button class="btn btn-ghost" onclick="window._cbExportar()"><svg class=ico aria-hidden=true><use href=#i-file-spreadsheet></use></svg> Exportar Excel</button>
       </div>
       <div class="cb-suma-sel" style="font-size:13px;color:var(--text3);margin:-4px 0 12px;min-height:18px"></div>`
 
@@ -1245,6 +1246,113 @@
   window._cbTolCambio = (origen) => {
     for (const x of document.querySelectorAll('.cb-tol-suma')) if (x !== origen) x.value = origen.value
     window._cbSumaSel()
+  }
+
+  // Exportar la conciliación a Excel. La hoja que importa es "Resumen": no es un
+  // volcado de datos sino el informe de partidas en tránsito, o sea POR QUÉ no
+  // cuadra. Cierra con una línea de "sin explicar" que tiene que dar cero; si no
+  // da cero, hay algo que ni el banco ni el libro explican y hay que buscarlo.
+  window._cbExportar = () => {
+    const e = estadoConc
+    if (!e) { window.toast?.('Primero conciliá', 'error'); return }
+    const XL = window.XLSX
+    if (!XL) { window.toast?.('No se pudo cargar el componente de Excel', 'error'); return }
+
+    // Con signo: ingreso suma, egreso resta. Así las columnas se pueden sumar
+    // en Excel sin tener que interpretar la palabra "egreso".
+    const signo = (m) => (m.tipo === 'ingreso' ? 1 : -1) * r2(Math.abs(Number(m.monto) || 0))
+    const suma = (arr) => r2((arr || []).reduce((s, m) => s + signo(m), 0))
+
+    const netoSoloBanco = suma(e.soloBanco)
+    const netoSoloLibro = suma(e.soloLibro)
+    const dif = r2(e.saldoBancoNeto - e.saldoLibroNeto)
+    const explicado = r2(netoSoloBanco - netoSoloLibro)
+    const gi = e.gruposIncompletos || []
+    const brechaGrupos = r2(gi.reduce((s, g) => s + Number(g.sinBanco || 0) + Number(g.sobra || 0), 0))
+    const sinExplicar = r2(dif - explicado - brechaGrupos)
+
+    const quien = window._currentProfile?.()?.nombre || window._currentProfile?.()?.email || ''
+    const hoy = new Date().toISOString().slice(0, 10)
+
+    const resumen = [
+      ['CONCILIACIÓN BANCARIA'],
+      [],
+      ['Cuenta', `${e.cuenta || ''} ${e.cuentaNombre || ''}`.trim()],
+      ['Banco (formato)', e.bancoId || ''],
+      ['Período del extracto', `${e.desde || ''} al ${e.hasta || ''}`],
+      ['Tolerancia de días', e.tol ?? ''],
+      ['Generado', `${hoy}${quien ? ' por ' + quien : ''}`],
+      [],
+      ['MOVIMIENTO NETO DEL PERÍODO', 'Movs.', 'Monto'],
+      ['Según el estado de cuenta del banco', (e.banco || []).length, r2(e.saldoBancoNeto)],
+      ['Según el libro (contabilidad)', (e.libro || []).length, r2(e.saldoLibroNeto)],
+      ['DIFERENCIA', '', dif],
+      [],
+      ['PARTIDAS EN TRÁNSITO — lo que explica la diferencia', 'Movs.', 'Monto'],
+      ['(+) En el banco y NO en el libro', (e.soloBanco || []).length, netoSoloBanco],
+      ['(−) En el libro y NO en el banco', (e.soloLibro || []).length, -netoSoloLibro],
+      ['Subtotal explicado por partidas en tránsito', '', explicado],
+      ['Brecha de grupos incompletos', gi.length, brechaGrupos],
+      ['SIN EXPLICAR (tiene que ser 0.00)', '', sinExplicar],
+      [],
+      ['Conciliados', (e.pares || []).length, ''],
+      [],
+      [Math.abs(sinExplicar) < 0.01
+        ? 'La diferencia queda explicada por completo con las partidas en tránsito del detalle.'
+        : 'ATENCIÓN: queda un monto sin explicar. No sale ni del banco ni del libro: revisar antes de dar por buena la conciliación.'],
+    ]
+
+    const filaMovExp = (m) => ({
+      Fecha: m.fecha || '',
+      Descripción: m.descripcion || '',
+      Partida: m.numero_partida ? '#' + m.numero_partida : '',
+      Tipo: m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
+      Monto: r2(Math.abs(Number(m.monto) || 0)),
+      'Monto con signo': signo(m),
+    })
+
+    const wb = XL.utils.book_new()
+    const hoja = (nombre, datos, cols) => {
+      const ws = !datos.length ? XL.utils.aoa_to_sheet([['(sin movimientos)']])
+        : (Array.isArray(datos[0]) ? XL.utils.aoa_to_sheet(datos) : XL.utils.json_to_sheet(datos))
+      if (cols) ws['!cols'] = cols.map(w => ({ wch: w }))
+      XL.utils.book_append_sheet(wb, ws, nombre)
+    }
+
+    hoja('Resumen', resumen, [46, 10, 16])
+    hoja('En tránsito banco', (e.soloBanco || []).map(filaMovExp), [12, 52, 10, 10, 14, 16])
+    hoja('En tránsito libro', (e.soloLibro || []).map(filaMovExp), [12, 52, 10, 10, 14, 16])
+    hoja('Conciliados', (e.pares || []).map(p => ({
+      'Fecha banco': p.banco.fecha || '',
+      'Descripción banco': p.banco.descripcion || '',
+      'Fecha libro': p.libro.fecha || '',
+      Partida: p.libro.numero_partida ? '#' + p.libro.numero_partida : '',
+      Tipo: p.banco.tipo === 'ingreso' ? 'Ingreso' : 'Egreso',
+      Monto: r2(Math.abs(Number(p.banco.monto) || 0)),
+      'Dias desfase': p.dias ?? '',
+      Cómo: p.porGrupo ? 'Grupo' : (p.porMarca ? 'Marca guardada' : 'Automático'),
+    })), [12, 46, 12, 10, 10, 14, 12, 16])
+
+    const faltan = marcasFaltantes(e.marcas, e.banco)
+    if (gi.length || faltan.length) {
+      const alertas = [['ALERTAS'], []]
+      if (faltan.length) {
+        alertas.push(['Conciliados que ya NO están en el extracto — el banco los eliminó o revirtió'])
+        alertas.push(['Fecha', 'Descripción', 'Partida', 'Monto'])
+        for (const m of faltan) alertas.push([m.mov_fecha || '', m.mov_descripcion || '', m.partida_numero ? '#' + m.partida_numero : '', r2(Number(m.mov_monto) || 0)])
+        alertas.push([])
+      }
+      if (gi.length) {
+        alertas.push(['Grupos incompletos — la partida y el extracto no suman lo mismo'])
+        alertas.push(['Partida', 'Que el banco ya no trae', 'De marcas perdidas', 'Que el extracto trae de más'])
+        for (const g of gi) alertas.push([g.partida_numero ? '#' + g.partida_numero : '', r2(Number(g.sinBanco) || 0), r2(Number(g.sinMarca) || 0), r2(Number(g.sobra) || 0)])
+      }
+      hoja('Alertas', alertas, [40, 26, 22, 26])
+    }
+
+    const limpio = String(e.cuenta || 'cuenta').replace(/[^\w-]/g, '')
+    XL.writeFile(wb, `Conciliacion_${limpio}_${e.desde}_al_${e.hasta}.xlsx`)
+    window.toast?.('Excel generado ✓', 'success')
   }
 
   window._cbToggleConciliados = () => {

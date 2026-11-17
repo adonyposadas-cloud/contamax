@@ -1284,11 +1284,18 @@ window.generarPlanilla = async () => {
     if (error) throw error
     incapacidadesPeriodo = data || []
   } catch (err) { window.toast?.('Aviso: no se pudieron leer las incapacidades → ' + err.message + '. Revisá a quien no tenga marcas.', 'error') }
+  // Quien no aparece por ningún lado cae al valor por omisión de 15 días
+  // pagados como trabajados. Con permisos o incapacidad ya está cubierto; sin
+  // nada, es un empleado del que no se sabe NADA en toda la quincena y hay que
+  // mirarlo a mano, porque el sobrepago es silencioso (el neto no lo delata).
+  window._plSinRastro = []
   const asistenciaDe = (e) => {
     const a = asistencia.find(x => x.empleado_id === e.id)
     if (a) return a
     const inc = window._incapacidadEnPeriodo?.(e.id, e.nombre, incapacidadesPeriodo, ini, fin)
-    return inc?.dias ? { diasPagados: 15, diasIncapacidad: inc.dias, diasIncapEmpresa: inc.empresa } : null
+    if (inc?.dias) return { diasPagados: 15, diasIncapacidad: inc.dias, diasIncapEmpresa: inc.empresa }
+    window._plSinRastro.push(e.nombre)
+    return null
   }
 
   // Salario partido: el faltante de ANTICIPOS que la general no alcanzó a cobrar (por el piso
@@ -2523,6 +2530,18 @@ window.aprobarPlanilla = async () => {
     if (!confirm('⚠️ ATENCIÓN: no hay asistencia guardada para este período.\n\n' +
       'Todos los empleados se van a pagar con 15 días (quincena completa), sin faltas ni descuentos.\n\n' +
       '¿Continuar de todos modos?')) return
+  }
+  // Y el caso de a uno: sin marcas, sin permisos y sin incapacidad no hay NADA
+  // que diga qué hizo esa persona en la quincena, así que se le pagan 15 días
+  // como trabajados. El neto no lo delata; hay que mirarlo a mano.
+  const _sinRastro = window._plSinRastro || []
+  if (_sinRastro.length) {
+    if (!confirm(`⚠️ ${_sinRastro.length} empleado(s) sin NINGÚN dato en el período:\n\n · ` +
+      _sinRastro.slice(0, 10).join('\n · ') +
+      (_sinRastro.length > 10 ? `\n · …y ${_sinRastro.length - 10} más` : '') +
+      '\n\nNo tienen marcas, ni permisos, ni incapacidad. Se les pagan 15 días como ' +
+      'trabajados.\n\nSi alguno estuvo de vacaciones o ausente, cancelá y registrale el ' +
+      'permiso primero.\n\n¿Aprobar de todos modos?')) return
   }
   if (!confirm('¿Aprobar esta planilla? Se rebajará del saldo de vacaciones los días cubiertos en esta quincena.')) return
 

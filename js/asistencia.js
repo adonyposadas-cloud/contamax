@@ -1038,8 +1038,10 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
   const { data: incapacidades } = await getSb().from('permisos_empleados')
     .select('*').eq('eliminado', false).eq('tipo', 'incapacidad')
 
-  // es_socio por empleado (socios no sufren deducción de días)
-  const empIds = [...new Set(data.map(r => r.empleado_id).filter(Boolean))]
+  // es_socio por empleado (socios no sufren deducción de días). Se incluyen los
+  // de los permisos: alguien puede no tener NINGUNA marca y aun así entrar acá.
+  const empIds = [...new Set([...data.map(r => r.empleado_id),
+                              ...(permisos || []).map(p => p.empleado_id)].filter(Boolean))]
   const sociosMap = {}
   if (empIds.length) {
     const { data: emps } = await getSb().from('empleados').select('id, es_socio').in('id', empIds)
@@ -1083,8 +1085,31 @@ window.resumenAsistenciaDesdeDB = async (anio, mes, quincena) => {
     }
   }
 
+  // Quien falta la quincena ENTERA -vacaciones, incapacidad larga, permiso sin
+  // goce- no marca el reloj ni una vez, así que no tiene filas en
+  // asistencia_reloj y no entraba a byEmp. La planilla recibía ast = null y
+  // caía en su valor por omisión: 15 días pagados COMO TRABAJADOS, sin cargar
+  // nada a vacaciones. El neto salía igual que si se le pagara bien, así que no
+  // lo delataba nada: solo se notaba en que el saldo de vacaciones no bajaba.
+  // Caso Merlin Ivan García, 01 al 15/11/2026.
+  //
+  // Se entra con los días en cero y la asistencia la resuelven los permisos:
+  // _aplicarSeptimo no les cuenta falta porque tienen permiso de día completo,
+  // y _diasPermisoVac les suma los días a cuenta de vacaciones.
+  for (const p of (permisos || [])) {
+    if (Object.values(byEmp).some(e => _matchEmpleado(e.empleado_id, e.nombre, p))) continue
+    byEmp[p.empleado_nombre] = {
+      nombre: p.empleado_nombre, empleado_id: p.empleado_id,
+      totalTarde: 0, totalHE: 0, totalNeg: 0, diasTrabajados: 0, sinSalida: [],
+      diasSinSalidaPenal: 0, sinSalidaPenalFechas: new Set(), alertas: [],
+      presentes: new Set(), salidaPorFecha: {}, es_socio: !!sociosMap[p.empleado_id],
+      sinMarcasEnElPeriodo: true,
+    }
+  }
+
   const out = []
   for (const e of Object.values(byEmp)) {
+    if (e.sinMarcasEnElPeriodo) e.alertas.push('ℹ️ Sin marcas en el período: los días salen de los permisos registrados')
     e.tardeDeducir = e.totalTarde > GRACIA_TARDE ? e.totalTarde : 0
     e.heNeto = e.totalHE                              // HE en bruto (sin neteo)
     e.minNoTrabajados = e.totalNeg                    // salidas tempranas SIN permiso → descuento de sueldo
