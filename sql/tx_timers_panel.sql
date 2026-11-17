@@ -111,7 +111,24 @@ begin
    where id = p_id and estado = 'pendiente';
 end $$;
 
--- ── Pantalla: dar o cancelar una orden (super_admin y contador) ──
+-- ── Quién puede dar órdenes: cualquiera que vea la pestaña "Timers Taxis" ──
+-- Igual que la app: super_admin siempre; si el usuario tiene casillas de módulos guardadas,
+-- manda la casilla nav-timers-taxis; si no tiene, la plantilla de su rol (contador y admin la traen).
+create or replace function public._tx_timer_puede()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from usuarios u
+     where u.auth_user_id = auth.uid()
+       and (u.rol = 'super_admin'
+         or coalesce(u.permisos_modulos::text, '') like '%nav-timers-taxis%'
+         or (u.rol in ('contador', 'admin')
+             and coalesce(nullif(nullif(u.permisos_modulos::text, '{}'), '[]'), '') = ''))
+  )
+$$;
+revoke all on function public._tx_timer_puede() from public, anon;
+grant execute on function public._tx_timer_puede() to authenticated;
+
+-- ── Pantalla: dar o cancelar una orden (quien tenga la pestaña) ──
 drop function if exists public.tx_timer_ordenar(text, timestamptz);
 drop function if exists public.tx_timer_ordenar(text, timestamptz, int, int);
 drop function if exists public.tx_timer_ordenar(text, timestamptz, int, int, text);
@@ -120,8 +137,8 @@ create or replace function public.tx_timer_ordenar(p_device_id text, p_at timest
 returns bigint language plpgsql security definer set search_path = public as $$
 declare v_uid uuid; v_nom text; v_id bigint; v_unidad text;
 begin
-  select id, nombre into v_uid, v_nom from usuarios where auth_user_id = auth.uid() and rol in ('super_admin', 'contador');
-  if v_uid is null then raise exception 'Solo super_admin o contador pueden dar órdenes a los timers'; end if;
+  if not _tx_timer_puede() then raise exception 'No tenés acceso a Timers Taxis para dar órdenes'; end if;
+  select id, nombre into v_uid, v_nom from usuarios where auth_user_id = auth.uid();
   if p_accion not in ('activar', 'desactivar') then raise exception 'Acción desconocida: %', p_accion; end if;
   if p_arranca is not null and p_arranca not in ('on', 'off') then raise exception 'Arranque inválido: %', p_arranca; end if;
   if p_arranca is not null and p_min_on is null then raise exception 'Para cambiar con qué arranca el ciclo indicá también los tiempos'; end if;
@@ -144,9 +161,7 @@ end $$;
 create or replace function public.tx_timer_cancelar(p_id bigint)
 returns void language plpgsql security definer set search_path = public as $$
 begin
-  if not exists (select 1 from usuarios where auth_user_id = auth.uid() and rol in ('super_admin', 'contador')) then
-    raise exception 'Solo super_admin o contador';
-  end if;
+  if not _tx_timer_puede() then raise exception 'No tenés acceso a Timers Taxis'; end if;
   update tx_timer_ordenes set estado = 'cancelada', detalle = 'Cancelada desde la pantalla', hecha_at = now()
    where id = p_id and estado = 'pendiente';
 end $$;
