@@ -19,6 +19,13 @@
   const DIA = 86400e3
 
   let filas = [], filtro = 'problemas', busca = '', leidoMax = null
+  let ordenCol = null, ordenDir = 1   // clic en el encabezado: unidad / corte / ultima (null = orden por alertas)
+  // Valor para ordenar; lo que no tiene dato (nunca programado, sin corte) va siempre al final
+  const valorOrden = {
+    unidad: (f) => Number(f.d.unidad) || 0,
+    corte: (f) => f.corte ? f.corte.getTime() : null,
+    ultima: (f) => f.p?.ultima_at ? new Date(f.p.ultima_at).getTime() : null
+  }
 
   const fechaHN = (d) => d ? new Date(d).toLocaleString('es-HN', { timeZone: 'America/Tegucigalpa', weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
   const hace = (d) => {
@@ -149,9 +156,18 @@
     // Con texto en el buscador se busca en TODAS las unidades (el filtro de arriba no aplica)
     const lista = filas.filter(f => q || pasaFiltro(f)).filter(f => !q || [f.d.unidad, f.d.nombre, f.u?.motorista, f.u?.propietario, f.u?.placa]
       .some(x => String(x || '').toLowerCase().includes(q)))
-      .sort(filtro === 'repetidos'
+      .sort(ordenCol
+        ? (a, b) => {
+            const x = valorOrden[ordenCol](a), y = valorOrden[ordenCol](b)
+            if (x == null && y == null) return (Number(a.d.unidad) || 0) - (Number(b.d.unidad) || 0)
+            if (x == null) return 1
+            if (y == null) return -1
+            return (x - y) * ordenDir || (Number(a.d.unidad) || 0) - (Number(b.d.unidad) || 0)
+          }
+        : filtro === 'repetidos'
         ? (a, b) => (Number(a.d.unidad) || 0) - (Number(b.d.unidad) || 0) || (b.enUso ? 1 : 0) - (a.enUso ? 1 : 0)
         : (a, b) => b.alertas.length - a.alertas.length || (Number(a.d.unidad) || 0) - (Number(b.d.unidad) || 0))
+    const th = (col, txt) => `<th style="cursor:pointer;white-space:normal" onclick="ttOrdenar_('${col}')" title="Ordenar por esta columna">${txt}${ordenCol === col ? (ordenDir === 1 ? ' ▲' : ' ▼') : ' <span style="opacity:.35">⇅</span>'}</th>`
     const cuenta = (fn) => filas.filter(f => !f.ignorar).filter(fn).length
     const chips = [
       ['problemas', 'Con alertas', cuenta(f => f.alertas.length > 0 || !!f.pend)],
@@ -186,7 +202,7 @@
       </div>
       <div class="table-wrap"><table>
         <thead><tr>
-          <th>Unidad</th><th>Dispositivo</th><th>Modo / timer</th><th>Corte programado</th><th>Última programación del bot</th><th>Alertas</th><th></th>
+          ${th('unidad', 'Unidad')}<th>Dispositivo</th><th>Modo / timer</th>${th('corte', 'Corte programado')}${th('ultima', 'Última programación del bot')}<th>Alertas</th><th></th>
         </tr></thead>
         <tbody>${lista.length ? lista.map(fila).join('') : '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--text3)">Nada en este filtro</td></tr>'}</tbody>
       </table></div>
@@ -269,6 +285,11 @@
 
   window.initTimersTaxis = () => cargar()
   window.ttFiltro = (k) => { filtro = k; pintar() }
+  // Clic en el encabezado: 1° ascendente (la más vieja primero), 2° descendente, 3° vuelve al orden por alertas
+  window.ttOrdenar_ = (col) => {
+    if (ordenCol !== col) { ordenCol = col; ordenDir = 1 } else if (ordenDir === 1) ordenDir = -1; else { ordenCol = null; ordenDir = 1 }
+    pintar()
+  }
   window.ttBuscar = (v) => { busca = v; pintar(); const i = $('tt-buscar'); if (i) { i.focus(); i.setSelectionRange(v.length, v.length) } }
 
   // Orden: activar / poner corte con la fecha elegida (siempre 19:30 de Honduras)

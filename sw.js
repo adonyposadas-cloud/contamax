@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v174-timers-repetidos'
+const CACHE_NAME = 'contamax-v175-timers-ordenar'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
