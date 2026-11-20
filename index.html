@@ -676,10 +676,12 @@
             <button class="btn btn-gold" onclick="nuevaPartida()">+ Nueva partida</button>
           </div>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
           <div class="stat-card"><div class="stat-num" id="sp-total">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--text3)"></span>Total partidas</div></div>
           <div class="stat-card"><div class="stat-num" id="sp-borrador">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--amber)"></span>Borradores</div></div>
           <div class="stat-card"><div class="stat-num" id="sp-aprobadas">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--green)"></span>Aprobadas</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-anuladas">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--red)"></span>Anuladas</div></div>
+          <div class="stat-card" id="sp-otros-card"><div class="stat-num" id="sp-otros">—</div><div class="stat-label"><span class="stat-dot" style="background:var(--blue)"></span>Pendientes</div></div>
         </div>
         <!-- FILTROS -->
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
@@ -3985,7 +3987,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261117b"></script>
+<script type="module" src="js/app.js?v=20261119a"></script>
 <script type="module" src="js/reportes.js?v=20261112a"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v175-timers-ordenar'
+const CACHE_NAME = 'contamax-v176-partidas-tarjetas'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

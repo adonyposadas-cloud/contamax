@@ -2512,11 +2512,23 @@ async function loadPartidas() {
     document.getElementById('sp-total').textContent = '0'
     document.getElementById('sp-borrador').textContent = '0'
     document.getElementById('sp-aprobadas').textContent = '0'
+    document.getElementById('sp-anuladas').textContent = '0'
+    document.getElementById('sp-otros').textContent = '0'
     return
   }
+  // Las 5 tarjetas suman el total: "Pendientes" se lleva todo lo que no es
+  // borrador/aprobada/anulada (pend. caja, pend. anulación, rechazada...).
+  const porEstado = {}
+  allPartidas.forEach(p => { porEstado[p.estado] = (porEstado[p.estado] || 0) + 1 })
+  const otros = Object.entries(porEstado).filter(([e]) => !['borrador', 'aprobada', 'anulada'].includes(e))
   document.getElementById('sp-total').textContent = allPartidas.length
-  document.getElementById('sp-borrador').textContent = allPartidas.filter(p => p.estado === 'borrador').length
-  document.getElementById('sp-aprobadas').textContent = allPartidas.filter(p => p.estado === 'aprobada').length
+  document.getElementById('sp-borrador').textContent = porEstado.borrador || 0
+  document.getElementById('sp-aprobadas').textContent = porEstado.aprobada || 0
+  document.getElementById('sp-anuladas').textContent = porEstado.anulada || 0
+  document.getElementById('sp-otros').textContent = otros.reduce((s, [, n]) => s + n, 0)
+  document.getElementById('sp-otros-card').title = otros.length
+    ? otros.map(([e, n]) => `${e.replace(/_/g, ' ')}: ${n}`).join('\n')
+    : 'Sin partidas pendientes'
   filtrarPartidas()
 }
 window.loadPartidas = loadPartidas
