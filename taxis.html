@@ -309,7 +309,12 @@
   </div>
 
 <script type="module">
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// ⚠️ CDN: esta página se quedó en esm.sh cuando app.js se pasó a jsDelivr el
+// 14/07/2026. El 20/11/2026 esm.sh dejó de responder desde la red de la oficina
+// (timeout, ERR_CONNECTION_RESET) y la página quedó MUERTA: si este import falla,
+// el módulo entero no corre, window.irModo nunca se define y los dos botones del
+// inicio no hacen nada. Sin mensaje de error: el usuario solo ve que no pasa nada.
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 const sb = createClient(
   'https://icghaqhtvutwlkhtotyv.supabase.co',
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljZ2hhcWh0dnV0d2xraHRvdHl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzOTE3MzksImV4cCI6MjA5NDk2NzczOX0.2_sioWiJuNVwDaSggnczbzCVu8IorzBsrgbwNXXz39E',
