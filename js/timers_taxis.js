@@ -49,6 +49,9 @@
     return apagando ? { on: p - dur, off: dur, arranca: 'off' } : { on: dur, off: p - dur, arranca: 'on' }
   }
   const MODO = { ciclo: 'Ciclo (intervalo)', repetir: 'Repetir (horario)', unico: 'Una sola vez', otro: 'Otro modo', 'sin timer': 'Sin timer' }
+  // El corte que anota el bot no es una fecha pelada: es la cadena del timer
+  // de eWeLink, "fecha período duración". La fecha es lo primero.
+  const corteDe = (at) => at ? new Date(String(at).split(' ')[0]) : null
 
   async function cargar () {
     const box = $('tt-contenido')
@@ -86,7 +89,7 @@
       const pend = ords.find(o => o.estado === 'pendiente')
       const ultOrd = ords.find(o => o.estado !== 'pendiente' && o.estado !== 'cancelada')
       const corte = d.ciclo_at ? new Date(d.ciclo_at) : null
-      const esperado = p?.at_nuevo ? new Date(String(p.at_nuevo).split(' ')[0]) : null
+      const esperado = corteDe(p?.at_nuevo)
       // ¿El corte es el que dejó el bot (o el de la última orden cumplida)?
       const igual = (a, b) => a && b && Math.abs(a - b) < 60000
       const porOrden = ultOrd?.estado === 'hecha' && igual(corte, new Date(ultOrd.at_nuevo)) &&
@@ -418,7 +421,7 @@
         </tr></thead>
         <tbody>${cargadas.map(r => `<tr style="border-top:1px solid var(--border)">
           <td style="padding:6px">${fechaHN(r.updated_at)}<div style="font-size:11px;color:var(--text3)">${hace(r.updated_at)}</div></td>
-          <td style="padding:6px">${fechaHN(r.at_nuevo)}</td>
+          <td style="padding:6px">${fechaHN(corteDe(r.at_nuevo))}</td>
         </tr>`).join('')}</tbody></table>
         ${cargadas.length < total ? `<div style="text-align:center;padding:10px">
           <button class="btn btn-ghost" id="tt-hist-mas" style="font-size:12px">Ver ${Math.min(PASO, total - cargadas.length)} más</button></div>` : ''}`
