@@ -232,8 +232,11 @@
     }
     if (f.movido) corteTxt += `<div style="font-size:11.5px;color:var(--amber)">⚠ el bot lo dejó en ${fechaHN(f.esperado)}</div>`
     if (f.porOrden) corteTxt += '<div style="font-size:11.5px;color:var(--text3)">puesto por orden de Contamax</div>'
+    // "12 en 30 días" se toca y abre el historial de esa unidad
     const progTxt = p?.ultima_at
-      ? `${hace(p.ultima_at)}<div style="font-size:11.5px;color:var(--text3)">${fechaHN(p.ultima_at)} · ${p.entregas_30d} en 30 días</div>`
+      ? `${hace(p.ultima_at)}<div style="font-size:11.5px;color:var(--text3)">${fechaHN(p.ultima_at)} ·
+          <a href="#" onclick="ttHistorial('${esc(d.device_id)}');return false" title="Ver las programaciones anteriores"
+             style="color:var(--blue);text-decoration:none;border-bottom:1px dotted var(--blue)">${p.entregas_30d} en 30 días</a></div>`
       : '<span style="color:var(--text3)">nunca (desde que existe el bot)</span>'
     const etiquetas = {
       desactivado: ['Timer desactivado', 'var(--red)'], modo: [`Modo: ${MODO[d.modo] || d.modo}`, 'var(--amber)'],
@@ -366,6 +369,67 @@
       cargar()
     }
   }
+  // ── Historial: las programaciones anteriores de una unidad ──
+  // Se abre tocando "12 en 30 días". Trae de a 10, de la más reciente hacia
+  // atrás, y el botón de abajo sigue cargando sin cerrar la ventana.
+  const PASO = 10
+  window.ttHistorial = async (deviceId) => {
+    const f = filas.find(x => x.d.device_id === deviceId)
+    if (!f) return
+    const ov = document.createElement('div')
+    ov.className = 'modal-overlay open'
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+    ov.onclick = (ev) => { if (ev.target === ov) ov.remove() }
+    ov.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);max-width:520px;width:100%;max-height:85vh;display:flex;flex-direction:column;padding:20px">
+      <div style="font-size:15px;font-weight:700;margin-bottom:2px">🕓 Programaciones · unidad ${esc(f.d.unidad || '')}</div>
+      <div style="font-size:12.5px;color:var(--text3);margin-bottom:12px">${esc(f.d.nombre)}</div>
+      <div id="tt-hist" style="overflow-y:auto;flex:1;min-height:80px"><div style="text-align:center;padding:24px"><div class="spinner"></div></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px">
+        <span id="tt-hist-pie" style="font-size:11.5px;color:var(--text3)"></span>
+        <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Cerrar</button>
+      </div></div>`
+    document.body.appendChild(ov)
+
+    const caja = ov.querySelector('#tt-hist')
+    const pie = ov.querySelector('#tt-hist-pie')
+    let cargadas = []
+
+    async function traer () {
+      const { data, error } = await sb().rpc('tx_timers_historial',
+        { p_device_id: deviceId, p_desde: cargadas.length, p_limite: PASO })
+      if (error) {
+        caja.innerHTML = `<div style="color:var(--red);font-size:13px;padding:8px">${esc(error.message)}</div>`
+        return
+      }
+      cargadas = cargadas.concat(data || [])
+      pintarHist(data && data.length ? Number(data[0].total) : cargadas.length)
+    }
+
+    function pintarHist (total) {
+      if (!cargadas.length) {
+        caja.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px">El bot no tiene programaciones anotadas de esta unidad.</div>'
+        pie.textContent = ''
+        return
+      }
+      caja.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="color:var(--text3);font-size:11px;text-align:left">
+          <th style="padding:4px 6px;font-weight:600">CUÁNDO LO PROGRAMÓ</th>
+          <th style="padding:4px 6px;font-weight:600">CORTE QUE LE DEJÓ</th>
+        </tr></thead>
+        <tbody>${cargadas.map(r => `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:6px">${fechaHN(r.updated_at)}<div style="font-size:11px;color:var(--text3)">${hace(r.updated_at)}</div></td>
+          <td style="padding:6px">${fechaHN(r.at_nuevo)}</td>
+        </tr>`).join('')}</tbody></table>
+        ${cargadas.length < total ? `<div style="text-align:center;padding:10px">
+          <button class="btn btn-ghost" id="tt-hist-mas" style="font-size:12px">Ver ${Math.min(PASO, total - cargadas.length)} más</button></div>` : ''}`
+      pie.textContent = `${cargadas.length} de ${total}`
+      const mas = ov.querySelector('#tt-hist-mas')
+      if (mas) mas.onclick = () => { mas.disabled = true; mas.textContent = 'Cargando…'; traer() }
+    }
+
+    traer()
+  }
+
   window.ttCancelar = async (id) => {
     if (!confirm('¿Cancelar esta orden?')) return
     const { error } = await sb().rpc('tx_timer_cancelar', { p_id: id })
