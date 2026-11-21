@@ -3477,8 +3477,12 @@ window.selectCuenta = (lid, cid, codigo, nombre) => {
 // ¿Se le puede quitar el adjunto a esta partida? El adjunto es el respaldo
 // del asiento: sin él la partida queda sin comprobante. Solo super admin, y
 // nunca en una partida ya aprobada o anulada: esas ya cerraron.
+// Se mira _rolReal, no rol: app.js aliasa 'admin' a 'super_admin' para que
+// los chequeos de la app lo acepten, pero en la base el candado es
+// puede_ver_sensibles(), que pide super_admin de verdad. Con el alias, un
+// admin vería el ✕ y la base se lo rechazaría.
 function puedeQuitarAdjunto (partida) {
-  if (currentProfile?.rol !== 'super_admin') return false
+  if ((currentProfile?._rolReal || currentProfile?.rol) !== 'super_admin') return false
   return !['aprobada', 'anulada'].includes(partida?.estado)
 }
 
@@ -3983,7 +3987,12 @@ window.guardarPartida = async (estado) => {
     for (let i = 0; i < adjuntoFiles.length; i++) {
       const file = adjuntoFiles[i]
       const ext = file.name.split('.').pop().toLowerCase()
-      const path = `partidas/${partidaId}_${i + 1}.${ext}`
+      // El nombre lleva la hora: antes era partidaId_1, partidaId_2… y el
+      // contador arrancaba de nuevo en cada guardado. Al agregarle un segundo
+      // adjunto a una partida que ya tenía uno, se escribía otra vez
+      // partidaId_1 y (con upsert) PISABA el primero: la partida mostraba dos
+      // adjuntos y los dos eran el mismo archivo, el viejo perdido.
+      const path = `partidas/${partidaId}_${Date.now()}_${i + 1}.${ext}`
       const { error: upErr } = await sb.storage.from('facturas-compras').upload(path, file, { upsert: true })
       if (upErr) {
         toast(`Error subiendo ${file.name}: ${upErr.message}`, 'error')
