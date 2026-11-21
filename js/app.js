@@ -3093,8 +3093,12 @@ async function limpiarDatosImportacion(partidaId) {
   await sb.from('facturas_taxis').delete().eq('partida_id', partidaId)
   // Facturas taxis resumen (MANO DE OBRA, FACTURAS DE TAXIS, etc.)
   await sb.from('facturas_taxis_resumen').delete().eq('partida_id', partidaId)
-  // Entregas taxis (si aplica)
-  await sb.from('entregas_taxis').update({ partida_id: null }).eq('partida_id', partidaId)
+  // Acá iba un update de entregas_taxis poniéndole partida_id en null. Esa columna
+  // NO existe en entregas_taxis —la tabla no se vincula a partidas por ningún lado—,
+  // así que la llamada fallaba cada vez que se anulaba una partida. En silencio,
+  // porque el error no se revisaba. No limpiaba nada porque no había nada que
+  // limpiar. Si algún día entregas_taxis se vincula a partidas, esto se vuelve a
+  // poner junto con la columna, no antes.
   // Conteo billetes (si aplica)
   await sb.from('conteo_billetes').delete().eq('partida_id', partidaId)
   // Libro de compras. Esto faltaba: una partida anulada dejaba su renglón vivo
