@@ -1675,7 +1675,7 @@ async function loadPendientes() {
     const ids = [...new Set(procesadas.map(f => f.partida_id).filter(Boolean))]
     const porId = {}
     for (let i = 0; i < ids.length; i += 200) {
-      const { data: ps } = await sb.from('partidas_contables').select('id, numero_partida, estado, total').in('id', ids.slice(i, i + 200))
+      const { data: ps } = await sb.from('partidas_contables').select('id, numero_partida, estado, total, numero_documento').in('id', ids.slice(i, i + 200))
       ;(ps || []).forEach(p => { porId[p.id] = p })
     }
 
@@ -1688,7 +1688,7 @@ async function loadPendientes() {
 
     procesadas.forEach(f => {
       const p = f.partida_id ? porId[f.partida_id] : null
-      if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], ids: [p.id], total: p.total, anulada: p.estado === 'anulada', dudoso: false }; return }
+      if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], ids: [p.id], total: p.total, anulada: p.estado === 'anulada', dudoso: false, doc: p.numero_documento }; return }
       const hitTodas = porDoc[String(f.numero_factura || '').trim().toUpperCase()] || []
       // Las anuladas no cuentan como la partida de la factura; si solo hay anuladas, se muestra así
       const vivas = hitTodas.filter(x => x.estado !== 'anulada')
@@ -1722,7 +1722,8 @@ window.filtrarPendientes = () => {
       (f.numero_factura || '').toLowerCase().includes(buscar) ||
       (f.proveedor?.nombre || '').toLowerCase().includes(buscar) ||
       (f.observaciones || '').toLowerCase().includes(buscar) ||
-      (f.centro_costo?.nombre || '').toLowerCase().includes(buscar)
+      (f.centro_costo?.nombre || '').toLowerCase().includes(buscar) ||
+      (pendientesPartidaMap[f.id]?.doc || '').toLowerCase().includes(buscar)
     )
   }
 
@@ -1770,8 +1771,16 @@ window.filtrarPendientes = () => {
     const pm = pendientesPartidaMap[f.id]
     const pmColor = pm?.anulada ? 'red' : pm?.dudoso ? 'amber' : 'gold'
     const pmNota = pm?.anulada ? ' (anulada)' : pm?.dudoso ? ' (sin confirmar · mismo documento)' : ''
+    // La partida quedó con un número de documento distinto al que registró compras.
+    // Pasa de dos maneras: el proveedor repuso la factura (anulada y reemitida con otro
+    // número), o compras tecleó un número corto o equivocado y contabilidad lo corrigió.
+    // En ambos casos manda el de la partida: es el que está en el libro de compras y en
+    // la declaración. Sin decirlo, la fila se lee como si el gasto no estuviera
+    // registrado y alguien termina registrándolo otra vez.
+    const pmDocNuevo = pm?.doc && String(pm.doc).trim().toUpperCase() !== String(f.numero_factura || '').trim().toUpperCase()
+      ? String(pm.doc).trim() : ''
     const partidaTxt = pm
-      ? ` · <b style="color:var(--${pmColor})">Partida #${pm.nums.join(', #')}${pmNota}</b>`
+      ? ` · <b style="color:var(--${pmColor})">Partida #${pm.nums.join(', #')}${pmNota}</b>${pmDocNuevo ? ` · <span style="color:var(--amber)" title="El número de la izquierda es el que registró compras. Este es el que quedó en la contabilidad y en el libro de compras, y es el que manda. Suele ser porque el proveedor repuso la factura, o porque compras la registró con el número incompleto.">contabilizada con doc. ${escAttr(pmDocNuevo)}</span>` : ''}`
       : ''
 
     return `
@@ -10728,6 +10737,113 @@ function vinSufijoUnico(vin, lista, min = 4) {
   return v
 }
 
+// ── Gastos adicionales de TODOS los VIN, de una sola vez ──────────────────
+// verDetalleVin calcula esto vehículo por vehículo con 3 consultas cada uno.
+// Para la columna de la lista serían ~500 consultas, así que acá se traen de un
+// tirón las líneas que mencionan un VIN (son ~1,300 en toda la base) y el cruce
+// se hace en memoria.
+//
+// Las reglas son LAS MISMAS que las del detalle, a propósito: si la columna y el
+// detalle dijeran cosas distintas, la columna no serviría de nada.
+//   · solo partidas aprobadas y solo líneas de débito
+//   · una línea cuenta si SU descripción menciona el VIN, o si lo menciona la
+//     descripción de su partida (ahí cuentan todas las líneas de esa partida)
+//   · se deduplica por fecha + monto, igual que el detalle
+//   · los sufijos compartidos entre dos vehículos se atribuyen con vinDeducir, y
+//     los que quedan ambiguos no se le suman a ninguno
+let vinGastosCache = null
+
+async function vinCargarGastos(forzar = false) {
+  if (vinGastosCache && !forzar) return vinGastosCache
+
+  const [porLinea, partidasVin] = await Promise.all([
+    _fetchAllPag(() => sb.from('lineas_partida')
+      .select('id, partida_id, monto, descripcion, tipo, partida:partidas_contables!inner(id, fecha_partida, estado, descripcion)')
+      .eq('tipo', 'debito').eq('partida.estado', 'aprobada').ilike('descripcion', '%VIN%').order('id')),
+    _fetchAllPag(() => sb.from('partidas_contables')
+      .select('id, fecha_partida, estado, descripcion')
+      .eq('estado', 'aprobada').ilike('descripcion', '%VIN%').order('id')),
+  ])
+
+  // Las líneas de las partidas que mencionan el VIN en SU propia descripción:
+  // ahí cuentan todas, diga lo que diga cada línea.
+  let porPartida = []
+  const pMap = {}
+  for (const p of (partidasVin || [])) pMap[p.id] = p
+  const ids = Object.keys(pMap)
+  for (let i = 0; i < ids.length; i += 200) {
+    const tanda = ids.slice(i, i + 200)
+    const d = await _fetchAllPag(() => sb.from('lineas_partida')
+      .select('id, partida_id, monto, descripcion, tipo')
+      .eq('tipo', 'debito').in('partida_id', tanda).order('id'))
+    for (const l of (d || [])) porPartida.push({ ...l, partida: pMap[l.partida_id] })
+  }
+
+  const todas = [...(porLinea || []), ...porPartida]
+  for (const l of todas) l._texto = `${l.descripcion || ''} ${l.partida?.descripcion || ''}`
+
+  const mapa = new Map()
+  const ambiguas = []
+
+  for (const v of (allVehiculos || [])) {
+    const minSuf = vinSufijoUnico(v.vin, allVehiculos)
+    const trailing = String(v.vin || '').match(/(\d+)$/)?.[1] || String(v.vin || '').slice(-4)
+    const variantes = [...new Set([trailing, v.vin.slice(-6), v.vin.slice(-5), v.vin.slice(-4)]
+      .filter(x => x && x.length >= minSuf.length))]
+    // Mismo criterio que el ilike del detalle: "VIN 1234", "VIN_1234", "VIN  1234".
+    const re = variantes.length ? new RegExp(`VIN[ _]{1,2}(?:${variantes.join('|')})`, 'i') : null
+
+    const vistos = new Set()
+    let total = 0, mo = 0, n = 0
+    for (const l of todas) {
+      const texto = l._texto
+      if (!(re && re.test(texto)) && !texto.toUpperCase().includes(String(v.vin).toUpperCase())) continue
+      const clave = `${l.partida?.fecha_partida}-${l.monto}`
+      if (vistos.has(clave)) continue
+      vistos.add(clave)
+      const monto = parseFloat(l.monto) || 0
+      total += monto; n++
+      if (/mano\s*de\s*obra|mano\s*obra/i.test(texto)) mo += monto
+    }
+    mapa.set(v.id, { total: Math.round(total * 100) / 100, mo: Math.round(mo * 100) / 100, n, vistos })
+  }
+
+  // Sufijos cortos compartidos: se atribuyen con vinDeducir, igual que el detalle.
+  for (const v of (allVehiculos || [])) {
+    const minSuf = vinSufijoUnico(v.vin, allVehiculos)
+    const cortos = [...new Set([v.vin.slice(-4), v.vin.slice(-5)])].filter(s => s.length < minSuf.length)
+    if (!cortos.length) continue
+    const reCorto = new RegExp(`\\bVIN[\\s_]*(${cortos.join('|')})\\b`, 'i')
+    const g = mapa.get(v.id)
+    for (const l of todas) {
+      const m = l._texto.match(reCorto)
+      if (!m) continue
+      const clave = `${l.partida?.fecha_partida}-${l.monto}`
+      if (g.vistos.has(clave)) continue
+      const cand = (allVehiculos || []).filter(x => x.activo !== false && String(x.vin || '').endsWith(m[1]))
+      const d = vinDeducir(l._texto, cand, l.partida?.fecha_partida)
+      if (!d) { ambiguas.push(clave); continue }
+      if (d.v.id !== v.id) continue
+      g.vistos.add(clave)
+      const monto = parseFloat(l.monto) || 0
+      g.total = Math.round((g.total + monto) * 100) / 100
+      g.n++
+      if (/mano\s*de\s*obra|mano\s*obra/i.test(l._texto)) g.mo = Math.round((g.mo + monto) * 100) / 100
+    }
+  }
+
+  for (const g of mapa.values()) delete g.vistos   // no hace falta guardarlo
+  vinGastosCache = { mapa, ambiguas: ambiguas.length, cuando: Date.now() }
+  return vinGastosCache
+}
+
+window.vinRecargarGastos = async () => {
+  toast('Recalculando gastos…', 'info')
+  await vinCargarGastos(true)
+  filtrarVehiculos()
+  toast('Gastos actualizados ✓', 'success')
+}
+
 // ── Deducir a qué vehículo se refiere un "VIN 1234" que comparten varios ──
 // Cuando dos VIN terminan igual (ej. 3437), una descripción vieja o escrita a mano
 // no dice de cuál es. Se decide, en este orden, y solo si queda UNO:
@@ -10775,15 +10891,18 @@ function vinAplicarVisibilidadCostos () {
   const ver = window.vinVeCostos()
   const stats = document.getElementById('vin-stats')
   if (stats) stats.classList.toggle('hidden', !ver)
-  const th = document.getElementById('vin-th-costo')
-  if (th) th.style.display = ver ? '' : 'none'
+  for (const id of ['vin-th-costo', 'vin-th-gastos']) {
+    const th = document.getElementById(id)
+    if (th) th.style.display = ver ? '' : 'none'
+  }
   return ver
 }
 
 async function loadVehiculos() {
   vinAplicarVisibilidadCostos()
   const tbody = document.getElementById('tbody-vehiculos')
-  if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+  const _cols = window.vinVeCostos() ? 11 : 9
+  if (tbody) tbody.innerHTML = `<tr><td colspan="${_cols}" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>`
 
   const { data, error } = await sb.from('vehiculos_vin')
     .select('*')
@@ -10792,7 +10911,7 @@ async function loadVehiculos() {
     .order('vin')
 
   if (error) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`
+    if (tbody) tbody.innerHTML = `<tr><td colspan="${_cols}" style="text-align:center;color:var(--red);padding:30px">${error.message}</td></tr>`
     return
   }
 
@@ -10863,6 +10982,14 @@ async function loadVehiculos() {
   }
 
   filtrarVehiculos()
+
+  // Los gastos adicionales se calculan aparte y la tabla se vuelve a pintar
+  // cuando están listos. Son ~1,300 líneas que cruzar contra 161 vehículos: no
+  // vale la pena hacer esperar toda la lista por una sola columna.
+  vinCargarGastos().then(() => filtrarVehiculos()).catch(e => {
+    console.warn('gastos VIN:', e)
+    toast('No se pudieron calcular los gastos adicionales: ' + e.message, 'error')
+  })
 }
 window.loadVehiculos = loadVehiculos
 
@@ -10929,6 +11056,10 @@ function renderVehiculosTable() {
     return `<span class="badge ${cls}" style="font-size:10px;white-space:nowrap">${ub}</span>`
   }
 
+  // Gastos adicionales ya calculados (vinCargarGastos). Si todavía no están,
+  // la columna sale con un guion en vez de romper el render.
+  const _g = (v) => vinGastosCache?.mapa?.get(v.id)?.total || 0
+
   tbody.innerHTML = filteredVehiculos.map(v => {
     const last4 = vinSufijoUnico(v.vin, allVehiculos)
     const fecha = v.fecha_compra ? new Date(v.fecha_compra + 'T12:00:00').toLocaleDateString('es-HN') : '—'
@@ -10944,6 +11075,7 @@ function renderVehiculosTable() {
       <td>${v.modelo}</td>
       <td style="font-family:var(--mono)">${v.anio || '—'}</td>
       ${_verCostos ? `<td style="text-align:right;font-family:var(--mono);font-weight:500">$${fmtD(v.costo_copart)}</td>` : ''}
+      ${_verCostos ? `<td style="text-align:right;font-family:var(--mono);font-weight:500;color:${_g(v) > 0 ? 'var(--red)' : 'var(--text3)'}">${_g(v) > 0 ? 'L. ' + fmtD(_g(v)) : '—'}</td>` : ''}
       <td style="font-size:12px;color:var(--text3)">${fecha}</td>
       <td>${ubicBadge(v.ubicacion)}</td>
       <td style="text-align:center" onclick="event.stopPropagation()">
@@ -11120,7 +11252,12 @@ window.exportarVehiculosExcel = () => {
     'Marca': v.marca,
     'Modelo': v.modelo,
     'Año': v.anio || '',
-    ...(window.vinVeCostos() ? { 'Costo Copart (USD)': v.costo_copart || 0 } : {}),
+    ...(window.vinVeCostos() ? {
+      'Costo Copart (USD)': v.costo_copart || 0,
+      'Gastos adicionales (L)': vinGastosCache?.mapa?.get(v.id)?.total || 0,
+      'Mano de obra (L)': vinGastosCache?.mapa?.get(v.id)?.mo || 0,
+      'Movimientos': vinGastosCache?.mapa?.get(v.id)?.n || 0,
+    } : {}),
     'Fecha Compra': v.fecha_compra || '',
     'Ubicación': v.ubicacion || 'Sin asignar',
     'Notas': v.notas || ''
@@ -11129,7 +11266,7 @@ window.exportarVehiculosExcel = () => {
   // Column widths
   ws['!cols'] = [
     { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 6 },
-    { wch: 16 }, { wch: 12 }, { wch: 22 }, { wch: 30 }
+    { wch: 16 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 30 }
   ]
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Vehículos')
