@@ -2869,11 +2869,17 @@ window.editarPartida = async (id) => {
   if (partida.adjunto_url) {
     const paths = partida.adjunto_url.split(',').filter(Boolean)
     const links = []
+    // El adjunto es el respaldo del asiento: quitarlo lo deja sin comprobante.
+    // Solo super admin, y nunca en una partida ya aprobada o anulada.
+    const puedeBorrarAdj = puedeQuitarAdjunto(partida)
     for (let i = 0; i < paths.length; i++) {
       const p = paths[i].trim()
       const { data: signedUrl } = await sb.storage.from('facturas-compras').createSignedUrl(p, 3600)
       if (signedUrl?.signedUrl) {
-        links.push(`<span style="display:inline-flex;align-items:center;gap:4px"><a href="${signedUrl.signedUrl}" target="_blank" style="font-size:11px;color:var(--blue)">📷 Adjunto ${i + 1}</a><button onclick="eliminarAdjuntoPartida('${p.replace(/'/g, "\\'")}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;padding:2px 4px" title="Eliminar adjunto">✕</button></span>`)
+        const equis = puedeBorrarAdj
+          ? `<button onclick="eliminarAdjuntoPartida('${p.replace(/'/g, "\\'")}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:11px;padding:2px 4px" title="Eliminar adjunto">✕</button>`
+          : ''
+        links.push(`<span style="display:inline-flex;align-items:center;gap:4px"><a href="${signedUrl.signedUrl}" target="_blank" style="font-size:11px;color:var(--blue)">📷 Adjunto ${i + 1}</a>${equis}</span>`)
       }
     }
     if (links.length) {
@@ -3468,19 +3474,46 @@ window.selectCuenta = (lid, cid, codigo, nombre) => {
   calcTotales()
 }
 
+// ¿Se le puede quitar el adjunto a esta partida? El adjunto es el respaldo
+// del asiento: sin él la partida queda sin comprobante. Solo super admin, y
+// nunca en una partida ya aprobada o anulada: esas ya cerraron.
+function puedeQuitarAdjunto (partida) {
+  if (currentProfile?.rol !== 'super_admin') return false
+  return !['aprobada', 'anulada'].includes(partida?.estado)
+}
+
 window.eliminarAdjuntoPartida = async (path) => {
   if (!editingPartidaId) return
-  if (!confirm('¿Eliminar este adjunto?')) return
   const sb = getSb()
-  // Remove from storage
-  await sb.storage.from('facturas-compras').remove([path])
-  // Update partida record
-  const { data: partida } = await sb.from('partidas_contables').select('adjunto_url').eq('id', editingPartidaId).single()
-  if (partida) {
-    const paths = (partida.adjunto_url || '').split(',').filter(Boolean).map(p => p.trim())
-    const updated = paths.filter(p => p !== path).join(',')
-    await sb.from('partidas_contables').update({ adjunto_url: updated || null }).eq('id', editingPartidaId)
+  // Se vuelve a preguntar aquí y no solo al dibujar el botón: el estado pudo
+  // haber cambiado mientras la partida estaba abierta.
+  const { data: partida, error: eLeer } = await sb.from('partidas_contables')
+    .select('adjunto_url, estado, numero_partida').eq('id', editingPartidaId).single()
+  if (eLeer || !partida) { toast('No se pudo leer la partida: ' + (eLeer?.message || ''), 'error'); return }
+  if (!puedeQuitarAdjunto(partida)) {
+    toast(currentProfile?.rol !== 'super_admin'
+      ? 'Solo un super admin puede quitar el respaldo de una partida'
+      : `La partida está ${partida.estado}: su respaldo ya no se puede quitar`, 'error')
+    return
   }
+  if (!confirm('¿Eliminar este adjunto?\n\nEs el respaldo del asiento y no se puede recuperar.')) return
+
+  // Primero el archivo. Si falla, NO se toca la partida: dejarla sin el
+  // enlace mientras el archivo sigue ahí la deja sin respaldo a la vista.
+  const { error: eBorrar } = await sb.storage.from('facturas-compras').remove([path])
+  if (eBorrar) { toast('No se pudo borrar el archivo: ' + eBorrar.message, 'error'); return }
+
+  const paths = (partida.adjunto_url || '').split(',').filter(Boolean).map(p => p.trim())
+  const updated = paths.filter(p => p !== path).join(',')
+  const { error: eUpd } = await sb.from('partidas_contables')
+    .update({ adjunto_url: updated || null }).eq('id', editingPartidaId)
+  if (eUpd) {
+    // El archivo ya no está: hay que decirlo, no dejarlo pasar en silencio.
+    toast('El archivo se borró pero la partida quedó con el enlace viejo: ' + eUpd.message, 'error')
+    return
+  }
+  logActividad('partida_adjunto_eliminado', 'partidas',
+    `Partida #${partida.numero_partida || editingPartidaId}: se quitó un adjunto (${path})`, editingPartidaId)
   toast('Adjunto eliminado ✓', 'success')
   // Reload the partida to refresh adjuntos display
   editarPartida(editingPartidaId)
