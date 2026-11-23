@@ -192,7 +192,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <div style="font-size:12.5px;color:${viejo ? 'var(--red)' : 'var(--text3)'}">
             Última lectura de eWeLink: <b>${leidoMax ? hace(leidoMax) : 'nunca'}</b>${leidoMax ? ' · ' + fechaHN(leidoMax) : ''}
-            ${viejo ? ' · ⚠ el bot no ha mandado datos: revisá que esté corriendo en la PC' : ' · el bot la actualiza cada 15 min'}
+            ${viejo ? ' · ⚠ el bot no ha mandado datos: revisalo en Track504 › Bot timers (app.track504.com/bot)' : ' · el bot la actualiza cada 15 min'}
           </div>
           <div style="display:flex;gap:8px">
             <input type="text" id="tt-buscar" placeholder="Unidad, motorista, placa…" value="${esc(busca)}" oninput="ttBuscar(this.value)" style="min-width:220px">
@@ -440,4 +440,38 @@
     window.toast?.('Orden cancelada', 'success')
     cargar()
   }
+
+  // ── Aviso en toda la app: el bot no está leyendo eWeLink ──
+  // El bot (ahora en el servidor de Track504) manda la foto cada 15 min. Si la
+  // última tiene más de 35 min, algo pasa: se cerró la sesión de eWeLink (alguien
+  // entró a eWeLink web desde otra PC), el bot está en pausa o el servidor no
+  // responde. Mientras tanto las entregas quedan pendientes. Solo lo ve quien
+  // tiene acceso a Timers Taxis; se revisa cada 5 min y se quita solo.
+  async function vigilarBot () {
+    try {
+      let aviso = $('tt-aviso-bot')
+      const nav = $('nav-timers-taxis')
+      if (!sb() || !nav || nav.classList.contains('hidden')) { aviso?.remove(); return }
+      const { data, error } = await sb().from('tx_timers_estado').select('leido_at').order('leido_at', { ascending: false }).limit(1)
+      if (error || !data?.length) return
+      const leido = data[0].leido_at
+      if (Date.now() - new Date(leido) <= 35 * 60000) { aviso?.remove(); return }
+      if (!aviso) {
+        aviso = document.createElement('a')
+        aviso.id = 'tt-aviso-bot'
+        aviso.href = 'https://app.track504.com/bot/'
+        aviso.target = '_blank'
+        aviso.rel = 'noopener'
+        aviso.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:99999;background:#C62828;color:#fff;' +
+          'padding:10px 18px;border-radius:12px;font-weight:700;font-size:14px;text-decoration:none;box-shadow:0 2px 10px rgba(0,0,0,.3);' +
+          'max-width:92vw;text-align:center;line-height:1.35'
+        document.body.appendChild(aviso)
+      }
+      aviso.innerHTML = `⚠️ El bot de timers no está leyendo eWeLink (última lectura ${esc(hace(leido))}). Las entregas quedan pendientes.` +
+        '<div style="font-weight:400;font-size:12.5px;opacity:.92">Toca aquí para revisarlo en Track504 › Bot timers. ' +
+        'Si alguien entró a eWeLink web desde otra computadora, el bot perdió la sesión.</div>'
+    } catch (_) { /* el aviso nunca debe romper la app */ }
+  }
+  setTimeout(vigilarBot, 15000)
+  setInterval(vigilarBot, 5 * 60000)
 })()
