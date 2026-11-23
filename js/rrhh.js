@@ -376,7 +376,8 @@ window._rapAportesCargar = async () => {
     p.quincenas.push({ periodo: d.planilla.periodo + (d.planilla.es_confidencial ? ' (conf.)' : ''), estado: d.planilla.estado, rap, fp, fl })
   }
   // Lo que el RAP tiene registrado: planillas mensuales presentadas (rap_planillas,
-  // cargadas por SQL). Si la tabla no existe o el rol no la ve, simplemente no hay.
+  // que se cargan con el botón "Cargar planilla del RAP"; antes de noviembre 2026 se
+  // llenaban con un SQL por mes). Si la tabla no existe o el rol no la ve, no hay nada.
   const { data: pres } = await getSb().from('rap_planilla_detalle')
     .select('empleado_id, identidad, nombre, rl, feo, fio, planilla:rap_planillas!inner(periodo, estado)')
     .gte('planilla.periodo', st.desde).lte('planilla.periodo', st.hasta)
@@ -609,6 +610,391 @@ function _rapMostrarPrevia (html, contenido, archivo, n) {
     window.logActividad?.('rap_archivo', 'rrhh', `Archivo RAP ${archivo} · ${n} afiliados`)
     window.toast?.('Archivo generado · subilo a empresas.rap.hn', 'success')
   }
+}
+
+// ══════════════════════════════════════════════
+// ═══  CARGAR LA PLANILLA MENSUAL DEL RAP  ═══
+// ══════════════════════════════════════════════
+// rap_planillas / rap_planilla_detalle guardan lo que el RAP dice que se presentó.
+// Hasta octubre 2026 se llenaban con un SQL por mes, transcribiendo a mano las ~45
+// filas del PDF del portal. Esto lee ese mismo PDF pegado y las guarda.
+//
+// No es cosmético: "Aportes RAP por empleado" usa el mes presentado EN LUGAR del
+// calculado en las quincenas (ver _rapAcumulado). El mes que no se carga se cuenta
+// con el cálculo propio de Contamax, que difiere del presentado aunque sea por
+// centavos de redondeo (el RAP redondea el mensual; la quincena redondea la mitad
+// y la suma dos veces), así que el acumulado del año queda mal y nadie lo nota.
+//
+// De dónde sale el texto: empresas.rap.hn → Consulta de planilla → "Detalle de
+// Planilla" → seleccionar todo y copiar, o abrir el PDF y copiar. El lector no
+// depende de los saltos de línea: busca identidades y toma los montos que siguen,
+// así que sirve igual si el PDF se copia una celda por línea o una fila por línea.
+//
+// Solo super_admin y contador: el enlace con el empleado se hace contra la tabla
+// empleados, y a los demás roles el RLS les esconde a los de planilla confidencial.
+// Si alguno estuviera en la planilla del RAP se guardaría sin empleado_id, y el
+// módulo de aportes lo mostraría como un afiliado aparte sin que se note.
+
+// Oracle escribe los meses con tres letras; el portal mezcla español e inglés según
+// la pantalla, así que se aceptan los dos.
+const _RAP_MES3 = {
+  ENE: 1, FEB: 2, MAR: 3, ABR: 4, MAY: 5, JUN: 6, JUL: 7, AGO: 8, SEP: 9, SET: 9, OCT: 10, NOV: 11, DIC: 12,
+  JAN: 1, APR: 4, AUG: 8, DEC: 12
+}
+// 01-OCT-26 → 2026-10-01
+function _rapFechaPortal (s) {
+  const m = String(s || '').match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/)
+  if (!m) return null
+  const mes = _RAP_MES3[m[2].toUpperCase()]
+  if (!mes) return null
+  const anio = +m[3] < 100 ? 2000 + +m[3] : +m[3]
+  return `${anio}-${String(mes).padStart(2, '0')}-${String(+m[1]).padStart(2, '0')}`
+}
+// "L. 26,231.40" → 26231.40. Solo cuenta lo que trae dos decimales: así el 44 de
+// "CANTIDAD: 44" y los números de página no se confunden con montos.
+const _rapMontos = (s) => [...String(s).matchAll(/\d[\d,]*\.\d{2}/g)].map(m => +m[0].replace(/,/g, ''))
+
+// Lee el pegado y devuelve { cab, filas, pie, avisos }. No toca la base.
+function _rapLeerPegado (txt) {
+  const avisos = []
+  const bruto = String(txt || '').replace(/ /g, ' ')
+
+  // Las OBSERVACIONES traen identidades y montos (altas, bajas, cambios de salario).
+  // Si no se cortan acá, esas personas entran como afiliados de la planilla.
+  const iObs = bruto.search(/OBSERVACIONES\s+DEL\s+ARCHIVO/i)
+  const cuerpo = iObs > 0 ? bruto.slice(0, iObs) : bruto
+  if (iObs < 0) avisos.push('No se encontró "OBSERVACIONES DEL ARCHIVO". Si el pegado quedó incompleto, revisá que estén las 44 o 45 filas.')
+
+  // ── Cabecera ──
+  const tras = (etiqueta, grupo) => {
+    const m = cuerpo.match(new RegExp(etiqueta + '\\s*:?\\s*' + grupo, 'i'))
+    return m ? m[1].trim() : ''
+  }
+  const cab = {
+    numero_planilla: tras('N[úu]mero\\s+Planilla', '(\\d{4,})'),
+    numero_archivo: tras('N[úu]mero\\s+Archivo', '(\\d{4,})'),
+    archivo: tras('Archivo', '(\\S+\\.txt)'),
+    estado: tras('Estado', '([A-ZÁÉÍÓÚÑ]{4,})').toUpperCase(),
+    fecha_emision: _rapFechaPortal(tras('Fecha\\s+Emisi[óo]n', '(\\d{1,2}-[A-Za-z]{3}-\\d{2,4})')),
+    fecha_limite: _rapFechaPortal(tras('Fecha\\s+L[íi]mite', '(\\d{1,2}-[A-Za-z]{3}-\\d{2,4})'))
+  }
+  cab.periodo = cab.fecha_emision ? cab.fecha_emision.slice(0, 7) : ''
+
+  // ── Zona de filas: del encabezado del detalle hasta la línea CANTIDAD ──
+  const iDet = cuerpo.search(/DETALLE\s+DE\s+LOS\s+COLABORADORES/i)
+  const resto = iDet >= 0 ? cuerpo.slice(iDet) : cuerpo
+  const iCant = resto.search(/CANTIDAD\s*:/i)
+  const zona = iCant > 0 ? resto.slice(0, iCant) : resto
+  const colaPie = iCant > 0 ? resto.slice(iCant) : ''
+
+  // El pie del detalle: CANTIDAD: 44  L. 26,231.40  L. 1,980.70  L. 1,980.70  L. 30,192.80
+  const mp = _rapMontos(colaPie)
+  const pie = {
+    n: (colaPie.match(/CANTIDAD\s*:?\s*(\d+)/i) || [])[1] ? +colaPie.match(/CANTIDAD\s*:?\s*(\d+)/i)[1] : null,
+    rl: mp[0] ?? null, feo: mp[1] ?? null, fio: mp[2] ?? null, total: mp[3] ?? null
+  }
+  if (pie.rl == null) avisos.push('No se encontró la línea "CANTIDAD" con los totales del detalle; se comparará contra el resumen de aportaciones.')
+
+  // Si no hay pie, se usa el RESUMEN DE APORTACIONES de la primera página
+  if (pie.rl == null) {
+    const mr = _rapMontos((cuerpo.match(/RESUMEN\s+DE\s+APORTACIONES[\s\S]{0,600}/i) || [''])[0])
+    if (mr.length >= 3) { pie.rl = mr[0]; pie.feo = mr[1]; pie.fio = mr[2]; pie.total = mr[0] + mr[1] + mr[2] }
+  }
+
+  // ── Filas: se corta en cada identidad y se leen los montos que siguen ──
+  // Las identidades vienen de dos formas según cómo las tenga el censo del RAP:
+  // 0801-1978-15670 o 0801200407312 (13 dígitos, sin guiones).
+  const marcas = [...zona.matchAll(/\d{4}-\d{4}-\d{5}|\d{13}/g)]
+  const filas = marcas.map((m, i) => {
+    const hasta = i + 1 < marcas.length ? marcas[i + 1].index : zona.length
+    const trozo = zona.slice(m.index + m[0].length, hasta)
+    const nums = _rapMontos(trozo)
+    const nombre = trozo
+      .replace(/\d[\d,]*\.\d{2}/g, ' ')
+      .replace(/\bL\./g, ' ')
+      .replace(/IDENTIFICACI[ÓO]N|AFILIADO|FEO3|FIO3|TOTAL|\bRL\b|P[áa]gina|Pagina/gi, ' ')
+      .replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]/g, ' ')
+      .replace(/\s+/g, ' ').trim().toUpperCase()
+    return {
+      identidad: m[0],
+      norm: _rapIdent(m[0]),
+      nombre,
+      rl: nums[0] ?? null,
+      feo: nums[1] ?? null,
+      fio: nums[2] ?? null,
+      total_pdf: nums[3] ?? null
+    }
+  })
+
+  const incompletas = filas.filter(f => f.rl == null || f.feo == null || f.fio == null)
+  if (incompletas.length) avisos.push(`${incompletas.length} fila(s) sin los tres montos. El pegado quedó cortado o la tabla vino en otro orden.`)
+  const repetidas = filas.map(f => f.norm).filter((v, i, a) => a.indexOf(v) !== i)
+  if (repetidas.length) avisos.push(`Identidad repetida en el pegado: ${[...new Set(repetidas)].join(', ')}. Revisá que no se haya copiado dos veces una página.`)
+
+  return { cab, filas, pie, avisos }
+}
+
+let _rapCarga = null   // { cab, filas, pie, avisos, yaCargada, emps }
+
+window.cargarPlanillaRAP = () => {
+  if (!_puedeVerConfidencial()) {
+    window.toast?.('Cargar la planilla del RAP es solo para super_admin o contador', 'error')
+    return
+  }
+  document.getElementById('modal-rap-carga')?.remove()
+  const ov = document.createElement('div')
+  ov.id = 'modal-rap-carga'
+  ov.className = 'modal-backdrop open'
+  ov.innerHTML = `
+    <div class="modal" style="width:min(1060px,96vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-header"><h3>Cargar planilla mensual del RAP</h3><button class="modal-close" onclick="document.getElementById('modal-rap-carga').remove()">✕</button></div>
+      <div class="modal-body" style="flex:1;min-height:0;overflow:auto">
+        <div id="rapc-paso1">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+            En <b>empresas.rap.hn</b> → Consulta de planilla → <b>Detalle de Planilla</b>, seleccioná todo y copiá (o abrí el PDF y copiá).
+            Pegalo acá completo, con la información general y el detalle de los colaboradores. No importa cómo queden los saltos de línea.
+          </div>
+          <textarea id="rapc-texto" rows="12" placeholder="Pegá acá el Detalle de Planilla…" style="width:100%;font-family:var(--mono);font-size:11px"></textarea>
+        </div>
+        <div id="rapc-paso2"></div>
+      </div>
+      <div class="modal-actions">
+        <div id="rapc-estado" style="margin-right:auto;font-size:12px;color:var(--text3)"></div>
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-rap-carga').remove()">Cerrar</button>
+        <button class="btn btn-ghost" id="rapc-btn-leer" onclick="_rapCargaLeer()">Leer el pegado</button>
+        <button class="btn btn-gold" id="rapc-btn-guardar" onclick="_rapCargaGuardar()" disabled>Guardar</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  setTimeout(() => document.getElementById('rapc-texto')?.focus(), 50)
+}
+
+window._rapCargaLeer = async () => {
+  const txt = document.getElementById('rapc-texto')?.value || ''
+  const est = document.getElementById('rapc-estado')
+  const btnG = document.getElementById('rapc-btn-guardar')
+  btnG.disabled = true
+  if (txt.trim().length < 50) { window.toast?.('Pegá primero el detalle de la planilla', 'error'); return }
+
+  est.textContent = 'Leyendo…'
+  const leido = _rapLeerPegado(txt)
+  if (!leido.filas.length) {
+    est.textContent = ''
+    document.getElementById('rapc-paso2').innerHTML = `<div style="padding:18px;color:var(--red)">No se encontró ninguna identidad en el pegado. Copiá el detalle completo, con la columna IDENTIFICACIÓN.</div>`
+    return
+  }
+
+  // ¿Ya está cargado ese mes o ese número de planilla?
+  const sb = getSb()
+  const { data: previas, error: pvErr } = await sb.from('rap_planillas')
+    .select('id, numero_planilla, periodo, n_afiliados, total_rl, estado')
+    .or(`numero_planilla.eq.${leido.cab.numero_planilla || '0'},periodo.eq.${leido.cab.periodo || '0000-00'}`)
+  if (pvErr) { est.textContent = ''; window.toast?.('No se pudo revisar lo ya cargado: ' + pvErr.message, 'error'); return }
+
+  // Empleados, para enlazar y para revisar los montos. Se trae inactivos también:
+  // quien causó baja a mitad de mes sigue apareciendo en la planilla del RAP.
+  const { data: emps, error: eErr } = await sb.from('empleados')
+    .select('id, codigo, nombre, identidad, activo, fecha_ingreso, sueldo_mensual, sueldo_rap, cotiza_rap, es_socio')
+  if (eErr) { est.textContent = ''; window.toast?.('No se pudieron leer los empleados: ' + eErr.message, 'error'); return }
+
+  // Un empleado por identidad: primero el activo y entre iguales el que entró
+  // después. Hay identidades duplicadas en empleados (pasó con José Oscar Gil
+  // Salazar: EMP-091 inactivo y EMP-1188 activo), y el detalle tiene índice único
+  // por (planilla_id, identidad_norm), así que hay que desempatar acá.
+  const porNorm = new Map()
+  const dobles = []
+  for (const e of (emps || [])) {
+    const k = _rapIdent(e.identidad)
+    if (!k) continue
+    const ya = porNorm.get(k)
+    if (!ya) { porNorm.set(k, e); continue }
+    dobles.push(k)
+    const mejor = (a, b) => {
+      if (!!a.activo !== !!b.activo) return a.activo ? a : b
+      return String(a.fecha_ingreso || '') >= String(b.fecha_ingreso || '') ? a : b
+    }
+    porNorm.set(k, mejor(ya, e))
+  }
+
+  const cfg = getRAPConfig()
+  const r2 = (v) => Math.round(v * 100) / 100
+  for (const f of leido.filas) {
+    const e = porNorm.get(f.norm) || null
+    f.emp = e
+    f.total = r2((f.rl || 0) + (f.feo || 0) + (f.fio || 0))
+    f.revision = null
+    if (e) {
+      const sueldo = (e.sueldo_rap != null ? +e.sueldo_rap : +e.sueldo_mensual) || 0
+      const espRl = r2(Math.min(sueldo, cfg.rapTecho) * cfg.rapPct)
+      const espFeo = r2(Math.max(0, sueldo - cfg.foviifPiso) * cfg.foviifPctPatronal)
+      const espFio = r2(Math.max(0, sueldo - cfg.foviifPiso) * cfg.foviifPctLaboral)
+      const malRl = Math.abs(espRl - (f.rl || 0)) > 0.005
+      const malFeo = Math.abs(espFeo - (f.feo || 0)) > 0.005
+      const malFio = Math.abs(espFio - (f.fio || 0)) > 0.005
+      if (malRl || malFeo || malFio) f.revision = { sueldo, espRl, espFeo, espFio, malRl, malFeo, malFio }
+    }
+  }
+
+  if (dobles.length) leido.avisos.push(`En empleados hay identidad(es) repetida(s): ${[...new Set(dobles)].join(', ')}. Se enlaza con el registro activo y más reciente, pero conviene limpiar el duplicado.`)
+
+  _rapCarga = { ...leido, previas: previas || [], emps: emps || [] }
+  est.textContent = ''
+  _rapCargaRender()
+}
+
+function _rapCargaRender () {
+  const st = _rapCarga
+  const { cab, filas, pie } = st
+  const r2 = (v) => Math.round(v * 100) / 100
+  const sum = (k) => r2(filas.reduce((a, f) => a + (f[k] || 0), 0))
+  const sRl = sum('rl'), sFeo = sum('feo'), sFio = sum('fio')
+  const rc = getRAPConfig()
+
+  const yaNum = st.previas.find(p => p.numero_planilla === cab.numero_planilla)
+  const yaMes = st.previas.find(p => p.periodo === cab.periodo)
+  const sinEmp = filas.filter(f => !f.emp)
+  const conRev = filas.filter(f => f.revision)
+
+  // Los frenos: cada uno dice qué pasa y por qué, no solo si pasó
+  const checks = []
+  const ck = (ok, bloquea, txt) => checks.push({ ok, bloquea, txt })
+  ck(!!cab.numero_planilla, true, cab.numero_planilla ? `Planilla N° ${cab.numero_planilla}` : 'No se leyó el número de planilla')
+  ck(!!cab.periodo, true, cab.periodo ? `Período ${cab.periodo} (emisión ${cab.fecha_emision})` : 'No se leyó la fecha de emisión, así que no hay período')
+  ck(!yaNum && !yaMes, true, yaNum
+    ? `La planilla ${yaNum.numero_planilla} ya está cargada (${yaNum.periodo}, ${yaNum.n_afiliados} afiliados). Borrala antes de volver a cargarla.`
+    : yaMes
+      ? `El mes ${yaMes.periodo} ya tiene cargada la planilla ${yaMes.numero_planilla} (${yaMes.n_afiliados} afiliados). Dos planillas del mismo mes se sumarían dos veces.`
+      : 'Ese mes no está cargado todavía')
+  ck(pie.n == null || pie.n === filas.length, true, pie.n == null
+    ? `Se leyeron ${filas.length} afiliados (el PDF no trajo la línea CANTIDAD para comparar)`
+    : `Se leyeron ${filas.length} afiliados y el PDF dice ${pie.n}`)
+  const cuadra = pie.rl == null || (Math.abs(sRl - pie.rl) < 0.005 && Math.abs(sFeo - pie.feo) < 0.005 && Math.abs(sFio - pie.fio) < 0.005)
+  ck(cuadra, true, pie.rl == null
+    ? 'Sin totales en el PDF para comparar la suma'
+    : cuadra
+      ? `Los totales cuadran: RL ${fmt(sRl)} · FEO3 ${fmt(sFeo)} · FIO3 ${fmt(sFio)}`
+      : `La suma de las filas no cuadra con el PDF — RL ${fmt(sRl)} vs ${fmt(pie.rl)} · FEO3 ${fmt(sFeo)} vs ${fmt(pie.feo)} · FIO3 ${fmt(sFio)} vs ${fmt(pie.fio)}`)
+  ck(!sinEmp.length, false, sinEmp.length
+    ? `${sinEmp.length} afiliado(s) sin empleado en Contamax: ${sinEmp.map(f => f.nombre).join(', ')}. Se guardan igual, pero quedan colgados del nombre.`
+    : 'Los afiliados cazan todos con un empleado')
+  ck(!conRev.length, false, conRev.length
+    ? `${conRev.length} afiliado(s) con montos distintos a lo que da su sueldo en Contamax. Mirá la columna "Revisión".`
+    : `Los montos cuadran con los sueldos de Contamax (RL ${rc.rapPct * 100}% y FOVIIF ${rc.foviifPctPatronal * 100}% sobre el exceso de L ${fmt(rc.foviifPiso)})`)
+
+  const bloqueado = checks.some(c => c.bloquea && !c.ok)
+
+  const num = (v) => `<td style="text-align:right;font-family:var(--mono)">${v == null ? '—' : fmt(v)}</td>`
+  const cuerpoFilas = filas.map(f => {
+    const rev = f.revision
+    return `<tr${rev ? ' style="background:var(--amber-soft)"' : ''}>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${f.identidad}</td>
+      <td>${f.nombre || '<span style="color:var(--red)">(sin nombre)</span>'}</td>
+      ${num(f.rl)}${num(f.feo)}${num(f.fio)}${num(f.total)}
+      <td style="font-size:11px">${f.emp
+        ? `${f.emp.nombre}${f.emp.activo ? '' : ' <span style="color:var(--text3)">(inactivo)</span>'}`
+        : '<span style="color:var(--red)">sin empleado</span>'}</td>
+      <td style="font-size:11px">${rev
+        ? `<span style="color:var(--amber)">sueldo L ${fmt(rev.sueldo)} → RL ${fmt(rev.espRl)}${rev.malRl ? ' ✗' : ''} · FOVIIF ${fmt(rev.espFeo)}${rev.malFeo || rev.malFio ? ' ✗' : ''}</span>`
+        : f.emp ? '<span style="color:var(--green)">✓</span>' : '—'}</td>
+    </tr>`
+  }).join('')
+
+  document.getElementById('rapc-paso2').innerHTML = `
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+      <div style="display:flex;flex-wrap:wrap;gap:18px;font-size:12px;margin-bottom:10px">
+        <div><div style="color:var(--text3)">Planilla</div><b style="font-family:var(--mono)">${cab.numero_planilla || '—'}</b></div>
+        <div><div style="color:var(--text3)">Período</div><b>${cab.periodo || '—'}</b></div>
+        <div><div style="color:var(--text3)">Emisión</div><b>${cab.fecha_emision || '—'}</b></div>
+        <div><div style="color:var(--text3)">Límite</div><b>${cab.fecha_limite || '—'}</b></div>
+        <div><div style="color:var(--text3)">Estado</div><b>${cab.estado || '—'}</b></div>
+        <div><div style="color:var(--text3)">N° archivo</div><b style="font-family:var(--mono)">${cab.numero_archivo || '—'}</b></div>
+        <div style="flex:1 1 100%;color:var(--text3);word-break:break-all">Archivo: <span style="font-family:var(--mono);color:var(--text2)">${cab.archivo || '—'}</span></div>
+      </div>
+      <ul style="list-style:none;padding:0;margin:0 0 12px;font-size:12px;display:grid;gap:4px">
+        ${checks.map(c => `<li style="color:${c.ok ? 'var(--text2)' : (c.bloquea ? 'var(--red)' : 'var(--amber)')}">${c.ok ? '✓' : (c.bloquea ? '✗' : '⚠')} ${c.txt}</li>`).join('')}
+        ${st.avisos.map(a => `<li style="color:var(--amber)">⚠ ${a}</li>`).join('')}
+      </ul>
+      <table>
+        <thead><tr><th>Identidad</th><th>Afiliado</th><th style="text-align:right">RL</th><th style="text-align:right">FEO3</th><th style="text-align:right">FIO3</th><th style="text-align:right">Total</th><th>Empleado en Contamax</th><th title="Lo que daría el sueldo que tiene Contamax">Revisión</th></tr></thead>
+        <tbody>${cuerpoFilas}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+          <td colspan="2">${filas.length} afiliado(s)</td>${num(sRl)}${num(sFeo)}${num(sFio)}${num(r2(sRl + sFeo + sFio))}<td colspan="2"></td>
+        </tr></tfoot>
+      </table>
+    </div>`
+
+  const btnG = document.getElementById('rapc-btn-guardar')
+  btnG.disabled = bloqueado
+  btnG.textContent = bloqueado ? 'No se puede guardar' : `Guardar ${filas.length} afiliados`
+  document.getElementById('rapc-estado').textContent = bloqueado
+    ? 'Corregí lo marcado en rojo y volvé a leer el pegado.'
+    : 'Revisá la tabla antes de guardar.'
+}
+
+window._rapCargaGuardar = async () => {
+  const st = _rapCarga
+  if (!st) return
+  const { cab, filas } = st
+  const r2 = (v) => Math.round(v * 100) / 100
+  const sum = (k) => r2(filas.reduce((a, f) => a + (f[k] || 0), 0))
+  const btnG = document.getElementById('rapc-btn-guardar')
+  const est = document.getElementById('rapc-estado')
+
+  if (!confirm(`Guardar la planilla ${cab.numero_planilla} del período ${cab.periodo}?\n\n` +
+    `${filas.length} afiliados · RL L ${fmt(sum('rl'))} · FOVIIF L ${fmt(sum('feo'))} + L ${fmt(sum('fio'))}\n\n` +
+    'Queda registrada como lo presentado al RAP y el módulo de aportes empieza a usarla en lugar del cálculo de las quincenas de ese mes.')) return
+
+  btnG.disabled = true
+  est.textContent = 'Guardando…'
+  const sb = getSb()
+
+  const { data: cabecera, error: cErr } = await sb.from('rap_planillas').insert({
+    numero_planilla: cab.numero_planilla,
+    numero_archivo: cab.numero_archivo || null,
+    archivo: cab.archivo || null,
+    periodo: cab.periodo,
+    fecha_emision: cab.fecha_emision,
+    fecha_limite: cab.fecha_limite,
+    estado: cab.estado || null,
+    n_afiliados: filas.length,
+    total_rl: sum('rl'),
+    total_feo: sum('feo'),
+    total_fio: sum('fio')
+  }).select().single()
+  if (cErr || !cabecera) {
+    est.textContent = ''
+    btnG.disabled = false
+    window.toast?.('No se pudo guardar la cabecera: ' + (cErr?.message || ''), 'error')
+    return
+  }
+
+  const detalle = filas.map(f => ({
+    planilla_id: cabecera.id,
+    identidad: f.identidad,
+    identidad_norm: f.norm,
+    nombre: f.nombre,
+    empleado_id: f.emp?.id || null,
+    rl: f.rl || 0,
+    feo: f.feo || 0,
+    fio: f.fio || 0,
+    total: r2((f.rl || 0) + (f.feo || 0) + (f.fio || 0))
+  }))
+  const { error: dErr } = await sb.from('rap_planilla_detalle').insert(detalle)
+  if (dErr) {
+    // Sin el detalle la cabecera miente: diría que hay 44 afiliados presentados y el
+    // módulo de aportes dejaría de contar ese mes con las quincenas. Se deshace.
+    await sb.from('rap_planillas').delete().eq('id', cabecera.id)
+    est.textContent = ''
+    btnG.disabled = false
+    window.toast?.('No se pudo guardar el detalle, no quedó nada a medias: ' + dErr.message, 'error')
+    return
+  }
+
+  window.logActividad?.('rap_planilla_cargada', 'rrhh',
+    `Planilla RAP ${cab.numero_planilla} · ${cab.periodo} · ${filas.length} afiliados · L ${fmt(sum('rl') + sum('feo') + sum('fio'))}`)
+  window.toast?.(`Planilla ${cab.numero_planilla} cargada · ${filas.length} afiliados`, 'success')
+  document.getElementById('modal-rap-carga')?.remove()
+  _rapCarga = null
 }
 
 // ══════════════════════════════════════════════

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v179-limpieza-anular'
+const CACHE_NAME = 'contamax-v180-carga-planilla-rap'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
