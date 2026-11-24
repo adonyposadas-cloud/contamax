@@ -13176,6 +13176,10 @@ window.esCuentaCajaChica = (codigo) => codigo === CUENTA_CAJA_CHICA
 let cxpMovimientos = []
 let cxpFiltrados = []
 let cxpSeleccionados = new Set() // persists across filter changes
+// "Ver solo las seleccionadas" no es otro filtro: se combina con el de texto.
+// Las marcas sobreviven al filtro y a la consulta, asi que terminan desperdigadas
+// entre cientos de movimientos y el total de arriba dice cuanto es pero no cuales.
+let cxpSoloSel = false
 let cxpMontos = {} // id → monto for persistent sum calculation
 let cxpSeleccionActiva = null // {id, nombre, fecha_pago, notas} when editing a saved selection
 
@@ -13382,6 +13386,7 @@ window.consultarCxP = async () => {
 
   document.getElementById('cxp-filtro-rapido').classList.remove('hidden')
   restaurarCxPSeleccion()
+  cxpSoloSel = false
   cxpFiltrados = [...cxpMovimientos]
   renderCxPTabla()
 }
@@ -13406,6 +13411,8 @@ window.filtrarCxPTexto = () => {
     const desc = ((l.descripcion || '') + ' ' + (l.partida?.descripcion || '')).toLowerCase()
     return desc.includes(texto) || String(l.monto).includes(texto) || (l.cuenta_codigo || '').includes(texto) || esPartida(l, numTexto)
   })
+  // Al final, para que lo escrito en la caja busque DENTRO de las seleccionadas.
+  if (cxpSoloSel) cxpFiltrados = cxpFiltrados.filter(l => cxpSeleccionados.has(l.id))
   renderCxPTabla()
 }
 
@@ -13427,6 +13434,29 @@ window.cxpQuitarFiltroPago = () => {
   if (!inp) return
   inp.value = inp.value.replace(/(?:^|\s)#\s*\d+(?=\s|$)/, ' ').replace(/\s+/g, ' ').trim()
   filtrarCxPTexto()
+}
+
+window.cxpSoloSeleccionadas = () => {
+  cxpSoloSel = !cxpSoloSel
+  filtrarCxPTexto()
+}
+
+// Si se vacio la seleccion con el modo puesto, la tabla quedaria vacia y el boton
+// para salir escondido (updateSumaCxP esconde todo cuando no hay nada marcado).
+function cxpSoloSelAuto () {
+  if (cxpSoloSel && !cxpSeleccionados.size) { cxpSoloSel = false; filtrarCxPTexto() }
+}
+
+// El boton se pinta desde dos lados: el repintado normal y el atajo de tabla vacia de
+// renderCxPTabla, que se salta updateSumaCxP. Con el modo puesto se queda a la vista
+// aunque no haya nada que mostrar, porque es la unica salida.
+function cxpPintarBotonSolo (hayMarcadas) {
+  const b = document.getElementById('btn-solo-sel-cxp')
+  if (!b) return
+  b.style.display = (hayMarcadas || cxpSoloSel) ? 'inline-flex' : 'none'
+  b.innerHTML = '<svg class=ico aria-hidden=true><use href=#i-eye></use></svg> ' +
+    (cxpSoloSel ? 'Ver todas' : 'Ver solo las seleccionadas')
+  b.style.color = cxpSoloSel ? 'var(--gold)' : ''
 }
 
 // Lista de los pagos que aparecen en lo consultado, con su total y cuántas líneas cubrió.
@@ -13536,6 +13566,7 @@ function renderCxPTabla() {
     // esconderlos acá también: sin filas a la vista no hay nada que marcar.
     const btnYa = document.getElementById('btn-marcar-ya-pagado')
     if (btnYa) btnYa.style.display = 'none'
+    cxpPintarBotonSolo(cxpSeleccionados.size > 0)
     return
   }
 
@@ -13659,6 +13690,7 @@ window.toggleCxPCheck = (cb) => {
   }
   guardarCxPSeleccion()
   updateSumaCxP()
+  cxpSoloSelAuto()
 }
 
 window.toggleAllCxP = (checked) => {
@@ -13676,6 +13708,7 @@ window.toggleAllCxP = (checked) => {
   })
   guardarCxPSeleccion()
   updateSumaCxP()
+  cxpSoloSelAuto()
 }
 
 window.limpiarSelCxP = () => {
@@ -13686,6 +13719,7 @@ window.limpiarSelCxP = () => {
   guardarCxPSeleccion()
   document.querySelectorAll('.cxp-check').forEach(cb => cb.checked = false)
   updateSumaCxP()
+  cxpSoloSelAuto()
 }
 
 window.updateSumaCxP = () => {
@@ -13724,6 +13758,7 @@ window.updateSumaCxP = () => {
   if (btnLimpiar) btnLimpiar.style.display = count > 0 ? 'inline-flex' : 'none'
   const btnGuardar = document.getElementById('btn-guardar-sel-cxp')
   if (btnGuardar) btnGuardar.style.display = count > 0 ? 'inline-flex' : 'none'
+  cxpPintarBotonSolo(count > 0)
 }
 
 // ═══════════════ Conciliación CxP contra estado de cuenta (Ficohsa CSV / BAC txt) ═══════════════
@@ -13760,6 +13795,7 @@ function cxpAplicarConciliacion(parsed) {
   cxpSeleccionActiva = null
   res.matched.forEach(m => { cxpSeleccionados.add(m.lineId); cxpMontos[m.lineId] = m.monto })
   const ft = document.getElementById('cxp-filtro-texto'); if (ft) ft.value = ''
+  cxpSoloSel = false
   cxpFiltrados = [...cxpMovimientos]
   renderCxPTabla()
   guardarCxPSeleccion()

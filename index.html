@@ -2413,6 +2413,7 @@
           <input type="text" id="cxp-filtro-texto" placeholder="Filtrar por descripción, monto o #partida — se combinan: #3661 gasolina" oninput="filtrarCxPTexto()" style="flex:1;min-width:200px;padding:8px 12px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:12px;outline:none">
           <div style="font-family:var(--mono);font-size:14px;color:var(--gold);font-weight:600" id="cxp-suma-sel">Seleccionados: L. 0.00</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost" id="btn-solo-sel-cxp" onclick="cxpSoloSeleccionadas()" style="display:none;font-size:12px;padding:6px 12px" title="Deja en la tabla solo las lineas marcadas, para revisarlas antes de generar el pago"><svg class=ico aria-hidden=true><use href=#i-eye></use></svg> Ver solo las seleccionadas</button>
             <button class="btn btn-ghost" id="btn-limpiar-sel-cxp" onclick="limpiarSelCxP()" style="display:none;font-size:12px;padding:6px 12px">✕ Limpiar selección</button>
             <button class="btn btn-ghost" id="btn-guardar-sel-cxp" onclick="openGuardarSelCxP()" style="display:none;font-size:12px;padding:6px 12px;color:var(--blue)"><svg class=ico aria-hidden=true><use href=#i-device-floppy></use></svg> Guardar selección</button>
             <button class="btn btn-ghost" onclick="verSeleccionesCxP()" style="font-size:12px;padding:6px 12px;color:var(--green)"><svg class=ico aria-hidden=true><use href=#i-folder-open></use></svg> Selecciones guardadas</button>
@@ -3989,7 +3990,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261121c"></script>
+<script type="module" src="js/app.js?v=20261124a"></script>
 <script type="module" src="js/reportes.js?v=20261112a"></script>
 <script defer src="js/concilia_puente.js?v=20260922a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20260921t"></script>
