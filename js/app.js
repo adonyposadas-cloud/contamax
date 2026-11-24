@@ -2915,24 +2915,33 @@ window.editarPartida = async (id) => {
   // que devolvía siempre el PRIMERO del mismo tipo: las 4 líneas quedaban con las
   // denominaciones de la primera y, al guardar, se sobreescribían las reales.
   const conteosPool = [...(conteosExist || [])]
-  const tomarConteo = (l) => {
-    const tipoEsperado = l.tipo === 'debito' ? 'ingreso' : 'egreso'
-    const m = parseFloat(l.monto) || 0
-    let i = conteosPool.findIndex(c => c.tipo === tipoEsperado
-      && c.cuenta_codigo === l.cuenta_codigo
-      && Math.abs((parseFloat(c.total_monto) || 0) - m) < 0.01)
-    if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && c.cuenta_codigo === l.cuenta_codigo)
-    // Conteos legados: los que se guardaron desde la pantalla de Caja General al
-    // aprobar la partida nunca escribieron cuenta_codigo (la columna se agregó
-    // después). Quedaban en NULL, ningún filtro de arriba los encontraba, la línea
-    // de caja se cargaba SIN billetes y al guardar cualquier otro cambio de la
-    // partida el conteo se borraba en silencio. Se emparejan por tipo + monto.
-    if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && !c.cuenta_codigo
-      && Math.abs((parseFloat(c.total_monto) || 0) - m) < 0.01)
-    if (i < 0) i = conteosPool.findIndex(c => c.tipo === tipoEsperado && !c.cuenta_codigo)
-    if (i < 0) return null
-    return conteosPool.splice(i, 1)[0]
+  // El emparejamiento se hace por RONDAS sobre todas las líneas: primero las que
+  // cuadran exacto (tipo + cuenta + monto) y solo después las aproximadas. Antes se
+  // hacía línea por línea y una línea sin conteo (L. 600) le robaba por "misma
+  // cuenta" el conteo de la línea siguiente (L. 852), que quedaba sin billetes; al
+  // guardar, el conteo se grababa en la línea equivocada (partida #8078).
+  // Conteos legados: los guardados desde Caja General al aprobar nunca escribieron
+  // cuenta_codigo (NULL); se emparejan por tipo + monto, y al final por tipo.
+  const conteoPorLinea = new Map()
+  {
+    const _tipoEsp = l => l.tipo === 'debito' ? 'ingreso' : 'egreso'
+    const _mismoMonto = (c, l) => Math.abs((parseFloat(c.total_monto) || 0) - (parseFloat(l.monto) || 0)) < 0.01
+    const rondas = [
+      (c, l) => c.cuenta_codigo === l.cuenta_codigo && _mismoMonto(c, l),
+      (c, l) => !c.cuenta_codigo && _mismoMonto(c, l),
+      (c, l) => c.cuenta_codigo === l.cuenta_codigo,
+      (c, l) => !c.cuenta_codigo,
+    ]
+    const lineasCajaDB = (lineas || []).filter(l => esCuentaCaja(l.cuenta_codigo))
+    for (const regla of rondas) {
+      for (const l of lineasCajaDB) {
+        if (conteoPorLinea.has(l)) continue
+        const i = conteosPool.findIndex(c => c.tipo === _tipoEsp(l) && regla(c, l))
+        if (i >= 0) conteoPorLinea.set(l, conteosPool.splice(i, 1)[0])
+      }
+    }
   }
+  const tomarConteo = (l) => conteoPorLinea.get(l) || null
 
   for (const l of lineas) {
     lineaCounter++
@@ -2967,7 +2976,7 @@ window.editarPartida = async (id) => {
       }
     }
     // Si es cuenta de caja y hay conteo guardado, restaurar billetes
-    if (esCuentaCaja(l.cuenta_codigo) && conteosPool.length) {
+    if (esCuentaCaja(l.cuenta_codigo)) {
       const conteo = tomarConteo(l)
       if (conteo) {
         lineaObj.billetes = {

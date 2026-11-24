@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v181-ver-solo-seleccionadas'
+const CACHE_NAME = 'contamax-v182-conteo-por-linea'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

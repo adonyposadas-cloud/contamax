@@ -178,6 +178,39 @@ language sql security definer set search_path = public as $$
    group by l.device_id
 $$;
 
+-- ── Memoria del bot en Contamax (v6) ──
+-- Antes vivía solo en archivos de la PC del bot (domingos prestados, intentos para no sumar días
+-- dos veces, horas de corte por carro). Si se mudaba el bot sin esos archivos al día, se perdían.
+-- Ahora el bot la guarda aquí cada vez que cambia y la lee al arrancar (usa la más reciente).
+create table if not exists public.tx_bot_memoria (
+  nombre      text primary key check (nombre in ('domingos', 'intentos', 'horas')),
+  datos       jsonb not null default '{}',
+  updated_at  timestamptz not null default now()
+);
+alter table public.tx_bot_memoria enable row level security;
+drop policy if exists tx_bot_memoria_sel on public.tx_bot_memoria;
+create policy tx_bot_memoria_sel on public.tx_bot_memoria for select to authenticated using (true);
+
+create or replace function public.tx_bot_memoria_leer(p_clave text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  perform _tx_bot_ok(p_clave);
+  return coalesce((select jsonb_object_agg(nombre, jsonb_build_object('datos', datos, 'updated_at', updated_at)) from tx_bot_memoria), '{}'::jsonb);
+end $$;
+
+create or replace function public.tx_bot_memoria_guardar(p_clave text, p_nombre text, p_datos jsonb)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform _tx_bot_ok(p_clave);
+  insert into tx_bot_memoria (nombre, datos, updated_at) values (p_nombre, coalesce(p_datos, '{}'::jsonb), now())
+  on conflict (nombre) do update set datos = excluded.datos, updated_at = now();
+end $$;
+
+revoke all on function public.tx_bot_memoria_leer(text) from public, authenticated;
+revoke all on function public.tx_bot_memoria_guardar(text, text, jsonb) from public, authenticated;
+grant execute on function public.tx_bot_memoria_leer(text) to anon;
+grant execute on function public.tx_bot_memoria_guardar(text, text, jsonb) to anon;
+
 revoke all on function public.tx_bot_snapshot(text, jsonb) from public, authenticated;
 revoke all on function public.tx_bot_ordenes(text) from public, authenticated;
 revoke all on function public.tx_bot_orden_resultado(text, bigint, boolean, text) from public, authenticated;
