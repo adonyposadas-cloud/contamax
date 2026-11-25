@@ -881,6 +881,27 @@ function _rapCargaRender () {
     ? `${conRev.length} afiliado(s) con montos distintos a lo que da su sueldo en Contamax. Mirá la columna "Revisión".`
     : `Los montos cuadran con los sueldos de Contamax (RL ${rc.rapPct * 100}% y FOVIIF ${rc.foviifPctPatronal * 100}% sobre el exceso de L ${fmt(rc.foviifPiso)})`)
 
+  // ── El aviso al revés ──
+  // Arriba se avisa de los afiliados del RAP que no tienen empleado. Acá, lo contrario:
+  // quién cotiza RAP en Contamax y NO vino en la planilla del mes. Esa gente acumula
+  // aporte en 210303-003 y 210303-004 todas las quincenas contra un pasivo que el RAP
+  // nunca va a cobrar. Así se juntaron L 2,085.84 por mes de dos empleados que no
+  // estaban afiliados, y no se vio hasta que no cuadró el pago de octubre 2026.
+  const enPlanilla = new Set(filas.map(f => f.norm))
+  const vistos = new Set()
+  const faltantes = (st.emps || []).filter(e => {
+    const k = _rapIdent(e.identidad)
+    if (!k || enPlanilla.has(k) || vistos.has(k)) return false
+    if (!e.activo || e.es_socio || e.cotiza_rap === false) return false
+    // Quien entró después del mes de la planilla no tenía por qué venir en ella.
+    if (cab.periodo && String(e.fecha_ingreso || '') > cab.periodo + '-31') return false
+    vistos.add(k)
+    return true
+  })
+  ck(!faltantes.length, false, faltantes.length
+    ? `${faltantes.length} empleado(s) cotizan RAP en Contamax pero NO vienen en esta planilla: ${faltantes.map(e => `${e.nombre} (${e.codigo})`).join(', ')}. Cada quincena les acumula aporte contra un pasivo que el RAP no cobra: o se afilian, o hay que quitarles "cotiza RAP" en su expediente.`
+    : 'Todos los que cotizan RAP en Contamax vienen en la planilla')
+
   const bloqueado = checks.some(c => c.bloquea && !c.ok)
 
   const num = (v) => `<td style="text-align:right;font-family:var(--mono)">${v == null ? '—' : fmt(v)}</td>`
