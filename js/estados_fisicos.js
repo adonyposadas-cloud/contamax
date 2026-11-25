@@ -104,23 +104,28 @@
     if (!ULTIMA) return null
     const lineas = [...(ULTIMA.sinMatch || []), ...(ULTIMA.sinPlaca || [])]
     const porPlaca = []
+    const cerca = []           // lo más cercano aunque no llegue al corte
     for (const l of lineas) {
       let mejor = null
       for (const t of [...(l.placas || []), ...efTrozosPlaca(l.producto)]) {
-        const d = efDistancia(t, placa, 5)
-        if (d <= 5 && (!mejor || d < mejor.d)) mejor = { d, trozo: t }
+        const d = efDistancia(t, placa, 9)
+        if (!mejor || d < mejor.d) mejor = { d, trozo: t }
       }
-      if (mejor) porPlaca.push({ l, ...mejor, vf: efVeredictoFecha(subida, l.fecha), puntos: 100 - mejor.d * 14 })
+      if (!mejor) continue
+      const fila = { l, ...mejor, vf: efVeredictoFecha(subida, l.fecha), puntos: Math.max(0, 100 - mejor.d * 14) }
+      if (mejor.d <= 5) porPlaca.push(fila); else if (mejor.d <= 9) cerca.push(fila)
     }
     const porFecha = (a, b) => ((a.vf && a.vf.orden) || 0) - ((b.vf && b.vf.orden) || 0)
     porPlaca.sort((a, b) => porFecha(a, b) || b.puntos - a.puntos || a.l.factura.localeCompare(b.l.factura))
+    cerca.sort((a, b) => porFecha(a, b) || a.d - b.d || a.l.factura.localeCompare(b.l.factura))
     const yaEsta = new Set(porPlaca.map(s => s.l.factura))
     const porCliente = lineas
       .filter(l => l.cliente && !yaEsta.has(l.factura))
       .map(l => ({ l, pc: efParecidoCliente(l.cliente, propietario), vf: efVeredictoFecha(subida, l.fecha) }))
       .filter(s => s.pc >= 50)
       .sort((a, b) => porFecha(a, b) || b.pc - a.pc || a.l.factura.localeCompare(b.l.factura))
-    return { nLineas: lineas.length, porPlaca: porPlaca.slice(0, 8), porCliente: porCliente.slice(0, 8) }
+    return { nLineas: lineas.length, porPlaca: porPlaca.slice(0, 8),
+      porCliente: porCliente.slice(0, 8), cerca: cerca.slice(0, 3) }
   }
 
   function efPintarSugF (placa, propietario, subida) {
@@ -145,8 +150,14 @@
       html += titulo(`Facturas a nombre de ${esc(propietario)} — la placa no coincide o no viene:`)
       html += c.porCliente.map(s => fila(s, 'var(--blue)', `${s.pc}% del nombre`)).join('')
     }
-    return html || gris(`Ninguna de las ${c.nLineas} facturas sin casar trae una placa parecida a ésta` +
+    if (html) return html
+    let t = gris(`Ninguna de las ${c.nLineas} facturas sin casar trae una placa parecida a ésta` +
       (propietario ? `, ni está a nombre de ${esc(propietario)}` : '') + '.')
+    if (c.cerca.length) {
+      t += titulo('Lo más cercano que hay, y no se parece — solo para descartar:')
+      t += c.cerca.map(s => fila(s, 'var(--text3)', `dice “${esc(s.trozo)}” · lejana`)).join('')
+    }
+    return t
   }
   // Pinta una lista de candidatos. `d` es la distancia: 1 o 2 es "una letra", de ahí
   // para arriba ya conviene mirarlo dos veces, y por eso se dice cuánto difiere.
