@@ -3198,6 +3198,19 @@ const _impCodigo = (v) => {
   const m = String(v == null ? '' : v).match(/\b(\d{6})\s*-\s*(\d{2,3})\b/)
   return m ? m[1] + '-' + m[2].padStart(3, '0') : ''
 }
+// El centro de costo en el Excel se escribe a mano, así que se compara sin tildes
+// ni mayúsculas, y vale tanto el código como el nombre.
+const _impLlano = (s) => String(s == null ? '' : s).trim().toUpperCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+const _impCentro = (v) => {
+  const t = _impLlano(v)
+  if (!t) return null
+  const exacto = empresas.find(e => _impLlano(e.codigo) === t || _impLlano(e.nombre) === t)
+  if (exacto) return exacto
+  // Parcial solo si no hay duda: dos centros que se parezcan no se adivinan.
+  const parciales = empresas.filter(e => _impLlano(e.nombre).includes(t))
+  return parciales.length === 1 ? parciales[0] : null
+}
 
 // ── Adivinar qué es cada columna ──
 // Primero por el encabezado, si la hoja trae uno. Si no, por lo que contienen: la
@@ -3218,6 +3231,7 @@ function _impLinAdivinar (filas) {
       if (/DEBE|DEBITO|DÉBITO|CARGO/.test(t)) rol[i] = 'debe'
       else if (/HABER|CREDITO|CRÉDITO|ABONO/.test(t)) rol[i] = 'haber'
       else if (/CUENTA|CODIGO|CÓDIGO/.test(t)) rol[i] = 'cuenta'
+      else if (/CENTRO|EMPRESA|SUCURSAL/.test(t)) rol[i] = 'centro'
       else if (/DESCRIPCION|DESCRIPCIÓN|CONCEPTO|DETALLE/.test(t)) rol[i] = 'descripcion'
     })
   }
@@ -3229,6 +3243,13 @@ function _impLinAdivinar (filas) {
       return llenas.length >= 2 && llenas.every(v => _impCodigo(v))
     })
     if (i != null) rol[i] = 'cuenta'
+  }
+  if (!rol.includes('centro')) {
+    const i = libres().find(i => {
+      const llenas = col(i).slice(desde).filter(v => _impTxt(v))
+      return llenas.length >= 2 && llenas.every(v => _impCentro(v))
+    })
+    if (i != null) rol[i] = 'centro'
   }
   if (!rol.includes('descripcion')) {
     const i = libres().find(i => col(i).slice(desde).filter(v => _impTxt(v) && !_impEsNum(v)).length >= 2)
@@ -3320,7 +3341,7 @@ window._impLinArchivo = async (input) => {
     const filas = crudo.filter(f => (f || []).some(c => _impTxt(c) !== ''))
     if (!filas.length) { toast('La hoja está vacía', 'error'); return }
     const { rol, desde } = _impLinAdivinar(filas)
-    _impLin = { archivo: file.name, hoja, filas, rol, desde, ctaDebe: '', ctaHaber: '' }
+    _impLin = { archivo: file.name, hoja, filas, rol, desde, ctaDebe: '', ctaHaber: '', centroTodas: '' }
   } catch (e) {
     toast('No se pudo leer el archivo: ' + (e.message || e), 'error')
     return
@@ -3340,13 +3361,16 @@ window._impLinSetCuenta = (lado, v) => {
   _impLin[lado === 'debe' ? 'ctaDebe' : 'ctaHaber'] = _impCodigo(v)
   _impLinRender()
 }
+window._impLinSetCentro = (v) => { _impLin.centroTodas = v || ''; _impLinRender() }
 
 // Arma las líneas que se van a agregar, con la cuenta ya resuelta y de dónde salió,
 // para poder mostrarlo en la tabla antes de meterlas al formulario.
 function _impLinArmar () {
-  const { filas, rol, desde, ctaDebe, ctaHaber } = _impLin
+  const { filas, rol, desde, ctaDebe, ctaHaber, centroTodas } = _impLin
   const iDesc = rol.indexOf('descripcion'), iDebe = rol.indexOf('debe')
   const iHaber = rol.indexOf('haber'), iCta = rol.indexOf('cuenta')
+  const iCentro = rol.indexOf('centro')
+  const centroGeneral = centroTodas ? empresas.find(e => e.id === centroTodas) : null
   const out = []
   for (let n = desde; n < filas.length; n++) {
     const f = filas[n] || []
@@ -3357,11 +3381,15 @@ function _impLinArmar () {
     const lado = debe > 0 ? 'debito' : haber > 0 ? 'credito' : ''
     const delLado = lado === 'debito' ? ctaDebe : lado === 'credito' ? ctaHaber : ''
     const codigo = delExcel || delLado
+    // Igual que la cuenta: manda lo que diga la fila; si viene vacía, el general.
+    const centroTexto = iCentro >= 0 ? _impTxt(f[iCentro]) : ''
+    const centro = centroTexto ? _impCentro(centroTexto) : centroGeneral
     out.push({
       fila: n + 1, descripcion, debe, haber, lado,
       monto: Math.round((debe > 0 ? debe : haber) * 100) / 100,
       codigo, origen: delExcel ? 'excel' : (codigo ? 'lado' : ''),
       cuenta: codigo ? cuentasDetalle.find(c => c.codigo === codigo) : null,
+      centro, centroTexto, centroMalo: !!centroTexto && !centro,
       ambos: debe > 0 && haber > 0,
       vacia: debe === 0 && haber === 0
     })
@@ -3386,6 +3414,8 @@ function _impLinRender () {
   const ambos = armadas.filter(l => l.ambos)
   const vacias = armadas.filter(l => l.vacia)
   const sinDesc = usables.filter(l => !l.descripcion)
+  const centroMalo = usables.filter(l => l.centroMalo)
+  const conCentro = usables.filter(l => l.centro).length
   const hayMontos = rol.includes('debe') || rol.includes('haber')
 
   const ck = (ok, bloquea, txt) => ({ ok, bloquea, txt })
@@ -3402,7 +3432,13 @@ function _impLinRender () {
       ? `Cuadra: Debe L ${fmt(sumaDebe)} = Haber L ${fmt(sumaHaber)}`
       : `Debe L ${fmt(sumaDebe)} contra Haber L ${fmt(sumaHaber)} · diferencia L ${fmt(Math.abs(sumaDebe - sumaHaber))}. Se agregan igual, pero el formulario no deja guardar descuadrado.`),
     ck(!vacias.length, false, vacias.length ? `${vacias.length} fila(s) sin monto — se saltan` : 'Ninguna fila sin monto'),
-    ck(!sinDesc.length, false, sinDesc.length ? `${sinDesc.length} línea(s) sin descripción — van a tomar la general de la partida` : 'Todas traen descripción')
+    ck(!sinDesc.length, false, sinDesc.length ? `${sinDesc.length} línea(s) sin descripción — van a tomar la general de la partida` : 'Todas traen descripción'),
+    // Bloquea: un centro escrito que no se reconoce se perdería calladito y la
+    // línea entraría sin centro, que es justo lo que se quiso evitar al escribirlo.
+    ck(!centroMalo.length, true, centroMalo.length
+      ? `${centroMalo.length} línea(s) con un centro de costo que no existe: ${[...new Set(centroMalo.map(l => l.centroTexto))].slice(0, 3).join(', ')}`
+      : conCentro ? `${conCentro} línea(s) con centro de costo`
+      : 'Sin centro de costo — se le puede poner después en el formulario')
   ]
   const bloqueado = checks.some(c => !c.ok && c.bloquea)
 
@@ -3426,6 +3462,13 @@ function _impLinRender () {
         <label>Cuenta para todo el Haber</label>
         <input type="text" list="implin-cuentas" value="${valorCta(_impLin.ctaHaber)}"
           onchange="_impLinSetCuenta('haber',this.value)" placeholder="Código o nombre" style="font-size:12px">
+      </div>
+      <div class="fld" style="flex:1 1 220px">
+        <label>Centro de costo para todas</label>
+        <select onchange="_impLinSetCentro(this.value)" style="font-size:12px">
+          <option value="">— ninguno —</option>
+          ${empresas.map(e => `<option value="${e.id}"${_impLin.centroTodas === e.id ? ' selected' : ''}>${escAttr(e.nombre)}</option>`).join('')}
+        </select>
       </div>
       <div class="fld" style="flex:0 0 140px">
         <label>Empezar en la fila</label>
@@ -3452,7 +3495,7 @@ function _impLinRender () {
         <thead><tr>
           <th style="width:45px">Fila</th><th>Descripción</th>
           <th style="width:105px;text-align:right">Debe</th><th style="width:105px;text-align:right">Haber</th>
-          <th style="width:290px">Cuenta</th>
+          <th style="width:250px">Cuenta</th><th style="width:130px">Centro</th>
         </tr></thead>
         <tbody>${armadas.map(l => {
           const fondo = l.ambos ? 'background:var(--red-soft)' : l.vacia ? 'opacity:.45' : (!l.cuenta ? 'background:var(--amber-soft)' : '')
@@ -3465,6 +3508,10 @@ function _impLinRender () {
               : l.cuenta ? `<span style="font-family:var(--mono)">${l.codigo}</span> ${escAttr(l.cuenta.nombre)}<span style="color:var(--text3)"> · ${l.origen === 'excel' ? 'del Excel' : 'del lado'}</span>`
               : l.codigo ? `<span style="color:var(--red)">${escAttr(l.codigo)} no está en el catálogo</span>`
               : '<span style="color:var(--amber)">falta la cuenta</span>'}</td>
+            <td style="font-size:11px">${l.vacia ? ''
+              : l.centro ? escAttr(l.centro.nombre)
+              : l.centroMalo ? `<span style="color:var(--red)">${escAttr(l.centroTexto)} no existe</span>`
+              : '<span style="color:var(--text3)">—</span>'}</td>
           </tr>`
         }).join('')}</tbody>
       </table>
@@ -3491,7 +3538,7 @@ window._impLinAgregar = () => {
       cuenta_nombre: l.cuenta.nombre,
       tipo: l.lado,
       monto: l.monto,
-      centro_costo_id: '',
+      centro_costo_id: l.centro ? l.centro.id : '',
       descripcion: l.descripcion,
       aplica_fiscal: true
     })
