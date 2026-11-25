@@ -3162,6 +3162,348 @@ window.removeLinea = (id) => {
   calcTotales()
 }
 
+// ══════════════════════════════════════════════
+// ═══  IMPORTAR LAS LÍNEAS DE LA PARTIDA DESDE EXCEL  ═══
+// ══════════════════════════════════════════════
+// Una partida larga —las 31 líneas de Tigo del mes, el combustible de la quincena—
+// se tecleaba una por una. Esto lee la hoja y las deja puestas de un solo golpe.
+//
+// NO guarda nada: solo llena las líneas del formulario de Nueva Partida. El
+// correlativo, el cuadre, los adjuntos y la aprobación siguen siendo los de siempre,
+// y todavía se puede revisar y corregir todo antes de guardar.
+//
+// La cuenta se pone de tres formas y se combinan: una columna CUENTA en el Excel
+// (línea por línea), una cuenta para todo el Debe y otra para todo el Haber. Manda la
+// de la columna; las filas que la traigan vacía toman la del lado.
+//
+// Las columnas se adivinan al abrir pero quedan a la vista y se pueden cambiar. El
+// importador de compras lee por posición fija y se descuadra calladito cada vez que
+// alguien le mete una columna al reporte; acá al menos se ve qué se está leyendo.
+
+let _impLin = null
+
+const _impTxt = (v) => String(v == null ? '' : v).trim()
+// Un monto puede venir como número de Excel o como texto con separador de miles.
+// Lo que no parezca número da 0, no NaN: un NaN suelto descuadra la partida sin avisar.
+const _impNum = (v) => {
+  if (v == null || v === '') return 0
+  if (typeof v === 'number') return isFinite(v) ? v : 0
+  const n = parseFloat(String(v).replace(/[^\d.\-]/g, ''))
+  return isFinite(n) ? n : 0
+}
+const _impEsNum = (v) => v != null && v !== '' &&
+  (typeof v === 'number' || /^-?\s*[\d,]+(\.\d+)?\s*$/.test(String(v)))
+// Los códigos del catálogo son 610101-044. Con o sin guion, para no ser quisquilloso.
+const _impCodigo = (v) => {
+  const m = String(v == null ? '' : v).match(/\b(\d{6})\s*-\s*(\d{2,3})\b/)
+  return m ? m[1] + '-' + m[2].padStart(3, '0') : ''
+}
+
+// ── Adivinar qué es cada columna ──
+// Primero por el encabezado, si la hoja trae uno. Si no, por lo que contienen: la
+// primera columna de texto es la descripción y las dos primeras de números son Debe y
+// Haber, en ese orden, que es como se escribe un asiento.
+function _impLinAdivinar (filas) {
+  const ancho = Math.max(...filas.map(f => (f || []).length), 0)
+  const col = (i) => filas.map(f => (f || [])[i])
+  const rol = new Array(ancho).fill('ignorar')
+
+  const cab = filas[0] || []
+  const pareceCab = cab.filter(c => _impTxt(c)).length >= 2 && !cab.some(c => _impEsNum(c))
+  let desde = 0
+  if (pareceCab) {
+    desde = 1
+    cab.forEach((c, i) => {
+      const t = _impTxt(c).toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ]/g, '')
+      if (/DEBE|DEBITO|DÉBITO|CARGO/.test(t)) rol[i] = 'debe'
+      else if (/HABER|CREDITO|CRÉDITO|ABONO/.test(t)) rol[i] = 'haber'
+      else if (/CUENTA|CODIGO|CÓDIGO/.test(t)) rol[i] = 'cuenta'
+      else if (/DESCRIPCION|DESCRIPCIÓN|CONCEPTO|DETALLE/.test(t)) rol[i] = 'descripcion'
+    })
+  }
+
+  const libres = () => [...Array(ancho).keys()].filter(i => rol[i] === 'ignorar')
+  if (!rol.includes('cuenta')) {
+    const i = libres().find(i => {
+      const llenas = col(i).slice(desde).filter(v => _impTxt(v))
+      return llenas.length >= 2 && llenas.every(v => _impCodigo(v))
+    })
+    if (i != null) rol[i] = 'cuenta'
+  }
+  if (!rol.includes('descripcion')) {
+    const i = libres().find(i => col(i).slice(desde).filter(v => _impTxt(v) && !_impEsNum(v)).length >= 2)
+    if (i != null) rol[i] = 'descripcion'
+  }
+  // ── Debe y Haber ──
+  // Se turnan: una fila trae uno o el otro, casi nunca los dos. Así que se elige el PAR
+  // de columnas numéricas que más filas cubre con exactamente una de las dos, y la de
+  // más a la izquierda es el Debe. Tomar las primeras dos numéricas no sirve: en la hoja
+  // de Tigo la columna A trae el número de documento y se la llevaba como Debe solo por
+  // venir primero, con lo que el Debe daba 185,400 en vez de 13,041.69.
+  const esNum = (i, n) => _impEsNum((filas[n] || [])[i])
+  const complementa = (ia, ib) => {
+    let sola = 0, ambas = 0
+    for (let n = desde; n < filas.length; n++) {
+      const a = esNum(ia, n), b = esNum(ib, n)
+      if (a && b) ambas++
+      else if (a || b) sola++
+    }
+    return sola - ambas * 2
+  }
+  const candidatas = () => libres().filter(i => col(i).slice(desde).some(v => _impEsNum(v)))
+  const mejorContra = (fijo, ladoIzq) => {
+    let mejor = null
+    for (const i of candidatas()) {
+      const pts = ladoIzq ? complementa(i, fijo) : complementa(fijo, i)
+      if (!mejor || pts > mejor.pts) mejor = { i, pts }
+    }
+    return mejor
+  }
+  if (!rol.includes('debe') && !rol.includes('haber')) {
+    const cs = candidatas()
+    let mejor = null
+    for (let a = 0; a < cs.length; a++) {
+      for (let b = a + 1; b < cs.length; b++) {
+        const pts = complementa(cs[a], cs[b])
+        if (!mejor || pts > mejor.pts) mejor = { a: cs[a], b: cs[b], pts }
+      }
+    }
+    if (mejor) { rol[mejor.a] = 'debe'; rol[mejor.b] = 'haber' }
+    else if (cs.length === 1) rol[cs[0]] = 'debe'
+  } else if (!rol.includes('haber')) {
+    const m = mejorContra(rol.indexOf('debe'), false)
+    if (m) rol[m.i] = 'haber'
+  } else if (!rol.includes('debe')) {
+    const m = mejorContra(rol.indexOf('haber'), true)
+    if (m) rol[m.i] = 'debe'
+  }
+
+  return { rol, desde }
+}
+
+window.abrirImportarLineas = () => {
+  if (!cuentasDetalle.length) { toast('Todavía no cargó el catálogo de cuentas, probá en un momento', 'error'); return }
+  _impLin = null
+  document.getElementById('modal-imp-lineas')?.remove()
+  const ov = document.createElement('div')
+  ov.className = 'modal-backdrop open'
+  ov.id = 'modal-imp-lineas'
+  ov.innerHTML = `
+    <div class="modal" style="width:min(1040px,96vw);max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-title">Importar líneas desde Excel</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.6">
+        Una fila por línea del asiento, con <b>descripción</b>, <b>Debe</b> y <b>Haber</b> en columnas aparte.
+        Si le ponés una columna de <b>cuenta</b>, manda esa; las filas que la dejés vacía toman la cuenta del lado
+        que elijas acá abajo. Las líneas se agregan al formulario: <b>todavía no se guarda nada</b>.
+      </div>
+      <div style="margin-bottom:14px">
+        <input type="file" id="implin-file" accept=".xlsx,.xls,.csv" onchange="_impLinArchivo(this)"
+          style="font-size:12px;color:var(--text2)">
+      </div>
+      <div id="implin-cuerpo" style="flex:1;min-height:0;overflow:auto"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="document.getElementById('modal-imp-lineas').remove()">Cerrar</button>
+        <button class="btn btn-gold" id="implin-btn" onclick="_impLinAgregar()" disabled>Agregar a la partida</button>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+}
+
+window._impLinArchivo = async (input) => {
+  const file = input.files && input.files[0]
+  if (!file) return
+  try {
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const hoja = wb.SheetNames[0]
+    const crudo = XLSX.utils.sheet_to_json(wb.Sheets[hoja], { header: 1, defval: null })
+    const filas = crudo.filter(f => (f || []).some(c => _impTxt(c) !== ''))
+    if (!filas.length) { toast('La hoja está vacía', 'error'); return }
+    const { rol, desde } = _impLinAdivinar(filas)
+    _impLin = { archivo: file.name, hoja, filas, rol, desde, ctaDebe: '', ctaHaber: '' }
+  } catch (e) {
+    toast('No se pudo leer el archivo: ' + (e.message || e), 'error')
+    return
+  }
+  _impLinRender()
+}
+
+window._impLinSetRol = (i, valor) => {
+  // Debe, Haber, cuenta y descripción son de a una: si se repite, la que lo tenía
+  // antes se suelta. Si no, dos columnas pelearían por el mismo campo.
+  if (valor !== 'ignorar') _impLin.rol = _impLin.rol.map(r => r === valor ? 'ignorar' : r)
+  _impLin.rol[i] = valor
+  _impLinRender()
+}
+window._impLinSetDesde = (v) => { _impLin.desde = Math.max(0, (parseInt(v, 10) || 1) - 1); _impLinRender() }
+window._impLinSetCuenta = (lado, v) => {
+  _impLin[lado === 'debe' ? 'ctaDebe' : 'ctaHaber'] = _impCodigo(v)
+  _impLinRender()
+}
+
+// Arma las líneas que se van a agregar, con la cuenta ya resuelta y de dónde salió,
+// para poder mostrarlo en la tabla antes de meterlas al formulario.
+function _impLinArmar () {
+  const { filas, rol, desde, ctaDebe, ctaHaber } = _impLin
+  const iDesc = rol.indexOf('descripcion'), iDebe = rol.indexOf('debe')
+  const iHaber = rol.indexOf('haber'), iCta = rol.indexOf('cuenta')
+  const out = []
+  for (let n = desde; n < filas.length; n++) {
+    const f = filas[n] || []
+    const debe = iDebe >= 0 ? _impNum(f[iDebe]) : 0
+    const haber = iHaber >= 0 ? _impNum(f[iHaber]) : 0
+    const descripcion = iDesc >= 0 ? _impTxt(f[iDesc]).toUpperCase() : ''
+    const delExcel = iCta >= 0 ? _impCodigo(f[iCta]) : ''
+    const lado = debe > 0 ? 'debito' : haber > 0 ? 'credito' : ''
+    const delLado = lado === 'debito' ? ctaDebe : lado === 'credito' ? ctaHaber : ''
+    const codigo = delExcel || delLado
+    out.push({
+      fila: n + 1, descripcion, debe, haber, lado,
+      monto: Math.round((debe > 0 ? debe : haber) * 100) / 100,
+      codigo, origen: delExcel ? 'excel' : (codigo ? 'lado' : ''),
+      cuenta: codigo ? cuentasDetalle.find(c => c.codigo === codigo) : null,
+      ambos: debe > 0 && haber > 0,
+      vacia: debe === 0 && haber === 0
+    })
+  }
+  return out
+}
+
+function _impLinRender () {
+  const cont = document.getElementById('implin-cuerpo')
+  if (!cont || !_impLin) return
+  const { filas, rol, desde } = _impLin
+  const fmt = v => (v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const letra = (i) => String.fromCharCode(65 + i)
+  const ROLES = [['ignorar', '—'], ['descripcion', 'Descripción'], ['debe', 'Debe'], ['haber', 'Haber'], ['cuenta', 'Cuenta']]
+
+  const armadas = _impLinArmar()
+  const usables = armadas.filter(l => !l.vacia && !l.ambos)
+  const sumaDebe = Math.round(usables.filter(l => l.lado === 'debito').reduce((s, l) => s + l.monto, 0) * 100) / 100
+  const sumaHaber = Math.round(usables.filter(l => l.lado === 'credito').reduce((s, l) => s + l.monto, 0) * 100) / 100
+  const sinCuenta = usables.filter(l => !l.cuenta)
+  const inexistentes = usables.filter(l => l.codigo && !l.cuenta)
+  const ambos = armadas.filter(l => l.ambos)
+  const vacias = armadas.filter(l => l.vacia)
+  const sinDesc = usables.filter(l => !l.descripcion)
+  const hayMontos = rol.includes('debe') || rol.includes('haber')
+
+  const ck = (ok, bloquea, txt) => ({ ok, bloquea, txt })
+  const checks = [
+    ck(hayMontos, true, hayMontos ? 'Hay columna de montos' : 'Ninguna columna está marcada como Debe ni como Haber'),
+    ck(usables.length > 0, true, usables.length ? `${usables.length} línea(s) para agregar` : 'No hay ninguna fila con monto'),
+    ck(!ambos.length, true, ambos.length
+      ? `${ambos.length} fila(s) traen monto en Debe Y en Haber a la vez (fila ${ambos.slice(0, 5).map(l => l.fila).join(', ')})`
+      : 'Ninguna fila trae los dos lados'),
+    ck(!sinCuenta.length, true, sinCuenta.length
+      ? `${sinCuenta.length} línea(s) sin cuenta` + (inexistentes.length ? ` · ${inexistentes.length} con un código que no está en el catálogo` : '')
+      : 'Todas las líneas tienen cuenta del catálogo'),
+    ck(sumaDebe === sumaHaber, false, sumaDebe === sumaHaber
+      ? `Cuadra: Debe L ${fmt(sumaDebe)} = Haber L ${fmt(sumaHaber)}`
+      : `Debe L ${fmt(sumaDebe)} contra Haber L ${fmt(sumaHaber)} · diferencia L ${fmt(Math.abs(sumaDebe - sumaHaber))}. Se agregan igual, pero el formulario no deja guardar descuadrado.`),
+    ck(!vacias.length, false, vacias.length ? `${vacias.length} fila(s) sin monto — se saltan` : 'Ninguna fila sin monto'),
+    ck(!sinDesc.length, false, sinDesc.length ? `${sinDesc.length} línea(s) sin descripción — van a tomar la general de la partida` : 'Todas traen descripción')
+  ]
+  const bloqueado = checks.some(c => !c.ok && c.bloquea)
+
+  const opciones = cuentasDetalle.map(c => `<option value="${escAttr(c.codigo + ' · ' + c.nombre)}"></option>`).join('')
+  const nombreDe = (cod) => { const c = cuentasDetalle.find(x => x.codigo === cod); return c ? c.nombre : '' }
+  const valorCta = (cod) => cod ? escAttr(cod + ' · ' + nombreDe(cod)) : ''
+
+  cont.innerHTML = `
+    <datalist id="implin-cuentas">${opciones}</datalist>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
+      ${escAttr(_impLin.archivo)} · hoja "${escAttr(_impLin.hoja)}" · ${filas.length} fila(s) con datos
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+      <div class="fld" style="flex:1 1 280px">
+        <label>Cuenta para todo el Debe</label>
+        <input type="text" list="implin-cuentas" value="${valorCta(_impLin.ctaDebe)}"
+          onchange="_impLinSetCuenta('debe',this.value)" placeholder="Código o nombre" style="font-size:12px">
+      </div>
+      <div class="fld" style="flex:1 1 280px">
+        <label>Cuenta para todo el Haber</label>
+        <input type="text" list="implin-cuentas" value="${valorCta(_impLin.ctaHaber)}"
+          onchange="_impLinSetCuenta('haber',this.value)" placeholder="Código o nombre" style="font-size:12px">
+      </div>
+      <div class="fld" style="flex:0 0 140px">
+        <label>Empezar en la fila</label>
+        <input type="number" min="1" value="${desde + 1}" onchange="_impLinSetDesde(this.value)" style="font-size:12px">
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:500;margin-bottom:6px">Qué es cada columna</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      ${rol.map((r, i) => `<div style="display:flex;align-items:center;gap:5px;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:5px 8px">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text3)">${letra(i)}</span>
+          <select onchange="_impLinSetRol(${i},this.value)" style="font-size:11px;padding:3px 6px">
+            ${ROLES.map(([v, t]) => `<option value="${v}"${r === v ? ' selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>`).join('')}
+    </div>
+
+    <ul style="margin:0 0 14px;padding:0;list-style:none;font-size:12px;line-height:1.9">
+      ${checks.map(c => `<li style="color:var(--${c.ok ? 'green' : c.bloquea ? 'red' : 'amber'})">${c.ok ? '✓' : c.bloquea ? '✗' : '⚠'} ${c.txt}</li>`).join('')}
+    </ul>
+
+    <div class="table-wrap">
+      <table style="font-size:12px">
+        <thead><tr>
+          <th style="width:45px">Fila</th><th>Descripción</th>
+          <th style="width:105px;text-align:right">Debe</th><th style="width:105px;text-align:right">Haber</th>
+          <th style="width:290px">Cuenta</th>
+        </tr></thead>
+        <tbody>${armadas.map(l => {
+          const fondo = l.ambos ? 'background:var(--red-soft)' : l.vacia ? 'opacity:.45' : (!l.cuenta ? 'background:var(--amber-soft)' : '')
+          return `<tr style="${fondo}">
+            <td style="font-family:var(--mono);color:var(--text3)">${l.fila}</td>
+            <td>${escAttr(l.descripcion) || '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;font-family:var(--mono)">${l.debe ? fmt(l.debe) : ''}</td>
+            <td style="text-align:right;font-family:var(--mono)">${l.haber ? fmt(l.haber) : ''}</td>
+            <td style="font-size:11px">${l.vacia ? '<span style="color:var(--text3)">se salta</span>'
+              : l.cuenta ? `<span style="font-family:var(--mono)">${l.codigo}</span> ${escAttr(l.cuenta.nombre)}<span style="color:var(--text3)"> · ${l.origen === 'excel' ? 'del Excel' : 'del lado'}</span>`
+              : l.codigo ? `<span style="color:var(--red)">${escAttr(l.codigo)} no está en el catálogo</span>`
+              : '<span style="color:var(--amber)">falta la cuenta</span>'}</td>
+          </tr>`
+        }).join('')}</tbody>
+      </table>
+    </div>`
+
+  const btn = document.getElementById('implin-btn')
+  btn.disabled = bloqueado
+  btn.textContent = bloqueado ? 'Corregí lo marcado en rojo' : `Agregar ${usables.length} línea(s) a la partida`
+}
+
+window._impLinAgregar = () => {
+  const usables = _impLinArmar().filter(l => !l.vacia && !l.ambos && l.cuenta)
+  if (!usables.length) return
+  const archivo = _impLin.archivo
+  // Se tira la línea en blanco que trae el formulario recién abierto: si no, queda
+  // una fila sin cuenta ni monto estorbando arriba de las importadas.
+  partidaLineas = partidaLineas.filter(l => l.cuenta_id || l.monto > 0)
+  for (const l of usables) {
+    lineaCounter++
+    partidaLineas.push({
+      id: lineaCounter,
+      cuenta_id: l.cuenta.id,
+      cuenta_codigo: l.cuenta.codigo,
+      cuenta_nombre: l.cuenta.nombre,
+      tipo: l.lado,
+      monto: l.monto,
+      centro_costo_id: '',
+      descripcion: l.descripcion,
+      aplica_fiscal: true
+    })
+  }
+  document.getElementById('modal-imp-lineas')?.remove()
+  _impLin = null
+  renderLineas()
+  calcTotales()
+  window.logActividad?.('partida_import', 'partidas', `${usables.length} línea(s) importadas de ${archivo}`)
+  toast(`${usables.length} línea(s) agregadas · revisá el cuadre antes de guardar`, 'success')
+}
+
 // Filtro visual de líneas del asiento (no toca partidaLineas ni el cuadre)
 window.aplicarFiltroLineas = () => {
   const q = (document.getElementById('pn-filtro-lineas')?.value || '').trim().toLowerCase()

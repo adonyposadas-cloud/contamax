@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v182-conteo-por-linea'
+const CACHE_NAME = 'contamax-v183-importar-lineas-excel'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
