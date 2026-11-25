@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v187-sugerir-por-cliente'
+const CACHE_NAME = 'contamax-v188-fecha-en-sugerencias'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

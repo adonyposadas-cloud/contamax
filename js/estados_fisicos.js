@@ -100,7 +100,7 @@
   // Lo contrario: para una placa pendiente, qué facturas sin casar podrían ser la suya.
   // Mismo par visto del otro lado, y con las mismas dos pistas: la placa que trae la
   // descripción y, cuando la descripción no dice nada, el cliente que pagó.
-  function efCandidatosFactura (placa, propietario) {
+  function efCandidatosFactura (placa, propietario, subida) {
     if (!ULTIMA) return null
     const lineas = [...(ULTIMA.sinMatch || []), ...(ULTIMA.sinPlaca || [])]
     const porPlaca = []
@@ -110,20 +110,21 @@
         const d = efDistancia(t, placa, 5)
         if (d <= 5 && (!mejor || d < mejor.d)) mejor = { d, trozo: t }
       }
-      if (mejor) porPlaca.push({ l, ...mejor, puntos: 100 - mejor.d * 14 })
+      if (mejor) porPlaca.push({ l, ...mejor, vf: efVeredictoFecha(subida, l.fecha), puntos: 100 - mejor.d * 14 })
     }
-    porPlaca.sort((a, b) => b.puntos - a.puntos || a.l.factura.localeCompare(b.l.factura))
+    const porFecha = (a, b) => ((a.vf && a.vf.orden) || 0) - ((b.vf && b.vf.orden) || 0)
+    porPlaca.sort((a, b) => porFecha(a, b) || b.puntos - a.puntos || a.l.factura.localeCompare(b.l.factura))
     const yaEsta = new Set(porPlaca.map(s => s.l.factura))
     const porCliente = lineas
       .filter(l => l.cliente && !yaEsta.has(l.factura))
-      .map(l => ({ l, pc: efParecidoCliente(l.cliente, propietario) }))
+      .map(l => ({ l, pc: efParecidoCliente(l.cliente, propietario), vf: efVeredictoFecha(subida, l.fecha) }))
       .filter(s => s.pc >= 50)
-      .sort((a, b) => b.pc - a.pc || a.l.factura.localeCompare(b.l.factura))
+      .sort((a, b) => porFecha(a, b) || b.pc - a.pc || a.l.factura.localeCompare(b.l.factura))
     return { nLineas: lineas.length, porPlaca: porPlaca.slice(0, 8), porCliente: porCliente.slice(0, 8) }
   }
 
-  function efPintarSugF (placa, propietario) {
-    const c = efCandidatosFactura(placa, propietario)
+  function efPintarSugF (placa, propietario, subida) {
+    const c = efCandidatosFactura(placa, propietario, subida)
     const gris = (t) => `<div style="font-size:12px;color:var(--text3)">${t}</div>`
     if (!c) return gris('Corré una conciliación y acá salen las facturas sin casar que se parezcan.')
     const titulo = (t) => `<div style="font-size:12px;color:var(--text3);margin:6px 0 4px">${t}</div>`
@@ -133,7 +134,8 @@
       `<span style="color:${color}">●</span> <b>${esc(s.l.factura)}</b> ` +
       `<span style="color:var(--text3)">${esc(s.l.fecha || '')} · L. ${fmt(s.l.monto)}</span></span>` +
       `<span style="color:${color};font-size:11px;white-space:nowrap">${sello}</span></span>` +
-      `<span style="color:var(--text3)">${esc(String(s.l.producto).slice(0, 80))}</span></button>`
+      `<span style="color:var(--text3)">${esc(String(s.l.producto).slice(0, 80))}</span>` +
+      `${s.vf ? `<span style="color:${s.vf.color};font-size:11px">${efTxtDesdePend(s.vf)}</span>` : ''}</button>`
     let html = ''
     if (c.porPlaca.length) {
       html += titulo('Facturas sin casar que traen una placa parecida:')
@@ -149,7 +151,35 @@
   // Pinta una lista de candidatos. `d` es la distancia: 1 o 2 es "una letra", de ahí
   // para arriba ya conviene mirarlo dos veces, y por eso se dice cuánto difiere.
   const efColorD = (d) => d <= 2 ? 'var(--green)' : d <= 4 ? 'var(--amber)' : 'var(--text3)'
-  const efSelloD = (d) => d <= 2 ? 'casi igual' : d <= 4 ? 'parecida' : 'lejana'
+  const efSelloD = (d) => d === 0 ? 'igual' : d <= 2 ? 'casi igual' : d <= 4 ? 'parecida' : 'lejana'
+
+
+  // ── La fecha manda sobre el parecido ──
+  // Una placa puede parecerse mucho y aun así ser imposible: si el estado físico entró
+  // a la base DESPUÉS de la factura, esa factura no lo pudo estar cobrando. Y al revés,
+  // un estado físico de hace año y medio contra una factura de este mes casi nunca es
+  // el par bueno — es otro carro que se parece. Sin la fecha a la vista, las dos cosas
+  // se concilian a ciegas.
+  const EF_DIA = 86400000
+  const efDias = (a, b) => {
+    if (!a || !b) return null
+    const x = Date.parse(String(a).slice(0, 10)), y = Date.parse(String(b).slice(0, 10))
+    return (isNaN(x) || isNaN(y)) ? null : Math.round((y - x) / EF_DIA)
+  }
+
+  // `subida` = cuándo entró el estado físico. `fac` = fecha de la factura.
+  // Devuelve null cuando falta alguna de las dos: no se inventa un veredicto.
+  function efVeredictoFecha (subida, fac) {
+    const d = efDias(subida, fac)
+    if (d === null) return null
+    if (d < 0) return { d, txt: `${-d} día(s) DESPUÉS de la factura — imposible`, color: 'var(--red)', orden: 2 }
+    if (d > 365) return { d, txt: `${Math.floor(d / 30)} meses antes — revisá`, color: 'var(--amber)', orden: 1 }
+    return { d, txt: `${d} día(s) antes`, color: 'var(--text3)', orden: 0 }
+  }
+  // Lo mismo dicho desde el pendiente: ahí lo que se mueve es la fecha de la factura.
+  const efTxtDesdePend = (vf) => vf.orden === 2 ? 'factura anterior al estado físico — imposible'
+    : vf.orden === 1 ? `el estado físico es ${Math.floor(vf.d / 30)} meses más viejo — revisá`
+    : `facturada ${vf.d} día(s) después de subirlo`
 
   // ── Por cliente, cuando la placa no alcanza ──
   // Hay facturas cuya descripción dice solo "ESTADO FISICO": no hay placa que comparar
@@ -198,20 +228,22 @@
       }
       if (!mejor) continue
       const mismasLetras = mejor.trozo.slice(0, 3) === g.placa.slice(0, 3)
-      const fila = { ...g, ...mejor, puntos: Math.max(0, 100 - mejor.d * 14) + (mismasLetras ? 10 : 0) }
+      const vf = efVeredictoFecha(g.subida, linea.fecha)
+      const fila = { ...g, ...mejor, vf, puntos: Math.max(0, 100 - mejor.d * 14) + (mismasLetras ? 10 : 0) }
       if (mejor.d === 0) continue
       if (mejor.d <= 5) porPlaca.push(fila); else if (mejor.d <= 9) cerca.push(fila)
     }
-    porPlaca.sort((a, b) => b.puntos - a.puntos || a.placa.localeCompare(b.placa))
-    cerca.sort((a, b) => a.d - b.d || a.placa.localeCompare(b.placa))
+    const porFecha = (a, b) => ((a.vf && a.vf.orden) || 0) - ((b.vf && b.vf.orden) || 0)
+    porPlaca.sort((a, b) => porFecha(a, b) || b.puntos - a.puntos || a.placa.localeCompare(b.placa))
+    cerca.sort((a, b) => porFecha(a, b) || a.d - b.d || a.placa.localeCompare(b.placa))
 
     const porCliente = []
     if (linea.cliente) {
       for (const g of pend) {
         const p = efParecidoCliente(linea.cliente, g.propietario)
-        if (p >= 50) porCliente.push({ ...g, pc: p })
+        if (p >= 50) porCliente.push({ ...g, pc: p, vf: efVeredictoFecha(g.subida, linea.fecha) })
       }
-      porCliente.sort((a, b) => b.pc - a.pc || (a.nums[0] || 0) - (b.nums[0] || 0))
+      porCliente.sort((a, b) => porFecha(a, b) || b.pc - a.pc || (a.nums[0] || 0) - (b.nums[0] || 0))
     }
     return { trozos, nPend: pend.length, porPlaca: porPlaca.slice(0, 8),
       porCliente: porCliente.slice(0, 8), cerca: cerca.slice(0, 3) }
@@ -234,7 +266,9 @@
       `<span style="color:${color}">●</span> <b class="ef-plate">${esc(g.placa)}</b> ` +
       `<span style="color:var(--text3)">${extra}</span> · #${g.nums.join('/')} · ${esc(g.label)}</span>` +
       `<span style="color:${color};font-size:11px;white-space:nowrap">${sello}</span></span>` +
-      `<span style="color:var(--text3)">${esc(g.propietario)}${g.rev ? ' · ' + esc(g.rev) : ''}</span></button>`
+      `<span style="color:var(--text3)">${esc(g.propietario)}${g.rev ? ' · ' + esc(g.rev) : ''}` +
+      `${g.subida ? ` · subido ${esc(String(g.subida).slice(0, 10))}` : ''}</span>` +
+      `${g.vf ? `<span style="color:${g.vf.color};font-size:11px">${g.vf.txt}</span>` : ''}</button>`
 
     let html = ''
     if (c.porPlaca.length) {
@@ -1105,12 +1139,15 @@
     const label = (cats.includes('estado_fisico') && cats.includes('repotenciacion')) ? 'E.Físico + Repot.' : (cats.includes('repotenciacion') ? 'Repot.' : 'E.Físico')
     const nums = items.map(x => x.numero).filter(n => n).sort((a, b) => a - b)
     const tipo = (items.find(x => x.tipo) || {}).tipo || ''
-    $('ef-pmodal-info').innerHTML = `<span class="ef-plate">${esc(placa)}</span> · ${esc(label)}${tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(tipo)}</span>` : ''}${nums.length ? ' · #' + nums.join('/') : ''} · ${esc(items[0] && items[0].propietario || '')}`
+    // Cuándo entró este estado físico a la base: decide qué facturas son posibles.
+    const subidaPend = items.map(x => x.fecha_subida).filter(Boolean).sort()[0] || ''
+    $('ef-pmodal-info').innerHTML = `<span class="ef-plate">${esc(placa)}</span> · ${esc(label)}${tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(tipo)}</span>` : ''}${nums.length ? ' · #' + nums.join('/') : ''} · ${esc(items[0] && items[0].propietario || '')}` +
+      `${subidaPend ? ` · subido <b>${esc(String(subidaPend).slice(0, 10))}</b>` : ''}`
     $('ef-pmodal-fact').value = ''; $('ef-pmodal-hint').textContent = ''
     // El mismo par que el modal de arriba, visto desde el otro lado: para esta placa
     // pendiente, cuáles facturas sin casar traen una placa parecida y cuáles están a
     // nombre del propietario. Es lo que se estaba buscando a mano entre cientos de líneas.
-    $('ef-pmodal-sug').innerHTML = efPintarSugF(placa, (items[0] && items[0].propietario) || '')
+    $('ef-pmodal-sug').innerHTML = efPintarSugF(placa, (items[0] && items[0].propietario) || '', subidaPend)
     $('ef-pmodal-sug').querySelectorAll('[data-sugf]').forEach(b => b.addEventListener('click', () => {
       $('ef-pmodal-fact').value = b.dataset.sugf
       hintConciliarPlaca()
@@ -1441,7 +1478,10 @@
       const nums = items.map(x => x.numero).filter(n => n).sort((a, b) => a - b)
       const tipo = (items.find(x => x.tipo) || {}).tipo || ''
       const revs = items.map(x => x.revision).filter(Boolean)
-      return { placa, label, nums, tipo, revs, rev: revs[0] || '', propietario: items[0].propietario || '' }
+      // La fecha más vieja del grupo: es cuando el carro entró a la base. Una factura
+      // no puede estar pagando un estado físico que todavía no existía.
+      const subidas = items.map(x => x.fecha_subida).filter(Boolean).sort()
+      return { placa, label, nums, tipo, revs, rev: revs[0] || '', propietario: items[0].propietario || '', subida: subidas[0] || '' }
     }).sort((a, b) => (a.nums[0] || 0) - (b.nums[0] || 0))
   }
   function pendientesHTML () {
