@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v185-aviso-rap-no-afiliados'
+const CACHE_NAME = 'contamax-v186-placas-parecidas'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

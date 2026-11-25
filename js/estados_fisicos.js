@@ -15,6 +15,127 @@
   const fmt = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('es-HN', { minimumFractionDigits: 2 })
   const cleanPlate = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '').trim()
   const findPlates = (s) => (String(s).toUpperCase().match(/[A-Z]{3}[\s\-]?[0-9]{4}/g) || []).map(p => p.replace(/[^A-Z0-9]/g, ''))
+  // ══════════════════════════════════════════════
+  // ═══  PLACAS PARECIDAS  ═══
+  // ══════════════════════════════════════════════
+  // El conciliador casa por placa exacta (placa_norm). Una sola letra mal tecleada en
+  // la descripción de la factura y la línea cae en "sin match", aunque el estado físico
+  // esté ahí mismo en la lista de pendientes. Eso se estaba resolviendo a ojo, buscando
+  // a mano entre cientos de placas.
+  //
+  // Esto NO concilia solo: ordena los candidatos y los pone a un clic. La decisión
+  // sigue siendo de quien mira, porque dos placas a una letra de distancia pueden ser
+  // dos carros de verdad.
+
+  // Caracteres que se confunden al teclear o al leer de un papel. Un cambio entre estos
+  // cuesta la mitad que un cambio de verdad: "HCE0434" vs "HCEO434" casi seguro es el
+  // mismo carro, "HCE0434" vs "HCE0435" ya puede ser otro.
+  const EF_PARECIDOS = [['O', '0'], ['I', '1'], ['L', '1'], ['S', '5'], ['B', '8'], ['Z', '2'],
+    ['G', '6'], ['Q', '0'], ['D', '0'], ['U', 'V'], ['C', 'G'], ['E', 'F'], ['M', 'N'], ['P', 'R']]
+  const EF_PAR = new Set()
+  EF_PARECIDOS.forEach(([a, b]) => { EF_PAR.add(a + b); EF_PAR.add(b + a) })
+
+  // Distancia de edición pesada: cambiar un carácter por uno parecido cuesta 1, por uno
+  // distinto cuesta 2, y meter o quitar un carácter cuesta 2. Se corta en `tope` para no
+  // recorrer entera una matriz que ya se sabe que no sirve.
+  function efDistancia (a, b, tope = 6) {
+    a = String(a || ''); b = String(b || '')
+    if (a === b) return 0
+    if (Math.abs(a.length - b.length) * 2 > tope) return tope + 1
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j * 2)
+    for (let i = 1; i <= a.length; i++) {
+      const fila = [i * 2]
+      let mejorFila = fila[0]
+      for (let j = 1; j <= b.length; j++) {
+        const ca = a[i - 1], cb = b[j - 1]
+        const cambio = ca === cb ? 0 : (EF_PAR.has(ca + cb) ? 1 : 2)
+        const v = Math.min(prev[j - 1] + cambio, prev[j] + 2, fila[j - 1] + 2)
+        fila.push(v)
+        if (v < mejorFila) mejorFila = v
+      }
+      if (mejorFila > tope) return tope + 1
+      prev = fila
+    }
+    return prev[b.length]
+  }
+
+  // Saca de un texto cualquier cosa con pinta de placa, aunque venga incompleta, mal
+  // escrita o partida por un espacio. Tiene que aguantar los tres casos que más joden:
+  //   "HCEO434"     → entero, no "CEO434" (una expresión de 3 letras + dígitos se comía
+  //                    la primera letra justo cuando el error era una O por un 0)
+  //   "JD0 6020"    → "JD06020", pegando palabras vecinas
+  //   "TCJ-9472"    → "TCJ9472"
+  // El filtro es por forma, no por expresión: de 5 a 9 caracteres, de 2 a 4 letras y de
+  // 2 a 5 dígitos. Así "F84365" (una letra) y "CONST4973" (cinco) quedan fuera solos.
+  const efTrozosPlaca = (s) => {
+    const palabras = String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ' ').split(/\s+/).filter(Boolean)
+    const sirve = (x) => {
+      if (x.length < 5 || x.length > 9) return false
+      const le = (x.match(/[A-Z]/g) || []).length
+      const di = (x.match(/[0-9]/g) || []).length
+      return le >= 2 && le <= 4 && di >= 2 && di <= 5
+    }
+    const out = []
+    const meter = (x) => { if (sirve(x) && !out.includes(x)) out.push(x) }
+    palabras.forEach((p, i) => {
+      meter(p)
+      if (i + 1 < palabras.length) meter(p + palabras[i + 1])
+      if (i + 2 < palabras.length) meter(p + palabras[i + 1] + palabras[i + 2])
+    })
+    return out
+  }
+
+  // Compara un trozo contra una placa de 7. Si el trozo viene corto (HCE434) se compara
+  // contra la placa completa igual: la distancia ya cobra el carácter que falta.
+  function efParecido (trozo, placa) {
+    if (!trozo || !placa) return null
+    const d = efDistancia(trozo, placa, 5)
+    if (d > 5) return null
+    // Las tres letras iguales son la señal más fuerte que hay: si coinciden, el resto
+    // casi siempre es un dígito mal copiado.
+    const mismasLetras = trozo.slice(0, 3) === placa.slice(0, 3)
+    return { d, puntos: Math.max(0, 100 - d * 14) + (mismasLetras ? 10 : 0) }
+  }
+
+  // Candidatos entre los pendientes para una descripción de factura.
+  function efSugerirPendientes (texto, placaExacta) {
+    const trozos = placaExacta ? [placaExacta, ...efTrozosPlaca(texto)] : efTrozosPlaca(texto)
+    if (!trozos.length) return []
+    const vistos = new Set()
+    return pendAgrupados().map(g => {
+      let mejor = null
+      for (const t of trozos) {
+        const r = efParecido(t, g.placa)
+        if (r && (!mejor || r.puntos > mejor.puntos)) mejor = { ...r, trozo: t }
+      }
+      return mejor ? { ...g, ...mejor } : null
+    }).filter(g => g && g.d > 0 && !vistos.has(g.placa) && vistos.add(g.placa))
+      .sort((a, b) => b.puntos - a.puntos || a.placa.localeCompare(b.placa))
+      .slice(0, 8)
+  }
+
+  // Lo contrario: para una placa pendiente, qué facturas de la última conciliación
+  // quedaron sin casar con una placa parecida. Es el mismo par visto del otro lado.
+  function efSugerirFacturas (placa) {
+    if (!ULTIMA) return []
+    const lineas = [...(ULTIMA.sinMatch || []), ...(ULTIMA.sinPlaca || [])]
+    return lineas.map(l => {
+      let mejor = null
+      for (const t of [...(l.placas || []), ...efTrozosPlaca(l.producto)]) {
+        const r = efParecido(t, placa)
+        if (r && (!mejor || r.puntos > mejor.puntos)) mejor = { ...r, trozo: t }
+      }
+      return mejor ? { l, ...mejor } : null
+    }).filter(Boolean)
+      .sort((a, b) => b.puntos - a.puntos || a.l.factura.localeCompare(b.l.factura))
+      .slice(0, 8)
+  }
+
+  // Pinta una lista de candidatos. `d` es la distancia: 1 o 2 es "una letra", de ahí
+  // para arriba ya conviene mirarlo dos veces, y por eso se dice cuánto difiere.
+  const efColorD = (d) => d <= 2 ? 'var(--green)' : d <= 4 ? 'var(--amber)' : 'var(--text3)'
+  const efSelloD = (d) => d <= 2 ? 'casi igual' : d <= 4 ? 'parecida' : 'lejana'
+
   const PLATE1 = /^[A-Z]{3}[0-9]{4}$/
   const hoy = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
   const fechaISO = (s) => { const m = String(s).trim().match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null }
@@ -136,6 +257,7 @@
       <div class="modal" style="width:480px;max-width:94vw">
         <div class="modal-title">Conciliar pendiente con una factura</div>
         <div id="ef-pmodal-info" style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:var(--bg3,#1c2333);border-radius:6px"></div>
+        <div id="ef-pmodal-sug" style="margin-bottom:8px;max-height:260px;overflow:auto"></div>
         <div class="fld"><label>N° de factura donde se cobró (aunque la placa esté mal escrita)</label>
           <input id="ef-pmodal-fact" class="ef-in" placeholder="ej. 84858" style="width:100%"></div>
         <div id="ef-pmodal-hint" style="font-size:12px;margin-top:8px;min-height:16px"></div>
@@ -844,6 +966,24 @@
     const tipo = (items.find(x => x.tipo) || {}).tipo || ''
     $('ef-pmodal-info').innerHTML = `<span class="ef-plate">${esc(placa)}</span> · ${esc(label)}${tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(tipo)}</span>` : ''}${nums.length ? ' · #' + nums.join('/') : ''} · ${esc(items[0] && items[0].propietario || '')}`
     $('ef-pmodal-fact').value = ''; $('ef-pmodal-hint').textContent = ''
+    // El mismo par que el modal de arriba, visto desde el otro lado: para esta placa
+    // pendiente, cuáles de las facturas que quedaron sin casar traen una parecida.
+    // Es lo que se estaba buscando a mano entre cientos de líneas.
+    const sugF = efSugerirFacturas(placa)
+    $('ef-pmodal-sug').innerHTML = sugF.length
+      ? `<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Facturas sin casar que traen una placa parecida:</div>` +
+        sugF.map(s => `<button class="btn" data-sugf="${esc(s.l.factura)}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:12px;line-height:1.5">` +
+          `<span style="color:${efColorD(s.d)}">●</span> <b>${esc(s.l.factura)}</b> ` +
+          `<span style="color:var(--text3)">${esc(s.l.fecha || '')} · L. ${fmt(s.l.monto)}</span>` +
+          `<span style="float:right;color:${efColorD(s.d)};font-size:11px">dice “${esc(s.trozo)}” · ${efSelloD(s.d)}</span>` +
+          `<br><span style="color:var(--text3)">${esc(String(s.l.producto).slice(0, 80))}</span></button>`).join('')
+      : (ULTIMA
+          ? '<div style="font-size:12px;color:var(--text3)">Ninguna factura sin casar trae una placa parecida a ésta.</div>'
+          : '<div style="font-size:12px;color:var(--text3)">Corré una conciliación y acá salen las facturas sin casar que se parezcan.</div>')
+    $('ef-pmodal-sug').querySelectorAll('[data-sugf]').forEach(b => b.addEventListener('click', () => {
+      $('ef-pmodal-fact').value = b.dataset.sugf
+      hintConciliarPlaca()
+    }))
     const btnA = $('ef-pmodal-anular'); if (btnA) btnA.style.display = ES_SUPER ? '' : 'none'
     $('ef-pmodal').classList.add('open')
     setTimeout(() => $('ef-pmodal-fact').focus(), 120)
@@ -1197,17 +1337,18 @@
   function abrirManual (linea) {
     _manualLinea = linea
     $('ef-modal-linea').innerHTML = `<b>${esc(linea.producto)}</b><br><span style="color:var(--text3,#8b949e)">Factura ${esc(linea.factura)} · ${esc(linea.fecha || '')}</span> · <b style="color:var(--gold,#c8a24a)">L. ${fmt(linea.monto)}</b>`
-    // sugerencias por placa parcial (3 letras + dígitos) que traiga la descripción
-    const m = String(linea.producto).toUpperCase().match(/[A-Z]{3}[\s\-]?[0-9]{2,4}/)
-    const partial = m ? m[0].replace(/[^A-Z0-9]/g, '') : ''
-    let sug = []
-    if (partial) {
-      const letters = partial.slice(0, 3); const digits = partial.slice(3)
-      sug = pendAgrupados().filter(g => g.placa.startsWith(letters) && g.placa.slice(3).startsWith(digits)).slice(0, 6)
-    }
+    // Candidatos por placa PARECIDA, no por prefijo. El prefijo no servía justo en el
+    // caso más común: el error está en medio (una O por un 0) y las tres primeras
+    // letras ya no casan, así que no salía ninguna sugerencia.
+    const sug = efSugerirPendientes(linea.producto, (linea.placas || [])[0] || null)
     $('ef-modal-sug').innerHTML = sug.length
-      ? `<div style="font-size:12px;color:var(--text3,#8b949e);margin-bottom:4px">Sugerencias (placa parece "${esc(partial)}"):</div>` + sug.map(g => `<button class="btn" data-sugn="${esc(g.rev || g.nums[0] || '')}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:12px">#${g.nums.join('/')} · ${esc(g.placa)} · ${esc(g.label)} · ${esc(g.propietario)}${g.rev ? ` <span style="color:var(--text3,#8b949e)">· ${esc(g.rev)}</span>` : ''}</button>`).join('')
-      : '<div style="font-size:12px;color:var(--text3,#8b949e)">Sin sugerencias por placa — buscá el N° en la lista de pendientes.</div>'
+      ? `<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Placas parecidas a lo que dice la factura — mirá cuál es antes de elegir:</div>` +
+        sug.map(g => `<button class="btn" data-sugn="${esc(g.rev || g.nums[0] || '')}" style="display:block;width:100%;text-align:left;margin-bottom:4px;font-size:12px;line-height:1.5">` +
+          `<span style="color:${efColorD(g.d)}">●</span> <b class="ef-plate">${esc(g.placa)}</b> ` +
+          `<span style="color:var(--text3)">dice “${esc(g.trozo)}”</span> · #${g.nums.join('/')} · ${esc(g.label)}` +
+          `<span style="float:right;color:${efColorD(g.d)};font-size:11px">${efSelloD(g.d)}</span>` +
+          `<br><span style="color:var(--text3)">${esc(g.propietario)}${g.rev ? ' · ' + esc(g.rev) : ''}</span></button>`).join('')
+      : '<div style="font-size:12px;color:var(--text3)">La descripción no trae nada con forma de placa — buscá el N° en la lista de pendientes.</div>'
     $('ef-modal-num').value = ''; $('ef-modal-hint').textContent = ''
     // ¿la factura ya tiene estados físicos conciliados? -> ofrecer ocultar
     const yaFact = ALL.filter(e => e.facturado && String(e.factura_ref) === String(linea.factura))
