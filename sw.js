@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v186-placas-parecidas'
+const CACHE_NAME = 'contamax-v187-factura-repetida'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

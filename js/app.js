@@ -1563,6 +1563,12 @@ window.guardarCompra = async () => {
     toast('La imagen de la factura es obligatoria para compras', 'error'); return
   }
 
+  // ¿Esta factura ya está en el sistema? La importación de compras Alpha deja cada
+  // factura de crédito registrada y contabilizada. El 24/11/2026 la 626441 se
+  // importó a las 11:00 y se volvió a registrar a mano a las 11:01: terminó con dos
+  // partidas (#8158 y #8162) por la misma compra.
+  if (await _avisoFacturaRepetida(numero, null)) return
+
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Guardando...'
 
   // Guardar valores nuevos en autocompletado
@@ -1694,7 +1700,10 @@ async function loadPendientes() {
       const vivas = hitTodas.filter(x => x.estado !== 'anulada')
       const hit = vivas.length ? vivas : hitTodas
       const soloAnuladas = !vivas.length && hitTodas.length > 0
-      if (hit.length && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit.map(x => x.numero_partida), ids: hit.map(x => x.id), total: hit.length === 1 ? hit[0].total : null, anulada: soloAnuladas, dudoso: hit.length > 1 && !soloAnuladas }
+      // Si hay vivas y también anuladas con el mismo documento, se dice cuál se anuló:
+      // así queda a la vista que el duplicado ya se corrigió.
+      const anuladasNums = vivas.length ? hitTodas.filter(x => x.estado === 'anulada').map(x => x.numero_partida) : []
+      if (hit.length && hit.length <= 3) pendientesPartidaMap[f.id] = { nums: hit.map(x => x.numero_partida), ids: hit.map(x => x.id), total: hit.length === 1 ? hit[0].total : null, anulada: soloAnuladas, dudoso: hit.length > 1 && !soloAnuladas, anuladasNums: anuladasNums.slice(0, 3) }
     })
   } catch (e) { pendientesPartidaMap = {} }
   filtrarPendientes()
@@ -1770,7 +1779,8 @@ window.filtrarPendientes = () => {
 
     const pm = pendientesPartidaMap[f.id]
     const pmColor = pm?.anulada ? 'red' : pm?.dudoso ? 'amber' : 'gold'
-    const pmNota = pm?.anulada ? ' (anulada)' : pm?.dudoso ? ' (sin confirmar · mismo documento)' : ''
+    const pmNota = (pm?.anulada ? ' (anulada)' : pm?.dudoso ? ' (sin confirmar · mismo documento)' : '')
+      + (pm?.anuladasNums?.length ? `</b> · <b style="color:var(--red)">#${pm.anuladasNums.join(', #')} anulada${pm.anuladasNums.length > 1 ? 's' : ''} (duplicado)` : '')
     // La partida quedó con un número de documento distinto al que registró compras.
     // Pasa de dos maneras: el proveedor repuso la factura (anulada y reemitida con otro
     // número), o compras tecleó un número corto o equivocado y contabilidad lo corrigió.
@@ -4248,6 +4258,12 @@ window.guardarPartida = async (estado) => {
   const tocaCajaChica = lineasValidas.some(l => l.cuenta_codigo === CUENTA_CAJA_CHICA && l.monto > 0)
   if (tocaCajaChica && !esDuenoCajaChica && !esSuperAdmin && estado === 'aprobada') {
     estadoFinal = 'pendiente_caja'
+  }
+
+  // Partida NUEVA desde una factura pendiente: si ese documento ya tiene partida
+  // viva, se está contabilizando dos veces la misma compra (#8158 / #8162).
+  if (!editingPartidaId && window._facturaContadoId && documento) {
+    if (await _avisoFacturaRepetida(documento, window._facturaContadoId, true)) return
   }
 
   let partidaId = editingPartidaId
@@ -8742,6 +8758,32 @@ window.resetImportCompras = () => {
 // buscar si ya entró; si las dos no coinciden, la compra se reimporta todos
 // los días y nadie se entera. Las que vienen sin factura se identifican por su
 // consecutivo, que el reporte sí trae.
+// Antes de registrar una factura de compra o de contabilizarla desde Facturas
+// pendientes: si ese número ya tiene partida viva (o ya está registrado), se avisa
+// con los números y se pide confirmar. Devuelve true si el usuario CANCELA.
+async function _avisoFacturaRepetida(numero, facturaIdExcluir, soloPartidas) {
+  const n = String(numero || '').trim().toUpperCase()
+  if (!n || n === 'S/F') return false
+  try {
+    const [{ data: ps }, { data: fs }] = await Promise.all([
+      sb.from('partidas_contables').select('numero_partida, estado').eq('numero_documento', n).neq('estado', 'anulada'),
+      soloPartidas ? Promise.resolve({ data: [] })
+        : sb.from('facturas_compras').select('id, created_at, forma_pago').eq('numero_factura', n),
+    ])
+    const partidas = (ps || []).map(p => '#' + p.numero_partida)
+    const facturas = (fs || []).filter(f => f.id !== facturaIdExcluir)
+    if (!partidas.length && !facturas.length) return false
+    const det = []
+    if (partidas.length) det.push(`• Ya está contabilizada en la partida ${partidas.join(', ')}.`)
+    if (facturas.length) det.push(`• Ya está registrada ${facturas.length > 1 ? facturas.length + ' veces' : ''} (${facturas.map(f => new Date(f.created_at).toLocaleDateString('es-HN') + ' · ' + (f.forma_pago || '')).join('; ')}).`)
+    const pregunta = soloPartidas ? '¿Generar OTRA partida por la misma factura?' : '¿Registrarla otra vez de todas formas?'
+    return !confirm(`⚠️ La factura ${n} ya está en el sistema:\n\n${det.join('\n')}\n\nSi es la misma compra, se contabilizaría dos veces.\n${pregunta}`)
+  } catch (e) {
+    console.warn('[factura repetida] no se pudo verificar:', e)
+    return false
+  }
+}
+
 function claveFacturaImport(f) {
   if (f?.no_factura && f.no_factura !== 'S/F') return f.no_factura
   return f?.no_consecutivo ? `SF-${f.no_consecutivo}` : null
@@ -8825,8 +8867,16 @@ window.procesarImportCompras = async () => {
 
     // Crédito: la compra se vuelve partida, así que el rastro queda en el
     // documento de la partida.
-    const yaEnPartidas = await yaExisten('partidas_contables', 'numero_documento', credito.map(claveFacturaImport))
-    credito.forEach(f => { const k = claveFacturaImport(f); if (k && yaEnPartidas.has(k)) f.duplicada = true })
+    // Pero el documento de la partida puede cambiar: cuando el proveedor repone la
+    // factura (sale con otro número) y se recibe, la partida queda con el número
+    // NUEVO. Buscando solo en partidas, la factura original volvía a entrar como
+    // nueva y se contabilizaba dos veces (24/11/2026: 7 facturas, #8152–#8159).
+    // Por eso también se busca en facturas_compras, donde cada importación deja la
+    // factura con su número ORIGINAL y ese número no se toca al recibirla.
+    const clavesCred = credito.map(claveFacturaImport)
+    const yaEnPartidas = await yaExisten('partidas_contables', 'numero_documento', clavesCred)
+    const yaEnFactCred = await yaExisten('facturas_compras', 'numero_factura', clavesCred)
+    credito.forEach(f => { const k = claveFacturaImport(f); if (k && (yaEnPartidas.has(k) || yaEnFactCred.has(k))) f.duplicada = true })
 
     // Contado: la compra queda como factura pendiente, el rastro está ahí.
     const yaEnFacturas = await yaExisten('facturas_compras', 'numero_factura', contado.map(claveFacturaImport))
