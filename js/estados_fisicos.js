@@ -1291,15 +1291,33 @@
     const wb = window.XLSX.utils.book_new()
     const add = (name, rows) => { const ws = window.XLSX.utils.json_to_sheet(rows.length ? rows : [{ vacio: '' }]); window.XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31)) }
     const fC = getFechaCorte()
+    let nDesdeCorte = null
     add('Pendientes', pendAgrupados().map(g => ({ Placa: g.placa, Categoria: g.label, Tipo: g.tipo, Numeros: g.nums.join('/'), Propietario: g.propietario })))
     if (ULTIMA) {
+      // Una sola lista con todo lo que quedó sin conciliar DESDE el corte en
+      // adelante — los dos casos juntos, porque para revisar da igual si la
+      // descripción no traía placa o si traía una que no está entre las
+      // pendientes: en los dos hay una factura cobrada sin estado físico detrás.
+      // Lo anterior al corte es historia vieja y no entra.
+      const desdeCorte = [
+        ...ULTIMA.sinMatch.map(l => ({ l, caso: 'Placa que no está entre las pendientes' })),
+        ...ULTIMA.sinPlaca.map(l => ({ l, caso: 'Sin placa en la descripción' }))
+      ].filter(x => x.l.fecha && (!fC || x.l.fecha >= fC))
+        .sort((a, b) => String(a.l.fecha).localeCompare(String(b.l.fecha)) ||
+          String(a.l.factura).localeCompare(String(b.l.factura)))
+      nDesdeCorte = desdeCorte.length
+      add(`Sin conciliar desde ${fC || 'inicio'}`, desdeCorte.map(({ l, caso }) => ({
+        Fecha: l.fecha, Factura: l.factura, Consecutivo: l.consecutivo || '',
+        Producto: l.producto, Placa_leida: (l.placas || []).join(','),
+        Cliente: l.cliente || '', Monto: l.monto, Caso: caso
+      })))
       add('Sin placa', ULTIMA.sinPlaca.map(l => ({ Producto: l.producto, Factura: l.factura, Fecha: l.fecha, Monto: l.monto })))
       add('Revisar (no pendiente)', ULTIMA.sinMatch.map(l => ({ Producto: l.producto, Placa: (l.placas || []).join(','), Factura: l.factura, Fecha: l.fecha, Monto: l.monto, Revisar: (fC && l.fecha && l.fecha >= fC) ? 'SI' : '' })))
       add('Conciliados', ULTIMA.conciliados.map(c => ({ Numero: c.numero, Placa: c.placa, Tipo: c.categoria === 'repotenciacion' ? 'Repot.' : 'E.Fisico', Propietario: c.propietario, Factura: c.factura, Fecha: c.fecha, Monto: c.categoria === 'repotenciacion' ? 0 : c.monto, Total_linea: c.monto_linea, Compartida: c.compartida ? 'SI' : '' })))
     }
     add('Huerfanas', HUERFANAS.map(r => ({ Numero: r.numero, Placa: r.placa_norm, Propietario: r.propietario })))
     window.XLSX.writeFile(wb, `estados_fisicos_${hoy()}.xlsx`)
-    toast('Excel exportado', 'success')
+    toast(`Excel exportado${nDesdeCorte === null ? '' : ` · ${nDesdeCorte} sin conciliar desde ${fC}`}`, 'success')
   }
 
   // ── CONCILIADOS: bloque con filtro por rango de fechas ────────────────────
