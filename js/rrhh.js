@@ -465,6 +465,7 @@ window._rapAportesExcel = () => {
   window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(detalle), 'Por quincena')
   if (rap.length) window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(rap), 'Presentado al RAP')
   window.XLSX.writeFile(wb, `Aportes_RAP_${_rapAportes.desde}_a_${_rapAportes.hasta}.xlsx`)
+  window.logDescarga?.('Aportes RAP (Excel)', `${_rapAportes.desde} a ${_rapAportes.hasta}`)
 }
 
 // ═══  NOTA AL RAP: ESTADO DE CUENTA DE UN AFILIADO  ═══
@@ -605,6 +606,7 @@ function _rapMostrarPrevia (html, contenido, archivo, n) {
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
     a.download = archivo
+    window.logDescarga?.('Archivo RAP para el portal', `${archivo} · ${n} empleado(s)`)
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 2000)
     window.logActividad?.('rap_archivo', 'rrhh', `Archivo RAP ${archivo} · ${n} afiliados`)
@@ -3381,6 +3383,7 @@ window.exportarPlanillaExcel = () => {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Planilla')
   XLSX.writeFile(wb, `Planilla_${currentPlanilla.periodo}.xlsx`)
+  window.logDescarga?.('Planilla (Excel)', `${currentPlanilla.periodo}`)
   window.toast?.('Excel exportado', 'ok')
 }
 

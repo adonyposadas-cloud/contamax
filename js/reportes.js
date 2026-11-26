@@ -76,6 +76,23 @@ window.initAuxiliar = function() {
 }
 
 // Pequeño escape para el render de la búsqueda global
+// ── BITÁCORA DE LECTURA ──
+// El log de actividad guardaba solo lo que la gente CAMBIABA. Quién miró un
+// reporte o se llevó el Excel no quedaba en ningún lado, así que no había forma
+// de contestar "¿qué consultó y qué se bajó Carolina?". Estas dos lo anotan.
+// _logVer se llama cuando se dispara la consulta, no cuando termina: lo que
+// interesa es qué pidió la persona, aunque la consulta no devuelva nada.
+const _logVer = (reporte, detalle) => window.logConsulta?.(reporte, detalle)
+const _logBajar = (reporte, detalle) => window.logDescarga?.(reporte, detalle)
+// El centro y el libro se guardan por nombre, no por id: un uuid en la bitácora
+// no le dice nada a quien la lee dentro de seis meses.
+const _logCentro = (id) => {
+  if (!id) return 'todos los centros'
+  const c = (window._allCentros?.() || []).find(x => String(x.id) === String(id))
+  return c ? c.nombre : 'centro ' + id
+}
+const _logLibro = (v) => !v || v === 'todos' ? 'ambos libros' : 'libro ' + v
+
 function auxEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 }
@@ -304,6 +321,7 @@ window.generarAuxiliar = async () => {
     if (idsPriv.has(centroId)) { toast('No tienes acceso al detalle de este centro de costo', 'error'); return }
   }
 
+  _logVer('Auxiliar', `${grupoCodigo ? 'grupo ' + grupoCodigo : codigoCuenta} · ${fechaIni} a ${fechaFin} · ${_logCentro(centroId)} · ${_logLibro(libro)}${estadoFiltro ? ' · ' + estadoFiltro : ''}`)
   const btn = document.getElementById('btn-auxiliar')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
@@ -431,6 +449,7 @@ async function _auxLineasPorPartidas(ids, centroId, libro) {
 }
 
 window.generarAuxiliarBusqueda = async (termino, fechaIni, fechaFin, centroId, libro, estadoFiltro) => {
+  _logVer('Auxiliar (búsqueda)', `"${termino}" · ${fechaIni} a ${fechaFin} · ${_logCentro(centroId)} · ${_logLibro(libro)}`)
   const btn = document.getElementById('btn-auxiliar')
   btn.disabled = true; btn.textContent = 'Buscando...'
   try {
@@ -797,6 +816,7 @@ window.exportarAuxiliarXLSX = () => {
     const wb = window.XLSX.utils.book_new()
     window.XLSX.utils.book_append_sheet(wb, ws, 'Auxiliar')
     window.XLSX.writeFile(wb, `Auxiliar_${grupoCodigo}_${fechaIni}_${fechaFin}.xlsx`)
+    _logBajar('Auxiliar (Excel)', `${bloques.length} subcuentas del grupo ${grupoCodigo} · ${fechaIni} a ${fechaFin}`)
     toast(`Excel con ${bloques.length} cuentas exportado ✓`, 'success')
   } else {
     // Single account export
@@ -818,6 +838,7 @@ window.exportarAuxiliarXLSX = () => {
     const wb = window.XLSX.utils.book_new()
     window.XLSX.utils.book_append_sheet(wb, ws, 'Auxiliar')
     window.XLSX.writeFile(wb, `Auxiliar_${cuenta.codigo}_${fechaIni}_${fechaFin}.xlsx`)
+    _logBajar('Auxiliar (Excel)', `${cuenta.codigo} ${cuenta.nombre} · ${fechaIni} a ${fechaFin} · ${movimientos.length} movimiento(s)`)
     toast('Excel exportado ✓', 'success')
   }
 }
@@ -847,6 +868,7 @@ window.generarBalance = async () => {
 
   if (!fechaIni || !fechaFin) { toast('Selecciona rango de fechas', 'error'); return }
 
+  _logVer('Balance de Comprobación', `${fechaIni} a ${fechaFin} · ${_logCentro(centroId)} · ${_logLibro(libro)}`)
   const btn = document.getElementById('btn-balance')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
@@ -1038,6 +1060,7 @@ window.exportarBalanceXLSX = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Balance')
   window.XLSX.writeFile(wb, `Balance_Comprobacion_${fechaIni}_${fechaFin}.xlsx`)
+  _logBajar('Balance de Comprobación (Excel)', `${fechaIni} a ${fechaFin}`)
   toast('Excel exportado ✓', 'success')
 }
 
@@ -1065,6 +1088,7 @@ window.generarEstadoResultados = async () => {
 
   if (!fechaIni || !fechaFin) { toast('Selecciona rango de fechas', 'error'); return }
 
+  _logVer('Estado de Resultados', `${fechaIni} a ${fechaFin} · ${_logCentro(centroId)} · ${_logLibro(libro)}`)
   const btn = document.getElementById('btn-er')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
@@ -1341,6 +1365,7 @@ window.exportarERXLSX = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Estado Resultados')
   window.XLSX.writeFile(wb, `Estado_Resultados_${fechaIni}_${fechaFin}.xlsx`)
+  _logBajar('Estado de Resultados (Excel)', `${fechaIni} a ${fechaFin}`)
   toast('Excel exportado ✓', 'success')
 }
 
@@ -1360,6 +1385,7 @@ window.generarFlujoEfectivo = async () => {
   const fechaFin = document.getElementById('fe-fecha-fin').value
   const libro = document.getElementById('fe-libro')?.value || 'todos'
   if (!fechaIni || !fechaFin) { toast('Selecciona el rango de fechas', 'error'); return }
+  _logVer('Flujo de Efectivo', `${fechaIni} a ${fechaFin} · ${_logLibro(libro)}`)
   const btn = document.getElementById('btn-fe')
   btn.disabled = true; btn.textContent = 'Calculando...'
   try {
@@ -1508,6 +1534,7 @@ window.exportarFlujoXLSX = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Flujo Efectivo')
   window.XLSX.writeFile(wb, `Flujo_Efectivo_${d.fechaIni}_${d.fechaFin}.xlsx`)
+  _logBajar('Flujo de Efectivo (Excel)', `${d.fechaIni} a ${d.fechaFin}`)
   toast('Excel exportado ✓', 'success')
 }
 
@@ -1608,6 +1635,7 @@ window.consultarRentabilidad = async function () {
   const hasta = document.getElementById('rent-hasta').value
   if (!desde || !hasta) { window.toast?.('Seleccioná el rango de fechas', 'error'); return }
 
+  _logVer('Rentabilidad por Unidad', `${desde} a ${hasta}`)
   const btn = document.getElementById('btn-rent-consultar')
   if (btn) { btn.disabled = true; btn.textContent = 'Consultando...' }
   const tabla = document.getElementById('rent-tabla')
@@ -1831,6 +1859,7 @@ window.exportRentabilidadXlsx = function () {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Rentabilidad')
   window.XLSX.writeFile(wb, `Rentabilidad_Unidades_${desde}_${hasta}.xlsx`)
+  _logBajar('Rentabilidad por Unidad (Excel)', `${desde} a ${hasta}`)
   window.toast?.('Excel exportado ✓', 'success')
 }
 
@@ -1934,6 +1963,7 @@ window.generarSaldosCuentas = async () => {
 
   if (!fecha) { window.toast?.('Selecciona la fecha de corte', 'error'); return }
 
+  _logVer('Saldos de Cuentas', `al ${fecha}${grupoKey ? ' · grupo ' + grupoKey : ''} · ${_logCentro(centroId)} · ${_logLibro(libro)}`)
   const btn = document.getElementById('btn-sc')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
@@ -2120,6 +2150,7 @@ window.exportarSaldosXLSX = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Saldos')
   window.XLSX.writeFile(wb, `Saldos_Cuentas_${fecha}.xlsx`)
+  _logBajar('Saldos de Cuentas (Excel)', `al ${fecha}`)
   window.toast?.('Excel exportado ✓', 'success')
 }
 
@@ -2242,6 +2273,7 @@ window.generarBalanceGeneral = async () => {
   if (!fecha || !inicio) { window.toast?.('Indicá la fecha de corte y el inicio del ejercicio', 'error'); return }
   if (inicio > fecha)    { window.toast?.('El inicio del ejercicio no puede ser posterior al corte', 'error'); return }
 
+  _logVer('Balance General', `al ${fecha} · ejercicio desde ${inicio} · ${_logCentro(centroId)} · ${_logLibro(libro)}`)
   const btn = document.getElementById('btn-bg')
   btn.disabled = true; btn.textContent = 'Consultando...'
 
@@ -2389,5 +2421,6 @@ window.exportarBalanceGeneralXLSX = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Balance general')
   window.XLSX.writeFile(wb, `Balance_General_${fecha}.xlsx`)
+  _logBajar('Balance General (Excel)', `al ${fecha} · ejercicio desde ${inicio}`)
   window.toast?.('Excel exportado ✓', 'success')
 }

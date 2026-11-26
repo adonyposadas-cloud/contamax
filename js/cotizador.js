@@ -4358,6 +4358,7 @@
     const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
     a.download = `Seguimiento_cotizaciones_${new Date().toISOString().slice(0, 10)}.csv`
+    window.logDescarga?.('Seguimiento de cotizaciones (CSV)', `${lines.length - 1} fila(s)`)
     a.click(); URL.revokeObjectURL(a.href)
     toast('CSV exportado', 'success')
   }

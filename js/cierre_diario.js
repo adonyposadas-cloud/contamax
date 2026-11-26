@@ -208,5 +208,6 @@
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(ventas), 'Ventas')
     window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(cobros), 'Cobros')
     window.XLSX.writeFile(wb, `Cierre_diario_${u.fecha}.xlsx`)
+    window.logDescarga?.('Cierre diario (Excel)', `${u.fecha}`)
   }
 })()

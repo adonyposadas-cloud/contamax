@@ -777,6 +777,7 @@ window.ykExportReporte = () => {
   window.XLSX.utils.book_append_sheet(wb, ws, 'Reporte')
   const hoy = new Date().toLocaleDateString('en-CA')
   window.XLSX.writeFile(wb, `Yonker_${ykRepActual.tipo}_${ykRepActual.dimLabel}_${hoy}.xlsx`)
+  window.logDescarga?.('Yonker — reporte (Excel)', `${ykRepActual.tipo} por ${ykRepActual.dimLabel}`)
 }
 
 // ── CONTAMAX · Yonker — Devoluciones de líneas (sin borrar) ──
@@ -1202,6 +1203,7 @@ window.ykExpExport = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Explorar')
   window.XLSX.writeFile(wb, `Yonker_Explorar_${new Date().toLocaleDateString('en-CA')}.xlsx`)
+  window.logDescarga?.('Yonker — explorar (Excel)', ``)
 }
 
 // ── CONTAMAX · Yonker — Cotización (consulta de precios de piezas) ──
@@ -1789,6 +1791,7 @@ window.ykCotExport = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Cotizacion')
   window.XLSX.writeFile(wb, `Yonker_Cotizacion_${new Date().toLocaleDateString('en-CA')}.xlsx`)
+  window.logDescarga?.('Yonker — cotización (Excel)', ``)
 }
 
 // ── Panel de unidades del catálogo que cumplen los filtros (estilo slicer de Excel) ──

@@ -394,6 +394,7 @@ window.cpExportarXLSX = () => {
 
   const nom = `Conciliacion_Puente_${cpCuenta.codigo}_${ctx.fechaIni || ''}_${ctx.fechaFin || ''}.xlsx`
   window.XLSX.writeFile(wb, nom.replace(/[^\w.\-]/g, '_'))
+  window.logDescarga?.('Conciliación de puente (Excel)', `${nom}`)
   window.toast?.('Excel exportado ✓', 'success')
 }
 

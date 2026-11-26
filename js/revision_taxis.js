@@ -1213,6 +1213,7 @@ window.rtxDashAuditExportar = () => {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Auditoría')
     XLSX.writeFile(wb, `Auditoria_${modo}_${rtxDashFecha}.xlsx`)
+    window.logDescarga?.('Auditoría de taxis (Excel)', `${modo} · ${rtxDashFecha}`)
     window.toast?.('Exportado ✓', 'success')
   } catch (e) { window.toast?.('Error al exportar: ' + (e.message || e), 'error') }
 }
@@ -1370,6 +1371,7 @@ window.rtxAudExportGuardada = () => {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Auditoría')
     XLSX.writeFile(wb, `Auditoria_${modo}_${data.fecha_auditada || 'guardada'}.xlsx`)
+    window.logDescarga?.('Auditoría de taxis (Excel)', `${modo} · ${data.fecha_auditada || "guardada"}`)
     window.toast?.('Exportado ✓', 'success')
   } catch (e) { window.toast?.('Error al exportar: ' + (e.message || e), 'error') }
 }

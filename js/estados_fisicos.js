@@ -652,6 +652,7 @@
     const wb = window.XLSX.utils.book_new()
     window.XLSX.utils.book_append_sheet(wb, ws, 'Conciliación')
     window.XLSX.writeFile(wb, `Conciliacion_aviso_IHTT_${R.numAviso || R.emision}.xlsx`)
+    window.logDescarga?.('Conciliación de aviso IHTT (Excel)', `aviso ${R.numAviso || R.emision}`)
   }
 
   // Expuesto solo para pruebas del lector (no toca datos)
@@ -1317,6 +1318,7 @@
     }
     add('Huerfanas', HUERFANAS.map(r => ({ Numero: r.numero, Placa: r.placa_norm, Propietario: r.propietario })))
     window.XLSX.writeFile(wb, `estados_fisicos_${hoy()}.xlsx`)
+    window.logDescarga?.('Estados Físicos (Excel)', `${nDesdeCorte === null ? "sin conciliación corrida" : nDesdeCorte + " sin conciliar desde " + fC}`)
     toast(`Excel exportado${nDesdeCorte === null ? '' : ` · ${nDesdeCorte} sin conciliar desde ${fC}`}`, 'success')
   }
 

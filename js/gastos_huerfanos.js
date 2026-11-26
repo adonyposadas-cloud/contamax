@@ -205,4 +205,5 @@ window.ghExportar = () => {
   const wb = window.XLSX.utils.book_new()
   window.XLSX.utils.book_append_sheet(wb, ws, 'Gastos huérfanos')
   window.XLSX.writeFile(wb, `gastos_huerfanos_taxis_${new Date().toISOString().split('T')[0]}.xlsx`)
+  window.logDescarga?.('Gastos huérfanos de taxis (Excel)', ``)
 }

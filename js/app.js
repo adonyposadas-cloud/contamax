@@ -81,6 +81,17 @@ window.logActividad = async (accion, modulo, detalle, referencia_id) => {
   } catch(e) { /* silent */ }
 }
 
+// ── BITÁCORA DE LECTURA ──
+// logActividad guardaba solo lo que la gente CAMBIABA. Quién miró un reporte o
+// se llevó el Excel no quedaba en ningún lado, así que no se podía contestar
+// "¿qué consultó y qué se bajó Carolina?". Estas dos lo anotan, y como son
+// acciones nuevas la pantalla de Actividad las muestra sola: lee select('*') y
+// arma los filtros con lo que encuentra.
+window.logConsulta = (reporte, detalle) =>
+  window.logActividad?.('reporte_consulta', 'reportes', `Consultó ${reporte}${detalle ? ' · ' + detalle : ''}`)
+window.logDescarga = (reporte, detalle) =>
+  window.logActividad?.('reporte_descarga', 'reportes', `Descargó ${reporte}${detalle ? ' · ' + detalle : ''}`)
+
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', async () => {
   setupCargaImagenes()
@@ -4866,6 +4877,7 @@ window.exportarCatalogo = () => {
   window.XLSX.utils.book_append_sheet(wb, ws, 'Catálogo')
   const fecha = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
   window.XLSX.writeFile(wb, `Catalogo_cuentas_${fecha}.xlsx`)
+  window.logDescarga?.('Catálogo de cuentas (Excel)', `al ${fecha}`)
   toast(`Catálogo descargado (${rows.length} cuentas)`, 'success')
 }
 
@@ -11766,6 +11778,7 @@ window.exportarVehiculosExcel = () => {
   window.XLSX.utils.book_append_sheet(wb, ws, 'Vehículos')
   const fecha = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Tegucigalpa' })
   window.XLSX.writeFile(wb, `Vehiculos_${fecha}.xlsx`)
+  window.logDescarga?.('Vehículos (Excel)', `al ${fecha}`)
   toast(`${filteredVehiculos.length} vehículos exportados ✓`, 'success')
 }
 
@@ -14743,6 +14756,7 @@ window.cxpExportSinMatch = () => {
   }
 
   window.XLSX.writeFile(wb, `CxP_conciliacion_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  window.logDescarga?.('Conciliación de Cuentas por Pagar (Excel)', ``)
 }
 
 function cxpCuadreVerdict(saldoAnt, totPago, simbolo) {
@@ -15339,6 +15353,7 @@ window.descargarSelCxP = async (selId) => {
   XLSX.utils.book_append_sheet(wb, ws, hoja)
   const safe = (sel.nombre || 'seleccion').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
   XLSX.writeFile(wb, `Pago_${safe}.xlsx`)
+  window.logDescarga?.('Pago CxP — selección (Excel)', `${sel.nombre || 'sin nombre'} · ${filas.length} línea(s)`)
   toast('Excel generado', 'success')
 }
 
@@ -15364,6 +15379,7 @@ window.descargarPagoRealizadoCxP = (i) => {
   XLSX.utils.book_append_sheet(wb, ws, etiqueta)
   const safe = (g.nombre || ('realizado_' + fecha)).replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
   XLSX.writeFile(wb, `Pago_${safe}.xlsx`)
+  window.logDescarga?.('Pago CxP realizado (Excel)', `${g.nombre || 'sin nombre'} · pagado ${fecha} · L.${r2(g.total)}`)
   toast('Excel generado', 'success')
 }
 
