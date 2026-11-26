@@ -3203,6 +3203,12 @@ const _impNum = (v) => {
 }
 const _impEsNum = (v) => v != null && v !== '' &&
   (typeof v === 'number' || /^-?\s*[\d,]+(\.\d+)?\s*$/.test(String(v)))
+// Qué cuentas llevan centro de costo. El centro dice en qué parte del negocio
+// se gastó o se ganó, así que solo tiene sentido en las cuentas de resultado.
+// Un saldo de banco o de tarjeta no se gasta en ningún lado: activo, pasivo y
+// patrimonio van sin centro. Guardar la partida exige lo mismo (ver más abajo).
+const CUENTAS_CON_CENTRO = ['gasto', 'ingreso', 'costo']
+
 // El sufijo del catálogo tiene 2 o 3 dígitos según la familia: 610101-044 pero
 // 620401-08. Antes esto rellenaba siempre a 3, así que las familias de 2 no
 // casaban NUNCA: se escribía 620401-08 y se iba a buscar 620401-008, que no
@@ -3411,15 +3417,23 @@ function _impLinArmar () {
     const lado = debe > 0 ? 'debito' : haber > 0 ? 'credito' : ''
     const delLado = lado === 'debito' ? ctaDebe : lado === 'credito' ? ctaHaber : ''
     const codigo = delExcel || delLado
+    const cuenta = codigo ? _impCuenta(codigo) : null
+    // Si la cuenta no lleva centro, no se le pone ni el general ni el de la fila:
+    // antes el centro general caía sobre las 12 líneas de la tarjeta y había que
+    // sacarlo a mano una por una. Mientras la cuenta no se resuelva se deja pasar,
+    // para no tapar el aviso de "centro que no existe".
+    const llevaCentro = !cuenta || CUENTAS_CON_CENTRO.includes(cuenta.tipo)
     // Igual que la cuenta: manda lo que diga la fila; si viene vacía, el general.
     const centroTexto = iCentro >= 0 ? _impTxt(f[iCentro]) : ''
-    const centro = centroTexto ? _impCentro(centroTexto) : centroGeneral
+    const delTexto = centroTexto ? _impCentro(centroTexto) : null
+    const centro = !llevaCentro ? null : (centroTexto ? delTexto : centroGeneral)
     out.push({
       fila: n + 1, descripcion, debe, haber, lado,
       monto: Math.round((debe > 0 ? debe : haber) * 100) / 100,
       codigo, origen: delExcel ? 'excel' : (codigo ? 'lado' : ''),
-      cuenta: codigo ? _impCuenta(codigo) : null,
-      centro, centroTexto, centroMalo: !!centroTexto && !centro,
+      cuenta,
+      centro, centroTexto, centroMalo: !!centroTexto && !delTexto,
+      sinCentroPorTipo: !!cuenta && !llevaCentro,
       ambos: debe > 0 && haber > 0,
       vacia: debe === 0 && haber === 0
     })
@@ -3446,6 +3460,7 @@ function _impLinRender () {
   const sinDesc = usables.filter(l => !l.descripcion)
   const centroMalo = usables.filter(l => l.centroMalo)
   const conCentro = usables.filter(l => l.centro).length
+  const sinPorTipo = usables.filter(l => l.sinCentroPorTipo).length
   const hayMontos = rol.includes('debe') || rol.includes('haber')
 
   const ck = (ok, bloquea, txt) => ({ ok, bloquea, txt })
@@ -3468,6 +3483,7 @@ function _impLinRender () {
     ck(!centroMalo.length, true, centroMalo.length
       ? `${centroMalo.length} línea(s) con un centro de costo que no existe: ${[...new Set(centroMalo.map(l => l.centroTexto))].slice(0, 3).join(', ')}`
       : conCentro ? `${conCentro} línea(s) con centro de costo`
+        + (sinPorTipo ? ` · ${sinPorTipo} de activo/pasivo van sin centro, como corresponde` : '')
       : 'Sin centro de costo — se le puede poner después en el formulario')
   ]
   const bloqueado = checks.some(c => !c.ok && c.bloquea)
@@ -3546,6 +3562,7 @@ function _impLinRender () {
             <td style="font-size:11px">${l.vacia ? ''
               : l.centro ? escAttr(l.centro.nombre)
               : l.centroMalo ? `<span style="color:var(--red)">${escAttr(l.centroTexto)} no existe</span>`
+              : l.sinCentroPorTipo ? '<span style="color:var(--text3)">no lleva</span>'
               : '<span style="color:var(--text3)">—</span>'}</td>
           </tr>`
         }).join('')}</tbody>
@@ -4046,7 +4063,7 @@ window.guardarPartida = async (estado) => {
   // Validar centro de costo obligatorio para gastos, ingresos y costos
   for (const l of lineasValidas) {
     const cuenta = cuentasDetalle.find(c => c.id === l.cuenta_id)
-    if (cuenta && ['gasto','ingreso','costo'].includes(cuenta.tipo) && !l.centro_costo_id) {
+    if (cuenta && CUENTAS_CON_CENTRO.includes(cuenta.tipo) && !l.centro_costo_id) {
       toast(`La cuenta ${l.cuenta_codigo} ${l.cuenta_nombre} es de tipo ${cuenta.tipo} y requiere centro de costo`, 'error')
       return
     }
