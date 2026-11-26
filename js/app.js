@@ -3203,10 +3203,30 @@ const _impNum = (v) => {
 }
 const _impEsNum = (v) => v != null && v !== '' &&
   (typeof v === 'number' || /^-?\s*[\d,]+(\.\d+)?\s*$/.test(String(v)))
-// Los códigos del catálogo son 610101-044. Con o sin guion, para no ser quisquilloso.
+// El sufijo del catálogo tiene 2 o 3 dígitos según la familia: 610101-044 pero
+// 620401-08. Antes esto rellenaba siempre a 3, así que las familias de 2 no
+// casaban NUNCA: se escribía 620401-08 y se iba a buscar 620401-008, que no
+// existe. Ahora se guarda lo que se escribió y es _impCuenta la que prueba las
+// dos formas contra el catálogo. Con o sin guion, para no ser quisquilloso.
 const _impCodigo = (v) => {
-  const m = String(v == null ? '' : v).match(/\b(\d{6})\s*-\s*(\d{2,3})\b/)
-  return m ? m[1] + '-' + m[2].padStart(3, '0') : ''
+  const m = String(v == null ? '' : v).match(/\b(\d{6})\s*-\s*(\d{1,3})\b/)
+  return m ? m[1] + '-' + m[2] : ''
+}
+// Resuelve un código contra el catálogo sin importar con cuántos ceros se haya
+// escrito el sufijo: -8, -08 y -008 llegan todos a la misma cuenta. Devuelve la
+// fila del catálogo, que es de donde sale el id que después se guarda.
+const _impCuenta = (codigo) => {
+  if (!codigo) return null
+  const exacta = cuentasDetalle.find(c => c.codigo === codigo)
+  if (exacta) return exacta
+  const m = String(codigo).match(/^(\d{6})-(\d{1,3})$/)
+  if (!m) return null
+  const n = String(parseInt(m[2], 10))
+  for (const suf of [n, n.padStart(2, '0'), n.padStart(3, '0')]) {
+    const c = cuentasDetalle.find(x => x.codigo === m[1] + '-' + suf)
+    if (c) return c
+  }
+  return null
 }
 // El centro de costo en el Excel se escribe a mano, así que se compara sin tildes
 // ni mayúsculas, y vale tanto el código como el nombre.
@@ -3398,7 +3418,7 @@ function _impLinArmar () {
       fila: n + 1, descripcion, debe, haber, lado,
       monto: Math.round((debe > 0 ? debe : haber) * 100) / 100,
       codigo, origen: delExcel ? 'excel' : (codigo ? 'lado' : ''),
-      cuenta: codigo ? cuentasDetalle.find(c => c.codigo === codigo) : null,
+      cuenta: codigo ? _impCuenta(codigo) : null,
       centro, centroTexto, centroMalo: !!centroTexto && !centro,
       ambos: debe > 0 && haber > 0,
       vacia: debe === 0 && haber === 0
@@ -3453,8 +3473,13 @@ function _impLinRender () {
   const bloqueado = checks.some(c => !c.ok && c.bloquea)
 
   const opciones = cuentasDetalle.map(c => `<option value="${escAttr(c.codigo + ' · ' + c.nombre)}"></option>`).join('')
-  const nombreDe = (cod) => { const c = cuentasDetalle.find(x => x.codigo === cod); return c ? c.nombre : '' }
-  const valorCta = (cod) => cod ? escAttr(cod + ' · ' + nombreDe(cod)) : ''
+  // Se muestra el código tal cual lo tiene el catálogo: si se tecleó 620401-008
+  // y la cuenta es 620401-08, lo que queda a la vista es la del catálogo.
+  const valorCta = (cod) => {
+    if (!cod) return ''
+    const c = _impCuenta(cod)
+    return escAttr(c ? c.codigo + ' · ' + c.nombre : cod + ' · ')
+  }
 
   cont.innerHTML = `
     <datalist id="implin-cuentas">${opciones}</datalist>
@@ -3515,7 +3540,7 @@ function _impLinRender () {
             <td style="text-align:right;font-family:var(--mono)">${l.debe ? fmt(l.debe) : ''}</td>
             <td style="text-align:right;font-family:var(--mono)">${l.haber ? fmt(l.haber) : ''}</td>
             <td style="font-size:11px">${l.vacia ? '<span style="color:var(--text3)">se salta</span>'
-              : l.cuenta ? `<span style="font-family:var(--mono)">${l.codigo}</span> ${escAttr(l.cuenta.nombre)}<span style="color:var(--text3)"> · ${l.origen === 'excel' ? 'del Excel' : 'del lado'}</span>`
+              : l.cuenta ? `<span style="font-family:var(--mono)">${l.cuenta.codigo}</span> ${escAttr(l.cuenta.nombre)}<span style="color:var(--text3)"> · ${l.origen === 'excel' ? 'del Excel' : 'del lado'}</span>`
               : l.codigo ? `<span style="color:var(--red)">${escAttr(l.codigo)} no está en el catálogo</span>`
               : '<span style="color:var(--amber)">falta la cuenta</span>'}</td>
             <td style="font-size:11px">${l.vacia ? ''
