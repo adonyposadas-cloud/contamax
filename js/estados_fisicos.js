@@ -331,6 +331,11 @@
   let CONC_D = ''     // desde (YYYY-MM-DD)
   let CONC_H = ''     // hasta (YYYY-MM-DD)
   let CONC_T = ''     // texto del buscador (placa/N°/factura)
+  // Filtro de Pendientes por FECHA DE SUBIDA: para pedir día a día los estados
+  // físicos que entraron a la base y todavía no aparecen en ninguna factura.
+  let PEND_D = ''     // desde (YYYY-MM-DD)
+  let PEND_H = ''     // hasta (YYYY-MM-DD)
+  let PEND_T = ''     // texto del buscador de pendientes
 
   function viewHTML () {
     return `
@@ -1499,9 +1504,9 @@
     bindPendBuscador(); wireFilters(); wireConc()
   }
 
-  function pendAgrupados () {
+  function pendAgrupados (lista = PEND) {
     const byPlate = {}
-    PEND.forEach(e => { (byPlate[e.placa_norm] = byPlate[e.placa_norm] || []).push(e) })
+    lista.forEach(e => { (byPlate[e.placa_norm] = byPlate[e.placa_norm] || []).push(e) })
     return Object.keys(byPlate).map(placa => {
       const items = byPlate[placa]
       const cats = items.map(x => x.categoria)
@@ -1515,24 +1520,96 @@
       return { placa, label, nums, tipo, revs, rev: revs[0] || '', propietario: items[0].propietario || '', subida: subidas[0] || '' }
     }).sort((a, b) => (a.nums[0] || 0) - (b.nums[0] || 0))
   }
+  // Los pendientes cuya fecha de subida cae en el rango. Se filtra cada estado
+  // físico (no la placa): si una placa tiene uno viejo y uno de hoy, "Hoy" trae
+  // solo el de hoy.
+  function pendEnRango () {
+    if (!PEND_D && !PEND_H) return PEND
+    return PEND.filter(e => {
+      const f = String(e.fecha_subida || '').slice(0, 10)
+      if (!f) return false
+      if (PEND_D && f < PEND_D) return false
+      if (PEND_H && f > PEND_H) return false
+      return true
+    })
+  }
+  function pendBuscar (grupos) {
+    const t = PEND_T
+    if (!t) return grupos
+    return grupos.filter(g => (g.placa || '').includes(t) || g.nums.some(n => String(n).includes(t)) || (g.revs || []).some(r => String(r).toUpperCase().includes(t)) || (g.propietario || '').toUpperCase().includes(t) || (g.tipo || '').toUpperCase().includes(t))
+  }
+  function pendListaHTML (grupos) {
+    if (!grupos.length) return `<div style="color:var(--text3,#8b949e);padding:8px">${PEND_D || PEND_H ? 'No hay estados físicos pendientes subidos en ese rango.' : 'Sin resultados'}</div>`
+    return grupos.slice(0, 500).map(filaPend).join('') + (grupos.length > 500 ? `<div style="font-size:12px;color:var(--text3,#8b949e);padding-top:6px">… y ${grupos.length - 500} más (usá el buscador o achicá el rango)</div>` : '')
+  }
   function pendientesHTML () {
-    const grupos = pendAgrupados()
-    const filtr = grupos.slice(0, 500)
-    return `<div class="ef-grp"><div class="ef-grp-t"><span style="color:var(--amber,#f59e0b)">Pendientes de facturar (${grupos.length} placas · ${PEND.length} estados físicos)</span>
-      <input id="ef-pq" class="ef-in" placeholder="🔍 placa, N° o propietario…" style="width:240px;text-transform:uppercase"></div>
-      <div id="ef-pend-list" style="max-height:340px;overflow:auto">${filtr.map(filaPend).join('')}${grupos.length > 500 ? `<div style="font-size:12px;color:var(--text3,#8b949e);padding-top:6px">… y ${grupos.length - 500} más (usá el buscador)</div>` : ''}</div></div>`
+    const enRango = pendEnRango()
+    const grupos = pendAgrupados(enRango)
+    const rango = !!(PEND_D || PEND_H)
+    const hoyS = hoyISO(); const ayer = diasAtrasISO(1)
+    const esRango = (d, h) => PEND_D === d && PEND_H === h
+    const btn = (txt, d, h) => `<button class="btn ef-pend-rng" data-d="${d}" data-h="${h}" style="font-size:11px;padding:3px 9px;${esRango(d, h) ? 'border-color:var(--amber,#f59e0b);color:var(--amber,#f59e0b)' : 'color:var(--text3,#8b949e)'}">${txt}</button>`
+    return `<div class="ef-grp"><div class="ef-grp-t"><span style="color:var(--amber,#f59e0b)">Pendientes de facturar (${grupos.length} placas · ${enRango.length} estados físicos)${rango ? ` <span style="font-size:11.5px">· subidos ${PEND_D === PEND_H ? 'el ' + PEND_D : `${PEND_D ? 'desde ' + PEND_D : ''} ${PEND_H ? 'hasta ' + PEND_H : ''}`} (de ${PEND.length})</span>` : ''}</span>
+      <input id="ef-pq" class="ef-in" value="${esc(PEND_T)}" placeholder="🔍 placa, N° o propietario…" style="width:240px;text-transform:uppercase"></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <span style="color:var(--text3,#8b949e);font-size:11px">Subidos:</span>
+        ${btn('Hoy', hoyS, hoyS)}
+        ${btn('Ayer', ayer, ayer)}
+        ${btn('3 días', diasAtrasISO(2), hoyS)}
+        ${btn('7 días', diasAtrasISO(6), hoyS)}
+        ${btn('Todo', '', '')}
+        <span style="color:var(--text3,#8b949e);font-size:11px;margin-left:4px">Desde</span>
+        <input type="date" id="ef-pend-desde" class="ef-in" value="${PEND_D}" style="width:150px;padding:3px 6px;font-size:12px">
+        <span style="color:var(--text3,#8b949e);font-size:11px">Hasta</span>
+        <input type="date" id="ef-pend-hasta" class="ef-in" value="${PEND_H}" style="width:150px;padding:3px 6px;font-size:12px">
+        <button class="btn" id="ef-pend-export" style="font-size:11px;padding:3px 10px" title="Lista para pedir que los busquen"><svg class=ico aria-hidden=true><use href=#i-download></use></svg> Excel de esta lista</button>
+      </div>
+      <div id="ef-pend-list" style="max-height:340px;overflow:auto">${pendListaHTML(pendBuscar(grupos))}</div></div>`
   }
   function filaPend (g) {
-    return `<div class="ef-row"><span>${g.nums.length ? '#' + g.nums.join('/') + ' · ' : ''}<span class="ef-plate">${esc(g.placa)}</span> · ${esc(g.label)}${g.tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(g.tipo)}</span>` : ''}${g.rev ? ` · <span style="font-size:11px;color:var(--text3,#8b949e)">${esc(g.rev)}</span>` : ''}</span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><span style="color:var(--text3,#8b949e)">${esc(g.propietario)}</span><button class="btn" data-pconc="${esc(g.placa)}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`
+    return `<div class="ef-row"><span>${g.nums.length ? '#' + g.nums.join('/') + ' · ' : ''}<span class="ef-plate">${esc(g.placa)}</span> · ${esc(g.label)}${g.tipo ? ` · <span style="color:var(--gold,#c8a24a)">${esc(g.tipo)}</span>` : ''}${g.rev ? ` · <span style="font-size:11px;color:var(--text3,#8b949e)">${esc(g.rev)}</span>` : ''}${g.subida ? ` · <span style="font-size:11px;color:var(--text3,#8b949e)">subido ${esc(String(g.subida).slice(0, 10))}</span>` : ''}</span><span style="display:flex;gap:10px;align-items:center;flex-shrink:0"><span style="color:var(--text3,#8b949e)">${esc(g.propietario)}</span><button class="btn" data-pconc="${esc(g.placa)}" style="font-size:11px;padding:3px 10px">Conciliar</button></span></div>`
   }
   function renderPendientes () { $('ef-result').innerHTML = huerfanasHTML() + pendientesHTML(); bindPendBuscador() }
+  // Repinta solo el bloque de pendientes, sin perder el scroll ni los otros buscadores.
+  function repintarPend () {
+    const grp = document.getElementById('ef-pend-list')?.closest('.ef-grp')
+    if (!grp) return
+    grp.outerHTML = pendientesHTML()
+    bindPendBuscador()
+  }
   function bindPendBuscador () {
     const q = $('ef-pq'); if (!q) return
     q.addEventListener('input', () => {
-      const t = q.value.trim().toUpperCase()
-      const f = pendAgrupados().filter(g => !t || (g.placa || '').includes(t) || g.nums.some(n => String(n).includes(t)) || (g.revs || []).some(r => String(r).toUpperCase().includes(t)) || (g.propietario || '').toUpperCase().includes(t) || (g.tipo || '').toUpperCase().includes(t)).slice(0, 500)
-      $('ef-pend-list').innerHTML = f.map(filaPend).join('') || '<div style="color:var(--text3,#8b949e);padding:8px">Sin resultados</div>'
+      PEND_T = q.value.trim().toUpperCase()
+      $('ef-pend-list').innerHTML = pendListaHTML(pendBuscar(pendAgrupados(pendEnRango())))
     })
+    const d = $('ef-pend-desde'); const h = $('ef-pend-hasta')
+    if (d) d.onchange = () => { PEND_D = d.value || ''; repintarPend() }
+    if (h) h.onchange = () => { PEND_H = h.value || ''; repintarPend() }
+    document.querySelectorAll('#view-estados-fisicos .ef-pend-rng').forEach(b => {
+      b.onclick = () => { PEND_D = b.dataset.d || ''; PEND_H = b.dataset.h || ''; repintarPend() }
+    })
+    const ex = $('ef-pend-export'); if (ex) ex.onclick = exportarPendRango
+  }
+  // Excel de lo que se ve en Pendientes (rango + buscador), una fila por estado
+  // físico, para mandarlo a que busquen dónde se cobró.
+  function exportarPendRango () {
+    if (!window.XLSX) { toast('Falta la librería XLSX', 'error'); return }
+    const placas = new Set(pendBuscar(pendAgrupados(pendEnRango())).map(g => g.placa))
+    const filas = pendEnRango().filter(e => placas.has(e.placa_norm))
+      .sort((a, b) => String(a.fecha_subida || '').localeCompare(String(b.fecha_subida || '')) || (a.numero || 0) - (b.numero || 0))
+      .map(e => ({
+        'Fecha subida': String(e.fecha_subida || '').slice(0, 10), 'N°': e.numero ?? '', 'Revisión': e.revision || '',
+        Placa: e.placa_norm, Tipo: e.categoria === 'repotenciacion' ? 'Repot.' : 'E.Físico',
+        Servicio: e.tipo || '', Propietario: e.propietario || ''
+      }))
+    if (!filas.length) { toast('No hay pendientes en esa lista', 'error'); return }
+    const wb = window.XLSX.utils.book_new()
+    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.json_to_sheet(filas), 'Pendientes')
+    const sufijo = PEND_D || PEND_H ? `${PEND_D || 'inicio'}_a_${PEND_H || hoy()}` : 'todos'
+    window.XLSX.writeFile(wb, `ef_pendientes_${sufijo}.xlsx`)
+    window.logDescarga?.('Estados Físicos (pendientes por fecha de subida)', `${filas.length} pendientes · ${sufijo}`)
+    toast(`Excel exportado · ${filas.length} pendientes`, 'success')
   }
 
   // ── 3) CONCILIACIÓN MANUAL (sin placa) ──

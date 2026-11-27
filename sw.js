@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v194-duplicado-anulado'
+const CACHE_NAME = 'contamax-v195-ef-pendientes-por-subida'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
