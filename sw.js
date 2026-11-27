@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v193-bitacora-de-lectura'
+const CACHE_NAME = 'contamax-v194-duplicado-anulado'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

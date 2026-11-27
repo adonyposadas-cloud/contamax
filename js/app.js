@@ -1703,10 +1703,14 @@ async function loadPendientes() {
       ;(parts || []).forEach(p => { const k = String(p.numero_documento || '').trim().toUpperCase(); if (k && p.numero_partida) (porDoc[k] = porDoc[k] || []).push(p) })
     }
 
+    const ligadasAOtra = new Set(pendientesData.map(f => f.partida_id).filter(Boolean))
     procesadas.forEach(f => {
       const p = f.partida_id ? porId[f.partida_id] : null
       if (p?.numero_partida) { pendientesPartidaMap[f.id] = { nums: [p.numero_partida], ids: [p.id], total: p.total, anulada: p.estado === 'anulada', dudoso: false, doc: p.numero_documento }; return }
-      const hitTodas = porDoc[String(f.numero_factura || '').trim().toUpperCase()] || []
+      // Una partida que ya está ligada (partida_id) a otra factura es de esa otra, no de esta:
+      // si no, el duplicado anulado de una factura importada se tapa con la partida viva de la otra
+      // y la fila sigue pidiendo documento.
+      const hitTodas = (porDoc[String(f.numero_factura || '').trim().toUpperCase()] || []).filter(x => !ligadasAOtra.has(x.id))
       // Las anuladas no cuentan como la partida de la factura; si solo hay anuladas, se muestra así
       const vivas = hitTodas.filter(x => x.estado !== 'anulada')
       const hit = vivas.length ? vivas : hitTodas
