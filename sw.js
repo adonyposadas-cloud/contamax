@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v195-ef-pendientes-por-subida'
+const CACHE_NAME = 'contamax-v196-ventas-por-cajero'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

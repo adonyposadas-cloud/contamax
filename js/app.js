@@ -7060,6 +7060,24 @@ function buscarCuentaCxC(clienteNombre) {
     || null
 }
 
+// Venta de un reporte repartida por cajero (columna "Facturado Por"), contado + crédito.
+// campo: 'subtotal' (Tecnimax, el ISV o bono va aparte) o 'total' (Yonker, exento).
+// Las líneas suman exactamente `total`: el redondeo queda en la línea más grande.
+// Sin la columna, o sin facturas, sale una sola línea como antes.
+function ventasPorCajero(reporte, campo, total) {
+  const r2 = (v) => Math.round(v * 100) / 100
+  const grupos = new Map()
+  for (const f of [...(reporte?.facturas || []), ...(reporte?.facturasCredito || [])]) {
+    const nombre = String(f.facturado_por || '').trim().replace(/\s+/g, ' ').toUpperCase() || 'SIN CAJERO'
+    grupos.set(nombre, (grupos.get(nombre) || 0) + (f[campo] || 0))
+  }
+  const out = [...grupos].map(([n, v]) => ({ desc: `VENTA ${n}`, monto: r2(v) })).filter(x => x.monto !== 0)
+    .sort((a, b) => b.monto - a.monto)
+  if (out.length <= 1) return [{ desc: out[0] && out[0].desc !== 'VENTA SIN CAJERO' ? out[0].desc : '', monto: r2(total) }]
+  out[0].monto = r2(out[0].monto + r2(total) - r2(out.reduce((a, x) => a + x.monto, 0)))
+  return out
+}
+
 function renderImportPartida() {
   const d = importData
   const tf = d.tecnimax_fiscal?.totales || { subtotal: 0, impuestos: 0, total: 0 }
@@ -7177,13 +7195,16 @@ function renderImportPartida() {
   }
 
   // CRÉDITOS — incluyen contado + crédito (la venta se registra igual, solo cambia el débito)
+  // Las ventas van una línea por cajero ("Facturado Por"); ISV y bono quedan en una sola línea.
+  const ventaCajeros = (cuenta, reporte, campo, total, centro, fiscal) =>
+    ventasPorCajero(reporte, campo, total).map(x => ({ codigo: cuenta.codigo, nombre: x.desc ? `${cuenta.nombre} · ${x.desc}` : cuenta.nombre, centro, debe: 0, haber: x.monto, fiscal }))
   lineas.push(
-    { codigo: C.venta_tecnimax.codigo, nombre: C.venta_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(tf.subtotal + creditoTecnimaxFiscalSub), fiscal: '✓' },
+    ...ventaCajeros(C.venta_tecnimax, d.tecnimax_fiscal, 'subtotal', r2(tf.subtotal + creditoTecnimaxFiscalSub), 'Tecnicentro', '✓'),
     { codigo: C.isv_ventas.codigo, nombre: C.isv_ventas.nombre, centro: '—', debe: 0, haber: r2(tf.impuestos + creditoTecnimaxFiscalISV), fiscal: '✓' },
-    { codigo: C.venta_yonker.codigo, nombre: C.venta_yonker.nombre, centro: 'Yonker', debe: 0, haber: r2(yf.total + creditoYonkerFiscalTotal), fiscal: '✓' },
-    { codigo: C.venta_tecnimax_int.codigo, nombre: C.venta_tecnimax_int.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(ti.subtotal + creditoTecnimaxIntSub), fiscal: '—' },
+    ...ventaCajeros(C.venta_yonker, d.yonker_fiscal, 'total', r2(yf.total + creditoYonkerFiscalTotal), 'Yonker', '✓'),
+    ...ventaCajeros(C.venta_tecnimax_int, d.tecnimax_interno, 'subtotal', r2(ti.subtotal + creditoTecnimaxIntSub), 'Tecnicentro', '—'),
     { codigo: C.bono_tecnimax.codigo, nombre: C.bono_tecnimax.nombre, centro: 'Tecnicentro', debe: 0, haber: r2(ti.impuestos + creditoTecnimaxIntISV), fiscal: '—' },
-    { codigo: C.venta_yonker_int.codigo, nombre: C.venta_yonker_int.nombre, centro: 'Yonker', debe: 0, haber: r2(yi.total + creditoYonkerIntTotal), fiscal: '—' },
+    ...ventaCajeros(C.venta_yonker_int, d.yonker_interno, 'total', r2(yi.total + creditoYonkerIntTotal), 'Yonker', '—'),
   )
 
   for (const l of notasNC.lineas) {
@@ -7283,13 +7304,16 @@ window.guardarImportPartida = async () => {
   const r2 = (v) => Math.round(v * 100) / 100
 
   // Preparar líneas de CRÉDITO — incluyen contado + crédito
+  // Ventas: una línea por cajero ("Facturado Por"), igual que la vista previa
+  const porCajero = (cuenta, reporte, campo, total, cc, fiscal) =>
+    ventasPorCajero(reporte, campo, total).map(x => ({ cuenta, monto: x.monto, cc, fiscal, desc: x.desc }))
   const creditosRaw = [
-    { cuenta: C.venta_tecnimax, monto: r2(tf.subtotal + crTFSub), cc: ccTecni?.id || '', fiscal: true },
+    ...porCajero(C.venta_tecnimax, d.tecnimax_fiscal, 'subtotal', r2(tf.subtotal + crTFSub), ccTecni?.id || '', true),
     { cuenta: C.isv_ventas, monto: r2(tf.impuestos + crTFISV), cc: '', fiscal: true },
-    { cuenta: C.venta_yonker, monto: r2(yf.total + crYFTot), cc: ccYonker?.id || '', fiscal: true },
-    { cuenta: C.venta_tecnimax_int, monto: r2(ti.subtotal + crTISub), cc: ccTecni?.id || '', fiscal: false },
+    ...porCajero(C.venta_yonker, d.yonker_fiscal, 'total', r2(yf.total + crYFTot), ccYonker?.id || '', true),
+    ...porCajero(C.venta_tecnimax_int, d.tecnimax_interno, 'subtotal', r2(ti.subtotal + crTISub), ccTecni?.id || '', false),
     { cuenta: C.bono_tecnimax, monto: r2(ti.impuestos + crTIISV), cc: ccTecni?.id || '', fiscal: false },
-    { cuenta: C.venta_yonker_int, monto: r2(yi.total + crYITot), cc: ccYonker?.id || '', fiscal: false },
+    ...porCajero(C.venta_yonker_int, d.yonker_interno, 'total', r2(yi.total + crYITot), ccYonker?.id || '', false),
   ].filter(l => l.monto > 0)
 
   // Navegar al formulario de nueva partida
@@ -7407,7 +7431,7 @@ window.guardarImportPartida = async () => {
       tipo: 'credito',
       monto: Math.round(cr.monto * 100) / 100,
       centro_costo_id: cr.cc,
-      descripcion: '',
+      descripcion: cr.desc || '',
       aplica_fiscal: cr.fiscal
     })
   }
