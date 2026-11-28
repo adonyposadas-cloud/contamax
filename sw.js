@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v198-cxp-seleccion-enlazada'
+const CACHE_NAME = 'contamax-v199-tasa-seguridad'
 
 self.addEventListener('install', e => {
   self.skipWaiting()

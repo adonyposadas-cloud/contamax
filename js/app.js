@@ -3175,6 +3175,79 @@ window.addLinea = () => {
   renderLineas()
 }
 
+// ── TASA DE SEGURIDAD ──
+// Al contador se le olvidaba siempre. Lo que sale del banco paga L. 2 por millar o
+// fracción (L. 39,914.77 → 40 millares → L. 80): un débito a la cuenta de tasa de
+// seguridad contra un crédito al mismo banco. Son dos líneas que siempre son iguales,
+// así que se arman con un botón. Si la partida saca de más de un banco, pregunta cuál.
+const BANCOS_PREFIJOS = ['110103', '110104'] // chequeras / ahorros y bancos
+function esCuentaBanco(codigo) {
+  return !!codigo && BANCOS_PREFIJOS.some(p => codigo === p || codigo.startsWith(p + '-'))
+}
+const TASA_SEG_POR_MILLAR = 2
+const _esCtaTasaSeg = (c) => /TASA\s+(DE\s+)?SEGURIDAD|SEGURIDAD\s+POBLACIONAL/i.test(c?.nombre || '')
+
+function _cuentaTasaSeguridad() {
+  const guardado = localStorage.getItem('cta_tasa_seguridad')
+  if (guardado) { const c = cuentasDetalle.find(x => x.codigo === guardado); if (c) return c }
+  // Se prefiere la de gasto: puede existir también una de pasivo con el mismo nombre.
+  const halladas = cuentasDetalle.filter(_esCtaTasaSeg)
+  const gasto = halladas.filter(c => c.tipo === 'gasto')
+  const hallada = gasto.length === 1 ? gasto[0] : (halladas.length === 1 ? halladas[0] : null)
+  if (hallada) return hallada
+  const lista = halladas.map(c => `${c.codigo} ${c.nombre}`).join('\n')
+  const cod = prompt((lista ? `Hay varias cuentas de tasa de seguridad:\n${lista}\n\n` : 'No encontré la cuenta de TASA DE SEGURIDAD en el catálogo.\n\n') +
+    'Escribí el código de la cuenta de gasto (se recuerda para la próxima):')
+  if (!cod) return null
+  const c = _impCuenta(_impCodigo(cod) || cod.trim())
+  if (!c) { toast('No existe la cuenta ' + cod, 'error'); return null }
+  localStorage.setItem('cta_tasa_seguridad', c.codigo)
+  return c
+}
+
+window.agregarTasaSeguridad = () => {
+  // Lo que sale de cada banco (Haber). Sin salidas no hay tasa que cobrar.
+  const porBanco = new Map()
+  for (const l of partidaLineas) {
+    if (!esCuentaBanco(l.cuenta_codigo) || l.tipo !== 'credito' || !l.monto || l._tasaSeg) continue
+    const b = porBanco.get(l.cuenta_codigo) || { linea: l, monto: 0 }
+    b.monto = Math.round((b.monto + l.monto) * 100) / 100
+    porBanco.set(l.cuenta_codigo, b)
+  }
+  if (!porBanco.size) { toast('La tasa de seguridad se cobra sobre lo que SALE del banco: no hay ningún banco en el Haber', 'error'); return }
+  const cta = _cuentaTasaSeguridad()
+  if (!cta) return
+  let bancos = [...porBanco.values()]
+  if (bancos.length > 1) {
+    const txt = bancos.map((b, i) => `${i + 1}. ${b.linea.cuenta_codigo} ${b.linea.cuenta_nombre} · L. ${pnMiles(b.monto)}`).join('\n')
+    const r = prompt(`La partida saca de ${bancos.length} bancos. ¿De cuál se cobra la tasa de seguridad?\n\n${txt}\n\nNúmero:`, '1')
+    if (r == null) return
+    const b = bancos[parseInt(r, 10) - 1]
+    if (!b) { toast('Número inválido', 'error'); return }
+    bancos = [b]
+  }
+  const banco = bancos[0]
+  if (partidaLineas.some(l => l.cuenta_codigo === cta.codigo)) {
+    if (!confirm(`Esta partida ya tiene una línea de ${cta.nombre}.\n\n¿Agregar otra?`)) return
+  }
+  const millares = Math.ceil(Math.round(banco.monto * 100) / 100000)
+  const monto = millares * TASA_SEG_POR_MILLAR
+  // El gasto lleva centro de costo: se toma el que más se repite en la partida.
+  const veces = {}
+  partidaLineas.forEach(l => { if (l.centro_costo_id) veces[l.centro_costo_id] = (veces[l.centro_costo_id] || 0) + 1 })
+  const centro = Object.keys(veces).sort((a, b) => veces[b] - veces[a])[0] || ''
+  const desc = document.getElementById('pn-desc-individual')?.checked ? 'TASA DE SEGURIDAD' : ''
+  const fiscal = banco.linea.aplica_fiscal !== false
+  partidaLineas.push(
+    { id: ++lineaCounter, cuenta_id: cta.id, cuenta_codigo: cta.codigo, cuenta_nombre: cta.nombre, tipo: 'debito', monto,
+      centro_costo_id: CUENTAS_CON_CENTRO.includes(cta.tipo) ? centro : '', descripcion: desc, aplica_fiscal: fiscal, _tasaSeg: true },
+    { id: ++lineaCounter, cuenta_id: banco.linea.cuenta_id, cuenta_codigo: banco.linea.cuenta_codigo, cuenta_nombre: banco.linea.cuenta_nombre,
+      tipo: 'credito', monto, centro_costo_id: banco.linea.centro_costo_id || '', descripcion: desc, aplica_fiscal: fiscal, _tasaSeg: true })
+  renderLineas()
+  calcTotales()
+  toast(`Tasa de seguridad: L. ${pnMiles(monto)} (${millares} millares de L. ${pnMiles(banco.monto)})`, 'success')
+}
+
 window.removeLinea = (id) => {
   const l = partidaLineas.find(x => x.id === id)
   // No permitir eliminar línea de caja a usuarios no super_admin
@@ -3863,6 +3936,9 @@ window.updLinea = (id, field, val) => {
 }
 
 function calcTotales() {
+  // El botón de tasa de seguridad solo aparece si la partida mueve un banco.
+  const btnTasa = document.getElementById('pn-btn-tasa')
+  if (btnTasa) btnTasa.style.display = partidaLineas.some(l => esCuentaBanco(l.cuenta_codigo) && l.monto) ? '' : 'none'
   const debitos = Math.round(partidaLineas.filter(l => l.tipo === 'debito').reduce((s, l) => s + (l.monto || 0), 0) * 100) / 100
   const creditos = Math.round(partidaLineas.filter(l => l.tipo === 'credito').reduce((s, l) => s + (l.monto || 0), 0) * 100) / 100
   const diff = Math.round(Math.abs(debitos - creditos) * 100) / 100
