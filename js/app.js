@@ -14927,9 +14927,14 @@ window.generarPagoCxP = async () => {
   // Get next partida number (atómico)
   const nuevoNumero = await window.siguienteNumeroPartida()
 
-  // Build description
-  const cuentasStr = Object.values(porCuenta).map(c => c.codigo).join(', ')
-  const descripcion = `PAGO CUENTAS POR PAGAR: ${cuentasStr} · ${ids.length} movimientos`
+  // Descripción: si el pago salió de una selección guardada, solo su nombre
+  // ("SELECCIÓN SOL Y CAR · 4 MOVIMIENTOS"); si no, a quién se le paga
+  // (el auxiliar del proveedor, con su código).
+  const nombreCta = (c) => ((window.catalogoCuentas || []).find(x => String(x.codigo).trim() === c.codigo)?.nombre || c.nombre || '').trim()
+  const cuentasStr = Object.values(porCuenta).map(c => `${nombreCta(c)} (${c.codigo})`.trim()).join(', ')
+  const descripcion = (cxpSeleccionActiva?.nombre
+    ? `SELECCIÓN ${cxpSeleccionActiva.nombre.trim()} · ${ids.length} MOVIMIENTOS`
+    : `PAGO CXP ${cuentasStr} · ${ids.length} MOVIMIENTOS`).toUpperCase()
 
   // Create partida as borrador
   const { data: partida, error: pErr } = await sb.from('partidas_contables').insert({
@@ -14955,7 +14960,7 @@ window.generarPagoCxP = async () => {
       cuenta_nombre: cta?.nombre || c.nombre,
       tipo: 'debito',
       monto: c.total,
-      descripcion: `Pago ${c.items.length} cargos`,
+      descripcion: `PAGO ${nombreCta(c)} · ${c.items.length} CARGOS`.toUpperCase(),
       aplica_fiscal: true
     }
   })
@@ -15102,21 +15107,24 @@ window.guardarSelCxP = async () => {
   }
 
   let error
-  if (cxpSeleccionActiva?.id) {
+  const accion = cxpSeleccionActiva?.id ? 'actualizada' : 'guardada'
+  let selId = cxpSeleccionActiva?.id
+  if (selId) {
     // Update existing
-    const res = await getSb().from('cxp_selecciones').update(payload).eq('id', cxpSeleccionActiva.id)
+    const res = await getSb().from('cxp_selecciones').update(payload).eq('id', selId)
     error = res.error
   } else {
-    // Create new
-    const res = await getSb().from('cxp_selecciones').insert(payload)
+    // Create new. Se pide el id: sin él, al generar el pago enseguida la selección
+    // no quedaba enlazada a la partida y seguía en "programados (pendientes)".
+    const res = await getSb().from('cxp_selecciones').insert(payload).select('id').single()
     error = res.error
+    selId = res.data?.id
   }
 
   if (error) { toast('Error: ' + error.message, 'error'); return }
   // Update active selection reference
-  cxpSeleccionActiva = { ...(cxpSeleccionActiva || {}), id: cxpSeleccionActiva?.id, nombre, fecha_pago: fechaPago, notas }
+  cxpSeleccionActiva = { ...(cxpSeleccionActiva || {}), id: selId, nombre, fecha_pago: fechaPago, notas }
   closeModal('modal-guardar-sel-cxp')
-  const accion = cxpSeleccionActiva?.id ? 'actualizada' : 'guardada'
   toast(`Selección "${nombre}" ${accion} · Pago: ${fechaPago}`, 'success')
   logActividad(`cxp_seleccion_${accion}`, 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
 }
