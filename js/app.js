@@ -13721,12 +13721,18 @@ function restaurarCxPSeleccion() {
     if (saved) cxpSeleccionados = new Set(JSON.parse(saved))
     const montos = localStorage.getItem('cxp_montos')
     if (montos) cxpMontos = JSON.parse(montos)
+    // La selección guardada de la que salió la marca también sobrevive a una
+    // recarga: sin esto el pago generado después no quedaba enlazado a ella.
+    const activa = localStorage.getItem('cxp_sel_activa')
+    cxpSeleccionActiva = activa ? JSON.parse(activa) : null
   } catch(e) {}
 }
 function guardarCxPSeleccion() {
   try {
     localStorage.setItem('cxp_seleccionados', JSON.stringify([...cxpSeleccionados]))
     localStorage.setItem('cxp_montos', JSON.stringify(cxpMontos))
+    if (cxpSeleccionActiva?.id) localStorage.setItem('cxp_sel_activa', JSON.stringify(cxpSeleccionActiva))
+    else localStorage.removeItem('cxp_sel_activa')
   } catch(e) {}
 }
 
@@ -14924,6 +14930,17 @@ window.generarPagoCxP = async () => {
 
   if (!confirm(`¿Generar partida de pago en borrador?\n\nCuentas:\n${cuentasDetalle}\n\nTotal: L. ${fmt(suma)}\n\nSe creará una partida borrador con los débitos. Vos cargás la forma de pago (crédito).`)) return
 
+  // Si no viene de una selección cargada, se busca una guardada y sin pagar que
+  // tenga exactamente estas mismas facturas: guardar y generar el pago enseguida
+  // (o después de recargar) igual la enlaza, sin tener que ir a "Selecciones guardadas".
+  if (!cxpSeleccionActiva?.id) {
+    const { data: pend } = await getSb().from('cxp_selecciones')
+      .select('id, nombre, fecha_pago, notas, linea_ids').is('pagado_partida_num', null)
+    const mismo = (lista) => { const s = new Set(lista || []); return s.size === cxpSeleccionados.size && [...cxpSeleccionados].every(id => s.has(id)) }
+    const hallada = (pend || []).find(p => mismo(p.linea_ids))
+    if (hallada) cxpSeleccionActiva = { id: hallada.id, nombre: hallada.nombre, fecha_pago: hallada.fecha_pago, notas: hallada.notas || '' }
+  }
+
   // Get next partida number (atómico)
   const nuevoNumero = await window.siguienteNumeroPartida()
 
@@ -15124,6 +15141,8 @@ window.guardarSelCxP = async () => {
   if (error) { toast('Error: ' + error.message, 'error'); return }
   // Update active selection reference
   cxpSeleccionActiva = { ...(cxpSeleccionActiva || {}), id: selId, nombre, fecha_pago: fechaPago, notas }
+  guardarCxPSeleccion()
+  try { updateSumaCxP() } catch (e) {}
   closeModal('modal-guardar-sel-cxp')
   toast(`Selección "${nombre}" ${accion} · Pago: ${fechaPago}`, 'success')
   logActividad(`cxp_seleccion_${accion}`, 'cxp', `${nombre} · L. ${Math.round(suma*100)/100} · Pago: ${fechaPago}`)
@@ -15431,6 +15450,7 @@ window.cargarSelCxP = async (selId) => {
   cxpSeleccionados = new Set(sel.linea_ids || [])
   cxpMontos = sel.montos || {}
   cxpSeleccionActiva = { id: sel.id, nombre: sel.nombre, fecha_pago: sel.fecha_pago, notas: sel.notas || '', huellas: sel.huellas || {} }
+  guardarCxPSeleccion()
 
   // ── Recuperar los IDs que ya no existen ──
   // Al editar una partida se borran y reinsertan sus líneas con UUID nuevo, así
