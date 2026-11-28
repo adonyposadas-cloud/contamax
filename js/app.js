@@ -1668,6 +1668,7 @@ async function loadPendientes() {
   const { data, error } = await query
   if (error) { container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">${error.message}</div></div>`; return }
   pendientesData = data || []
+  llenarUsuariosPendientes()
   // Quién recibió el documento: se busca aparte (por id) para no depender de una relación en la consulta
   try {
     const rids = [...new Set(pendientesData.map(f => f.recibida_por).filter(Boolean))]
@@ -1730,12 +1731,38 @@ async function loadPendientes() {
 // Con la partida anulada ya no espera documento: la compra quedó sin contabilizar.
 const esPendDocumento = f => f.estado === 'procesada' && f.recibida === false && (f.observaciones || '').includes('[IMP-COMPRA]') && !pendientesPartidaMap[f.id]?.anulada
 
+// Filtro por quién subió la factura. Las opciones salen de lo que hay en la lista,
+// con cuántas tiene cada uno; la elegida se conserva al recargar. Compras solo ve
+// las suyas, así que a ese rol no se le muestra.
+function llenarUsuariosPendientes() {
+  const sel = document.getElementById('pend-usuario')
+  if (!sel) return
+  if (currentProfile?.rol === 'compras') { sel.style.display = 'none'; sel.value = ''; return }
+  sel.style.display = ''
+  const previo = sel.value
+  const usuarios = new Map()
+  for (const f of pendientesData) {
+    const id = f.registrado_por || ''
+    const u = usuarios.get(id) || { nombre: f.registrado?.nombre || (id ? 'Usuario sin nombre' : 'Sin usuario (importadas)'), n: 0 }
+    u.n++
+    usuarios.set(id, u)
+  }
+  const ops = [...usuarios].sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'))
+  sel.innerHTML = '<option value="">Todos los usuarios</option>' +
+    ops.map(([id, u]) => `<option value="${id || '__sin__'}">${escAttr(u.nombre)} (${u.n})</option>`).join('')
+  if ([...sel.options].some(o => o.value === previo)) sel.value = previo
+}
+
 window.filtrarPendientes = () => {
   const buscar = (document.getElementById('pend-buscar')?.value || '').toLowerCase().trim()
   const estadoFiltro = document.getElementById('pend-estado')?.value || 'todos'
+  const usuarioFiltro = document.getElementById('pend-usuario')?.value || ''
   const container = document.getElementById('lista-pendientes')
 
   let filtered = pendientesData
+  if (usuarioFiltro) {
+    filtered = filtered.filter(f => usuarioFiltro === '__sin__' ? !f.registrado_por : f.registrado_por === usuarioFiltro)
+  }
   if (estadoFiltro === 'pend_documento') {
     filtered = filtered.filter(esPendDocumento)
   } else if (estadoFiltro !== 'todos') {
@@ -2637,8 +2664,45 @@ let _partidasFiltradas = []
 let _partidasPagina = 1
 const PARTIDAS_POR_PAGINA = 50
 
+// Orden del libro diario. Por defecto, número de partida de mayor a menor (como
+// viene de la base). Un clic en Fecha, N° o Total ordena por esa columna; otro clic
+// invierte. Fecha y total empiezan de mayor a menor; en un empate manda el número.
+let _partidasOrden = { campo: 'numero', asc: false }
+let _partidasSinOrden = []
+
+window.ordenarPartidas = (campo) => {
+  if (_partidasOrden.campo === campo) _partidasOrden.asc = !_partidasOrden.asc
+  else _partidasOrden = { campo, asc: false }
+  _partidasPagina = 1
+  renderPartidasTable(_partidasSinOrden)
+  document.getElementById('partidas-scroll')?.scrollTo({ top: 0 })
+}
+
+function _ordenarPartidas(data) {
+  const { campo, asc } = _partidasOrden
+  // N° descendente es el orden en que llegan: no se toca, así la búsqueda por número
+  // sigue mostrando primero la partida exacta.
+  if (campo === 'numero' && !asc) return data
+  const dir = asc ? 1 : -1
+  const num = p => parseInt(p.numero_partida, 10) || 0
+  const val = p => campo === 'fecha' ? (p.fecha_partida || '') : campo === 'total' ? (parseFloat(p.total) || 0) : num(p)
+  return [...data].sort((a, b) => {
+    const A = val(a), B = val(b)
+    if (A < B) return -dir
+    if (A > B) return dir
+    return (num(a) - num(b)) * dir
+  })
+}
+
 function renderPartidasTable(data) {
-  _partidasFiltradas = data || []
+  _partidasSinOrden = data || []
+  _partidasFiltradas = _ordenarPartidas(_partidasSinOrden)
+  document.querySelectorAll('[data-part-sort]').forEach(th => {
+    const span = th.querySelector('.part-arrow')
+    if (!span) return
+    span.textContent = th.getAttribute('data-part-sort') === _partidasOrden.campo ? (_partidasOrden.asc ? ' ▲' : ' ▼') : ''
+    span.style.color = 'var(--gold)'
+  })
   _renderPaginaPartidas()
 }
 
@@ -13962,7 +14026,7 @@ window.consultarCxP = async () => {
   const estadoFiltro = document.getElementById('cxp-estado-filtro').value
 
   const tbody = document.getElementById('tbody-cxp')
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>'
 
   // Se lee por páginas de 1000. Sin esto, PostgREST corta en 1000 filas en
   // silencio: como ordena por id y el filtro de fecha se aplica DESPUÉS en el
@@ -13975,7 +14039,7 @@ window.consultarCxP = async () => {
     const PAGE = 1000
     for (let desde0 = 0; ; desde0 += PAGE) {
       const { data: chunk, error: e } = await sb.from('lineas_partida')
-        .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, pagado_partida_num, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion)')
+        .select('id, monto, tipo, cuenta_codigo, cuenta_nombre, descripcion, pagado, pagado_partida_num, partida:partidas_contables(id, numero_partida, fecha_partida, estado, descripcion, numero_documento)')
         .in('cuenta_codigo', codigos)
         .eq('tipo', 'credito')
         .order('id', { ascending: true })
@@ -13997,6 +14061,8 @@ window.consultarCxP = async () => {
     return true
   })
 
+  await cxpPonerFacturas(cxpMovimientos)
+
   document.getElementById('cxp-filtro-rapido').classList.remove('hidden')
   restaurarCxPSeleccion()
   cxpSoloSel = false
@@ -14011,6 +14077,32 @@ window.consultarCxP = async () => {
 // El token "#N" se reconoce donde esté y se saca del texto libre; lo que sobra busca normal.
 // El "#" es obligatorio para buscar por partida porque sin él un "500" traía las gasolineras
 // de L.500 revueltas con la partida 500.
+// N° de factura de cada cargo. Manda la factura registrada en compras que quedó
+// enlazada a la partida (partida_id); si no hay, el número de documento de la
+// partida, pero solo si trae dígitos: hay cientos guardadas con frases como
+// "COMPROBANTE DE EGRESO", que no son un número de factura.
+async function cxpPonerFacturas(lineas) {
+  const pids = [...new Set((lineas || []).map(l => l.partida?.id).filter(Boolean))]
+  const porPartida = {}
+  try {
+    for (let i = 0; i < pids.length; i += 200) {
+      const { data } = await getSb().from('facturas_compras').select('partida_id, numero_factura').in('partida_id', pids.slice(i, i + 200))
+      for (const f of data || []) {
+        const n = String(f.numero_factura || '').trim()
+        if (!n) continue
+        const lista = porPartida[f.partida_id] = porPartida[f.partida_id] || []
+        if (!lista.includes(n)) lista.push(n)
+      }
+    }
+  } catch (e) { /* sin facturas de compras: queda el documento de la partida */ }
+  for (const l of lineas || []) {
+    const p = l.partida || {}
+    const doc = String(p.numero_documento || '').trim()
+    l._factura = (porPartida[p.id] || []).join(', ') || (/\d/.test(doc) ? doc : '')
+  }
+  return lineas
+}
+
 window.filtrarCxPTexto = () => {
   const raw = (document.getElementById('cxp-filtro-texto')?.value || '')
   const mPago = raw.match(/(?:^|\s)#\s*(\d+)(?=\s|$)/)
@@ -14022,7 +14114,7 @@ window.filtrarCxPTexto = () => {
   if (numPago) base = base.filter(l => esPartida(l, numPago))
   cxpFiltrados = !texto ? [...base] : base.filter(l => {
     const desc = ((l.descripcion || '') + ' ' + (l.partida?.descripcion || '')).toLowerCase()
-    return desc.includes(texto) || String(l.monto).includes(texto) || (l.cuenta_codigo || '').includes(texto) || esPartida(l, numTexto)
+    return desc.includes(texto) || String(l.monto).includes(texto) || (l.cuenta_codigo || '').includes(texto) || (l._factura || '').toLowerCase().includes(texto) || esPartida(l, numTexto)
   })
   // Al final, para que lo escrito en la caja busque DENTRO de las seleccionadas.
   if (cxpSoloSel) cxpFiltrados = cxpFiltrados.filter(l => cxpSeleccionados.has(l.id))
@@ -14135,6 +14227,7 @@ function cxpValorOrden(l, campo) {
     case 'fecha':   return p.fecha_partida || ''          // ISO yyyy-mm-dd: ordena bien como texto
     case 'partida': return parseInt(p.numero_partida, 10) || 0
     case 'cuenta':  return l.cuenta_codigo || ''
+    case 'factura': return String(l._factura || '')
     case 'desc':    return String(l.descripcion || p.descripcion || '').toLowerCase()
     case 'monto':   return parseFloat(l.monto) || 0
     case 'estado':  return l.pagado ? 1 : 0
@@ -14173,7 +14266,7 @@ function renderCxPTabla() {
   cxpPintarFlechas()
 
   if (!cxpFiltrados.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</td></tr>'
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">No hay movimientos</td></tr>'
     document.getElementById('btn-generar-pago').style.display = 'none'
     // Este retorno se salta updateSumaCxP, así que los botones de acción hay que
     // esconderlos acá también: sin filas a la vista no hay nada que marcar.
@@ -14190,6 +14283,7 @@ function renderCxPTabla() {
       <td><input type="checkbox" class="cxp-check" data-id="${l.id}" data-monto="${l.monto}" onchange="toggleCxPCheck(this)" ${isChecked ? 'checked' : ''} ${l.pagado ? 'disabled' : ''}></td>
       <td>${p.fecha_partida}</td>
       <td style="color:var(--gold)">${p.numero_partida || '—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${l._factura ? escAttr(l._factura) : '<span style="color:var(--text3)">—</span>'}</td>
       <td style="font-family:var(--mono);font-size:11px">${l.cuenta_codigo}</td>
       <td style="max-width:300px">${l.descripcion || p.descripcion || '—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:500">L. ${fmt(l.monto)}</td>
@@ -15297,7 +15391,7 @@ async function renderHistorialPagosCxP(list) {
     const PAGE = 1000
     for (let off = 0; ; off += PAGE) {
       const { data: chunk, error: e } = await getSb().from('lineas_partida')
-        .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, pagado_at, pagado_partida_num, partida:partidas_contables(numero_partida, fecha_partida, descripcion, estado)')
+        .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, pagado_at, pagado_partida_num, partida:partidas_contables(id, numero_partida, fecha_partida, descripcion, estado, numero_documento)')
         .eq('pagado', true)
         .order('pagado_at', { ascending: false })
         .order('id', { ascending: false })
@@ -15460,26 +15554,28 @@ window.descargarSelCxP = async (selId) => {
     for (let i = 0; i < ids.length; i += PAGE) {
       const trozo = ids.slice(i, i + PAGE)
       const { data, error } = await getSb().from('lineas_partida')
-        .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, partida:partidas_contables(numero_partida, fecha_partida, descripcion)')
+        .select('id, monto, cuenta_codigo, cuenta_nombre, descripcion, partida:partidas_contables(id, numero_partida, fecha_partida, descripcion, numero_documento)')
         .in('id', trozo)
       if (error) throw error
       lineas = lineas.concat(data || [])
     }
   } catch (e) { toast('Error: ' + (e.message || e), 'error'); return }
+  await cxpPonerFacturas(lineas)
 
   const filas = lineas.map(l => ({
     'Partida': l.partida?.numero_partida || '',
     'Fecha partida': l.partida?.fecha_partida || '',
+    'Factura': l._factura || '',
     'Cuenta': l.cuenta_codigo || '',
     'Factura / Descripción': l.descripcion || l.partida?.descripcion || l.cuenta_nombre || '',
     'Monto (L.)': r2(l.monto)
   }))
   // fila de total al final
-  filas.push({ 'Partida': '', 'Fecha partida': '', 'Cuenta': '', 'Factura / Descripción': 'TOTAL', 'Monto (L.)': r2(sel.total) })
+  filas.push({ 'Partida': '', 'Fecha partida': '', 'Factura': '', 'Cuenta': '', 'Factura / Descripción': 'TOTAL', 'Monto (L.)': r2(sel.total) })
 
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.json_to_sheet(filas)
-  ws['!cols'] = [{wch:9},{wch:14},{wch:13},{wch:46},{wch:14}]
+  ws['!cols'] = [{wch:9},{wch:14},{wch:22},{wch:13},{wch:46},{wch:14}]
   const hoja = (sel.nombre || 'Selección').slice(0, 28).replace(/[\\/?*\[\]:]/g, ' ')
   XLSX.utils.book_append_sheet(wb, ws, hoja)
   const safe = (sel.nombre || 'seleccion').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
@@ -15489,23 +15585,25 @@ window.descargarSelCxP = async (selId) => {
 }
 
 // Descarga UN pago realizado, con el detalle de sus facturas.
-window.descargarPagoRealizadoCxP = (i) => {
+window.descargarPagoRealizadoCxP = async (i) => {
   if (!window.XLSX) { toast('No se pudo cargar el exportador', 'error'); return }
   const g = (_histPagosCxP || [])[i]
   if (!g) { toast('No se encontró el pago', 'error'); return }
   const r2 = n => Math.round((parseFloat(n) || 0) * 100) / 100
   const f = g.pagado_at ? new Date(g.pagado_at) : null
   const fecha = f ? f.toLocaleDateString('es-HN') : ''
+  await cxpPonerFacturas(g.lineas || [])
   const filas = (g.lineas || []).map(l => ({
     'Partida': l.partida?.numero_partida || '',
+    'Factura': l._factura || '',
     'Cuenta': l.cuenta_codigo || '',
     'Factura / Descripción': l.descripcion || l.partida?.descripcion || l.cuenta_nombre || '',
     'Monto (L.)': r2(l.monto)
   }))
-  filas.push({ 'Partida': '', 'Cuenta': '', 'Factura / Descripción': 'TOTAL', 'Monto (L.)': r2(g.total) })
+  filas.push({ 'Partida': '', 'Factura': '', 'Cuenta': '', 'Factura / Descripción': 'TOTAL', 'Monto (L.)': r2(g.total) })
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.json_to_sheet(filas)
-  ws['!cols'] = [{wch:9},{wch:13},{wch:46},{wch:14}]
+  ws['!cols'] = [{wch:9},{wch:22},{wch:13},{wch:46},{wch:14}]
   const etiqueta = (g.nombre || 'Pago ' + fecha).slice(0, 28).replace(/[\\/?*\[\]:]/g, ' ')
   XLSX.utils.book_append_sheet(wb, ws, etiqueta)
   const safe = (g.nombre || ('realizado_' + fecha)).replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)

@@ -613,6 +613,9 @@
         </div>
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
           <input type="text" id="pend-buscar" placeholder="Buscar por factura, proveedor u observaciones..." oninput="filtrarPendientes()" style="flex:1;background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none">
+          <select id="pend-usuario" onchange="filtrarPendientes()" title="Quién la subió" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:200px">
+            <option value="">Todos los usuarios</option>
+          </select>
           <select id="pend-estado" onchange="filtrarPendientes()" style="background:var(--bg3);border:0.5px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text);font-family:var(--font);font-size:13px;outline:none;width:200px">
             <option value="todos" selected>Todo estado</option>
             <option value="pendiente">Pendiente partida</option>
@@ -706,7 +709,7 @@
           <div class="table-header"><span class="table-title">Libro diario</span><span id="fp-count" style="font-size:11px;color:var(--text3)"></span></div>
           <div id="partidas-scroll" style="max-height:620px;overflow-y:auto">
             <table>
-              <thead><tr><th>N°</th><th>Fecha</th><th>Descripción</th><th>Origen</th><th>Total</th><th>Estado</th></tr></thead>
+              <thead><tr><th data-part-sort="numero" onclick="ordenarPartidas('numero')" style="cursor:pointer;user-select:none" title="Ordenar por número de partida">N°<span class="part-arrow"></span></th><th data-part-sort="fecha" onclick="ordenarPartidas('fecha')" style="cursor:pointer;user-select:none" title="Ordenar por fecha">Fecha<span class="part-arrow"></span></th><th>Descripción</th><th>Origen</th><th data-part-sort="total" onclick="ordenarPartidas('total')" style="cursor:pointer;user-select:none" title="Ordenar por total">Total<span class="part-arrow"></span></th><th>Estado</th></tr></thead>
               <tbody id="tbody-partidas">
                 <tr><td colspan="6" style="text-align:center;padding:30px"><div class="spinner"></div></td></tr>
               </tbody>
@@ -2435,6 +2438,7 @@
                 <th style="width:40px"><input type="checkbox" id="cxp-check-all" onchange="toggleAllCxP(this.checked)"></th>
                 <th data-cxp-sort="fecha"   onclick="ordenarCxP('fecha')"   style="cursor:pointer;user-select:none" title="Ordenar por fecha">Fecha<span class="cxp-arrow"></span></th>
                 <th data-cxp-sort="partida" onclick="ordenarCxP('partida')" style="cursor:pointer;user-select:none" title="Ordenar por N° de partida">N° Part.<span class="cxp-arrow"></span></th>
+                <th data-cxp-sort="factura" onclick="ordenarCxP('factura')" style="cursor:pointer;user-select:none" title="Ordenar por N° de factura">Factura<span class="cxp-arrow"></span></th>
                 <th data-cxp-sort="cuenta"  onclick="ordenarCxP('cuenta')"  style="cursor:pointer;user-select:none" title="Ordenar por cuenta">Cuenta<span class="cxp-arrow"></span></th>
                 <th data-cxp-sort="desc"    onclick="ordenarCxP('desc')"    style="cursor:pointer;user-select:none" title="Ordenar por descripción">Descripción<span class="cxp-arrow"></span></th>
                 <th data-cxp-sort="monto"   onclick="ordenarCxP('monto')"   style="cursor:pointer;user-select:none" title="Ordenar por monto">Monto<span class="cxp-arrow"></span></th>
@@ -2442,7 +2446,7 @@
               </tr>
             </thead>
             <tbody id="tbody-cxp">
-              <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">Seleccioná cuentas y consultá</td></tr>
+              <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text3)">Seleccioná cuentas y consultá</td></tr>
             </tbody>
           </table>
         </div>
@@ -3992,7 +3996,7 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261128c"></script>
+<script type="module" src="js/app.js?v=20261128f"></script>
 <script type="module" src="js/reportes.js?v=20261126a"></script>
 <script defer src="js/concilia_puente.js?v=20261126a"></script>
 <script defer src="js/gastos_huerfanos.js?v=20261126a"></script>

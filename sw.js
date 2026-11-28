@@ -1,4 +1,4 @@
-const CACHE_NAME = 'contamax-v199-tasa-seguridad'
+const CACHE_NAME = 'contamax-v202-partidas-orden-fecha'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
